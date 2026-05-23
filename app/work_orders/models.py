@@ -1,9 +1,10 @@
 from datetime import UTC, date, datetime
 
-from sqlalchemy import Date, DateTime, Enum, String, Text
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy import Date, DateTime, Enum, Integer, String, Text
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database.base import Base
+from app.process.enums import CoatingType, ProductionType
 from app.shared.enums import WorkOrderStatus
 
 
@@ -12,6 +13,20 @@ work_order_status_enum = Enum(
     name="work_order_status",
     native_enum=False,
     values_callable=lambda statuses: [status.value for status in statuses],
+)
+
+coating_type_enum = Enum(
+    CoatingType,
+    name="coating_type",
+    native_enum=False,
+    values_callable=lambda coating_types: [coating_type.value for coating_type in coating_types],
+)
+
+production_type_enum = Enum(
+    ProductionType,
+    name="production_type",
+    native_enum=False,
+    values_callable=lambda production_types: [production_type.value for production_type in production_types],
 )
 
 
@@ -24,6 +39,9 @@ class WorkOrder(Base):
     description: Mapped[str | None] = mapped_column(Text(), nullable=True)
     customer_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     status: Mapped[WorkOrderStatus] = mapped_column(work_order_status_enum, default=WorkOrderStatus.ENTERED, nullable=False)
+    coating_type: Mapped[CoatingType] = mapped_column(coating_type_enum, default=CoatingType.RAL, nullable=False)
+    production_type: Mapped[ProductionType | None] = mapped_column(production_type_enum, nullable=True)
+    queue_position: Mapped[int] = mapped_column(Integer(), nullable=False, index=True)
     due_date: Mapped[date | None] = mapped_column(Date(), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text(), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False)
@@ -32,4 +50,10 @@ class WorkOrder(Base):
         default=lambda: datetime.now(UTC),
         onupdate=lambda: datetime.now(UTC),
         nullable=False,
+    )
+    stage_states = relationship(
+        "WorkOrderStageState",
+        back_populates="work_order",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
     )
