@@ -45,6 +45,21 @@ BACKEND_CORS_ORIGINS=["http://127.0.0.1:5173","http://localhost:5173"]
 DATABASE_URL=sqlite:///./local.db
 ```
 
+Local development database note:
+
+- The default local SQLite database file is `local.db` in the repository root.
+- After reverting domain modules or migrations during development, an existing local database may still contain stale tables that are no longer present in the current source code.
+- Treat the current source code and Alembic history in this repository as the source of truth.
+- If local schema state looks inconsistent, delete `local.db` and recreate it with Alembic instead of generating migrations for stale local tables.
+
+Reset the local development database:
+
+```bash
+Remove-Item .\local.db -ErrorAction SilentlyContinue
+python -m alembic upgrade head
+python -m alembic check
+```
+
 4. Start the API server:
 
 ```bash
@@ -77,11 +92,13 @@ cd frontend
 npm install
 ```
 
-3. Optionally copy `.env.example` to `.env` and adjust the API URL:
+3. Optionally copy `.env.example` to `.env` and adjust the API URL when the frontend should talk to a non-default backend origin:
 
 ```env
 VITE_API_BASE_URL=http://127.0.0.1:8000
 ```
+
+If `VITE_API_BASE_URL` is not set, the frontend uses same-origin requests. In local development, Vite proxies `/work-orders` and `/health` to `http://127.0.0.1:8000`.
 
 4. Start the Vite development server:
 
@@ -129,6 +146,8 @@ Check pending model changes without creating a revision:
 ```bash
 alembic check
 ```
+
+If `alembic check` reports removed local tables after a revert, reset `local.db` and rerun the commands above. Do not create new migrations just to match stale local development tables.
 
 ## Workflow status changes
 

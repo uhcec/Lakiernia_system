@@ -4,6 +4,9 @@ __pycache__/
 *.py[cod]
 *.egg-info/
 local.db
+local.db-*
+*.sqlite
+*.sqlite3
 frontend/node_modules/
 frontend/dist/
 frontend/*.tsbuildinfo
