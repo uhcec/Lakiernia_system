@@ -1,0 +1,74 @@
+# Work Order Backend Foundation
+
+This repository contains a modular FastAPI backend foundation for a generic work order workflow engine. The current scope is intentionally narrow: application bootstrap, configuration, database wiring, migration scaffolding, and test setup.
+
+## Project structure
+
+```text
+app/
+  api/
+    routes/
+  core/
+  database/
+  shared/
+  work_orders/
+tests/
+alembic/
+```
+
+## Run the application
+
+1. Create a virtual environment.
+2. Install dependencies:
+
+```bash
+pip install -e .[dev]
+```
+
+3. Optionally create a `.env` file in the repository root:
+
+```env
+APP_NAME=Work Order Backend
+APP_ENV=development
+DEBUG=false
+DATABASE_URL=sqlite:///./local.db
+```
+
+4. Start the API server:
+
+```bash
+uvicorn app.main:app --reload
+```
+
+5. Verify the health endpoint:
+
+```bash
+GET /health
+```
+
+## Run tests
+
+```bash
+pytest
+```
+
+## Prepare database migrations
+
+Create a new migration after model changes:
+
+```bash
+alembic revision --autogenerate -m "create work orders table"
+```
+
+Apply migrations:
+
+```bash
+alembic upgrade head
+```
+
+## What to build next
+
+1. Add initial work order create/read/update endpoints through dedicated repository and service layers.
+2. Replace the string-backed status column with a typed SQLAlchemy enum strategy once the first migration is created.
+3. Introduce structured domain exceptions, validation rules, and response models for workflow transitions.
+4. Add a seed or bootstrap path for translated status metadata so UI clients receive Polish display labels without using raw enum values.
