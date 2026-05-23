@@ -5,10 +5,14 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.process.enums import (
     CoatingType,
     ProcessDisplayStatus,
+    ProcessStage,
     ProductionType,
+    StageStatus,
     get_coating_type_label,
     get_process_display_status_label,
+    get_process_stage_label,
     get_production_type_label,
+    get_stage_status_label,
 )
 from app.shared.enums import WorkOrderStatus
 
@@ -36,6 +40,21 @@ class ProductionTypeView(BaseModel):
 class ProcessStatusView(BaseModel):
     value: ProcessDisplayStatus
     label: str
+
+
+class ProcessStageView(BaseModel):
+    value: ProcessStage
+    label: str
+
+
+class StageStatusInfoView(BaseModel):
+    value: StageStatus
+    label: str
+
+
+class WorkOrderStageStateRead(BaseModel):
+    stage: ProcessStageView
+    status: StageStatusInfoView
 
 
 class WorkOrderCreate(BaseModel):
@@ -77,6 +96,7 @@ class WorkOrderRead(BaseModel):
     coating_type: CoatingTypeView
     production_type: ProductionTypeView | None
     queue_position: int | None
+    stage_states: list[WorkOrderStageStateRead]
     due_date: date | None
     notes: str | None
     created_at: datetime
@@ -93,6 +113,14 @@ def build_production_type_view(production_type: ProductionType) -> ProductionTyp
 
 def build_process_status_view(process_status: ProcessDisplayStatus) -> ProcessStatusView:
     return ProcessStatusView(value=process_status, label=get_process_display_status_label(process_status))
+
+
+def build_process_stage_view(stage: ProcessStage) -> ProcessStageView:
+    return ProcessStageView(value=stage, label=get_process_stage_label(stage))
+
+
+def build_stage_status_info_view(status: StageStatus) -> StageStatusInfoView:
+    return StageStatusInfoView(value=status, label=get_stage_status_label(status))
 
 
 class WorkOrderListResponse(BaseModel):

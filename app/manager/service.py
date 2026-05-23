@@ -7,7 +7,14 @@ from app.manager.schemas import WorkOrderPlanAssignRequest, WorkOrderQueuePositi
 from app.shared.exceptions import InvalidManagerPlanningError, ResourceNotFoundError
 from app.work_orders.models import WorkOrder
 from app.work_orders.schemas import WorkOrderRead
-from app.work_orders.schemas import build_coating_type_view, build_process_status_view, build_production_type_view
+from app.work_orders.schemas import (
+    WorkOrderStageStateRead,
+    build_coating_type_view,
+    build_process_stage_view,
+    build_process_status_view,
+    build_production_type_view,
+    build_stage_status_info_view,
+)
 from app.work_orders.service import WorkOrderService
 
 
@@ -85,8 +92,22 @@ class ManagerService:
                 else None
             ),
             queue_position=work_order.queue_position,
+            stage_states=[
+                WorkOrderStageStateRead(
+                    stage=build_process_stage_view(stage_state.stage),
+                    status=build_stage_status_info_view(stage_state.status),
+                )
+                for stage_state in self._get_ordered_stage_states(work_order)
+            ],
             due_date=work_order.due_date,
             notes=work_order.notes,
             created_at=work_order.created_at,
             updated_at=work_order.updated_at,
         )
+
+    def _get_ordered_stage_states(self, work_order: WorkOrder):
+        stage_order = {
+            stage: index
+            for index, stage in enumerate(self.process_service.get_stage_sequence(work_order.coating_type))
+        }
+        return sorted(work_order.stage_states, key=lambda stage_state: stage_order[stage_state.stage])

@@ -10,6 +10,13 @@ export type ProcessStatusValue =
   | "DECORAL_PRODUCTION"
   | "PACKING"
   | "READY";
+export type ProcessStageValue =
+  | "SURFACE_PREPARATION"
+  | "HANGING"
+  | "PRODUCTION"
+  | "DECORAL_PRODUCTION"
+  | "PACKING";
+export type StageStatusValue = "NOT_STARTED" | "IN_PROGRESS" | "DONE";
 
 export interface WorkOrderStatus {
   value: WorkOrderStatusValue;
@@ -19,6 +26,21 @@ export interface WorkOrderStatus {
 export interface ProcessStatus {
   value: ProcessStatusValue;
   label: string;
+}
+
+export interface ProcessStageInfo {
+  value: ProcessStageValue;
+  label: string;
+}
+
+export interface StageStatusInfo {
+  value: StageStatusValue;
+  label: string;
+}
+
+export interface WorkOrderStageState {
+  stage: ProcessStageInfo;
+  status: StageStatusInfo;
 }
 
 export interface WorkOrderOption<TValue extends string> {
@@ -37,6 +59,7 @@ export interface WorkOrder {
   coating_type: WorkOrderOption<CoatingTypeValue>;
   production_type: WorkOrderOption<ProductionTypeValue> | null;
   queue_position: number | null;
+  stage_states: WorkOrderStageState[];
   due_date: string | null;
   notes: string | null;
   created_at: string;

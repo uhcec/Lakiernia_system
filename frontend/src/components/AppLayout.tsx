@@ -36,6 +36,10 @@ export function AppLayout() {
       return "Nowe zlecenie";
     }
 
+    if (pathname.startsWith("/zlecenia/")) {
+      return "Szczegóły zlecenia";
+    }
+
     return "Zlecenia";
   }
 

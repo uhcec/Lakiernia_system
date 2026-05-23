@@ -9,6 +9,7 @@ import { ManualProductionPage } from "./pages/ManualProductionPage";
 import { ManagerPanelPage } from "./pages/ManagerPanelPage";
 import { PackingPage } from "./pages/PackingPage";
 import { SurfacePreparationPage } from "./pages/SurfacePreparationPage";
+import { WorkOrderDetailPage } from "./pages/WorkOrderDetailPage";
 import { WorkOrdersListPage } from "./pages/WorkOrdersListPage";
 
 export default function App() {
@@ -25,6 +26,7 @@ export default function App() {
         <Route path="/pakowanie" element={<PackingPage />} />
         <Route path="/zlecenia" element={<WorkOrdersListPage />} />
         <Route path="/zlecenia/nowe" element={<CreateWorkOrderPage />} />
+        <Route path="/zlecenia/:id" element={<WorkOrderDetailPage />} />
       </Route>
     </Routes>
   );

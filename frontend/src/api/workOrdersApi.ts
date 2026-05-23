@@ -54,3 +54,19 @@ export async function createWorkOrder(payload: CreateWorkOrderRequest): Promise<
 
   return response.json() as Promise<WorkOrder>;
 }
+
+export async function fetchWorkOrder(workOrderId: number): Promise<WorkOrder> {
+  const url = createApiUrl(`/work-orders/${workOrderId}`);
+
+  const response = await fetch(url, {
+    headers: {
+      Accept: "application/json",
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error("Nie udało się pobrać zlecenia");
+  }
+
+  return response.json() as Promise<WorkOrder>;
+}

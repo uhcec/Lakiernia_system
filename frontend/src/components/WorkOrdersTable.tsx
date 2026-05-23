@@ -1,15 +1,9 @@
+import { Link, useNavigate } from "react-router-dom";
+
 import type { WorkOrder } from "../types/workOrders";
 
 interface WorkOrdersTableProps {
   workOrders: WorkOrder[];
-}
-
-function formatDate(value: string | null): string {
-  if (!value) {
-    return "-";
-  }
-
-  return new Intl.DateTimeFormat("pl-PL").format(new Date(value));
 }
 
 function statusClasses(statusValue: WorkOrder["process_status"]["value"]): string {
@@ -34,33 +28,51 @@ function statusClasses(statusValue: WorkOrder["process_status"]["value"]): strin
 }
 
 export function WorkOrdersTable({ workOrders }: WorkOrdersTableProps) {
+  const navigate = useNavigate();
+
   return (
     <div className="overflow-hidden rounded-3xl border border-line bg-white shadow-panel">
       <div className="overflow-x-auto">
         <table className="min-w-full border-collapse text-left text-sm">
           <thead className="bg-mist text-steel">
             <tr>
-              <th className="px-5 py-4 font-semibold">Numer</th>
+              <th className="px-5 py-4 font-semibold">Nr zlecenia</th>
               <th className="px-5 py-4 font-semibold">Tytuł</th>
-              <th className="px-5 py-4 font-semibold">Klient</th>
-              <th className="px-5 py-4 font-semibold">Status</th>
-              <th className="px-5 py-4 font-semibold">Termin</th>
-              <th className="px-5 py-4 font-semibold">Utworzono</th>
+              <th className="px-5 py-4 font-semibold">Firma</th>
+              <th className="px-5 py-4 font-semibold">Technologia</th>
+              <th className="px-5 py-4 font-semibold">Typ produkcji</th>
+              <th className="px-5 py-4 font-semibold">Pozycja</th>
+              <th className="px-5 py-4 font-semibold">Status procesu</th>
+              <th className="px-5 py-4 font-semibold text-right">Szczegóły</th>
             </tr>
           </thead>
           <tbody>
             {workOrders.map((workOrder) => (
-              <tr key={workOrder.id} className="border-t border-line/80 text-ink">
+              <tr
+                key={workOrder.id}
+                className="cursor-pointer border-t border-line/80 text-ink transition hover:bg-mist/60"
+                onClick={() => navigate(`/zlecenia/${workOrder.id}`)}
+              >
                 <td className="px-5 py-4 font-semibold">{workOrder.order_number}</td>
                 <td className="px-5 py-4">{workOrder.title}</td>
-                <td className="px-5 py-4 text-steel">{workOrder.customer_name || "-"}</td>
+                <td className="px-5 py-4 text-steel">{workOrder.customer_name || "—"}</td>
+                <td className="px-5 py-4 text-steel">{workOrder.coating_type.label}</td>
+                <td className="px-5 py-4 text-steel">{workOrder.production_type?.label ?? "—"}</td>
+                <td className="px-5 py-4 text-steel">{workOrder.queue_position ?? "—"}</td>
                 <td className="px-5 py-4">
                   <span className={["inline-flex rounded-full px-3 py-1 text-xs font-semibold", statusClasses(workOrder.process_status.value)].join(" ")}>
                     {workOrder.process_status.label}
                   </span>
                 </td>
-                <td className="px-5 py-4 text-steel">{formatDate(workOrder.due_date)}</td>
-                <td className="px-5 py-4 text-steel">{formatDate(workOrder.created_at)}</td>
+                <td className="px-5 py-4 text-right">
+                  <Link
+                    to={`/zlecenia/${workOrder.id}`}
+                    onClick={(event) => event.stopPropagation()}
+                    className="inline-flex items-center justify-center rounded-full border border-line bg-white px-4 py-2 text-sm font-medium text-steel transition hover:border-accent hover:text-accent"
+                  >
+                    Szczegóły
+                  </Link>
+                </td>
               </tr>
             ))}
           </tbody>

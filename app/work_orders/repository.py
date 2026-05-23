@@ -2,7 +2,7 @@ from collections.abc import Sequence
 from datetime import date
 
 from sqlalchemy import Select, func, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.shared.enums import WorkOrderStatus
 from app.work_orders.models import WorkOrder
@@ -19,7 +19,7 @@ class WorkOrderRepository:
         return work_order
 
     def get_by_id(self, work_order_id: int) -> WorkOrder | None:
-        statement = select(WorkOrder).where(WorkOrder.id == work_order_id)
+        statement = select(WorkOrder).options(selectinload(WorkOrder.stage_states)).where(WorkOrder.id == work_order_id)
         return self.session.scalar(statement)
 
     def list(self, *, limit: int, offset: int, status: WorkOrderStatus | None = None) -> Sequence[WorkOrder]:
