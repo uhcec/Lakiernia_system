@@ -1,5 +1,7 @@
 from datetime import UTC, datetime
 
+from app.process.repository import ProcessRepository
+from app.process.service import ProcessService
 from app.shared.enums import WorkOrderStatus, get_work_order_status_label
 from app.shared.exceptions import ResourceNotFoundError
 from app.work_orders.models import WorkOrder
@@ -12,6 +14,8 @@ from app.work_orders.schemas import (
     WorkOrderStatusOption,
     WorkOrderStatusView,
     WorkOrderUpdate,
+    build_coating_type_view,
+    build_production_type_view,
 )
 from app.work_orders.workflow import validate_transition
 
@@ -19,6 +23,7 @@ from app.work_orders.workflow import validate_transition
 class WorkOrderService:
     def __init__(self, repository: WorkOrderRepository) -> None:
         self.repository = repository
+        self.process_service = ProcessService(ProcessRepository(repository.session))
 
     @staticmethod
     def get_status_options() -> list[WorkOrderStatusOption]:
@@ -38,12 +43,16 @@ class WorkOrderService:
             description=payload.description,
             customer_name=payload.customer_name,
             status=WorkOrderStatus.ENTERED,
+            coating_type=payload.coating_type,
+            production_type=payload.production_type,
+            queue_position=self.repository.get_next_queue_position(),
             due_date=payload.due_date,
             notes=payload.notes,
         )
 
         try:
             persisted_work_order = self.repository.add(work_order)
+            self.process_service.initialize_stage_states(persisted_work_order)
             self.repository.commit()
         except Exception:
             self.repository.rollback()
@@ -141,6 +150,13 @@ class WorkOrderService:
             description=work_order.description,
             customer_name=work_order.customer_name,
             status=self.build_status_view(work_order.status),
+            coating_type=build_coating_type_view(work_order.coating_type),
+            production_type=(
+                build_production_type_view(work_order.production_type)
+                if work_order.production_type is not None
+                else None
+            ),
+            queue_position=work_order.queue_position,
             due_date=work_order.due_date,
             notes=work_order.notes,
             created_at=work_order.created_at,

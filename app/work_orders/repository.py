@@ -23,7 +23,7 @@ class WorkOrderRepository:
         return self.session.scalar(statement)
 
     def list(self, *, limit: int, offset: int, status: WorkOrderStatus | None = None) -> Sequence[WorkOrder]:
-        statement: Select[tuple[WorkOrder]] = select(WorkOrder).order_by(WorkOrder.created_at.desc(), WorkOrder.id.desc())
+        statement: Select[tuple[WorkOrder]] = select(WorkOrder).order_by(WorkOrder.queue_position.asc(), WorkOrder.id.asc())
         if status is not None:
             statement = statement.where(WorkOrder.status == status)
         statement = statement.offset(offset).limit(limit)
@@ -44,6 +44,11 @@ class WorkOrderRepository:
             .limit(1)
         )
         return self.session.scalar(statement)
+
+    def get_next_queue_position(self) -> int:
+        statement = select(func.max(WorkOrder.queue_position))
+        current_max = self.session.scalar(statement)
+        return 1 if current_max is None else current_max + 1
 
     def commit(self) -> None:
         self.session.commit()

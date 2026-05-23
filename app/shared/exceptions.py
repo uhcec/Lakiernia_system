@@ -15,3 +15,8 @@ class ResourceNotFoundError(AppException):
 class InvalidStatusTransitionError(AppException):
     def __init__(self, detail: str) -> None:
         super().__init__(detail=detail, status_code=409)
+
+
+class InvalidProcessStageTransitionError(AppException):
+    def __init__(self, detail: str) -> None:
+        super().__init__(detail=detail, status_code=409)
