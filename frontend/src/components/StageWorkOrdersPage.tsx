@@ -38,6 +38,10 @@ export function StageWorkOrdersPage({ stage, title, emptyMessage, productionType
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [activeWorkOrderId, setActiveWorkOrderId] = useState<number | null>(null);
+  const [showCompleted, setShowCompleted] = useState(false);
+
+  const activeWorkOrders = workOrders.filter((workOrder) => workOrder.stage_status.status.value !== "DONE");
+  const completedWorkOrders = workOrders.filter((workOrder) => workOrder.stage_status.status.value === "DONE");
 
   async function loadWorkOrders() {
     setIsLoading(true);
@@ -71,6 +75,61 @@ export function StageWorkOrdersPage({ stage, title, emptyMessage, productionType
     }
   }
 
+  function renderWorkOrdersTable(items: StageWorkOrder[]) {
+    return (
+      <div className="overflow-hidden rounded-3xl border border-line bg-white shadow-panel">
+        <div className="overflow-x-auto">
+          <table className="min-w-full border-collapse text-left text-sm">
+            <thead className="bg-mist text-steel">
+              <tr>
+                <th className="px-5 py-4 font-semibold">Pozycja</th>
+                <th className="px-5 py-4 font-semibold">Nr zlecenia</th>
+                <th className="px-5 py-4 font-semibold">Tytuł</th>
+                <th className="px-5 py-4 font-semibold">Firma</th>
+                <th className="px-5 py-4 font-semibold">Technologia</th>
+                <th className="px-5 py-4 font-semibold">Typ produkcji</th>
+                <th className="px-5 py-4 font-semibold">Status etapu</th>
+                <th className="px-5 py-4 font-semibold text-right">Akcje</th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((workOrder) => {
+                const status = workOrder.stage_status.status.value;
+                const isSubmitting = activeWorkOrderId === workOrder.id;
+
+                return (
+                  <tr key={workOrder.id} className="border-t border-line/80 text-ink">
+                    <td className="px-5 py-4 font-semibold">{workOrder.queue_position ?? "-"}</td>
+                    <td className="px-5 py-4 font-semibold">{workOrder.order_number}</td>
+                    <td className="px-5 py-4">{workOrder.title}</td>
+                    <td className="px-5 py-4 text-steel">{workOrder.customer_name || "-"}</td>
+                    <td className="px-5 py-4 text-steel">{workOrder.coating_type.label}</td>
+                    <td className="px-5 py-4 text-steel">{workOrder.production_type?.label ?? "-"}</td>
+                    <td className="px-5 py-4">
+                      <span className="inline-flex rounded-full bg-mist px-3 py-1 text-xs font-semibold text-ink">
+                        {workOrder.stage_status.status.label}
+                      </span>
+                    </td>
+                    <td className="px-5 py-4 text-right">
+                      <button
+                        type="button"
+                        disabled={isSubmitting}
+                        onClick={() => void handleAction(workOrder)}
+                        className="inline-flex items-center justify-center rounded-full border border-line bg-white px-4 py-2 text-sm font-medium text-steel transition hover:border-accent hover:text-accent disabled:cursor-not-allowed disabled:border-line disabled:text-slate-400"
+                      >
+                        {isSubmitting ? "Zapisywanie..." : getActionLabel(status)}
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-7xl flex-col gap-6 px-4 py-8 sm:px-6 lg:px-8">
       <section className="rounded-[2rem] border border-white/70 bg-white/80 p-6 shadow-panel backdrop-blur sm:p-8">
@@ -99,55 +158,40 @@ export function StageWorkOrdersPage({ stage, title, emptyMessage, productionType
             {emptyMessage}
           </div>
         ) : (
-          <div className="overflow-hidden rounded-3xl border border-line bg-white shadow-panel">
-            <div className="overflow-x-auto">
-              <table className="min-w-full border-collapse text-left text-sm">
-                <thead className="bg-mist text-steel">
-                  <tr>
-                    <th className="px-5 py-4 font-semibold">Pozycja</th>
-                    <th className="px-5 py-4 font-semibold">Nr zlecenia</th>
-                    <th className="px-5 py-4 font-semibold">Tytuł</th>
-                    <th className="px-5 py-4 font-semibold">Firma</th>
-                    <th className="px-5 py-4 font-semibold">Technologia</th>
-                    <th className="px-5 py-4 font-semibold">Typ produkcji</th>
-                    <th className="px-5 py-4 font-semibold">Status etapu</th>
-                    <th className="px-5 py-4 font-semibold text-right">Akcje</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {workOrders.map((workOrder) => {
-                    const status = workOrder.stage_status.status.value;
-                    const isSubmitting = activeWorkOrderId === workOrder.id;
-
-                    return (
-                      <tr key={workOrder.id} className="border-t border-line/80 text-ink">
-                        <td className="px-5 py-4 font-semibold">{workOrder.queue_position ?? "-"}</td>
-                        <td className="px-5 py-4 font-semibold">{workOrder.order_number}</td>
-                        <td className="px-5 py-4">{workOrder.title}</td>
-                        <td className="px-5 py-4 text-steel">{workOrder.customer_name || "-"}</td>
-                        <td className="px-5 py-4 text-steel">{workOrder.coating_type.label}</td>
-                        <td className="px-5 py-4 text-steel">{workOrder.production_type?.label ?? "-"}</td>
-                        <td className="px-5 py-4">
-                          <span className="inline-flex rounded-full bg-mist px-3 py-1 text-xs font-semibold text-ink">
-                            {workOrder.stage_status.status.label}
-                          </span>
-                        </td>
-                        <td className="px-5 py-4 text-right">
-                          <button
-                            type="button"
-                            disabled={isSubmitting}
-                            onClick={() => void handleAction(workOrder)}
-                            className="inline-flex items-center justify-center rounded-full border border-line bg-white px-4 py-2 text-sm font-medium text-steel transition hover:border-accent hover:text-accent disabled:cursor-not-allowed disabled:border-line disabled:text-slate-400"
-                          >
-                            {isSubmitting ? "Zapisywanie..." : getActionLabel(status)}
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+          <div className="space-y-6">
+            <div className="space-y-4">
+              <div>
+                <h3 className="text-lg font-semibold text-ink">Do wykonania</h3>
+                <p className="mt-1 text-sm text-steel">Zlecenia gotowe do rozpoczęcia lub aktualnie realizowane.</p>
+              </div>
+              {activeWorkOrders.length === 0 ? (
+                <div className="rounded-3xl border border-dashed border-line bg-mist px-6 py-12 text-center text-base text-steel">
+                  {emptyMessage}
+                </div>
+              ) : (
+                renderWorkOrdersTable(activeWorkOrders)
+              )}
             </div>
+
+            {completedWorkOrders.length > 0 ? (
+              <div className="space-y-4 rounded-3xl border border-line/80 bg-mist/50 p-5">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <h3 className="text-lg font-semibold text-ink">Zakończone</h3>
+                    <p className="mt-1 text-sm text-steel">Zlecenia ukończone na tym etapie, dostępne do cofnięcia.</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowCompleted((current) => !current)}
+                    className="inline-flex items-center justify-center rounded-full border border-line bg-white px-4 py-2 text-sm font-medium text-steel transition hover:border-accent hover:text-accent"
+                  >
+                    {showCompleted ? "Ukryj zakończone" : "Pokaż zakończone"}
+                  </button>
+                </div>
+
+                {showCompleted ? renderWorkOrdersTable(completedWorkOrders) : null}
+              </div>
+            ) : null}
           </div>
         )}
       </section>

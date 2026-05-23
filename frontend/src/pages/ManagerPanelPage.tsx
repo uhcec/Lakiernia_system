@@ -57,6 +57,10 @@ export function ManagerPanelPage() {
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [planningWorkOrderId, setPlanningWorkOrderId] = useState<number | null>(null);
   const [updatingWorkOrderId, setUpdatingWorkOrderId] = useState<number | null>(null);
+  const [showCompleted, setShowCompleted] = useState(false);
+
+  const activePlannedWorkOrders = plannedWorkOrders.filter((workOrder) => workOrder.process_status.value !== "READY");
+  const completedPlannedWorkOrders = plannedWorkOrders.filter((workOrder) => workOrder.process_status.value === "READY");
 
   async function loadManagerData() {
     setIsLoading(true);
@@ -149,6 +153,60 @@ export function ManagerPanelPage() {
     } finally {
       setUpdatingWorkOrderId(null);
     }
+  }
+
+  function renderPlannedWorkOrdersTable(workOrders: WorkOrder[]) {
+    return (
+      <div className="overflow-hidden rounded-3xl border border-line bg-white shadow-panel">
+        <div className="overflow-x-auto">
+          <table className="min-w-full border-collapse text-left text-sm">
+            <thead className="bg-mist text-steel">
+              <tr>
+                <th className="px-5 py-4 font-semibold">Pozycja</th>
+                <th className="px-5 py-4 font-semibold">Numer</th>
+                <th className="px-5 py-4 font-semibold">Tytuł</th>
+                <th className="px-5 py-4 font-semibold">Firma</th>
+                <th className="px-5 py-4 font-semibold">Typ produkcji</th>
+                <th className="px-5 py-4 font-semibold text-right">Akcja</th>
+              </tr>
+            </thead>
+            <tbody>
+              {workOrders.map((workOrder) => {
+                const isSubmitting = updatingWorkOrderId === workOrder.id;
+
+                return (
+                  <tr key={workOrder.id} className="border-t border-line/80 text-ink">
+                    <td className="px-5 py-4">
+                      <input
+                        type="number"
+                        min={1}
+                        value={queueDrafts[workOrder.id] ?? ""}
+                        onChange={(event) => updateQueueDraft(workOrder.id, event.target.value)}
+                        className="w-24 rounded-2xl border border-line bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-accent"
+                      />
+                    </td>
+                    <td className="px-5 py-4 font-semibold">{workOrder.order_number}</td>
+                    <td className="px-5 py-4">{workOrder.title}</td>
+                    <td className="px-5 py-4 text-steel">{workOrder.customer_name || "-"}</td>
+                    <td className="px-5 py-4 text-steel">{getProductionTypeLabel(workOrder.production_type?.value)}</td>
+                    <td className="px-5 py-4 text-right">
+                      <button
+                        type="button"
+                        disabled={isSubmitting}
+                        onClick={() => void handleQueueUpdate(workOrder.id)}
+                        className="inline-flex items-center justify-center rounded-full border border-line bg-white px-4 py-2 text-sm font-medium text-steel transition hover:border-accent hover:text-accent disabled:cursor-not-allowed disabled:border-line disabled:text-slate-400"
+                      >
+                        {isSubmitting ? "Zapisywanie..." : "Zmień kolejność"}
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -279,54 +337,40 @@ export function ManagerPanelPage() {
               Brak zaplanowanych zleceń
             </div>
           ) : (
-            <div className="overflow-hidden rounded-3xl border border-line bg-white shadow-panel">
-              <div className="overflow-x-auto">
-                <table className="min-w-full border-collapse text-left text-sm">
-                  <thead className="bg-mist text-steel">
-                    <tr>
-                      <th className="px-5 py-4 font-semibold">Pozycja</th>
-                      <th className="px-5 py-4 font-semibold">Numer</th>
-                      <th className="px-5 py-4 font-semibold">Tytuł</th>
-                      <th className="px-5 py-4 font-semibold">Firma</th>
-                      <th className="px-5 py-4 font-semibold">Typ produkcji</th>
-                      <th className="px-5 py-4 font-semibold text-right">Akcja</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {plannedWorkOrders.map((workOrder) => {
-                      const isSubmitting = updatingWorkOrderId === workOrder.id;
-
-                      return (
-                        <tr key={workOrder.id} className="border-t border-line/80 text-ink">
-                          <td className="px-5 py-4">
-                            <input
-                              type="number"
-                              min={1}
-                              value={queueDrafts[workOrder.id] ?? ""}
-                              onChange={(event) => updateQueueDraft(workOrder.id, event.target.value)}
-                              className="w-24 rounded-2xl border border-line bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-accent"
-                            />
-                          </td>
-                          <td className="px-5 py-4 font-semibold">{workOrder.order_number}</td>
-                          <td className="px-5 py-4">{workOrder.title}</td>
-                          <td className="px-5 py-4 text-steel">{workOrder.customer_name || "-"}</td>
-                          <td className="px-5 py-4 text-steel">{getProductionTypeLabel(workOrder.production_type?.value)}</td>
-                          <td className="px-5 py-4 text-right">
-                            <button
-                              type="button"
-                              disabled={isSubmitting}
-                              onClick={() => void handleQueueUpdate(workOrder.id)}
-                              className="inline-flex items-center justify-center rounded-full border border-line bg-white px-4 py-2 text-sm font-medium text-steel transition hover:border-accent hover:text-accent disabled:cursor-not-allowed disabled:border-line disabled:text-slate-400"
-                            >
-                              {isSubmitting ? "Zapisywanie..." : "Zmień kolejność"}
-                            </button>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+            <div className="space-y-6">
+              <div className="space-y-4">
+                <div>
+                  <h4 className="text-lg font-semibold text-ink">Aktywne</h4>
+                  <p className="mt-1 text-sm text-steel">Zlecenia nadal obecne w kolejce roboczej i widoczne do planowania.</p>
+                </div>
+                {activePlannedWorkOrders.length === 0 ? (
+                  <div className="rounded-3xl border border-dashed border-line bg-mist px-6 py-12 text-center text-base text-steel">
+                    Brak aktywnych zaplanowanych zleceń
+                  </div>
+                ) : (
+                  renderPlannedWorkOrdersTable(activePlannedWorkOrders)
+                )}
               </div>
+
+              {completedPlannedWorkOrders.length > 0 ? (
+                <div className="space-y-4 rounded-3xl border border-line/80 bg-mist/50 p-5">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <h4 className="text-lg font-semibold text-ink">Zakończone</h4>
+                      <p className="mt-1 text-sm text-steel">Ukończone zlecenia pozostają w kolejce wyłącznie poglądowo.</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setShowCompleted((current) => !current)}
+                      className="inline-flex items-center justify-center rounded-full border border-line bg-white px-4 py-2 text-sm font-medium text-steel transition hover:border-accent hover:text-accent"
+                    >
+                      {showCompleted ? "Ukryj zakończone" : "Pokaż zakończone"}
+                    </button>
+                  </div>
+
+                  {showCompleted ? renderPlannedWorkOrdersTable(completedPlannedWorkOrders) : null}
+                </div>
+              ) : null}
             </div>
           )}
         </div>
