@@ -8,13 +8,6 @@ WORK_ORDER_STATUS_LABELS_PL = {
     "FINISHED": "Skończone",
 }
 
-WORK_ORDER_ALLOWED_TRANSITIONS = {
-    "ENTERED": {"ASSIGNED"},
-    "ASSIGNED": {"IN_PROGRESS"},
-    "IN_PROGRESS": {"FINISHED"},
-    "FINISHED": set(),
-}
-
 
 class WorkOrderStatus(StrEnum):
     ENTERED = "ENTERED"
@@ -29,10 +22,3 @@ class WorkOrderStatus(StrEnum):
 
 def get_work_order_status_label(status: WorkOrderStatus) -> str:
     return WORK_ORDER_STATUS_LABELS_PL[status.value]
-
-
-def can_transition_work_order_status(
-    current_status: WorkOrderStatus,
-    target_status: WorkOrderStatus,
-) -> bool:
-    return target_status.value in WORK_ORDER_ALLOWED_TRANSITIONS[current_status.value]

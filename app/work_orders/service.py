@@ -1,11 +1,7 @@
 from datetime import UTC, datetime
 
-from app.shared.enums import (
-    WorkOrderStatus,
-    can_transition_work_order_status,
-    get_work_order_status_label,
-)
-from app.shared.exceptions import InvalidStatusTransitionError, ResourceNotFoundError
+from app.shared.enums import WorkOrderStatus, get_work_order_status_label
+from app.shared.exceptions import ResourceNotFoundError
 from app.work_orders.models import WorkOrder
 from app.work_orders.repository import WorkOrderRepository
 from app.work_orders.schemas import (
@@ -16,6 +12,7 @@ from app.work_orders.schemas import (
     WorkOrderStatusOption,
     WorkOrderStatusView,
 )
+from app.work_orders.workflow import validate_transition
 
 
 class WorkOrderService:
@@ -85,10 +82,7 @@ class WorkOrderService:
         if work_order is None:
             raise ResourceNotFoundError(f"Work order {work_order_id} not found.")
 
-        if not can_transition_work_order_status(work_order.status, target_status):
-            raise InvalidStatusTransitionError(
-                f"Cannot transition work order {work_order_id} from {work_order.status.value} to {target_status.value}."
-            )
+        validate_transition(work_order.status, target_status)
 
         work_order.status = target_status
 
