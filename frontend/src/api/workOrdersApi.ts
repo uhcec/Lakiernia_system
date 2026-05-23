@@ -1,4 +1,4 @@
-import type { CreateWorkOrderRequest, WorkOrder, WorkOrderStatusValue, WorkOrdersListResponse } from "../types/workOrders";
+import type { CreateWorkOrderRequest, WorkOrder, WorkOrdersListResponse } from "../types/workOrders";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL?.trim();
 
@@ -16,14 +16,8 @@ function createApiUrl(pathname: string): string {
   return `${API_BASE_URL.replace(/\/$/, "")}${normalizedPath}`;
 }
 
-export async function fetchWorkOrders(status?: WorkOrderStatusValue): Promise<WorkOrdersListResponse> {
-  const url = new URL(createApiUrl("/work-orders"), window.location.origin);
-
-  if (status) {
-    url.searchParams.set("status", status);
-  }
-
-  const response = await fetch(url.toString(), {
+export async function fetchWorkOrders(): Promise<WorkOrdersListResponse> {
+  const response = await fetch(createApiUrl("/work-orders"), {
     headers: {
       Accept: "application/json",
     },

@@ -23,6 +23,8 @@ class WorkOrderStatusOption(BaseModel):
 
 
 class WorkOrderStatusView(BaseModel):
+    """Legacy/internal work-order status kept for API compatibility."""
+
     value: WorkOrderStatus
     label: str
 
@@ -91,7 +93,7 @@ class WorkOrderRead(BaseModel):
     title: str
     description: str | None
     customer_name: str | None
-    status: WorkOrderStatusView
+    status: WorkOrderStatusView = Field(description="Legacy/internal field kept for backward compatibility. Active clients should use process_status and stage_states.")
     process_status: ProcessStatusView
     coating_type: CoatingTypeView
     production_type: ProductionTypeView | None

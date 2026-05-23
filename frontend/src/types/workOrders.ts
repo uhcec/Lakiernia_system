@@ -54,6 +54,7 @@ export interface WorkOrder {
   title: string;
   description: string | null;
   customer_name: string | null;
+  // Legacy backend field kept only for compatibility; active UI uses process_status and stage_states.
   status: WorkOrderStatus;
   process_status: ProcessStatus;
   coating_type: WorkOrderOption<CoatingTypeValue>;

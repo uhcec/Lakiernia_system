@@ -76,7 +76,7 @@ export function CreateWorkOrderPage() {
           <div>
             <h2 className="text-3xl font-semibold text-ink sm:text-4xl">Nowe zlecenie</h2>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-steel sm:text-base">
-              Uzupełnij podstawowe dane zlecenia. Status oraz numer zlecenia zostaną nadane automatycznie przez system.
+              Uzupełnij podstawowe dane zlecenia. Numer zlecenia zostanie nadany automatycznie przez system, a przebieg pracy będzie wynikał z etapów procesu.
             </p>
           </div>
         </div>

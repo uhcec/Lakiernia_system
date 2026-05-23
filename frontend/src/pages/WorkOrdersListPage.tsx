@@ -2,20 +2,10 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { fetchWorkOrders } from "../api/workOrdersApi";
-import { StatusFilter, type StatusFilterOption } from "../components/StatusFilter";
 import { WorkOrdersTable } from "../components/WorkOrdersTable";
-import type { WorkOrder, WorkOrderStatusValue } from "../types/workOrders";
-
-const statusOptions: StatusFilterOption[] = [
-  { value: "ALL", label: "Wszystkie" },
-  { value: "ENTERED", label: "Wprowadzone" },
-  { value: "ASSIGNED", label: "Przypisane" },
-  { value: "IN_PROGRESS", label: "W trakcie" },
-  { value: "FINISHED", label: "Skończone" },
-];
+import type { WorkOrder } from "../types/workOrders";
 
 export function WorkOrdersListPage() {
-  const [selectedStatus, setSelectedStatus] = useState<WorkOrderStatusValue | "ALL">("ALL");
   const [workOrders, setWorkOrders] = useState<WorkOrder[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -28,7 +18,7 @@ export function WorkOrdersListPage() {
       setErrorMessage(null);
 
       try {
-        const response = await fetchWorkOrders(selectedStatus === "ALL" ? undefined : selectedStatus);
+        const response = await fetchWorkOrders();
         if (!isActive) {
           return;
         }
@@ -50,7 +40,7 @@ export function WorkOrdersListPage() {
     return () => {
       isActive = false;
     };
-  }, [selectedStatus]);
+  }, []);
 
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-7xl flex-col gap-6 px-4 py-8 sm:px-6 lg:px-8">
@@ -61,7 +51,7 @@ export function WorkOrdersListPage() {
             <div>
               <h1 className="text-3xl font-semibold text-ink sm:text-4xl">Zlecenia</h1>
               <p className="mt-2 max-w-2xl text-sm leading-6 text-steel sm:text-base">
-                Lista aktywnych zleceń roboczych z filtrowaniem po statusie. Widok jest przygotowany pod szybkie użycie
+                Lista aktywnych zleceń roboczych z bieżącym statusem procesu. Widok jest przygotowany pod szybkie użycie
                 na stanowisku biurowym i na tablecie.
               </p>
             </div>
@@ -81,12 +71,9 @@ export function WorkOrdersListPage() {
       </section>
 
       <section className="space-y-4 rounded-[2rem] border border-white/70 bg-white/80 p-6 shadow-panel backdrop-blur sm:p-8">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <h2 className="text-lg font-semibold text-ink">Filtr statusu</h2>
-            <p className="mt-1 text-sm text-steel">Wybierz etap workflow, aby zawęzić listę zleceń.</p>
-          </div>
-          <StatusFilter options={statusOptions} selectedValue={selectedStatus} onChange={setSelectedStatus} />
+        <div>
+          <h2 className="text-lg font-semibold text-ink">Lista zleceń</h2>
+          <p className="mt-1 text-sm text-steel">Status procesu i etapy pozostają jedynym aktywnym źródłem informacji o workflow.</p>
         </div>
 
         {isLoading ? (
