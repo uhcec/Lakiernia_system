@@ -4,8 +4,10 @@ from datetime import UTC, datetime
 from app.process.enums import CoatingType, ProcessStage, ProductionType, StageStatus
 from app.process.models import WorkOrderStageState
 from app.process.repository import ProcessRepository
+from app.process.schemas import ProcessStageStatusRead, ProcessStageWorkOrderRead, StageStatusView
 from app.shared.exceptions import InvalidProcessStageTransitionError, ResourceNotFoundError
 from app.work_orders.models import WorkOrder
+from app.work_orders.schemas import build_coating_type_view, build_production_type_view
 
 
 class ProcessService:
@@ -64,6 +66,41 @@ class ProcessService:
 
         return stage_state
 
+    def list_stage_work_orders(
+        self,
+        stage: ProcessStage,
+        production_type: ProductionType | None = None,
+    ) -> list[ProcessStageWorkOrderRead]:
+        work_orders = self.list_visible_work_orders(stage, production_type)
+        return [self._to_stage_work_order_read(work_order, stage) for work_order in work_orders]
+
+    def start_stage(self, work_order_id: int, stage: ProcessStage) -> ProcessStageWorkOrderRead:
+        self.transition_stage(work_order_id, stage, StageStatus.IN_PROGRESS)
+        work_order = self.get_work_order_process(work_order_id)
+        return self._to_stage_work_order_read(work_order, stage)
+
+    def finish_stage(self, work_order_id: int, stage: ProcessStage) -> ProcessStageWorkOrderRead:
+        self.transition_stage(work_order_id, stage, StageStatus.DONE)
+        work_order = self.get_work_order_process(work_order_id)
+        return self._to_stage_work_order_read(work_order, stage)
+
+    def reopen_stage(self, work_order_id: int, stage: ProcessStage) -> ProcessStageWorkOrderRead:
+        work_order = self.get_work_order_process(work_order_id)
+        stage_state = self._get_stage_state(work_order, stage)
+
+        if stage_state.status == StageStatus.DONE:
+            target_status = StageStatus.IN_PROGRESS
+        elif stage_state.status == StageStatus.IN_PROGRESS:
+            target_status = StageStatus.NOT_STARTED
+        else:
+            raise InvalidProcessStageTransitionError(
+                f"Cannot reopen stage {stage.value} from {stage_state.status.value}."
+            )
+
+        self.transition_stage(work_order_id, stage, target_status)
+        work_order = self.get_work_order_process(work_order_id)
+        return self._to_stage_work_order_read(work_order, stage)
+
     def list_visible_work_orders(
         self,
         stage: ProcessStage,
@@ -109,6 +146,10 @@ class ProcessService:
     def _is_planned(work_order: WorkOrder) -> bool:
         return work_order.production_type is not None and work_order.queue_position is not None
 
+    @staticmethod
+    def build_stage_status_view(status: StageStatus) -> StageStatusView:
+        return StageStatusView(value=status, label=status.polish_label)
+
     def _validate_transition(
         self,
         work_order: WorkOrder,
@@ -152,3 +193,23 @@ class ProcessService:
             if stage_state.stage == stage:
                 return stage_state
         raise InvalidProcessStageTransitionError(f"Stage {stage.value} is not configured for work order {work_order.id}.")
+
+    def _to_stage_work_order_read(self, work_order: WorkOrder, stage: ProcessStage) -> ProcessStageWorkOrderRead:
+        stage_state = self._get_stage_state(work_order, stage)
+        return ProcessStageWorkOrderRead(
+            id=work_order.id,
+            order_number=work_order.order_number,
+            title=work_order.title,
+            customer_name=work_order.customer_name,
+            queue_position=work_order.queue_position,
+            production_type=(
+                build_production_type_view(work_order.production_type)
+                if work_order.production_type is not None
+                else None
+            ),
+            coating_type=build_coating_type_view(work_order.coating_type),
+            stage_status=ProcessStageStatusRead(
+                stage=stage_state.stage,
+                status=self.build_stage_status_view(stage_state.status),
+            ),
+        )
