@@ -2,6 +2,8 @@
 
 This repository contains a modular FastAPI backend foundation for a generic work order workflow engine. The current scope is intentionally narrow: application bootstrap, configuration, database wiring, migration scaffolding, and test setup.
 
+The foundation keeps internal workflow identifiers in English while reserving Polish labels for future UI-facing responses.
+
 ## Project structure
 
 ```text
@@ -15,6 +17,14 @@ app/
 tests/
 alembic/
 ```
+
+Key structure notes:
+
+- `api` contains HTTP routing only.
+- `core` contains centralized configuration.
+- `database` contains SQLAlchemy base, model registry, and session setup.
+- `shared` contains cross-module enums and exceptions.
+- `work_orders` is the first bounded module, already split into model/schema/repository/service/router layers.
 
 ## Run the application
 
@@ -66,9 +76,22 @@ Apply migrations:
 alembic upgrade head
 ```
 
+Check pending model changes without creating a revision:
+
+```bash
+alembic check
+```
+
+## Workflow status changes
+
+- Workflow status changes are explicit actions through a dedicated transition endpoint and service function.
+- Normal field updates must not change workflow status.
+- Invalid transitions return `409 Conflict` because the request conflicts with the current workflow state of the work order.
+- The current order number generator is intentionally simple and should be replaced with a database-backed strategy before real multi-user production usage.
+
 ## What to build next
 
 1. Add initial work order create/read/update endpoints through dedicated repository and service layers.
 2. Replace the string-backed status column with a typed SQLAlchemy enum strategy once the first migration is created.
 3. Introduce structured domain exceptions, validation rules, and response models for workflow transitions.
-4. Add a seed or bootstrap path for translated status metadata so UI clients receive Polish display labels without using raw enum values.
+4. Add the first API response models that expose workflow status as `{ value, label }` instead of treating raw enum values as UI text.

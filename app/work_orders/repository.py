@@ -1,6 +1,10 @@
-from sqlalchemy import select
+from collections.abc import Sequence
+from datetime import date
+
+from sqlalchemy import Select, func, select
 from sqlalchemy.orm import Session
 
+from app.shared.enums import WorkOrderStatus
 from app.work_orders.models import WorkOrder
 
 
@@ -8,6 +12,41 @@ class WorkOrderRepository:
     def __init__(self, session: Session) -> None:
         self.session = session
 
-    def get_by_reference(self, reference: str) -> WorkOrder | None:
-        statement = select(WorkOrder).where(WorkOrder.reference == reference)
+    def add(self, work_order: WorkOrder) -> WorkOrder:
+        self.session.add(work_order)
+        self.session.flush()
+        self.session.refresh(work_order)
+        return work_order
+
+    def get_by_id(self, work_order_id: int) -> WorkOrder | None:
+        statement = select(WorkOrder).where(WorkOrder.id == work_order_id)
         return self.session.scalar(statement)
+
+    def list(self, *, limit: int, offset: int, status: WorkOrderStatus | None = None) -> Sequence[WorkOrder]:
+        statement: Select[tuple[WorkOrder]] = select(WorkOrder).order_by(WorkOrder.created_at.desc(), WorkOrder.id.desc())
+        if status is not None:
+            statement = statement.where(WorkOrder.status == status)
+        statement = statement.offset(offset).limit(limit)
+        return self.session.scalars(statement).all()
+
+    def count(self, *, status: WorkOrderStatus | None = None) -> int:
+        statement = select(func.count()).select_from(WorkOrder)
+        if status is not None:
+            statement = statement.where(WorkOrder.status == status)
+        return self.session.scalar(statement) or 0
+
+    def get_latest_order_number_for_year(self, year: int) -> str | None:
+        prefix = f"WO-{year}-"
+        statement = (
+            select(WorkOrder.order_number)
+            .where(WorkOrder.order_number.like(f"{prefix}%"))
+            .order_by(WorkOrder.order_number.desc())
+            .limit(1)
+        )
+        return self.session.scalar(statement)
+
+    def commit(self) -> None:
+        self.session.commit()
+
+    def rollback(self) -> None:
+        self.session.rollback()
