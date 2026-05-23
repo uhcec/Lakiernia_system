@@ -11,6 +11,7 @@ from app.work_orders.schemas import (
     WorkOrderStatusTransitionRequest,
     WorkOrderStatusOption,
     WorkOrderStatusView,
+    WorkOrderUpdate,
 )
 from app.work_orders.workflow import validate_transition
 
@@ -51,9 +52,23 @@ class WorkOrderService:
         return self._to_read_model(persisted_work_order)
 
     def get_work_order(self, work_order_id: int) -> WorkOrderRead:
-        work_order = self.repository.get_by_id(work_order_id)
-        if work_order is None:
-            raise ResourceNotFoundError(f"Work order {work_order_id} not found.")
+        work_order = self._get_existing_work_order(work_order_id)
+        return self._to_read_model(work_order)
+
+    def update_work_order(self, work_order_id: int, payload: WorkOrderUpdate) -> WorkOrderRead:
+        work_order = self._get_existing_work_order(work_order_id)
+
+        for field_name, field_value in payload.model_dump(exclude_unset=True).items():
+            setattr(work_order, field_name, field_value)
+
+        work_order.updated_at = datetime.now(UTC)
+
+        try:
+            self.repository.commit()
+        except Exception:
+            self.repository.rollback()
+            raise
+
         return self._to_read_model(work_order)
 
     def list_work_orders(
@@ -78,9 +93,7 @@ class WorkOrderService:
         target_status: WorkOrderStatus,
         comment: str | None = None,
     ) -> WorkOrderRead:
-        work_order = self.repository.get_by_id(work_order_id)
-        if work_order is None:
-            raise ResourceNotFoundError(f"Work order {work_order_id} not found.")
+        work_order = self._get_existing_work_order(work_order_id)
 
         validate_transition(work_order.status, target_status)
 
@@ -113,6 +126,12 @@ class WorkOrderService:
         latest_order_number = self.repository.get_latest_order_number_for_year(year)
         next_sequence = 1 if latest_order_number is None else int(latest_order_number.rsplit("-", 1)[-1]) + 1
         return f"WO-{year}-{next_sequence:04d}"
+
+    def _get_existing_work_order(self, work_order_id: int) -> WorkOrder:
+        work_order = self.repository.get_by_id(work_order_id)
+        if work_order is None:
+            raise ResourceNotFoundError(f"Work order {work_order_id} not found.")
+        return work_order
 
     def _to_read_model(self, work_order: WorkOrder) -> WorkOrderRead:
         return WorkOrderRead(

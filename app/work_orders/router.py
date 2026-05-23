@@ -11,6 +11,7 @@ from app.work_orders.schemas import (
 	WorkOrderListResponse,
 	WorkOrderRead,
 	WorkOrderStatusTransitionRequest,
+	WorkOrderUpdate,
 )
 from app.work_orders.service import WorkOrderService
 
@@ -36,6 +37,15 @@ def get_work_order(
 	service: Annotated[WorkOrderService, Depends(get_work_order_service)],
 ) -> WorkOrderRead:
 	return service.get_work_order(work_order_id)
+
+
+@router.patch("/{work_order_id}", response_model=WorkOrderRead)
+def update_work_order(
+	work_order_id: int,
+	payload: WorkOrderUpdate,
+	service: Annotated[WorkOrderService, Depends(get_work_order_service)],
+) -> WorkOrderRead:
+	return service.update_work_order(work_order_id, payload)
 
 
 @router.get("", response_model=WorkOrderListResponse)

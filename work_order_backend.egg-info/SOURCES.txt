@@ -21,8 +21,10 @@ app/work_orders/repository.py
 app/work_orders/router.py
 app/work_orders/schemas.py
 app/work_orders/service.py
+app/work_orders/workflow.py
 tests/test_health.py
 tests/test_work_order_statuses.py
+tests/test_work_order_workflow.py
 tests/test_work_orders_api.py
 work_order_backend.egg-info/PKG-INFO
 work_order_backend.egg-info/SOURCES.txt

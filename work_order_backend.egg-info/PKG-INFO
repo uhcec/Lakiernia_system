@@ -57,6 +57,7 @@ pip install -e .[dev]
 APP_NAME=Work Order Backend
 APP_ENV=development
 DEBUG=false
+BACKEND_CORS_ORIGINS=["http://127.0.0.1:5173","http://localhost:5173"]
 DATABASE_URL=sqlite:///./local.db
 ```
 
@@ -72,10 +73,57 @@ uvicorn app.main:app --reload
 GET /health
 ```
 
+Local backend URL:
+
+```text
+http://127.0.0.1:8000
+```
+
+## Run the frontend
+
+1. Go to the frontend directory:
+
+```bash
+cd frontend
+```
+
+2. Install dependencies:
+
+```bash
+npm install
+```
+
+3. Optionally copy `.env.example` to `.env` and adjust the API URL:
+
+```env
+VITE_API_BASE_URL=http://127.0.0.1:8000
+```
+
+4. Start the Vite development server:
+
+```bash
+npm run dev
+```
+
+5. Open the frontend in the browser:
+
+```text
+http://127.0.0.1:5173
+```
+
+The work order list view is fully in Polish and uses the backend-provided `status.label` for display instead of raw enum values.
+
 ## Run tests
 
 ```bash
 pytest
+```
+
+Build the frontend for a production-like check:
+
+```bash
+cd frontend
+npm run build
 ```
 
 ## Prepare database migrations
@@ -97,6 +145,14 @@ Check pending model changes without creating a revision:
 ```bash
 alembic check
 ```
+
+## Workflow status changes
+
+- Workflow status changes are explicit actions through a dedicated transition endpoint and service function.
+- Normal `PATCH /work-orders/{id}` updates business fields only: `title`, `description`, `customer_name`, `due_date`, and `notes`.
+- Normal field updates must not change workflow status.
+- Invalid transitions return `409 Conflict` because the request conflicts with the current workflow state of the work order.
+- The current order number generator is intentionally simple and should be replaced with a database-backed strategy before real multi-user production usage.
 
 ## What to build next
 

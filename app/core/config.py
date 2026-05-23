@@ -8,6 +8,10 @@ class Settings(BaseSettings):
     app_name: str = "Work Order Backend"
     app_env: str = "development"
     debug: bool = False
+    backend_cors_origins: list[str] = Field(
+        default=["http://127.0.0.1:5173", "http://localhost:5173"],
+        description="Allowed origins for browser clients. Override in non-local environments.",
+    )
     database_url: str = Field(
         default="sqlite:///./local.db",
         description="Database connection string. Swap for PostgreSQL in higher environments.",

@@ -32,6 +32,16 @@ class WorkOrderStatusTransitionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class WorkOrderUpdate(BaseModel):
+    title: str | None = Field(default=None, min_length=1, max_length=255)
+    description: str | None = None
+    customer_name: str | None = Field(default=None, max_length=255)
+    due_date: date | None = None
+    notes: str | None = None
+
+    model_config = ConfigDict(extra="forbid")
+
+
 class WorkOrderRead(BaseModel):
     id: int
     order_number: str
