@@ -12,15 +12,23 @@ function formatDate(value: string | null): string {
   return new Intl.DateTimeFormat("pl-PL").format(new Date(value));
 }
 
-function statusClasses(statusValue: WorkOrder["status"]["value"]): string {
+function statusClasses(statusValue: WorkOrder["process_status"]["value"]): string {
   switch (statusValue) {
-    case "ENTERED":
+    case "TO_BE_PLANNED":
       return "bg-slate-100 text-slate-700";
-    case "ASSIGNED":
-      return "bg-sky-100 text-sky-700";
-    case "IN_PROGRESS":
+    case "SURFACE_PREPARATION":
       return "bg-amber-100 text-amber-800";
-    case "FINISHED":
+    case "HANGING":
+      return "bg-sky-100 text-sky-700";
+    case "PRODUCTION_MANUAL":
+      return "bg-orange-100 text-orange-800";
+    case "PRODUCTION_AUTOMATIC":
+      return "bg-cyan-100 text-cyan-800";
+    case "DECORAL_PRODUCTION":
+      return "bg-violet-100 text-violet-800";
+    case "PACKING":
+      return "bg-lime-100 text-lime-800";
+    case "READY":
       return "bg-emerald-100 text-emerald-700";
   }
 }
@@ -47,8 +55,8 @@ export function WorkOrdersTable({ workOrders }: WorkOrdersTableProps) {
                 <td className="px-5 py-4">{workOrder.title}</td>
                 <td className="px-5 py-4 text-steel">{workOrder.customer_name || "-"}</td>
                 <td className="px-5 py-4">
-                  <span className={["inline-flex rounded-full px-3 py-1 text-xs font-semibold", statusClasses(workOrder.status.value)].join(" ")}>
-                    {workOrder.status.label}
+                  <span className={["inline-flex rounded-full px-3 py-1 text-xs font-semibold", statusClasses(workOrder.process_status.value)].join(" ")}>
+                    {workOrder.process_status.label}
                   </span>
                 </td>
                 <td className="px-5 py-4 text-steel">{formatDate(workOrder.due_date)}</td>

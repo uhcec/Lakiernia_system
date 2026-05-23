@@ -1,7 +1,7 @@
 from collections.abc import Sequence
 from datetime import UTC, datetime
 
-from app.process.enums import CoatingType, ProcessStage, ProductionType, StageStatus
+from app.process.enums import CoatingType, ProcessDisplayStatus, ProcessStage, ProductionType, StageStatus
 from app.process.models import WorkOrderStageState
 from app.process.repository import ProcessRepository
 from app.process.schemas import ProcessStageStatusRead, ProcessStageWorkOrderRead, StageStatusView
@@ -71,7 +71,7 @@ class ProcessService:
         stage: ProcessStage,
         production_type: ProductionType | None = None,
     ) -> list[ProcessStageWorkOrderRead]:
-        work_orders = self.list_visible_work_orders(stage, production_type)
+        work_orders = self.list_visible_work_orders(stage, production_type, include_done=True)
         return [self._to_stage_work_order_read(work_order, stage) for work_order in work_orders]
 
     def start_stage(self, work_order_id: int, stage: ProcessStage) -> ProcessStageWorkOrderRead:
@@ -105,12 +105,13 @@ class ProcessService:
         self,
         stage: ProcessStage,
         production_type: ProductionType | None = None,
+        include_done: bool = False,
     ) -> list[WorkOrder]:
         work_orders = self.repository.list_work_orders_with_stage(stage, production_type)
         return [
             work_order
             for work_order in work_orders
-            if self.is_visible_in_stage(work_order, stage, production_type)
+            if self.is_visible_in_stage(work_order, stage, production_type, include_done=include_done)
         ]
 
     def is_visible_in_stage(
@@ -118,6 +119,7 @@ class ProcessService:
         work_order: WorkOrder,
         stage: ProcessStage,
         production_type: ProductionType | None = None,
+        include_done: bool = False,
     ) -> bool:
         if not self._is_planned(work_order):
             return False
@@ -127,7 +129,11 @@ class ProcessService:
             return False
 
         stage_state = self._get_stage_state(work_order, stage)
-        if stage_state.status not in {StageStatus.NOT_STARTED, StageStatus.IN_PROGRESS}:
+        allowed_statuses = {StageStatus.NOT_STARTED, StageStatus.IN_PROGRESS}
+        if include_done:
+            allowed_statuses.add(StageStatus.DONE)
+
+        if stage_state.status not in allowed_statuses:
             return False
 
         previous_stage = self._get_previous_stage(stage_sequence, stage)
@@ -146,9 +152,42 @@ class ProcessService:
     def _is_planned(work_order: WorkOrder) -> bool:
         return work_order.production_type is not None and work_order.queue_position is not None
 
+    def get_display_status(self, work_order: WorkOrder) -> ProcessDisplayStatus:
+        if not self._is_planned(work_order):
+            return ProcessDisplayStatus.TO_BE_PLANNED
+
+        stage_sequence = self.get_stage_sequence(work_order.coating_type)
+        for stage in stage_sequence:
+            stage_state = self._get_stage_state(work_order, stage)
+            if stage_state.status != StageStatus.DONE:
+                return self._get_display_status_for_stage(work_order, stage)
+
+        return ProcessDisplayStatus.READY
+
+    def get_display_status_label(self, work_order: WorkOrder) -> str:
+        return self.get_display_status(work_order).polish_label
+
     @staticmethod
     def build_stage_status_view(status: StageStatus) -> StageStatusView:
         return StageStatusView(value=status, label=status.polish_label)
+
+    @staticmethod
+    def _get_display_status_for_stage(work_order: WorkOrder, stage: ProcessStage) -> ProcessDisplayStatus:
+        if stage == ProcessStage.SURFACE_PREPARATION:
+            return ProcessDisplayStatus.SURFACE_PREPARATION
+
+        if stage == ProcessStage.HANGING:
+            return ProcessDisplayStatus.HANGING
+
+        if stage == ProcessStage.PRODUCTION:
+            if work_order.production_type == ProductionType.AUTOMATIC:
+                return ProcessDisplayStatus.PRODUCTION_AUTOMATIC
+            return ProcessDisplayStatus.PRODUCTION_MANUAL
+
+        if stage == ProcessStage.DECORAL_PRODUCTION:
+            return ProcessDisplayStatus.DECORAL_PRODUCTION
+
+        return ProcessDisplayStatus.PACKING
 
     def _validate_transition(
         self,

@@ -36,13 +36,17 @@ def test_list_stage_work_orders_returns_only_visible_planned_orders(test_client:
     completed = create_planned_work_order(test_client, title="Completed", queue_position=1)
     test_client.post(f"/process/work-orders/{completed['id']}/stages/SURFACE_PREPARATION/start")
     test_client.post(f"/process/work-orders/{completed['id']}/stages/SURFACE_PREPARATION/finish")
-    unplanned = test_client.post("/work-orders", json={"title": "Unplanned"}).json()
+    unplanned = test_client.post("/work-orders", json={"title": "Unplanned", "coating_type": "RAL"}).json()
 
     response = test_client.get("/process/stages/SURFACE_PREPARATION/work-orders")
 
     assert response.status_code == 200
-    assert [item["id"] for item in response.json()] == [visible["id"]]
+    assert [item["id"] for item in response.json()] == [completed["id"], visible["id"]]
     assert response.json()[0]["stage_status"] == {
+        "stage": "SURFACE_PREPARATION",
+        "status": {"value": "DONE", "label": "Zakończone"},
+    }
+    assert response.json()[1]["stage_status"] == {
         "stage": "SURFACE_PREPARATION",
         "status": {"value": "NOT_STARTED", "label": "Nie rozpoczęte"},
     }

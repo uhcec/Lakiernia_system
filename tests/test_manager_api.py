@@ -1,10 +1,14 @@
 from fastapi.testclient import TestClient
 
 
+def create_work_order(test_client: TestClient, title: str, coating_type: str = "RAL") -> dict:
+    return test_client.post("/work-orders", json={"title": title, "coating_type": coating_type}).json()
+
+
 def test_list_unplanned_work_orders(test_client: TestClient) -> None:
-    first = test_client.post("/work-orders", json={"title": "Unplanned 1"}).json()
-    second = test_client.post("/work-orders", json={"title": "Unplanned 2"}).json()
-    planned = test_client.post("/work-orders", json={"title": "Planned"}).json()
+    first = create_work_order(test_client, "Unplanned 1")
+    second = create_work_order(test_client, "Unplanned 2")
+    planned = create_work_order(test_client, "Planned")
 
     test_client.post(
         f"/manager/work-orders/{planned['id']}/plan",
@@ -18,9 +22,9 @@ def test_list_unplanned_work_orders(test_client: TestClient) -> None:
 
 
 def test_list_planned_work_orders_sorted_by_queue_position(test_client: TestClient) -> None:
-    first = test_client.post("/work-orders", json={"title": "Queue 30"}).json()
-    second = test_client.post("/work-orders", json={"title": "Queue 10"}).json()
-    third = test_client.post("/work-orders", json={"title": "Queue 20"}).json()
+    first = create_work_order(test_client, "Queue 30")
+    second = create_work_order(test_client, "Queue 10")
+    third = create_work_order(test_client, "Queue 20")
 
     test_client.post(
         f"/manager/work-orders/{first['id']}/plan",
@@ -42,7 +46,7 @@ def test_list_planned_work_orders_sorted_by_queue_position(test_client: TestClie
 
 
 def test_assign_plan_sets_production_type_and_queue_position(test_client: TestClient) -> None:
-    created = test_client.post("/work-orders", json={"title": "Plan me"}).json()
+    created = create_work_order(test_client, "Plan me")
 
     response = test_client.post(
         f"/manager/work-orders/{created['id']}/plan",
@@ -55,7 +59,7 @@ def test_assign_plan_sets_production_type_and_queue_position(test_client: TestCl
 
 
 def test_cannot_assign_plan_twice(test_client: TestClient) -> None:
-    created = test_client.post("/work-orders", json={"title": "Plan once"}).json()
+    created = create_work_order(test_client, "Plan once")
 
     first_response = test_client.post(
         f"/manager/work-orders/{created['id']}/plan",
@@ -71,7 +75,7 @@ def test_cannot_assign_plan_twice(test_client: TestClient) -> None:
 
 
 def test_update_queue_position_for_planned_order(test_client: TestClient) -> None:
-    created = test_client.post("/work-orders", json={"title": "Move in queue"}).json()
+    created = create_work_order(test_client, "Move in queue")
 
     test_client.post(
         f"/manager/work-orders/{created['id']}/plan",

@@ -2,9 +2,11 @@ import { FormEvent, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
 import { createWorkOrder } from "../api/workOrdersApi";
+import type { CoatingTypeValue } from "../types/workOrders";
 
 interface FormState {
   title: string;
+  coating_type: CoatingTypeValue | "";
   description: string;
   customer_name: string;
   due_date: string;
@@ -13,6 +15,7 @@ interface FormState {
 
 const initialFormState: FormState = {
   title: "",
+  coating_type: "",
   description: "",
   customer_name: "",
   due_date: "",
@@ -39,6 +42,11 @@ export function CreateWorkOrderPage() {
       return;
     }
 
+    if (!formState.coating_type) {
+      setValidationError("Technologia jest wymagana");
+      return;
+    }
+
     setValidationError(null);
     setApiError(null);
     setIsSubmitting(true);
@@ -46,6 +54,7 @@ export function CreateWorkOrderPage() {
     try {
       await createWorkOrder({
         title: trimmedTitle,
+        coating_type: formState.coating_type,
         description: formState.description.trim() || undefined,
         customer_name: formState.customer_name.trim() || undefined,
         due_date: formState.due_date || undefined,
@@ -105,6 +114,19 @@ export function CreateWorkOrderPage() {
                 className="rounded-2xl border border-line bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-accent"
                 placeholder="Klient"
               />
+            </label>
+
+            <label className="flex flex-col gap-2">
+              <span className="text-sm font-medium text-ink">Technologia</span>
+              <select
+                value={formState.coating_type}
+                onChange={(event) => updateField("coating_type", event.target.value as CoatingTypeValue | "")}
+                className="rounded-2xl border border-line bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-accent"
+              >
+                <option value="">Wybierz technologię</option>
+                <option value="RAL">RAL</option>
+                <option value="DECORAL">Decoral</option>
+              </select>
             </label>
 
             <label className="flex flex-col gap-2">

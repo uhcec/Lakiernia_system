@@ -1,8 +1,23 @@
 export type WorkOrderStatusValue = "ENTERED" | "ASSIGNED" | "IN_PROGRESS" | "FINISHED";
 export type ProductionTypeValue = "MANUAL" | "AUTOMATIC";
+export type CoatingTypeValue = "RAL" | "DECORAL";
+export type ProcessStatusValue =
+  | "TO_BE_PLANNED"
+  | "SURFACE_PREPARATION"
+  | "HANGING"
+  | "PRODUCTION_MANUAL"
+  | "PRODUCTION_AUTOMATIC"
+  | "DECORAL_PRODUCTION"
+  | "PACKING"
+  | "READY";
 
 export interface WorkOrderStatus {
   value: WorkOrderStatusValue;
+  label: string;
+}
+
+export interface ProcessStatus {
+  value: ProcessStatusValue;
   label: string;
 }
 
@@ -18,7 +33,8 @@ export interface WorkOrder {
   description: string | null;
   customer_name: string | null;
   status: WorkOrderStatus;
-  coating_type: WorkOrderOption<"RAL" | "DECORAL">;
+  process_status: ProcessStatus;
+  coating_type: WorkOrderOption<CoatingTypeValue>;
   production_type: WorkOrderOption<ProductionTypeValue> | null;
   queue_position: number | null;
   due_date: string | null;
@@ -36,6 +52,7 @@ export interface WorkOrdersListResponse {
 
 export interface CreateWorkOrderRequest {
   title: string;
+  coating_type: CoatingTypeValue;
   description?: string;
   customer_name?: string;
   due_date?: string;

@@ -2,7 +2,14 @@ from datetime import date, datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.process.enums import CoatingType, ProductionType, get_coating_type_label, get_production_type_label
+from app.process.enums import (
+    CoatingType,
+    ProcessDisplayStatus,
+    ProductionType,
+    get_coating_type_label,
+    get_process_display_status_label,
+    get_production_type_label,
+)
 from app.shared.enums import WorkOrderStatus
 
 
@@ -26,11 +33,16 @@ class ProductionTypeView(BaseModel):
     label: str
 
 
+class ProcessStatusView(BaseModel):
+    value: ProcessDisplayStatus
+    label: str
+
+
 class WorkOrderCreate(BaseModel):
     title: str = Field(min_length=1, max_length=255)
     description: str | None = None
     customer_name: str | None = Field(default=None, max_length=255)
-    coating_type: CoatingType = Field(default=CoatingType.RAL)
+    coating_type: CoatingType
     due_date: date | None = None
     notes: str | None = None
 
@@ -61,6 +73,7 @@ class WorkOrderRead(BaseModel):
     description: str | None
     customer_name: str | None
     status: WorkOrderStatusView
+    process_status: ProcessStatusView
     coating_type: CoatingTypeView
     production_type: ProductionTypeView | None
     queue_position: int | None
@@ -76,6 +89,10 @@ def build_coating_type_view(coating_type: CoatingType) -> CoatingTypeView:
 
 def build_production_type_view(production_type: ProductionType) -> ProductionTypeView:
     return ProductionTypeView(value=production_type, label=get_production_type_label(production_type))
+
+
+def build_process_status_view(process_status: ProcessDisplayStatus) -> ProcessStatusView:
+    return ProcessStatusView(value=process_status, label=get_process_display_status_label(process_status))
 
 
 class WorkOrderListResponse(BaseModel):

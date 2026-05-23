@@ -15,6 +15,7 @@ from app.work_orders.schemas import (
     WorkOrderStatusView,
     WorkOrderUpdate,
     build_coating_type_view,
+    build_process_status_view,
     build_production_type_view,
 )
 from app.work_orders.workflow import validate_transition
@@ -148,6 +149,7 @@ class WorkOrderService:
             description=work_order.description,
             customer_name=work_order.customer_name,
             status=self.build_status_view(work_order.status),
+            process_status=build_process_status_view(self.process_service.get_display_status(work_order)),
             coating_type=build_coating_type_view(work_order.coating_type),
             production_type=(
                 build_production_type_view(work_order.production_type)

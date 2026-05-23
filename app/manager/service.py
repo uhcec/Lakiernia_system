@@ -1,17 +1,20 @@
 from datetime import UTC, datetime
 
+from app.process.repository import ProcessRepository
+from app.process.service import ProcessService
 from app.manager.repository import ManagerRepository
 from app.manager.schemas import WorkOrderPlanAssignRequest, WorkOrderQueuePositionUpdateRequest
-from app.work_orders.schemas import WorkOrderRead
-from app.work_orders.schemas import build_coating_type_view, build_production_type_view
 from app.shared.exceptions import InvalidManagerPlanningError, ResourceNotFoundError
 from app.work_orders.models import WorkOrder
+from app.work_orders.schemas import WorkOrderRead
+from app.work_orders.schemas import build_coating_type_view, build_process_status_view, build_production_type_view
 from app.work_orders.service import WorkOrderService
 
 
 class ManagerService:
     def __init__(self, repository: ManagerRepository) -> None:
         self.repository = repository
+        self.process_service = ProcessService(ProcessRepository(repository.session))
 
     def list_unplanned_work_orders(self) -> list[WorkOrderRead]:
         return [self._to_read_model(work_order) for work_order in self.repository.list_unplanned_work_orders()]
@@ -66,8 +69,7 @@ class ManagerService:
     def _is_planned(work_order: WorkOrder) -> bool:
         return work_order.production_type is not None and work_order.queue_position is not None
 
-    @staticmethod
-    def _to_read_model(work_order: WorkOrder) -> WorkOrderRead:
+    def _to_read_model(self, work_order: WorkOrder) -> WorkOrderRead:
         return WorkOrderRead(
             id=work_order.id,
             order_number=work_order.order_number,
@@ -75,6 +77,7 @@ class ManagerService:
             description=work_order.description,
             customer_name=work_order.customer_name,
             status=WorkOrderService.build_status_view(work_order.status),
+            process_status=build_process_status_view(self.process_service.get_display_status(work_order)),
             coating_type=build_coating_type_view(work_order.coating_type),
             production_type=(
                 build_production_type_view(work_order.production_type)

@@ -33,10 +33,14 @@ def advance_to_production(process_service: ProcessService, work_order_id: int) -
     process_service.transition_stage(work_order_id, ProcessStage.HANGING, StageStatus.DONE)
 
 
+def create_ral_work_order(work_order_service: WorkOrderService, title: str):
+    return work_order_service.create_work_order(WorkOrderCreate(title=title, coating_type=CoatingType.RAL))
+
+
 def test_creating_work_order_initializes_stage_states(db_session: Session) -> None:
     work_order_service, process_service, _, _, _ = build_services(db_session)
 
-    created = work_order_service.create_work_order(WorkOrderCreate(title="Init stages"))
+    created = create_ral_work_order(work_order_service, "Init stages")
     stage_states = process_service.list_stage_states(created.id)
 
     assert [stage_state.stage for stage_state in stage_states] == [
@@ -51,7 +55,7 @@ def test_creating_work_order_initializes_stage_states(db_session: Session) -> No
 def test_stage_transitions_forward(db_session: Session) -> None:
     work_order_service, process_service, manager_service, _, process_repository = build_services(db_session)
 
-    created = work_order_service.create_work_order(WorkOrderCreate(title="Forward flow"))
+    created = create_ral_work_order(work_order_service, "Forward flow")
     manager_service.assign_plan(
         created.id,
         WorkOrderPlanAssignRequest(production_type=ProductionType.MANUAL, queue_position=1),
@@ -69,7 +73,7 @@ def test_stage_transitions_forward(db_session: Session) -> None:
 def test_stage_transitions_backward(db_session: Session) -> None:
     work_order_service, process_service, _, _, process_repository = build_services(db_session)
 
-    created = work_order_service.create_work_order(WorkOrderCreate(title="Backward flow"))
+    created = create_ral_work_order(work_order_service, "Backward flow")
 
     process_service.transition_stage(created.id, ProcessStage.SURFACE_PREPARATION, StageStatus.IN_PROGRESS)
     process_service.transition_stage(created.id, ProcessStage.SURFACE_PREPARATION, StageStatus.DONE)
@@ -108,9 +112,9 @@ def test_ral_orders_skip_decoral_production_stage(db_session: Session) -> None:
 def test_production_type_affects_visibility_logic(db_session: Session) -> None:
     work_order_service, process_service, manager_service, _, _ = build_services(db_session)
 
-    manual_order = work_order_service.create_work_order(WorkOrderCreate(title="Manual order"))
-    automatic_order = work_order_service.create_work_order(WorkOrderCreate(title="Automatic order"))
-    unassigned_order = work_order_service.create_work_order(WorkOrderCreate(title="Unassigned production"))
+    manual_order = create_ral_work_order(work_order_service, "Manual order")
+    automatic_order = create_ral_work_order(work_order_service, "Automatic order")
+    unassigned_order = create_ral_work_order(work_order_service, "Unassigned production")
 
     manager_service.assign_plan(
         manual_order.id,
@@ -134,9 +138,9 @@ def test_production_type_affects_visibility_logic(db_session: Session) -> None:
 def test_queue_position_exists_and_is_sortable(db_session: Session) -> None:
     work_order_service, process_service, manager_service, _, _ = build_services(db_session)
 
-    first = work_order_service.create_work_order(WorkOrderCreate(title="Queue 1"))
-    second = work_order_service.create_work_order(WorkOrderCreate(title="Queue 2"))
-    third = work_order_service.create_work_order(WorkOrderCreate(title="Queue 3"))
+    first = create_ral_work_order(work_order_service, "Queue 1")
+    second = create_ral_work_order(work_order_service, "Queue 2")
+    third = create_ral_work_order(work_order_service, "Queue 3")
 
     manager_service.assign_plan(
         first.id,
@@ -159,8 +163,8 @@ def test_queue_position_exists_and_is_sortable(db_session: Session) -> None:
 def test_unplanned_orders_are_hidden_from_process_visibility(db_session: Session) -> None:
     work_order_service, process_service, manager_service, _, _ = build_services(db_session)
 
-    planned_order = work_order_service.create_work_order(WorkOrderCreate(title="Planned"))
-    unplanned_order = work_order_service.create_work_order(WorkOrderCreate(title="Unplanned"))
+    planned_order = create_ral_work_order(work_order_service, "Planned")
+    unplanned_order = create_ral_work_order(work_order_service, "Unplanned")
 
     manager_service.assign_plan(
         planned_order.id,

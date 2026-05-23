@@ -13,6 +13,9 @@ export default defineConfig({
       "/manager": {
         target: "http://127.0.0.1:8000",
       },
+      "/process": {
+        target: "http://127.0.0.1:8000",
+      },
       "/work-orders": {
         target: "http://127.0.0.1:8000",
       },

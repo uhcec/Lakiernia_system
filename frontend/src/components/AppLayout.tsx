@@ -8,6 +8,30 @@ export function AppLayout() {
       return "Kierownik";
     }
 
+    if (pathname.startsWith("/produkcja-reczna")) {
+      return "Produkcja ręczna";
+    }
+
+    if (pathname.startsWith("/produkcja-automat")) {
+      return "Produkcja automat";
+    }
+
+    if (pathname.startsWith("/produkcja-decoral")) {
+      return "Produkcja Decoral";
+    }
+
+    if (pathname.startsWith("/pakowanie")) {
+      return "Pakowanie";
+    }
+
+    if (pathname.startsWith("/zawieszanie")) {
+      return "Zawieszanie";
+    }
+
+    if (pathname.startsWith("/przygotowanie")) {
+      return "Przygotowanie powierzchni";
+    }
+
     if (pathname.startsWith("/zlecenia/nowe")) {
       return "Nowe zlecenie";
     }
@@ -45,6 +69,72 @@ export function AppLayout() {
               }
             >
               Kierownik
+            </NavLink>
+            <NavLink
+              to="/przygotowanie"
+              className={({ isActive }) =>
+                [
+                  "rounded-full px-4 py-2 text-sm font-medium transition-colors",
+                  isActive ? "bg-white text-ink shadow-sm" : "text-steel hover:text-accent",
+                ].join(" ")
+              }
+            >
+              Przygotowanie
+            </NavLink>
+            <NavLink
+              to="/zawieszanie"
+              className={({ isActive }) =>
+                [
+                  "rounded-full px-4 py-2 text-sm font-medium transition-colors",
+                  isActive ? "bg-white text-ink shadow-sm" : "text-steel hover:text-accent",
+                ].join(" ")
+              }
+            >
+              Zawieszanie
+            </NavLink>
+            <NavLink
+              to="/produkcja-reczna"
+              className={({ isActive }) =>
+                [
+                  "rounded-full px-4 py-2 text-sm font-medium transition-colors",
+                  isActive ? "bg-white text-ink shadow-sm" : "text-steel hover:text-accent",
+                ].join(" ")
+              }
+            >
+              Produkcja ręczna
+            </NavLink>
+            <NavLink
+              to="/produkcja-automat"
+              className={({ isActive }) =>
+                [
+                  "rounded-full px-4 py-2 text-sm font-medium transition-colors",
+                  isActive ? "bg-white text-ink shadow-sm" : "text-steel hover:text-accent",
+                ].join(" ")
+              }
+            >
+              Produkcja automat
+            </NavLink>
+            <NavLink
+              to="/produkcja-decoral"
+              className={({ isActive }) =>
+                [
+                  "rounded-full px-4 py-2 text-sm font-medium transition-colors",
+                  isActive ? "bg-white text-ink shadow-sm" : "text-steel hover:text-accent",
+                ].join(" ")
+              }
+            >
+              Produkcja Decoral
+            </NavLink>
+            <NavLink
+              to="/pakowanie"
+              className={({ isActive }) =>
+                [
+                  "rounded-full px-4 py-2 text-sm font-medium transition-colors",
+                  isActive ? "bg-white text-ink shadow-sm" : "text-steel hover:text-accent",
+                ].join(" ")
+              }
+            >
+              Pakowanie
             </NavLink>
             <NavLink
               to="/zlecenia/nowe"

@@ -25,6 +25,17 @@ PRODUCTION_TYPE_LABELS_PL = {
     "AUTOMATIC": "Automatyczna",
 }
 
+PROCESS_DISPLAY_STATUS_LABELS_PL = {
+    "TO_BE_PLANNED": "Do zaplanowania",
+    "SURFACE_PREPARATION": "Przygotowanie",
+    "HANGING": "Zawieszanie",
+    "PRODUCTION_MANUAL": "Produkcja ręczna",
+    "PRODUCTION_AUTOMATIC": "Produkcja automat",
+    "DECORAL_PRODUCTION": "Produkcja Decoral",
+    "PACKING": "Pakowanie",
+    "READY": "Gotowe",
+}
+
 
 class CoatingType(StrEnum):
     RAL = "RAL"
@@ -42,6 +53,21 @@ class ProductionType(StrEnum):
     @property
     def polish_label(self) -> str:
         return PRODUCTION_TYPE_LABELS_PL[self.value]
+
+
+class ProcessDisplayStatus(StrEnum):
+    TO_BE_PLANNED = "TO_BE_PLANNED"
+    SURFACE_PREPARATION = "SURFACE_PREPARATION"
+    HANGING = "HANGING"
+    PRODUCTION_MANUAL = "PRODUCTION_MANUAL"
+    PRODUCTION_AUTOMATIC = "PRODUCTION_AUTOMATIC"
+    DECORAL_PRODUCTION = "DECORAL_PRODUCTION"
+    PACKING = "PACKING"
+    READY = "READY"
+
+    @property
+    def polish_label(self) -> str:
+        return PROCESS_DISPLAY_STATUS_LABELS_PL[self.value]
 
 
 class ProcessStage(StrEnum):
@@ -80,3 +106,7 @@ def get_process_stage_label(stage: ProcessStage) -> str:
 
 def get_stage_status_label(status: StageStatus) -> str:
     return STAGE_STATUS_LABELS_PL[status.value]
+
+
+def get_process_display_status_label(status: ProcessDisplayStatus) -> str:
+    return PROCESS_DISPLAY_STATUS_LABELS_PL[status.value]
