@@ -41,7 +41,7 @@ class WorkOrder(Base):
     status: Mapped[WorkOrderStatus] = mapped_column(work_order_status_enum, default=WorkOrderStatus.ENTERED, nullable=False)
     coating_type: Mapped[CoatingType] = mapped_column(coating_type_enum, default=CoatingType.RAL, nullable=False)
     production_type: Mapped[ProductionType | None] = mapped_column(production_type_enum, nullable=True)
-    queue_position: Mapped[int] = mapped_column(Integer(), nullable=False, index=True)
+    queue_position: Mapped[int | None] = mapped_column(Integer(), nullable=True, index=True)
     due_date: Mapped[date | None] = mapped_column(Date(), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text(), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False)

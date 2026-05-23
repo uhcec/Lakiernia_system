@@ -1,7 +1,13 @@
 export type WorkOrderStatusValue = "ENTERED" | "ASSIGNED" | "IN_PROGRESS" | "FINISHED";
+export type ProductionTypeValue = "MANUAL" | "AUTOMATIC";
 
 export interface WorkOrderStatus {
   value: WorkOrderStatusValue;
+  label: string;
+}
+
+export interface WorkOrderOption<TValue extends string> {
+  value: TValue;
   label: string;
 }
 
@@ -12,6 +18,9 @@ export interface WorkOrder {
   description: string | null;
   customer_name: string | null;
   status: WorkOrderStatus;
+  coating_type: WorkOrderOption<"RAL" | "DECORAL">;
+  production_type: WorkOrderOption<ProductionTypeValue> | null;
+  queue_position: number | null;
   due_date: string | null;
   notes: string | null;
   created_at: string;

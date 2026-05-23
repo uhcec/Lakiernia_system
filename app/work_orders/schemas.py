@@ -31,7 +31,6 @@ class WorkOrderCreate(BaseModel):
     description: str | None = None
     customer_name: str | None = Field(default=None, max_length=255)
     coating_type: CoatingType = Field(default=CoatingType.RAL)
-    production_type: ProductionType | None = None
     due_date: date | None = None
     notes: str | None = None
 
@@ -64,7 +63,7 @@ class WorkOrderRead(BaseModel):
     status: WorkOrderStatusView
     coating_type: CoatingTypeView
     production_type: ProductionTypeView | None
-    queue_position: int
+    queue_position: int | None
     due_date: date | None
     notes: str | None
     created_at: datetime

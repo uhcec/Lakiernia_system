@@ -82,6 +82,9 @@ class ProcessService:
         stage: ProcessStage,
         production_type: ProductionType | None = None,
     ) -> bool:
+        if not self._is_planned(work_order):
+            return False
+
         stage_sequence = self.get_stage_sequence(work_order.coating_type)
         if stage not in stage_sequence:
             return False
@@ -97,12 +100,14 @@ class ProcessService:
                 return False
 
         if stage == ProcessStage.PRODUCTION:
-            if work_order.production_type is None:
-                return False
             if production_type is not None and work_order.production_type != production_type:
                 return False
 
         return True
+
+    @staticmethod
+    def _is_planned(work_order: WorkOrder) -> bool:
+        return work_order.production_type is not None and work_order.queue_position is not None
 
     def _validate_transition(
         self,

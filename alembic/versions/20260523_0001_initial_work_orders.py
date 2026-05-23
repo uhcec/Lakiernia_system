@@ -38,7 +38,7 @@ def upgrade() -> None:
             sa.Enum("MANUAL", "AUTOMATIC", name="production_type", native_enum=False),
             nullable=True,
         ),
-        sa.Column("queue_position", sa.Integer(), nullable=False),
+        sa.Column("queue_position", sa.Integer(), nullable=True),
         sa.Column("due_date", sa.Date(), nullable=True),
         sa.Column("notes", sa.Text(), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),

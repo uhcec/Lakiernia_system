@@ -44,8 +44,6 @@ class WorkOrderService:
             customer_name=payload.customer_name,
             status=WorkOrderStatus.ENTERED,
             coating_type=payload.coating_type,
-            production_type=payload.production_type,
-            queue_position=self.repository.get_next_queue_position(),
             due_date=payload.due_date,
             notes=payload.notes,
         )

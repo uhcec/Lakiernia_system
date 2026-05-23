@@ -20,3 +20,8 @@ class InvalidStatusTransitionError(AppException):
 class InvalidProcessStageTransitionError(AppException):
     def __init__(self, detail: str) -> None:
         super().__init__(detail=detail, status_code=409)
+
+
+class InvalidManagerPlanningError(AppException):
+    def __init__(self, detail: str) -> None:
+        super().__init__(detail=detail, status_code=409)
