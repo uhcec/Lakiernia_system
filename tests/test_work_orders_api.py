@@ -2,7 +2,7 @@ from fastapi.testclient import TestClient
 
 
 def create_work_order(test_client: TestClient, **overrides: object):
-    payload = {"title": "Domyślne zlecenie", "coating_type": "RAL"}
+    payload = {"title": "Domyślne zlecenie", "coating_type": "RAL", "total_quantity": 100}
     payload.update(overrides)
     return test_client.post("/work-orders", json=payload)
 
@@ -23,6 +23,7 @@ def test_create_work_order(test_client: TestClient) -> None:
         customer_name="ACME",
         due_date="2026-06-15",
         notes="Handle carefully",
+        total_quantity=250,
     )
 
     body = response.json()
@@ -31,6 +32,8 @@ def test_create_work_order(test_client: TestClient) -> None:
     assert body["id"] == 1
     assert body["order_number"].startswith("WO-")
     assert body["title"] == "New generic work order"
+    assert body["total_quantity"] == 250
+    assert body["current_active_quantity"] == 250
     assert body["description"] == "Initial intake"
     assert body["customer_name"] == "ACME"
     assert body["coating_type"] == {"value": "RAL", "label": "RAL"}
@@ -42,7 +45,7 @@ def test_create_work_order(test_client: TestClient) -> None:
 
 
 def test_creating_without_coating_type_fails(test_client: TestClient) -> None:
-    response = test_client.post("/work-orders", json={"title": "Missing coating"})
+    response = test_client.post("/work-orders", json={"title": "Missing coating", "total_quantity": 10})
 
     assert response.status_code == 422
 
@@ -90,6 +93,19 @@ def test_get_work_order_by_id(test_client: TestClient) -> None:
     assert response.status_code == 200
     assert response.json()["id"] == created["id"]
     assert response.json()["order_number"] == created["order_number"]
+    assert response.json()["total_quantity"] == 100
+    assert response.json()["current_active_quantity"] == 100
+    assert response.json()["batches"] == [
+        {
+            "id": 1,
+            "quantity": 100,
+            "type": {"value": "MAIN", "label": "Partia główna"},
+            "parent_batch_id": None,
+            "is_active": True,
+            "is_finished": False,
+            "created_at": response.json()["batches"][0]["created_at"],
+        }
+    ]
     assert response.json()["process_status"] == {"value": "TO_BE_PLANNED", "label": "Do zaplanowania"}
 
 
@@ -197,8 +213,8 @@ def test_status_transition_still_works_after_patch_update(test_client: TestClien
 
 
 def test_list_work_orders(test_client: TestClient) -> None:
-    test_client.post("/work-orders", json={"title": "First", "coating_type": "RAL"})
-    test_client.post("/work-orders", json={"title": "Second", "coating_type": "RAL"})
+    test_client.post("/work-orders", json={"title": "First", "coating_type": "RAL", "total_quantity": 10})
+    test_client.post("/work-orders", json={"title": "Second", "coating_type": "RAL", "total_quantity": 20})
 
     response = test_client.get("/work-orders")
 
@@ -209,11 +225,12 @@ def test_list_work_orders(test_client: TestClient) -> None:
     assert body["limit"] == 50
     assert body["offset"] == 0
     assert len(body["items"]) == 2
+    assert body["items"][0]["total_quantity"] == 10
     assert body["items"][0]["process_status"] == {"value": "TO_BE_PLANNED", "label": "Do zaplanowania"}
 
 
 def test_list_work_orders_can_filter_by_status(test_client: TestClient) -> None:
-    test_client.post("/work-orders", json={"title": "Entered order", "coating_type": "RAL"})
+    test_client.post("/work-orders", json={"title": "Entered order", "coating_type": "RAL", "total_quantity": 15})
 
     response = test_client.get("/work-orders", params={"status": "ENTERED"})
 
@@ -226,9 +243,17 @@ def test_list_work_orders_can_filter_by_status(test_client: TestClient) -> None:
 
 
 def test_missing_title_returns_validation_error(test_client: TestClient) -> None:
-    response = test_client.post("/work-orders", json={})
+    response = test_client.post("/work-orders", json={"total_quantity": 10})
 
     assert response.status_code == 422
+
+
+def test_create_work_order_defaults_total_quantity_to_one_for_compatibility(test_client: TestClient) -> None:
+    response = test_client.post("/work-orders", json={"title": "Legacy payload", "coating_type": "RAL"})
+
+    assert response.status_code == 201
+    assert response.json()["total_quantity"] == 1
+    assert response.json()["current_active_quantity"] == 1
 
 
 def test_entered_to_assigned_transition_succeeds(test_client: TestClient) -> None:
@@ -380,3 +405,34 @@ def test_after_packing_done_process_status_is_gotowe(test_client: TestClient) ->
 
     assert response.status_code == 200
     assert response.json()["process_status"] == {"value": "READY", "label": "Gotowe"}
+
+
+def test_work_order_detail_returns_batches_in_created_order_with_main_and_correction(test_client: TestClient) -> None:
+    created = create_work_order(test_client, title="Batch history", coating_type="RAL", total_quantity=100).json()
+    test_client.post(f"/manager/work-orders/{created['id']}/plan", json={"production_type": "MANUAL", "queue_position": 1})
+    for stage in ["SURFACE_PREPARATION", "HANGING", "PRODUCTION"]:
+        test_client.post(f"/process/work-orders/{created['id']}/stages/{stage}/start")
+        test_client.post(f"/process/work-orders/{created['id']}/stages/{stage}/finish")
+    test_client.post(f"/process/work-orders/{created['id']}/stages/PACKING/start")
+    test_client.post(
+        f"/process/work-orders/{created['id']}/packing/complete",
+        json={"ok_quantity": 90, "correction_quantity": 10},
+    )
+    test_client.post(f"/process/work-orders/{created['id']}/stages/PRODUCTION/start")
+    test_client.post(f"/process/work-orders/{created['id']}/stages/PRODUCTION/finish")
+    test_client.post(f"/process/work-orders/{created['id']}/stages/PACKING/start")
+    test_client.post(
+        f"/process/work-orders/{created['id']}/packing/complete",
+        json={"ok_quantity": 8, "correction_quantity": 2},
+    )
+
+    response = test_client.get(f"/work-orders/{created['id']}")
+
+    assert response.status_code == 200
+    assert [batch["type"]["value"] for batch in response.json()["batches"]] == ["MAIN", "CORRECTION", "CORRECTION"]
+    assert [batch["quantity"] for batch in response.json()["batches"]] == [100, 10, 2]
+    assert [batch["parent_batch_id"] for batch in response.json()["batches"]] == [None, response.json()["batches"][0]["id"], response.json()["batches"][1]["id"]]
+    assert response.json()["batches"][0]["is_finished"] is True
+    assert response.json()["batches"][1]["is_finished"] is True
+    assert response.json()["batches"][2]["is_active"] is True
+    assert response.json()["batches"][2]["is_finished"] is False

@@ -8,11 +8,13 @@ from app.shared.exceptions import InvalidManagerPlanningError, ResourceNotFoundE
 from app.work_orders.models import WorkOrder
 from app.work_orders.schemas import WorkOrderRead
 from app.work_orders.schemas import (
+    WorkOrderQuantityBatchRead,
     WorkOrderStageStateRead,
     build_coating_type_view,
     build_process_stage_view,
     build_process_status_view,
     build_production_type_view,
+    build_quantity_batch_type_view,
     build_stage_status_info_view,
 )
 from app.work_orders.service import WorkOrderService
@@ -81,6 +83,8 @@ class ManagerService:
             id=work_order.id,
             order_number=work_order.order_number,
             title=work_order.title,
+            total_quantity=work_order.total_quantity,
+            current_active_quantity=work_order.current_active_quantity,
             description=work_order.description,
             customer_name=work_order.customer_name,
             status=WorkOrderService.build_status_view(work_order.status),
@@ -99,6 +103,18 @@ class ManagerService:
                 )
                 for stage_state in self._get_ordered_stage_states(work_order)
             ],
+            batches=[
+                WorkOrderQuantityBatchRead(
+                    id=batch.id,
+                    quantity=batch.quantity,
+                    type=build_quantity_batch_type_view(batch.type),
+                    parent_batch_id=batch.parent_batch_id,
+                    is_active=batch.id == work_order.current_active_batch_id,
+                    is_finished=batch.id != work_order.current_active_batch_id,
+                    created_at=batch.created_at,
+                )
+                for batch in self._get_ordered_batches(work_order)
+            ],
             due_date=work_order.due_date,
             notes=work_order.notes,
             created_at=work_order.created_at,
@@ -111,3 +127,7 @@ class ManagerService:
             for index, stage in enumerate(self.process_service.get_stage_sequence(work_order.coating_type))
         }
         return sorted(work_order.stage_states, key=lambda stage_state: stage_order[stage_state.stage])
+
+    @staticmethod
+    def _get_ordered_batches(work_order: WorkOrder):
+        return sorted(work_order.quantity_batches, key=lambda batch: (batch.created_at, batch.id))

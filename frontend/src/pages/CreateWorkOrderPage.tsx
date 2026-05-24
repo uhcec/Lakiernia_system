@@ -6,6 +6,7 @@ import type { CoatingTypeValue } from "../types/workOrders";
 
 interface FormState {
   title: string;
+  total_quantity: string;
   coating_type: CoatingTypeValue | "";
   description: string;
   customer_name: string;
@@ -15,6 +16,7 @@ interface FormState {
 
 const initialFormState: FormState = {
   title: "",
+  total_quantity: "1",
   coating_type: "",
   description: "",
   customer_name: "",
@@ -47,6 +49,12 @@ export function CreateWorkOrderPage() {
       return;
     }
 
+    const totalQuantity = Number(formState.total_quantity);
+    if (!Number.isInteger(totalQuantity) || totalQuantity <= 0) {
+      setValidationError("Ilość całkowita musi być dodatnią liczbą całkowitą");
+      return;
+    }
+
     setValidationError(null);
     setApiError(null);
     setIsSubmitting(true);
@@ -54,6 +62,7 @@ export function CreateWorkOrderPage() {
     try {
       await createWorkOrder({
         title: trimmedTitle,
+        total_quantity: totalQuantity,
         coating_type: formState.coating_type,
         description: formState.description.trim() || undefined,
         customer_name: formState.customer_name.trim() || undefined,
@@ -113,6 +122,19 @@ export function CreateWorkOrderPage() {
                 onChange={(event) => updateField("customer_name", event.target.value)}
                 className="rounded-2xl border border-line bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-accent"
                 placeholder="Klient"
+              />
+            </label>
+
+            <label className="flex flex-col gap-2">
+              <span className="text-sm font-medium text-ink">Ilość całkowita</span>
+              <input
+                type="number"
+                min="1"
+                step="1"
+                value={formState.total_quantity}
+                onChange={(event) => updateField("total_quantity", event.target.value)}
+                className="rounded-2xl border border-line bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-accent"
+                placeholder="1"
               />
             </label>
 

@@ -12,6 +12,13 @@ def advance_to_production(test_client: TestClient, work_order_id: int) -> None:
     test_client.post(f"/process/work-orders/{work_order_id}/stages/HANGING/finish")
 
 
+def advance_to_packing(test_client: TestClient, work_order_id: int) -> None:
+    advance_to_production(test_client, work_order_id)
+    test_client.post(f"/process/work-orders/{work_order_id}/stages/PRODUCTION/start")
+    test_client.post(f"/process/work-orders/{work_order_id}/stages/PRODUCTION/finish")
+    test_client.post(f"/process/work-orders/{work_order_id}/stages/PACKING/start")
+
+
 def create_planned_work_order(
     test_client: TestClient,
     *,
@@ -22,7 +29,7 @@ def create_planned_work_order(
 ) -> dict:
     created = test_client.post(
         "/work-orders",
-        json={"title": title, "coating_type": coating_type},
+        json={"title": title, "coating_type": coating_type, "total_quantity": 100},
     ).json()
     test_client.post(
         f"/manager/work-orders/{created['id']}/plan",
@@ -116,6 +123,82 @@ def test_finish_stage_updates_status(test_client: TestClient) -> None:
         "stage": "SURFACE_PREPARATION",
         "status": {"value": "DONE", "label": "Zakończone"},
     }
+
+
+def test_packing_complete_splits_quantities_and_returns_to_production(test_client: TestClient) -> None:
+    created = create_planned_work_order(test_client, title="Packing split", queue_position=1)
+    advance_to_packing(test_client, created["id"])
+
+    response = test_client.post(
+        f"/process/work-orders/{created['id']}/packing/complete",
+        json={"ok_quantity": 90, "correction_quantity": 10},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["stage_status"] == {
+        "stage": "PRODUCTION",
+        "status": {"value": "NOT_STARTED", "label": "Nie rozpoczęte"},
+    }
+    assert response.json()["current_active_quantity"] == 10
+    assert response.json()["total_quantity"] == 100
+
+
+def test_packing_finish_endpoint_still_acts_as_full_ok_completion(test_client: TestClient) -> None:
+    created = create_planned_work_order(test_client, title="Packing compatibility", queue_position=1)
+    advance_to_packing(test_client, created["id"])
+
+    response = test_client.post(f"/process/work-orders/{created['id']}/stages/PACKING/finish")
+    work_order = test_client.get(f"/work-orders/{created['id']}")
+
+    assert response.status_code == 200
+    assert response.json()["stage_status"] == {
+        "stage": "PACKING",
+        "status": {"value": "DONE", "label": "Zakończone"},
+    }
+    assert work_order.json()["current_active_quantity"] == 0
+    assert work_order.json()["process_status"] == {"value": "READY", "label": "Gotowe"}
+
+
+def test_fully_packed_order_reopen_returns_clear_validation_error(test_client: TestClient) -> None:
+    created = create_planned_work_order(test_client, title="Reopen blocked after full pack", queue_position=1)
+    advance_to_packing(test_client, created["id"])
+    test_client.post(f"/process/work-orders/{created['id']}/stages/PACKING/finish")
+
+    response = test_client.post(f"/process/work-orders/{created['id']}/stages/PACKING/reopen")
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Cannot reopen process stages because the work order has no active quantity remaining."
+
+
+def test_order_with_correction_active_batch_can_still_reopen_stage(test_client: TestClient) -> None:
+    created = create_planned_work_order(test_client, title="Correction still active", queue_position=1)
+    advance_to_packing(test_client, created["id"])
+    test_client.post(
+        f"/process/work-orders/{created['id']}/packing/complete",
+        json={"ok_quantity": 90, "correction_quantity": 10},
+    )
+    test_client.post(f"/process/work-orders/{created['id']}/stages/PRODUCTION/start")
+    test_client.post(f"/process/work-orders/{created['id']}/stages/PRODUCTION/finish")
+
+    response = test_client.post(f"/process/work-orders/{created['id']}/stages/PRODUCTION/reopen")
+
+    assert response.status_code == 200
+    assert response.json()["stage_status"] == {
+        "stage": "PRODUCTION",
+        "status": {"value": "IN_PROGRESS", "label": "W trakcie"},
+    }
+
+
+def test_packing_complete_rejects_invalid_quantity_sum(test_client: TestClient) -> None:
+    created = create_planned_work_order(test_client, title="Packing invalid", queue_position=1)
+    advance_to_packing(test_client, created["id"])
+
+    response = test_client.post(
+        f"/process/work-orders/{created['id']}/packing/complete",
+        json={"ok_quantity": 60, "correction_quantity": 50},
+    )
+
+    assert response.status_code == 409
 
 
 def test_reopen_stage_moves_done_back_to_in_progress(test_client: TestClient) -> None:

@@ -1,4 +1,5 @@
 from sqlalchemy.orm import Session
+import pytest
 
 from app.manager.repository import ManagerRepository
 from app.manager.schemas import WorkOrderPlanAssignRequest
@@ -6,6 +7,7 @@ from app.manager.service import ManagerService
 from app.process.enums import CoatingType, ProcessStage, ProductionType, StageStatus
 from app.process.repository import ProcessRepository
 from app.process.service import ProcessService
+from app.shared.exceptions import InvalidProcessStageTransitionError
 from app.work_orders.repository import WorkOrderRepository
 from app.work_orders.schemas import WorkOrderCreate
 from app.work_orders.service import WorkOrderService
@@ -33,12 +35,19 @@ def advance_to_production(process_service: ProcessService, work_order_id: int) -
     process_service.transition_stage(work_order_id, ProcessStage.HANGING, StageStatus.DONE)
 
 
+def advance_to_packing(process_service: ProcessService, work_order_id: int) -> None:
+    advance_to_production(process_service, work_order_id)
+    process_service.transition_stage(work_order_id, ProcessStage.PRODUCTION, StageStatus.IN_PROGRESS)
+    process_service.transition_stage(work_order_id, ProcessStage.PRODUCTION, StageStatus.DONE)
+    process_service.transition_stage(work_order_id, ProcessStage.PACKING, StageStatus.IN_PROGRESS)
+
+
 def create_ral_work_order(work_order_service: WorkOrderService, title: str):
-    return work_order_service.create_work_order(WorkOrderCreate(title=title, coating_type=CoatingType.RAL))
+    return work_order_service.create_work_order(WorkOrderCreate(title=title, coating_type=CoatingType.RAL, total_quantity=100))
 
 
 def test_creating_work_order_initializes_stage_states(db_session: Session) -> None:
-    work_order_service, process_service, _, _, _ = build_services(db_session)
+    work_order_service, process_service, _, work_order_repository, _ = build_services(db_session)
 
     created = create_ral_work_order(work_order_service, "Init stages")
     stage_states = process_service.list_stage_states(created.id)
@@ -50,6 +59,11 @@ def test_creating_work_order_initializes_stage_states(db_session: Session) -> No
         ProcessStage.PACKING,
     ]
     assert all(stage_state.status == StageStatus.NOT_STARTED for stage_state in stage_states)
+    persisted = work_order_repository.get_by_id(created.id)
+    assert persisted is not None
+    assert persisted.total_quantity == 100
+    assert persisted.current_active_quantity == 100
+    assert len(persisted.quantity_batches) == 1
 
 
 def test_stage_transitions_forward(db_session: Session) -> None:
@@ -91,7 +105,7 @@ def test_decoral_orders_include_decoral_production_stage(db_session: Session) ->
     work_order_service, process_service, _, _, _ = build_services(db_session)
 
     created = work_order_service.create_work_order(
-        WorkOrderCreate(title="Decoral order", coating_type=CoatingType.DECORAL)
+        WorkOrderCreate(title="Decoral order", coating_type=CoatingType.DECORAL, total_quantity=100)
     )
     stage_states = process_service.list_stage_states(created.id)
 
@@ -102,7 +116,7 @@ def test_ral_orders_skip_decoral_production_stage(db_session: Session) -> None:
     work_order_service, process_service, _, _, _ = build_services(db_session)
 
     created = work_order_service.create_work_order(
-        WorkOrderCreate(title="RAL order", coating_type=CoatingType.RAL)
+        WorkOrderCreate(title="RAL order", coating_type=CoatingType.RAL, total_quantity=100)
     )
     stage_states = process_service.list_stage_states(created.id)
 
@@ -174,3 +188,135 @@ def test_unplanned_orders_are_hidden_from_process_visibility(db_session: Session
     visible = process_service.list_visible_work_orders(ProcessStage.SURFACE_PREPARATION)
 
     assert [work_order.id for work_order in visible] == [planned_order.id]
+
+
+def test_complete_packing_splits_ok_and_correction_quantities(db_session: Session) -> None:
+    work_order_service, process_service, manager_service, _, process_repository = build_services(db_session)
+
+    created = create_ral_work_order(work_order_service, "Split packing")
+    manager_service.assign_plan(
+        created.id,
+        WorkOrderPlanAssignRequest(production_type=ProductionType.MANUAL, queue_position=1),
+    )
+    advance_to_packing(process_service, created.id)
+
+    response = process_service.complete_packing(created.id, ok_quantity=90, correction_quantity=10)
+    work_order = process_repository.get_work_order_with_stage_states(created.id)
+
+    assert response.stage_status.stage == ProcessStage.PRODUCTION
+    assert work_order is not None
+    assert work_order.completed_quantity == 90
+    assert work_order.current_active_quantity == 10
+    assert len(work_order.quantity_batches) == 2
+    assert work_order.active_batch is not None
+    assert work_order.active_batch.type.value == "CORRECTION"
+
+    stage_states = {stage_state.stage: stage_state.status for stage_state in work_order.stage_states}
+    assert stage_states[ProcessStage.SURFACE_PREPARATION] == StageStatus.DONE
+    assert stage_states[ProcessStage.HANGING] == StageStatus.DONE
+    assert stage_states[ProcessStage.PRODUCTION] == StageStatus.NOT_STARTED
+    assert stage_states[ProcessStage.PACKING] == StageStatus.NOT_STARTED
+
+
+def test_complete_packing_full_ok_marks_work_order_ready(db_session: Session) -> None:
+    work_order_service, process_service, manager_service, _, process_repository = build_services(db_session)
+
+    created = create_ral_work_order(work_order_service, "Full ok")
+    manager_service.assign_plan(
+        created.id,
+        WorkOrderPlanAssignRequest(production_type=ProductionType.MANUAL, queue_position=1),
+    )
+    advance_to_packing(process_service, created.id)
+
+    response = process_service.complete_packing(created.id, ok_quantity=100, correction_quantity=0)
+    work_order = process_repository.get_work_order_with_stage_states(created.id)
+
+    assert response.stage_status.stage == ProcessStage.PACKING
+    assert work_order is not None
+    assert work_order.completed_quantity == 100
+    assert work_order.current_active_quantity == 0
+    assert process_service.get_display_status(work_order).value == "READY"
+
+
+def test_complete_packing_full_correction_returns_entire_batch(db_session: Session) -> None:
+    work_order_service, process_service, manager_service, _, process_repository = build_services(db_session)
+
+    created = create_ral_work_order(work_order_service, "Full correction")
+    manager_service.assign_plan(
+        created.id,
+        WorkOrderPlanAssignRequest(production_type=ProductionType.MANUAL, queue_position=1),
+    )
+    advance_to_packing(process_service, created.id)
+
+    response = process_service.complete_packing(created.id, ok_quantity=0, correction_quantity=100)
+    work_order = process_repository.get_work_order_with_stage_states(created.id)
+
+    assert response.stage_status.stage == ProcessStage.PRODUCTION
+    assert work_order is not None
+    assert work_order.completed_quantity == 0
+    assert work_order.current_active_quantity == 100
+    assert work_order.active_batch is not None
+    assert work_order.active_batch.type.value == "CORRECTION"
+
+
+def test_multiple_packing_corrections_can_chain(db_session: Session) -> None:
+    work_order_service, process_service, manager_service, _, process_repository = build_services(db_session)
+
+    created = create_ral_work_order(work_order_service, "Multiple corrections")
+    manager_service.assign_plan(
+        created.id,
+        WorkOrderPlanAssignRequest(production_type=ProductionType.MANUAL, queue_position=1),
+    )
+    advance_to_packing(process_service, created.id)
+    process_service.complete_packing(created.id, ok_quantity=70, correction_quantity=30)
+
+    process_service.transition_stage(created.id, ProcessStage.PRODUCTION, StageStatus.IN_PROGRESS)
+    process_service.transition_stage(created.id, ProcessStage.PRODUCTION, StageStatus.DONE)
+    process_service.transition_stage(created.id, ProcessStage.PACKING, StageStatus.IN_PROGRESS)
+    process_service.complete_packing(created.id, ok_quantity=20, correction_quantity=10)
+
+    work_order = process_repository.get_work_order_with_stage_states(created.id)
+
+    assert work_order is not None
+    assert work_order.completed_quantity == 90
+    assert work_order.current_active_quantity == 10
+    assert len(work_order.quantity_batches) == 3
+
+
+def test_fully_packed_order_cannot_reopen_any_stage(db_session: Session) -> None:
+    work_order_service, process_service, manager_service, _, _ = build_services(db_session)
+
+    created = create_ral_work_order(work_order_service, "No reopen after full pack")
+    manager_service.assign_plan(
+        created.id,
+        WorkOrderPlanAssignRequest(production_type=ProductionType.MANUAL, queue_position=1),
+    )
+    advance_to_packing(process_service, created.id)
+    process_service.complete_packing(created.id, ok_quantity=100, correction_quantity=0)
+
+    with pytest.raises(InvalidProcessStageTransitionError) as exc_info:
+        process_service.reopen_stage(created.id, ProcessStage.PACKING)
+
+    assert str(exc_info.value) == "Cannot reopen process stages because the work order has no active quantity remaining."
+
+
+def test_correction_active_batch_can_still_continue_workflow(db_session: Session) -> None:
+    work_order_service, process_service, manager_service, _, process_repository = build_services(db_session)
+
+    created = create_ral_work_order(work_order_service, "Correction continues workflow")
+    manager_service.assign_plan(
+        created.id,
+        WorkOrderPlanAssignRequest(production_type=ProductionType.MANUAL, queue_position=1),
+    )
+    advance_to_packing(process_service, created.id)
+    process_service.complete_packing(created.id, ok_quantity=80, correction_quantity=20)
+
+    started = process_service.start_stage(created.id, ProcessStage.PRODUCTION)
+    process_service.finish_stage(created.id, ProcessStage.PRODUCTION)
+    reopened = process_service.reopen_stage(created.id, ProcessStage.PRODUCTION)
+    work_order = process_repository.get_work_order_with_stage_states(created.id)
+
+    assert started.stage_status.status.value == StageStatus.IN_PROGRESS
+    assert reopened.stage_status.status.value == StageStatus.IN_PROGRESS
+    assert work_order is not None
+    assert work_order.current_active_quantity == 20

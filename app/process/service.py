@@ -1,8 +1,8 @@
 from collections.abc import Sequence
 from datetime import UTC, datetime
 
-from app.process.enums import CoatingType, ProcessDisplayStatus, ProcessStage, ProductionType, StageStatus
-from app.process.models import WorkOrderStageState
+from app.process.enums import CoatingType, ProcessDisplayStatus, ProcessStage, ProductionType, QuantityBatchType, StageStatus
+from app.process.models import WorkOrderQuantityBatch, WorkOrderStageState
 from app.process.repository import ProcessRepository
 from app.process.schemas import ProcessStageStatusRead, ProcessStageWorkOrderRead, StageStatusView
 from app.shared.exceptions import InvalidProcessStageTransitionError, ResourceNotFoundError
@@ -11,6 +11,8 @@ from app.work_orders.schemas import build_coating_type_view, build_production_ty
 
 
 class ProcessService:
+    DEFAULT_CORRECTION_RETURN_STAGE = ProcessStage.PRODUCTION
+
     def __init__(self, repository: ProcessRepository) -> None:
         self.repository = repository
 
@@ -36,6 +38,16 @@ class ProcessService:
             for stage in self.get_stage_sequence(work_order.coating_type)
         ]
         self.repository.add_stage_states(stage_states)
+
+    def initialize_quantity_tracking(self, work_order: WorkOrder) -> None:
+        main_batch = WorkOrderQuantityBatch(
+            work_order_id=work_order.id,
+            quantity=work_order.total_quantity,
+            type=QuantityBatchType.MAIN,
+            parent_batch_id=None,
+        )
+        self.repository.add_quantity_batch(main_batch)
+        work_order.current_active_batch_id = main_batch.id
 
     def list_stage_states(self, work_order_id: int) -> Sequence[WorkOrderStageState]:
         return self.repository.list_stage_states(work_order_id)
@@ -80,6 +92,14 @@ class ProcessService:
         return self._to_stage_work_order_read(work_order, stage)
 
     def finish_stage(self, work_order_id: int, stage: ProcessStage) -> ProcessStageWorkOrderRead:
+        if stage == ProcessStage.PACKING:
+            work_order = self.get_work_order_process(work_order_id)
+            return self.complete_packing(
+                work_order_id,
+                ok_quantity=work_order.current_active_quantity,
+                correction_quantity=0,
+            )
+
         self.transition_stage(work_order_id, stage, StageStatus.DONE)
         work_order = self.get_work_order_process(work_order_id)
         return self._to_stage_work_order_read(work_order, stage)
@@ -87,6 +107,11 @@ class ProcessService:
     def reopen_stage(self, work_order_id: int, stage: ProcessStage) -> ProcessStageWorkOrderRead:
         work_order = self.get_work_order_process(work_order_id)
         stage_state = self._get_stage_state(work_order, stage)
+
+        if work_order.current_active_quantity == 0:
+            raise InvalidProcessStageTransitionError(
+                "Cannot reopen process stages because the work order has no active quantity remaining."
+            )
 
         if stage_state.status == StageStatus.DONE:
             target_status = StageStatus.IN_PROGRESS
@@ -100,6 +125,59 @@ class ProcessService:
         self.transition_stage(work_order_id, stage, target_status)
         work_order = self.get_work_order_process(work_order_id)
         return self._to_stage_work_order_read(work_order, stage)
+
+    def complete_packing(
+        self,
+        work_order_id: int,
+        *,
+        ok_quantity: int,
+        correction_quantity: int,
+    ) -> ProcessStageWorkOrderRead:
+        work_order = self.get_work_order_process(work_order_id)
+        packing_state = self._get_stage_state(work_order, ProcessStage.PACKING)
+
+        if packing_state.status != StageStatus.IN_PROGRESS:
+            raise InvalidProcessStageTransitionError("Packing can be completed only from IN_PROGRESS state.")
+
+        active_batch = work_order.active_batch
+        if active_batch is None:
+            raise InvalidProcessStageTransitionError("No active quantity batch available for packing.")
+
+        active_quantity = active_batch.quantity
+        if ok_quantity + correction_quantity != active_quantity:
+            raise InvalidProcessStageTransitionError(
+                "Packing quantities must add up to the current active quantity."
+            )
+
+        if ok_quantity < 0 or correction_quantity < 0:
+            raise InvalidProcessStageTransitionError("Packing quantities cannot be negative.")
+
+        work_order.completed_quantity += ok_quantity
+
+        if correction_quantity > 0:
+            correction_batch = WorkOrderQuantityBatch(
+                work_order_id=work_order.id,
+                quantity=correction_quantity,
+                type=QuantityBatchType.CORRECTION,
+                parent_batch_id=active_batch.id,
+            )
+            self.repository.add_quantity_batch(correction_batch)
+            work_order.current_active_batch_id = correction_batch.id
+            self._reset_stage_states_for_active_batch(work_order, self.get_correction_return_stage(work_order))
+        else:
+            packing_state.status = StageStatus.DONE
+            packing_state.updated_at = datetime.now(UTC)
+            work_order.current_active_batch_id = None
+
+        try:
+            self.repository.commit()
+        except Exception:
+            self.repository.rollback()
+            raise
+
+        refreshed_work_order = self.get_work_order_process(work_order_id)
+        return_stage = self.get_correction_return_stage(refreshed_work_order) if correction_quantity > 0 else ProcessStage.PACKING
+        return self._to_stage_work_order_read(refreshed_work_order, return_stage)
 
     def list_visible_work_orders(
         self,
@@ -216,6 +294,22 @@ class ProcessService:
                         f"Stage {stage_state.stage.value} requires {previous_stage.value} to be DONE first."
                     )
 
+    def get_correction_return_stage(self, work_order: WorkOrder) -> ProcessStage:
+        stage_sequence = self.get_stage_sequence(work_order.coating_type)
+        if self.DEFAULT_CORRECTION_RETURN_STAGE in stage_sequence:
+            return self.DEFAULT_CORRECTION_RETURN_STAGE
+        return stage_sequence[0]
+
+    def _reset_stage_states_for_active_batch(self, work_order: WorkOrder, return_stage: ProcessStage) -> None:
+        stage_sequence = self.get_stage_sequence(work_order.coating_type)
+        return_stage_index = stage_sequence.index(return_stage)
+        current_timestamp = datetime.now(UTC)
+
+        for index, stage in enumerate(stage_sequence):
+            stage_state = self._get_stage_state(work_order, stage)
+            stage_state.status = StageStatus.DONE if index < return_stage_index else StageStatus.NOT_STARTED
+            stage_state.updated_at = current_timestamp
+
     @staticmethod
     def _get_previous_stage(
         stage_sequence: Sequence[ProcessStage],
@@ -239,6 +333,8 @@ class ProcessService:
             id=work_order.id,
             order_number=work_order.order_number,
             title=work_order.title,
+            total_quantity=work_order.total_quantity,
+            current_active_quantity=work_order.current_active_quantity,
             customer_name=work_order.customer_name,
             queue_position=work_order.queue_position,
             production_type=(

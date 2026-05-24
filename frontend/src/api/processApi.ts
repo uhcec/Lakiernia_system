@@ -59,6 +59,11 @@ export async function startSurfacePreparation(workOrderId: number): Promise<Stag
 
 type StageAction = "start" | "finish" | "reopen";
 
+interface CompletePackingPayload {
+  ok_quantity: number;
+  correction_quantity: number;
+}
+
 export async function transitionStage(
   workOrderId: number,
   stage: ProcessStageValue,
@@ -73,6 +78,26 @@ export async function transitionStage(
 
   if (!response.ok) {
     throw new Error(await readErrorMessage(response, "Nie udało się zmienić statusu"));
+  }
+
+  return response.json() as Promise<StageWorkOrder>;
+}
+
+export async function completePacking(
+  workOrderId: number,
+  payload: CompletePackingPayload,
+): Promise<StageWorkOrder> {
+  const response = await fetch(createApiUrl(`/process/work-orders/${workOrderId}/packing/complete`), {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response, "Nie udało się zakończyć pakowania"));
   }
 
   return response.json() as Promise<StageWorkOrder>;

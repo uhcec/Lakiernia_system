@@ -36,6 +36,11 @@ PROCESS_DISPLAY_STATUS_LABELS_PL = {
     "READY": "Gotowe",
 }
 
+QUANTITY_BATCH_TYPE_LABELS_PL = {
+    "MAIN": "Partia główna",
+    "CORRECTION": "Partia poprawkowa",
+}
+
 
 class CoatingType(StrEnum):
     RAL = "RAL"
@@ -92,6 +97,15 @@ class StageStatus(StrEnum):
         return STAGE_STATUS_LABELS_PL[self.value]
 
 
+class QuantityBatchType(StrEnum):
+    MAIN = "MAIN"
+    CORRECTION = "CORRECTION"
+
+    @property
+    def polish_label(self) -> str:
+        return QUANTITY_BATCH_TYPE_LABELS_PL[self.value]
+
+
 def get_coating_type_label(coating_type: CoatingType) -> str:
     return COATING_TYPE_LABELS_PL[coating_type.value]
 
@@ -110,3 +124,7 @@ def get_stage_status_label(status: StageStatus) -> str:
 
 def get_process_display_status_label(status: ProcessDisplayStatus) -> str:
     return PROCESS_DISPLAY_STATUS_LABELS_PL[status.value]
+
+
+def get_quantity_batch_type_label(batch_type: QuantityBatchType) -> str:
+    return QUANTITY_BATCH_TYPE_LABELS_PL[batch_type.value]

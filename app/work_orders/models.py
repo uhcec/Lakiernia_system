@@ -36,6 +36,9 @@ class WorkOrder(Base):
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     order_number: Mapped[str] = mapped_column(String(32), unique=True, nullable=False)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
+    total_quantity: Mapped[int] = mapped_column(Integer(), nullable=False, default=1)
+    completed_quantity: Mapped[int] = mapped_column(Integer(), nullable=False, default=0)
+    current_active_batch_id: Mapped[int | None] = mapped_column(Integer(), nullable=True)
     description: Mapped[str | None] = mapped_column(Text(), nullable=True)
     customer_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     status: Mapped[WorkOrderStatus] = mapped_column(work_order_status_enum, default=WorkOrderStatus.ENTERED, nullable=False)
@@ -57,3 +60,23 @@ class WorkOrder(Base):
         cascade="all, delete-orphan",
         passive_deletes=True,
     )
+    quantity_batches = relationship(
+        "WorkOrderQuantityBatch",
+        back_populates="work_order",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
+    @property
+    def active_batch(self):
+        for batch in self.quantity_batches:
+            if batch.id == self.current_active_batch_id:
+                return batch
+        return None
+
+    @property
+    def current_active_quantity(self) -> int:
+        active_batch = self.active_batch
+        if active_batch is None:
+            return 0
+        return active_batch.quantity

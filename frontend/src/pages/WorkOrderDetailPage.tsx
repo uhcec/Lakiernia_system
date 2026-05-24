@@ -12,6 +12,13 @@ function formatDate(value: string | null): string {
   return new Intl.DateTimeFormat("pl-PL").format(new Date(value));
 }
 
+function formatDateTime(value: string): string {
+  return new Intl.DateTimeFormat("pl-PL", {
+    dateStyle: "short",
+    timeStyle: "short",
+  }).format(new Date(value));
+}
+
 export function WorkOrderDetailPage() {
   const { id } = useParams();
   const [workOrder, setWorkOrder] = useState<WorkOrder | null>(null);
@@ -109,6 +116,14 @@ export function WorkOrderDetailPage() {
                   <dd className="mt-1 text-base text-ink">{workOrder.coating_type.label}</dd>
                 </div>
                 <div>
+                  <dt className="text-sm font-medium text-steel">Ilość całkowita</dt>
+                  <dd className="mt-1 text-base text-ink">{workOrder.total_quantity}</dd>
+                </div>
+                <div>
+                  <dt className="text-sm font-medium text-steel">Aktywna ilość</dt>
+                  <dd className="mt-1 text-base text-ink">{workOrder.current_active_quantity}</dd>
+                </div>
+                <div>
                   <dt className="text-sm font-medium text-steel">Termin</dt>
                   <dd className="mt-1 text-base text-ink">{formatDate(workOrder.due_date)}</dd>
                 </div>
@@ -154,6 +169,36 @@ export function WorkOrderDetailPage() {
                   <span className="inline-flex w-fit rounded-full bg-mist px-3 py-1 text-xs font-semibold text-ink">
                     {stageState.status.label}
                   </span>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          <section className="rounded-[2rem] border border-white/70 bg-white/80 p-6 shadow-panel backdrop-blur sm:p-8">
+            <h3 className="text-2xl font-semibold text-ink">Historia ilości</h3>
+            <div className="mt-6 space-y-4">
+              {workOrder.batches.map((batch) => (
+                <div key={batch.id} className="rounded-3xl border border-line/80 bg-white p-5">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="space-y-2">
+                      <p className="text-base font-semibold text-ink">
+                        {batch.type.value === "MAIN" ? "Partia główna" : "Poprawka"}: {batch.quantity} szt.
+                      </p>
+                      <p className="text-sm text-steel">Utworzono: {formatDateTime(batch.created_at)}</p>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {batch.is_active ? (
+                        <span className="inline-flex rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800">
+                          Aktywna
+                        </span>
+                      ) : null}
+                      {batch.is_finished ? (
+                        <span className="inline-flex rounded-full bg-mist px-3 py-1 text-xs font-semibold text-ink">
+                          Zakończona
+                        </span>
+                      ) : null}
+                    </div>
+                  </div>
                 </div>
               ))}
             </div>

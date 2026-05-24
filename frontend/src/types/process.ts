@@ -23,6 +23,8 @@ export interface StageWorkOrder {
   id: number;
   order_number: string;
   title: string;
+  total_quantity: number;
+  current_active_quantity: number;
   customer_name: string | null;
   queue_position: number | null;
   production_type: WorkOrderOption<ProductionTypeValue> | null;

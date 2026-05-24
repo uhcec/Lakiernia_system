@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from sqlalchemy import DateTime, Enum, ForeignKey, UniqueConstraint
+from sqlalchemy import DateTime, Enum, ForeignKey, Integer, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database.base import Base
-from app.process.enums import ProcessStage, StageStatus
+from app.process.enums import ProcessStage, QuantityBatchType, StageStatus
 
 
 process_stage_enum = Enum(
@@ -21,6 +21,13 @@ stage_status_enum = Enum(
     name="stage_status",
     native_enum=False,
     values_callable=lambda statuses: [status.value for status in statuses],
+)
+
+quantity_batch_type_enum = Enum(
+    QuantityBatchType,
+    name="quantity_batch_type",
+    native_enum=False,
+    values_callable=lambda batch_types: [batch_type.value for batch_type in batch_types],
 )
 
 
@@ -41,3 +48,17 @@ class WorkOrderStageState(Base):
     )
 
     work_order = relationship("WorkOrder", back_populates="stage_states")
+
+
+class WorkOrderQuantityBatch(Base):
+    __tablename__ = "work_order_quantity_batches"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    work_order_id: Mapped[int] = mapped_column(ForeignKey("work_orders.id", ondelete="CASCADE"), nullable=False)
+    quantity: Mapped[int] = mapped_column(Integer(), nullable=False)
+    type: Mapped[QuantityBatchType] = mapped_column(quantity_batch_type_enum, nullable=False)
+    parent_batch_id: Mapped[int | None] = mapped_column(ForeignKey("work_order_quantity_batches.id", ondelete="SET NULL"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False)
+
+    work_order = relationship("WorkOrder", back_populates="quantity_batches")
+    parent_batch = relationship("WorkOrderQuantityBatch", remote_side="WorkOrderQuantityBatch.id")

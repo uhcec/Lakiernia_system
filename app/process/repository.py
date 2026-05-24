@@ -19,7 +19,7 @@ class ProcessRepository:
     def get_work_order_with_stage_states(self, work_order_id: int) -> WorkOrder | None:
         statement = (
             select(WorkOrder)
-            .options(selectinload(WorkOrder.stage_states))
+            .options(selectinload(WorkOrder.stage_states), selectinload(WorkOrder.quantity_batches))
             .where(WorkOrder.id == work_order_id)
         )
         return self.session.scalar(statement)
@@ -40,7 +40,7 @@ class ProcessRepository:
         statement = (
             select(WorkOrder)
             .join(WorkOrderStageState, WorkOrderStageState.work_order_id == WorkOrder.id)
-            .options(selectinload(WorkOrder.stage_states))
+            .options(selectinload(WorkOrder.stage_states), selectinload(WorkOrder.quantity_batches))
             .where(WorkOrderStageState.stage == stage)
             .order_by(WorkOrder.queue_position.asc(), WorkOrder.id.asc())
         )
@@ -49,6 +49,10 @@ class ProcessRepository:
             statement = statement.where(WorkOrder.production_type == production_type)
 
         return self.session.scalars(statement).unique().all()
+
+    def add_quantity_batch(self, batch) -> None:
+        self.session.add(batch)
+        self.session.flush()
 
     def commit(self) -> None:
         self.session.commit()

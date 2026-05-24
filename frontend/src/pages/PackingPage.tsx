@@ -1,5 +1,5 @@
-import { StageWorkOrdersPage } from "../components/StageWorkOrdersPage";
+import { PackingWorkOrdersPage } from "../components/PackingWorkOrdersPage";
 
 export function PackingPage() {
-  return <StageWorkOrdersPage stage="PACKING" title="Pakowanie" emptyMessage="Brak zleceń do pakowania" />;
+  return <PackingWorkOrdersPage />;
 }

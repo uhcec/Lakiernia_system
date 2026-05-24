@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from app.database.session import get_db_session
 from app.process.enums import ProcessStage, ProductionType
 from app.process.repository import ProcessRepository
-from app.process.schemas import ProcessStageWorkOrderRead
+from app.process.schemas import PackingCompleteRequest, ProcessStageWorkOrderRead
 from app.process.service import ProcessService
 
 router = APIRouter(prefix="/process", tags=["process"])
@@ -51,3 +51,16 @@ def reopen_stage(
     service: Annotated[ProcessService, Depends(get_process_service)],
 ) -> ProcessStageWorkOrderRead:
     return service.reopen_stage(work_order_id, stage)
+
+
+@router.post("/work-orders/{work_order_id}/packing/complete", response_model=ProcessStageWorkOrderRead)
+def complete_packing(
+    work_order_id: int,
+    payload: PackingCompleteRequest,
+    service: Annotated[ProcessService, Depends(get_process_service)],
+) -> ProcessStageWorkOrderRead:
+    return service.complete_packing(
+        work_order_id,
+        ok_quantity=payload.ok_quantity,
+        correction_quantity=payload.correction_quantity,
+    )

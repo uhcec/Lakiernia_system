@@ -7,11 +7,13 @@ from app.process.enums import (
     ProcessDisplayStatus,
     ProcessStage,
     ProductionType,
+    QuantityBatchType,
     StageStatus,
     get_coating_type_label,
     get_process_display_status_label,
     get_process_stage_label,
     get_production_type_label,
+    get_quantity_batch_type_label,
     get_stage_status_label,
 )
 from app.shared.enums import WorkOrderStatus
@@ -59,8 +61,24 @@ class WorkOrderStageStateRead(BaseModel):
     status: StageStatusInfoView
 
 
+class QuantityBatchTypeView(BaseModel):
+    value: QuantityBatchType
+    label: str
+
+
+class WorkOrderQuantityBatchRead(BaseModel):
+    id: int
+    quantity: int
+    type: QuantityBatchTypeView
+    parent_batch_id: int | None
+    is_active: bool
+    is_finished: bool
+    created_at: datetime
+
+
 class WorkOrderCreate(BaseModel):
     title: str = Field(min_length=1, max_length=255)
+    total_quantity: int = Field(default=1, gt=0)
     description: str | None = None
     customer_name: str | None = Field(default=None, max_length=255)
     coating_type: CoatingType
@@ -91,6 +109,8 @@ class WorkOrderRead(BaseModel):
     id: int
     order_number: str
     title: str
+    total_quantity: int
+    current_active_quantity: int
     description: str | None
     customer_name: str | None
     status: WorkOrderStatusView = Field(description="Legacy/internal field kept for backward compatibility. Active clients should use process_status and stage_states.")
@@ -99,6 +119,7 @@ class WorkOrderRead(BaseModel):
     production_type: ProductionTypeView | None
     queue_position: int | None
     stage_states: list[WorkOrderStageStateRead]
+    batches: list[WorkOrderQuantityBatchRead]
     due_date: date | None
     notes: str | None
     created_at: datetime
@@ -123,6 +144,10 @@ def build_process_stage_view(stage: ProcessStage) -> ProcessStageView:
 
 def build_stage_status_info_view(status: StageStatus) -> StageStatusInfoView:
     return StageStatusInfoView(value=status, label=get_stage_status_label(status))
+
+
+def build_quantity_batch_type_view(batch_type: QuantityBatchType) -> QuantityBatchTypeView:
+    return QuantityBatchTypeView(value=batch_type, label=get_quantity_batch_type_label(batch_type))
 
 
 class WorkOrderListResponse(BaseModel):
