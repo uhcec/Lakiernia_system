@@ -110,6 +110,7 @@ class WorkOrderRead(BaseModel):
     order_number: str
     title: str
     total_quantity: int
+    completed_quantity: int
     current_active_quantity: int
     description: str | None
     customer_name: str | None

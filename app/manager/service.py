@@ -84,6 +84,7 @@ class ManagerService:
             order_number=work_order.order_number,
             title=work_order.title,
             total_quantity=work_order.total_quantity,
+            completed_quantity=work_order.completed_quantity,
             current_active_quantity=work_order.current_active_quantity,
             description=work_order.description,
             customer_name=work_order.customer_name,

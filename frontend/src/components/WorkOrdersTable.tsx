@@ -30,6 +30,31 @@ function statusClasses(statusValue: WorkOrder["process_status"]["value"]): strin
 export function WorkOrdersTable({ workOrders }: WorkOrdersTableProps) {
   const navigate = useNavigate();
 
+  function renderQuantitySummary(workOrder: WorkOrder) {
+    const totalQuantity = workOrder.total_quantity ?? null;
+    const completedQuantity = workOrder.completed_quantity ?? null;
+    const activeQuantity = workOrder.current_active_quantity ?? null;
+
+    if (totalQuantity === null || completedQuantity === null || activeQuantity === null) {
+      return <span className="text-steel">—</span>;
+    }
+
+    return (
+      <div className="space-y-2">
+        <p className="text-sm text-ink">{`${totalQuantity} szt. / gotowe ${completedQuantity} / aktywne ${activeQuantity}`}</p>
+        {activeQuantity > 0 ? (
+          <span className="inline-flex rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800">
+            Aktywne: {activeQuantity}
+          </span>
+        ) : (
+          <span className="inline-flex rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700">
+            Gotowe
+          </span>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="overflow-hidden rounded-3xl border border-line bg-white shadow-panel">
       <div className="overflow-x-auto">
@@ -42,6 +67,7 @@ export function WorkOrdersTable({ workOrders }: WorkOrdersTableProps) {
               <th className="px-5 py-4 font-semibold">Technologia</th>
               <th className="px-5 py-4 font-semibold">Typ produkcji</th>
               <th className="px-5 py-4 font-semibold">Pozycja</th>
+              <th className="px-5 py-4 font-semibold">Ilość</th>
               <th className="px-5 py-4 font-semibold">Status procesu</th>
               <th className="px-5 py-4 font-semibold text-right">Szczegóły</th>
             </tr>
@@ -59,6 +85,7 @@ export function WorkOrdersTable({ workOrders }: WorkOrdersTableProps) {
                 <td className="px-5 py-4 text-steel">{workOrder.coating_type.label}</td>
                 <td className="px-5 py-4 text-steel">{workOrder.production_type?.label ?? "—"}</td>
                 <td className="px-5 py-4 text-steel">{workOrder.queue_position ?? "—"}</td>
+                <td className="px-5 py-4 text-steel">{renderQuantitySummary(workOrder)}</td>
                 <td className="px-5 py-4">
                   <span className={["inline-flex rounded-full px-3 py-1 text-xs font-semibold", statusClasses(workOrder.process_status.value)].join(" ")}>
                     {workOrder.process_status.label}

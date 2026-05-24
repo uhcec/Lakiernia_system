@@ -33,6 +33,7 @@ def test_create_work_order(test_client: TestClient) -> None:
     assert body["order_number"].startswith("WO-")
     assert body["title"] == "New generic work order"
     assert body["total_quantity"] == 250
+    assert body["completed_quantity"] == 0
     assert body["current_active_quantity"] == 250
     assert body["description"] == "Initial intake"
     assert body["customer_name"] == "ACME"
@@ -94,6 +95,7 @@ def test_get_work_order_by_id(test_client: TestClient) -> None:
     assert response.json()["id"] == created["id"]
     assert response.json()["order_number"] == created["order_number"]
     assert response.json()["total_quantity"] == 100
+    assert response.json()["completed_quantity"] == 0
     assert response.json()["current_active_quantity"] == 100
     assert response.json()["batches"] == [
         {
@@ -226,7 +228,28 @@ def test_list_work_orders(test_client: TestClient) -> None:
     assert body["offset"] == 0
     assert len(body["items"]) == 2
     assert body["items"][0]["total_quantity"] == 10
+    assert body["items"][0]["completed_quantity"] == 0
     assert body["items"][0]["process_status"] == {"value": "TO_BE_PLANNED", "label": "Do zaplanowania"}
+
+
+def test_list_work_orders_includes_quantity_progress_fields(test_client: TestClient) -> None:
+    created = create_work_order(test_client, title="Progress list", coating_type="RAL", total_quantity=100).json()
+    test_client.post(f"/manager/work-orders/{created['id']}/plan", json={"production_type": "MANUAL", "queue_position": 1})
+    for stage in ["SURFACE_PREPARATION", "HANGING", "PRODUCTION"]:
+        test_client.post(f"/process/work-orders/{created['id']}/stages/{stage}/start")
+        test_client.post(f"/process/work-orders/{created['id']}/stages/{stage}/finish")
+    test_client.post(f"/process/work-orders/{created['id']}/stages/PACKING/start")
+    test_client.post(
+        f"/process/work-orders/{created['id']}/packing/complete",
+        json={"ok_quantity": 98, "correction_quantity": 2},
+    )
+
+    response = test_client.get("/work-orders")
+
+    assert response.status_code == 200
+    assert response.json()["items"][0]["total_quantity"] == 100
+    assert response.json()["items"][0]["completed_quantity"] == 98
+    assert response.json()["items"][0]["current_active_quantity"] == 2
 
 
 def test_list_work_orders_can_filter_by_status(test_client: TestClient) -> None:

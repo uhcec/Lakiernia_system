@@ -64,6 +64,7 @@ export interface WorkOrder {
   order_number: string;
   title: string;
   total_quantity: number;
+  completed_quantity: number;
   current_active_quantity: number;
   description: string | null;
   customer_name: string | null;
