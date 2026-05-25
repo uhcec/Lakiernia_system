@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 
 import { completePacking, fetchStageWorkOrders, transitionStage } from "../api/processApi";
 import type { StageWorkOrder, StageStatusValue } from "../types/process";
+import { formatWorkOrderPrimaryInfo } from "../utils/workOrderDisplay";
 
 interface PackingDraft {
   countedQuantity: string;
@@ -163,7 +164,7 @@ export function PackingWorkOrdersPage() {
               <tr>
                 <th className="px-5 py-4 font-semibold">Pozycja</th>
                 <th className="px-5 py-4 font-semibold">Nr zlecenia</th>
-                <th className="px-5 py-4 font-semibold">Tytuł</th>
+                <th className="px-5 py-4 font-semibold">Dane główne</th>
                 <th className="px-5 py-4 font-semibold">Plan</th>
                 <th className="px-5 py-4 font-semibold">Policzono</th>
                 <th className="px-5 py-4 font-semibold">Różnica</th>
@@ -199,7 +200,7 @@ export function PackingWorkOrdersPage() {
                   <tr key={`${workOrder.id}-${draftKey}`} className="border-t border-line/80 text-ink align-top">
                     <td className="px-5 py-4 font-semibold">{workOrder.queue_position ?? "-"}</td>
                     <td className="px-5 py-4 font-semibold">{workOrder.order_number}</td>
-                    <td className="px-5 py-4">{workOrder.title}</td>
+                    <td className="px-5 py-4 text-steel">{formatWorkOrderPrimaryInfo(workOrder)}</td>
                     <td className="px-5 py-4 font-semibold">{workOrder.planned_quantity}</td>
                     <td className="px-5 py-4">
                       {status === "IN_PROGRESS" ? (

@@ -83,6 +83,9 @@ class WorkOrderRelationSummaryRead(BaseModel):
     id: int
     order_number: str
     title: str
+    customer_name: str
+    ral_code: str
+    total_area_m2: float | None
     total_quantity: int
 
 
@@ -94,7 +97,7 @@ def _validate_counting_rule(field_name: str, quantity: int | None, to_count: boo
 
 
 class WorkOrderCreate(BaseModel):
-    title: str = Field(min_length=1, max_length=255)
+    title: str | None = Field(default=None, min_length=1, max_length=255)
     total_quantity: int = Field(default=1, gt=0)
     description: str | None = None
     customer_name: str = Field(min_length=1, max_length=255)
@@ -209,6 +212,9 @@ def build_work_order_relation_summary(work_order: "WorkOrder") -> WorkOrderRelat
         id=work_order.id,
         order_number=work_order.order_number,
         title=work_order.title,
+        customer_name=work_order.customer_name,
+        ral_code=work_order.ral_code,
+        total_area_m2=work_order.total_area_m2,
         total_quantity=work_order.total_quantity,
     )
 

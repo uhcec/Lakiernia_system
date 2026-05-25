@@ -24,6 +24,8 @@ export interface StageWorkOrder {
   batch_id: number | null;
   order_number: string;
   title: string;
+  ral_code: string;
+  total_area_m2: number | null;
   total_quantity: number;
   current_active_quantity: number;
   batch_quantity: number | null;

@@ -5,7 +5,6 @@ import { createWorkOrder } from "../api/workOrdersApi";
 import type { CoatingTypeValue } from "../types/workOrders";
 
 interface FormState {
-  title: string;
   total_quantity: string;
   coating_type: CoatingTypeValue | "";
   description: string;
@@ -24,7 +23,6 @@ interface FormState {
 }
 
 const initialFormState: FormState = {
-  title: "",
   total_quantity: "1",
   coating_type: "",
   description: "",
@@ -94,12 +92,6 @@ export function CreateWorkOrderPage() {
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    const trimmedTitle = formState.title.trim();
-    if (!trimmedTitle) {
-      setValidationError("Tytuł jest wymagany");
-      return;
-    }
-
     const trimmedCustomerName = formState.customer_name.trim();
     if (!trimmedCustomerName) {
       setValidationError("Klient jest wymagany");
@@ -166,7 +158,6 @@ export function CreateWorkOrderPage() {
 
     try {
       await createWorkOrder({
-        title: trimmedTitle,
         total_quantity: totalQuantity,
         coating_type: formState.coating_type,
         description: formState.description.trim() || undefined,
@@ -208,16 +199,6 @@ export function CreateWorkOrderPage() {
       <section className="rounded-[2rem] border border-white/70 bg-white/80 p-6 shadow-panel backdrop-blur sm:p-8">
         <form className="space-y-6" onSubmit={handleSubmit}>
           <div className="grid gap-5 md:grid-cols-2">
-            <label className="flex flex-col gap-2 md:col-span-2">
-              <span className="text-sm font-medium text-ink">Tytuł</span>
-              <input
-                value={formState.title}
-                onChange={(event) => updateField("title", event.target.value)}
-                className="rounded-2xl border border-line bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-accent"
-                placeholder="Tytuł"
-              />
-            </label>
-
             <label className="flex flex-col gap-2 md:col-span-2">
               <span className="text-sm font-medium text-ink">Opis</span>
               <textarea

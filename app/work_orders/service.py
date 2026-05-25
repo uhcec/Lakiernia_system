@@ -46,10 +46,11 @@ class WorkOrderService:
 
     def create_work_order(self, payload: WorkOrderCreate) -> WorkOrderRead:
         initial_status = WorkOrderStatus.INCOMPLETE if payload.is_incomplete_on_arrival else WorkOrderStatus.ENTERED
+        order_number = self._generate_order_number()
 
         work_order = WorkOrder(
-            order_number=self._generate_order_number(),
-            title=payload.title,
+            order_number=order_number,
+            title=payload.title or order_number,
             total_quantity=payload.total_quantity,
             description=payload.description,
             customer_name=payload.customer_name,

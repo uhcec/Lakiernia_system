@@ -982,6 +982,8 @@ class ProcessService:
             batch_id=batch_id,
             order_number=work_order.order_number,
             title=work_order.title,
+            ral_code=work_order.ral_code,
+            total_area_m2=work_order.total_area_m2,
             total_quantity=work_order.total_quantity,
             current_active_quantity=batch_quantity,
             batch_quantity=batch_quantity,

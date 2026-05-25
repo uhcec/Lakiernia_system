@@ -110,6 +110,18 @@ def test_create_work_order(test_client: TestClient) -> None:
     assert body["updated_at"]
 
 
+def test_create_work_order_without_title_uses_order_number_as_fallback(test_client: TestClient) -> None:
+    payload = build_create_payload(total_quantity=10)
+    payload.pop("title")
+
+    response = test_client.post("/work-orders", json=payload)
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["order_number"].startswith("WO-")
+    assert body["title"] == body["order_number"]
+
+
 def test_create_work_order_with_missing_optional_fields(test_client: TestClient) -> None:
     response = create_work_order(
         test_client,
@@ -387,15 +399,6 @@ def test_list_work_orders_can_filter_by_status(test_client: TestClient) -> None:
     assert body["total"] == 1
     assert len(body["items"]) == 1
     assert body["items"][0]["status"] == {"value": "ENTERED", "label": "Wprowadzone"}
-
-
-def test_missing_title_returns_validation_error(test_client: TestClient) -> None:
-    payload = build_create_payload(total_quantity=10)
-    payload.pop("title")
-
-    response = test_client.post("/work-orders", json=payload)
-
-    assert response.status_code == 422
 
 
 def test_profiles_and_accessories_require_quantity_or_to_count_flag(test_client: TestClient) -> None:

@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { fetchStageWorkOrders, transitionStage } from "../api/processApi";
 import type { ProcessStageValue, StageWorkOrder, StageStatusValue } from "../types/process";
 import type { ProductionTypeValue } from "../types/workOrders";
+import { formatWorkOrderPrimaryInfo } from "../utils/workOrderDisplay";
 
 interface StageWorkOrdersPageProps {
   stage: ProcessStageValue;
@@ -201,8 +202,7 @@ export function StageWorkOrdersPage({
               <tr>
                 <th className="px-5 py-4 font-semibold">Pozycja</th>
                 <th className="px-5 py-4 font-semibold">Nr zlecenia</th>
-                <th className="px-5 py-4 font-semibold">Tytuł</th>
-                <th className="px-5 py-4 font-semibold">Firma</th>
+                <th className="px-5 py-4 font-semibold">Dane główne</th>
                 <th className="px-5 py-4 font-semibold">Partia</th>
                 <th className="px-5 py-4 font-semibold">Plan</th>
                 {isSurfacePreparationStage ? <th className="px-5 py-4 font-semibold">Policzono</th> : null}
@@ -233,8 +233,7 @@ export function StageWorkOrdersPage({
                   <tr key={rowKey} className="border-t border-line/80 text-ink">
                     <td className="px-5 py-4 font-semibold">{workOrder.queue_position ?? "-"}</td>
                     <td className="px-5 py-4 font-semibold">{workOrder.order_number}</td>
-                    <td className="px-5 py-4">{workOrder.title}</td>
-                    <td className="px-5 py-4 text-steel">{workOrder.customer_name || "-"}</td>
+                    <td className="px-5 py-4 text-steel">{formatWorkOrderPrimaryInfo(workOrder)}</td>
                     <td className="px-5 py-4 text-steel">
                       <div className="flex flex-wrap gap-2">
                         <span>{getBatchTypeLabel(workOrder.batch_type)}</span>

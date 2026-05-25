@@ -3,6 +3,7 @@ import { Link, useParams } from "react-router-dom";
 
 import { fetchWorkOrder, markWorkOrderCompleteArrival } from "../api/workOrdersApi";
 import type { WorkOrder } from "../types/workOrders";
+import { formatWorkOrderPrimaryInfo } from "../utils/workOrderDisplay";
 
 function formatDate(value: string | null): string {
   if (!value) {
@@ -114,7 +115,7 @@ export function WorkOrderDetailPage() {
           <div className="space-y-2">
             <p className="text-sm font-semibold uppercase tracking-[0.18em] text-accent">Szczegóły zlecenia</p>
             <div>
-              <h2 className="text-3xl font-semibold text-ink sm:text-4xl">{workOrder?.title ?? "Zlecenie"}</h2>
+              <h2 className="text-3xl font-semibold text-ink sm:text-4xl">{workOrder ? formatWorkOrderPrimaryInfo(workOrder) : "Zlecenie"}</h2>
               <p className="mt-2 max-w-3xl text-sm leading-6 text-steel sm:text-base">
                 Podgląd danych biurowych, planowania i aktualnych etapów procesu bez możliwości edycji.
               </p>
@@ -148,9 +149,9 @@ export function WorkOrderDetailPage() {
                   <dd className="mt-1 text-base font-semibold text-ink">{workOrder.order_number}</dd>
                 </div>
                 <div>
-                  <dt className="text-sm font-medium text-steel">Tytuł</dt>
+                  <dt className="text-sm font-medium text-steel">Dane główne</dt>
                   <dd className="mt-1 flex flex-wrap items-center gap-2 text-base font-semibold text-ink">
-                    <span>{workOrder.title}</span>
+                    <span>{formatWorkOrderPrimaryInfo(workOrder)}</span>
                     {workOrder.is_correction ? (
                       <span className="inline-flex rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800">
                         Poprawka
@@ -215,7 +216,7 @@ export function WorkOrderDetailPage() {
                   <dd className="mt-1 text-base text-ink">
                     {workOrder.parent_order ? (
                       <Link to={`/zlecenia/${workOrder.parent_order.id}`} className="font-semibold text-accent hover:underline">
-                        {workOrder.parent_order.order_number} · {workOrder.parent_order.title} · {workOrder.parent_order.total_quantity} szt.
+                        {formatWorkOrderPrimaryInfo(workOrder.parent_order)} · {workOrder.parent_order.total_quantity} szt.
                       </Link>
                     ) : (
                       "-"
@@ -233,7 +234,7 @@ export function WorkOrderDetailPage() {
                             to={`/zlecenia/${correctionOrder.id}`}
                             className="font-semibold text-accent hover:underline"
                           >
-                            {correctionOrder.order_number} · {correctionOrder.title} · {correctionOrder.total_quantity} szt.
+                            {formatWorkOrderPrimaryInfo(correctionOrder)} · {correctionOrder.total_quantity} szt.
                           </Link>
                         ))}
                       </div>

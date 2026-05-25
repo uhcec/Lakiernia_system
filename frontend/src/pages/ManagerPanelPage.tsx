@@ -7,6 +7,7 @@ import {
   reorderWorkOrderQueue,
 } from "../api/managerApi";
 import type { ProductionTypeValue, WorkOrder } from "../types/workOrders";
+import { formatWorkOrderPrimaryInfo } from "../utils/workOrderDisplay";
 
 interface PlanDraft {
   productionType: ProductionTypeValue;
@@ -244,8 +245,7 @@ export function ManagerPanelPage() {
                       Przeciągnij, aby zmienić kolejność
                     </span>
                   </div>
-                  <h4 className="text-lg font-semibold text-ink">{workOrder.title}</h4>
-                  <p className="text-sm text-steel">{workOrder.customer_name || "Brak firmy"}</p>
+                  <h4 className="text-lg font-semibold text-ink">{formatWorkOrderPrimaryInfo(workOrder)}</h4>
                 </div>
               </div>
 
@@ -271,8 +271,7 @@ export function ManagerPanelPage() {
               <tr>
                 <th className="px-5 py-4 font-semibold">Pozycja</th>
                 <th className="px-5 py-4 font-semibold">Numer</th>
-                <th className="px-5 py-4 font-semibold">Tytuł</th>
-                <th className="px-5 py-4 font-semibold">Firma</th>
+                <th className="px-5 py-4 font-semibold">Dane główne</th>
                 <th className="px-5 py-4 font-semibold">Typ produkcji</th>
               </tr>
             </thead>
@@ -281,8 +280,7 @@ export function ManagerPanelPage() {
                 <tr key={workOrder.id} className="border-t border-line/80 text-ink">
                     <td className="px-5 py-4 font-semibold">{workOrder.queue_position ?? "-"}</td>
                     <td className="px-5 py-4 font-semibold">{workOrder.order_number}</td>
-                    <td className="px-5 py-4">{workOrder.title}</td>
-                    <td className="px-5 py-4 text-steel">{workOrder.customer_name || "-"}</td>
+                    <td className="px-5 py-4 text-steel">{formatWorkOrderPrimaryInfo(workOrder)}</td>
                     <td className="px-5 py-4 text-steel">{getProductionTypeLabel(workOrder.production_type?.value)}</td>
                   </tr>
               ))}
@@ -357,8 +355,7 @@ export function ManagerPanelPage() {
                     <div className="flex flex-col gap-4">
                       <div>
                         <p className="text-xs font-semibold uppercase tracking-[0.14em] text-accent">{workOrder.order_number}</p>
-                        <h4 className="mt-2 text-lg font-semibold text-ink">{workOrder.title}</h4>
-                        <p className="mt-1 text-sm text-steel">{workOrder.customer_name || "Brak firmy"}</p>
+                        <h4 className="mt-2 text-lg font-semibold text-ink">{formatWorkOrderPrimaryInfo(workOrder)}</h4>
                       </div>
 
                       <div className="grid gap-4 md:grid-cols-[1fr_160px]">

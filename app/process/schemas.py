@@ -19,6 +19,8 @@ class ProcessStageWorkOrderRead(BaseModel):
     batch_id: int | None = None
     order_number: str
     title: str
+    ral_code: str
+    total_area_m2: float | None = None
     total_quantity: int
     current_active_quantity: int
     batch_quantity: int | None = None

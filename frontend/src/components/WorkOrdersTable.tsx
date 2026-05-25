@@ -1,6 +1,7 @@
 import { Link, useNavigate } from "react-router-dom";
 
 import type { WorkOrder } from "../types/workOrders";
+import { formatWorkOrderPrimaryInfo } from "../utils/workOrderDisplay";
 
 interface WorkOrdersTableProps {
   workOrders: WorkOrder[];
@@ -64,8 +65,7 @@ export function WorkOrdersTable({ workOrders }: WorkOrdersTableProps) {
           <thead className="bg-mist text-steel">
             <tr>
               <th className="px-5 py-4 font-semibold">Nr zlecenia</th>
-              <th className="px-5 py-4 font-semibold">Tytuł</th>
-              <th className="px-5 py-4 font-semibold">Firma</th>
+              <th className="px-5 py-4 font-semibold">Dane główne</th>
               <th className="px-5 py-4 font-semibold">Technologia</th>
               <th className="px-5 py-4 font-semibold">Typ produkcji</th>
               <th className="px-5 py-4 font-semibold">Pozycja</th>
@@ -82,8 +82,7 @@ export function WorkOrdersTable({ workOrders }: WorkOrdersTableProps) {
                 onClick={() => navigate(`/zlecenia/${workOrder.id}`)}
               >
                 <td className="px-5 py-4 font-semibold">{workOrder.order_number}</td>
-                <td className="px-5 py-4">{workOrder.title}</td>
-                <td className="px-5 py-4 text-steel">{workOrder.customer_name || "—"}</td>
+                <td className="px-5 py-4 text-steel">{formatWorkOrderPrimaryInfo(workOrder)}</td>
                 <td className="px-5 py-4 text-steel">{workOrder.coating_type.label}</td>
                 <td className="px-5 py-4 text-steel">{workOrder.production_type?.label ?? "—"}</td>
                 <td className="px-5 py-4 text-steel">{workOrder.queue_position ?? "—"}</td>

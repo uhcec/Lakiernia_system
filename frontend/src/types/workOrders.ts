@@ -64,6 +64,9 @@ export interface WorkOrderRelationSummary {
   id: number;
   order_number: string;
   title: string;
+  customer_name: string;
+  ral_code: string;
+  total_area_m2: number | null;
   total_quantity: number;
 }
 
@@ -109,7 +112,7 @@ export interface WorkOrdersListResponse {
 }
 
 export interface CreateWorkOrderRequest {
-  title: string;
+  title?: string;
   coating_type: CoatingTypeValue;
   total_quantity?: number;
   customer_name: string;
