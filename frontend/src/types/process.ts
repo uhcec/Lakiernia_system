@@ -27,6 +27,9 @@ export interface StageWorkOrder {
   total_quantity: number;
   current_active_quantity: number;
   batch_quantity: number | null;
+  planned_quantity: number;
+  counted_quantity: number | null;
+  quantity_difference: number | null;
   customer_name: string | null;
   queue_position: number | null;
   production_type: WorkOrderOption<ProductionTypeValue> | null;

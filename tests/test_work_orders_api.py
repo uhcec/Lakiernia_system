@@ -25,10 +25,24 @@ def create_work_order(test_client: TestClient, **overrides: object):
     return test_client.post("/work-orders", json=build_create_payload(**overrides))
 
 
+def start_surface_preparation(test_client: TestClient, work_order_id: int, counted_quantity: int | None = None) -> None:
+    if counted_quantity is None:
+        detail = test_client.get(f"/work-orders/{work_order_id}").json()
+        counted_quantity = detail["current_active_quantity"]
+
+    test_client.post(
+        f"/process/work-orders/{work_order_id}/stages/SURFACE_PREPARATION/start",
+        json={"counted_quantity": counted_quantity},
+    )
+
+
 def finish_ral_work_order(test_client: TestClient, work_order_id: int) -> None:
     test_client.post(f"/manager/work-orders/{work_order_id}/plan", json={"production_type": "MANUAL", "queue_position": 1})
     for stage in ["SURFACE_PREPARATION", "HANGING", "PRODUCTION", "PACKING"]:
-        test_client.post(f"/process/work-orders/{work_order_id}/stages/{stage}/start")
+        if stage == "SURFACE_PREPARATION":
+            start_surface_preparation(test_client, work_order_id)
+        else:
+            test_client.post(f"/process/work-orders/{work_order_id}/stages/{stage}/start")
         test_client.post(f"/process/work-orders/{work_order_id}/stages/{stage}/finish")
 
 
@@ -324,7 +338,10 @@ def test_list_work_orders_includes_quantity_progress_fields(test_client: TestCli
     created = create_work_order(test_client, title="Progress list", coating_type="RAL", total_quantity=100).json()
     test_client.post(f"/manager/work-orders/{created['id']}/plan", json={"production_type": "MANUAL", "queue_position": 1})
     for stage in ["SURFACE_PREPARATION", "HANGING", "PRODUCTION"]:
-        test_client.post(f"/process/work-orders/{created['id']}/stages/{stage}/start")
+        if stage == "SURFACE_PREPARATION":
+            start_surface_preparation(test_client, created["id"])
+        else:
+            test_client.post(f"/process/work-orders/{created['id']}/stages/{stage}/start")
         test_client.post(f"/process/work-orders/{created['id']}/stages/{stage}/finish")
     test_client.post(f"/process/work-orders/{created['id']}/stages/PACKING/start")
     test_client.post(
@@ -563,7 +580,10 @@ def test_work_order_detail_returns_batches_in_created_order_with_main_and_correc
     created = create_work_order(test_client, title="Batch history", coating_type="RAL", total_quantity=100).json()
     test_client.post(f"/manager/work-orders/{created['id']}/plan", json={"production_type": "MANUAL", "queue_position": 1})
     for stage in ["SURFACE_PREPARATION", "HANGING", "PRODUCTION"]:
-        test_client.post(f"/process/work-orders/{created['id']}/stages/{stage}/start")
+        if stage == "SURFACE_PREPARATION":
+            start_surface_preparation(test_client, created["id"])
+        else:
+            test_client.post(f"/process/work-orders/{created['id']}/stages/{stage}/start")
         test_client.post(f"/process/work-orders/{created['id']}/stages/{stage}/finish")
     test_client.post(f"/process/work-orders/{created['id']}/stages/PACKING/start")
     test_client.post(

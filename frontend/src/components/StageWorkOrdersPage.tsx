@@ -60,6 +60,9 @@ export function StageWorkOrdersPage({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [activeWorkOrderId, setActiveWorkOrderId] = useState<number | null>(null);
   const [showCompleted, setShowCompleted] = useState(false);
+  const [countedQuantities, setCountedQuantities] = useState<Record<number, string>>({});
+
+  const isSurfacePreparationStage = stage === "SURFACE_PREPARATION";
 
   const activeWorkOrders = workOrders.filter((workOrder) => workOrder.stage_status.status.value !== "DONE");
   const completedWorkOrders = workOrders.filter((workOrder) => workOrder.stage_status.status.value === "DONE");
@@ -71,6 +74,15 @@ export function StageWorkOrdersPage({
     try {
       const items = await fetchStageWorkOrders(stage, productionType);
       setWorkOrders(items);
+      if (stage === "SURFACE_PREPARATION") {
+        setCountedQuantities((current) => {
+          const next: Record<number, string> = {};
+          for (const item of items) {
+            next[item.id] = current[item.id] ?? (item.counted_quantity?.toString() ?? "");
+          }
+          return next;
+        });
+      }
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "Nie udało się pobrać zleceń");
     } finally {
@@ -82,12 +94,43 @@ export function StageWorkOrdersPage({
     void loadWorkOrders();
   }, [stage, productionType]);
 
+  function parseCountedQuantity(value: string): number | null {
+    if (!value.trim()) {
+      return null;
+    }
+
+    const parsed = Number(value);
+    if (!Number.isInteger(parsed) || parsed <= 0) {
+      return null;
+    }
+
+    return parsed;
+  }
+
+  function formatDifference(value: number): string {
+    if (value > 0) {
+      return `+${value}`;
+    }
+
+    return value.toString();
+  }
+
   async function handleAction(workOrder: StageWorkOrder) {
     setActiveWorkOrderId(workOrder.id);
     setErrorMessage(null);
 
+    const countedQuantity = isSurfacePreparationStage && workOrder.stage_status.status.value === "NOT_STARTED"
+      ? parseCountedQuantity(countedQuantities[workOrder.id] ?? "")
+      : null;
+
     try {
-      await transitionStage(workOrder.id, stage, getStageAction(workOrder.stage_status.status.value), workOrder.batch_id ?? undefined);
+      await transitionStage(
+        workOrder.id,
+        stage,
+        getStageAction(workOrder.stage_status.status.value),
+        workOrder.batch_id ?? undefined,
+        countedQuantity !== null ? { counted_quantity: countedQuantity } : undefined,
+      );
       await loadWorkOrders();
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "Nie udało się zmienić statusu");
@@ -121,6 +164,18 @@ export function StageWorkOrdersPage({
     return true;
   }
 
+  function isActionEnabled(workOrder: StageWorkOrder): boolean {
+    if (!canTriggerAction(workOrder)) {
+      return false;
+    }
+
+    if (isSurfacePreparationStage && workOrder.stage_status.status.value === "NOT_STARTED") {
+      return parseCountedQuantity(countedQuantities[workOrder.id] ?? "") !== null;
+    }
+
+    return true;
+  }
+
   function getUnavailableLabel(workOrder: StageWorkOrder): string {
     if (readOnly) {
       return readOnlyLabel;
@@ -149,7 +204,9 @@ export function StageWorkOrdersPage({
                 <th className="px-5 py-4 font-semibold">Tytuł</th>
                 <th className="px-5 py-4 font-semibold">Firma</th>
                 <th className="px-5 py-4 font-semibold">Partia</th>
-                <th className="px-5 py-4 font-semibold">Ilość</th>
+                <th className="px-5 py-4 font-semibold">Plan</th>
+                {isSurfacePreparationStage ? <th className="px-5 py-4 font-semibold">Policzono</th> : null}
+                {isSurfacePreparationStage ? <th className="px-5 py-4 font-semibold">Różnica</th> : null}
                 <th className="px-5 py-4 font-semibold">Technologia</th>
                 <th className="px-5 py-4 font-semibold">Typ produkcji</th>
                 <th className="px-5 py-4 font-semibold">Status etapu</th>
@@ -161,7 +218,16 @@ export function StageWorkOrdersPage({
                 const status = workOrder.stage_status.status.value;
                 const isSubmitting = activeWorkOrderId === workOrder.id;
                 const showActionButton = canTriggerAction(workOrder);
+                const isActionButtonEnabled = isActionEnabled(workOrder);
                 const rowKey = `${workOrder.id}-${workOrder.batch_id ?? workOrder.id}-${stage}`;
+                const countedDraft = countedQuantities[workOrder.id] ?? "";
+                const parsedCountedQuantity = parseCountedQuantity(countedDraft);
+                const difference =
+                  status === "NOT_STARTED"
+                    ? parsedCountedQuantity !== null
+                      ? parsedCountedQuantity - workOrder.planned_quantity
+                      : null
+                    : workOrder.quantity_difference;
 
                 return (
                   <tr key={rowKey} className="border-t border-line/80 text-ink">
@@ -179,7 +245,41 @@ export function StageWorkOrdersPage({
                         ) : null}
                       </div>
                     </td>
-                    <td className="px-5 py-4 font-semibold">{workOrder.batch_quantity ?? workOrder.current_active_quantity}</td>
+                    <td className="px-5 py-4 font-semibold">{workOrder.planned_quantity}</td>
+                    {isSurfacePreparationStage ? (
+                      <td className="px-5 py-4">
+                        {status === "NOT_STARTED" ? (
+                          <input
+                            type="number"
+                            min={1}
+                            step={1}
+                            value={countedDraft}
+                            onChange={(event) => {
+                              const { value } = event.target;
+                              setCountedQuantities((current) => ({
+                                ...current,
+                                [workOrder.id]: value,
+                              }));
+                            }}
+                            className="w-28 rounded-2xl border border-line bg-white px-3 py-2 text-sm font-medium text-ink shadow-sm outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/20"
+                            placeholder="0"
+                          />
+                        ) : (
+                          <span className="font-semibold text-ink">{workOrder.counted_quantity ?? "-"}</span>
+                        )}
+                      </td>
+                    ) : null}
+                    {isSurfacePreparationStage ? (
+                      <td className="px-5 py-4">
+                        {difference === null ? (
+                          <span className="text-steel">-</span>
+                        ) : difference === 0 ? (
+                          <span className="font-medium text-emerald-700">Brak różnicy</span>
+                        ) : (
+                          <span className="font-medium text-amber-700">Różnica: {formatDifference(difference)} szt.</span>
+                        )}
+                      </td>
+                    ) : null}
                     <td className="px-5 py-4 text-steel">{workOrder.coating_type.label}</td>
                     <td className="px-5 py-4 text-steel">{workOrder.production_type?.label ?? "-"}</td>
                     <td className="px-5 py-4">
@@ -191,7 +291,7 @@ export function StageWorkOrdersPage({
                       {showActionButton ? (
                         <button
                           type="button"
-                          disabled={isSubmitting}
+                          disabled={isSubmitting || !isActionButtonEnabled}
                           onClick={() => void handleAction(workOrder)}
                           className="inline-flex items-center justify-center rounded-full border border-line bg-white px-4 py-2 text-sm font-medium text-steel transition hover:border-accent hover:text-accent disabled:cursor-not-allowed disabled:border-line disabled:text-slate-400"
                         >

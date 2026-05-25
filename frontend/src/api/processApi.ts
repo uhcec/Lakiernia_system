@@ -53,11 +53,17 @@ export async function fetchStageWorkOrders(
   return response.json() as Promise<StageWorkOrder[]>;
 }
 
-export async function startSurfacePreparation(workOrderId: number): Promise<StageWorkOrder> {
-  return transitionStage(workOrderId, "SURFACE_PREPARATION", "start");
+export async function startSurfacePreparation(workOrderId: number, countedQuantity: number): Promise<StageWorkOrder> {
+  return transitionStage(workOrderId, "SURFACE_PREPARATION", "start", undefined, {
+    counted_quantity: countedQuantity,
+  });
 }
 
 type StageAction = "start" | "finish" | "reopen";
+
+interface StageStartPayload {
+  counted_quantity?: number;
+}
 
 interface CompletePackingPayload {
   ok_quantity: number;
@@ -69,6 +75,7 @@ export async function transitionStage(
   stage: ProcessStageValue,
   action: StageAction,
   batchId?: number,
+  payload?: StageStartPayload,
 ): Promise<StageWorkOrder> {
   const pathname = batchId
     ? `/process/work-orders/${workOrderId}/batches/${batchId}/stages/${stage}/${action}`
@@ -78,7 +85,9 @@ export async function transitionStage(
     method: "POST",
     headers: {
       Accept: "application/json",
+      ...(payload ? { "Content-Type": "application/json" } : {}),
     },
+    body: payload ? JSON.stringify(payload) : undefined,
   });
 
   if (!response.ok) {

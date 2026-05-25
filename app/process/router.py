@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from app.database.session import get_db_session
 from app.process.enums import ProcessStage, ProductionType
 from app.process.repository import ProcessRepository
-from app.process.schemas import PackingCompleteRequest, ProcessStageWorkOrderRead
+from app.process.schemas import PackingCompleteRequest, ProcessStageWorkOrderRead, StageStartRequest
 from app.process.service import ProcessService
 
 router = APIRouter(prefix="/process", tags=["process"])
@@ -31,8 +31,9 @@ def start_stage(
     work_order_id: int,
     stage: ProcessStage,
     service: Annotated[ProcessService, Depends(get_process_service)],
+    payload: StageStartRequest | None = None,
 ) -> ProcessStageWorkOrderRead:
-    return service.start_stage(work_order_id, stage)
+    return service.start_stage(work_order_id, stage, counted_quantity=payload.counted_quantity if payload else None)
 
 
 @router.post("/work-orders/{work_order_id}/batches/{batch_id}/stages/{stage}/start", response_model=ProcessStageWorkOrderRead)
@@ -41,8 +42,14 @@ def start_stage_for_batch(
     batch_id: int,
     stage: ProcessStage,
     service: Annotated[ProcessService, Depends(get_process_service)],
+    payload: StageStartRequest | None = None,
 ) -> ProcessStageWorkOrderRead:
-    return service.start_stage(work_order_id, stage, batch_id=batch_id)
+    return service.start_stage(
+        work_order_id,
+        stage,
+        batch_id=batch_id,
+        counted_quantity=payload.counted_quantity if payload else None,
+    )
 
 
 @router.post("/work-orders/{work_order_id}/stages/{stage}/finish", response_model=ProcessStageWorkOrderRead)

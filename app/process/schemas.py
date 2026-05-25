@@ -22,6 +22,9 @@ class ProcessStageWorkOrderRead(BaseModel):
     total_quantity: int
     current_active_quantity: int
     batch_quantity: int | None = None
+    planned_quantity: int
+    counted_quantity: int | None = None
+    quantity_difference: int | None = None
     customer_name: str | None
     queue_position: int | None
     production_type: ProductionTypeView | None
@@ -29,6 +32,12 @@ class ProcessStageWorkOrderRead(BaseModel):
     batch_type: QuantityBatchType | None = None
     batch_is_partial: bool = False
     stage_status: ProcessStageStatusRead
+
+
+class StageStartRequest(BaseModel):
+    counted_quantity: int | None = None
+
+    model_config = ConfigDict(extra="forbid")
 
 
 class PackingCompleteRequest(BaseModel):

@@ -20,8 +20,24 @@ def build_create_payload(
     }
 
 
+def start_surface_preparation(
+    test_client: TestClient,
+    work_order_id: int,
+    *,
+    counted_quantity: int | None = None,
+):
+    if counted_quantity is None:
+        detail = test_client.get(f"/work-orders/{work_order_id}").json()
+        counted_quantity = detail["current_active_quantity"]
+
+    return test_client.post(
+        f"/process/work-orders/{work_order_id}/stages/SURFACE_PREPARATION/start",
+        json={"counted_quantity": counted_quantity},
+    )
+
+
 def advance_to_hanging(test_client: TestClient, work_order_id: int) -> None:
-    test_client.post(f"/process/work-orders/{work_order_id}/stages/SURFACE_PREPARATION/start")
+    start_surface_preparation(test_client, work_order_id)
     test_client.post(f"/process/work-orders/{work_order_id}/stages/SURFACE_PREPARATION/finish")
 
 
@@ -69,7 +85,7 @@ def create_planned_work_order(
 def test_list_stage_work_orders_returns_only_visible_planned_orders(test_client: TestClient) -> None:
     visible = create_planned_work_order(test_client, title="Visible", queue_position=2)
     completed = create_planned_work_order(test_client, title="Completed", queue_position=1)
-    test_client.post(f"/process/work-orders/{completed['id']}/stages/SURFACE_PREPARATION/start")
+    start_surface_preparation(test_client, completed["id"])
     test_client.post(f"/process/work-orders/{completed['id']}/stages/SURFACE_PREPARATION/finish")
     unplanned = test_client.post("/work-orders", json=build_create_payload(title="Unplanned")).json()
 
@@ -222,7 +238,7 @@ def test_ral_orders_do_not_appear_in_decoral_stage(test_client: TestClient) -> N
     create_planned_work_order(test_client, title="RAL", queue_position=1, coating_type="RAL")
     decoral = create_planned_work_order(test_client, title="Decoral", queue_position=2, coating_type="DECORAL", production_type="MANUAL")
 
-    test_client.post(f"/process/work-orders/{decoral['id']}/stages/SURFACE_PREPARATION/start")
+    start_surface_preparation(test_client, decoral["id"])
     test_client.post(f"/process/work-orders/{decoral['id']}/stages/SURFACE_PREPARATION/finish")
     test_client.post(f"/process/work-orders/{decoral['id']}/stages/PRODUCTION/start")
     test_client.post(f"/process/work-orders/{decoral['id']}/stages/PRODUCTION/finish")
@@ -253,18 +269,62 @@ def test_stage_work_orders_are_sorted_by_queue_position(test_client: TestClient)
 def test_start_stage_updates_status(test_client: TestClient) -> None:
     created = create_planned_work_order(test_client, title="Start me", queue_position=1)
 
-    response = test_client.post(f"/process/work-orders/{created['id']}/stages/SURFACE_PREPARATION/start")
+    response = start_surface_preparation(test_client, created["id"])
 
     assert response.status_code == 200
     assert response.json()["stage_status"] == {
         "stage": "SURFACE_PREPARATION",
         "status": {"value": "IN_PROGRESS", "label": "W trakcie"},
     }
+    assert response.json()["planned_quantity"] == 100
+    assert response.json()["counted_quantity"] == 100
+    assert response.json()["quantity_difference"] == 0
+
+
+def test_cannot_start_surface_preparation_without_counted_quantity(test_client: TestClient) -> None:
+    created = create_planned_work_order(test_client, title="Missing counted", queue_position=1)
+
+    response = test_client.post(f"/process/work-orders/{created['id']}/stages/SURFACE_PREPARATION/start")
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Counted quantity is required to start surface preparation."
+
+
+def test_start_surface_preparation_returns_difference_and_persists_count(test_client: TestClient) -> None:
+    created = test_client.post(
+        "/work-orders",
+        json=build_create_payload(title="Count diff", total_quantity=10),
+    ).json()
+    test_client.post(
+        f"/manager/work-orders/{created['id']}/plan",
+        json={"production_type": "MANUAL", "queue_position": 1},
+    )
+
+    response = start_surface_preparation(test_client, created["id"], counted_quantity=6)
+    stage_response = test_client.get("/process/stages/SURFACE_PREPARATION/work-orders")
+
+    assert response.status_code == 200
+    assert response.json()["planned_quantity"] == 10
+    assert response.json()["counted_quantity"] == 6
+    assert response.json()["quantity_difference"] == -4
+
+    stage_item = next(item for item in stage_response.json() if item["id"] == created["id"])
+    assert stage_item["counted_quantity"] == 6
+    assert stage_item["quantity_difference"] == -4
+
+
+def test_cannot_start_surface_preparation_with_non_positive_count(test_client: TestClient) -> None:
+    created = create_planned_work_order(test_client, title="Bad counted", queue_position=1)
+
+    response = start_surface_preparation(test_client, created["id"], counted_quantity=0)
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Counted quantity must be greater than zero."
 
 
 def test_finish_stage_updates_status(test_client: TestClient) -> None:
     created = create_planned_work_order(test_client, title="Finish me", queue_position=1)
-    test_client.post(f"/process/work-orders/{created['id']}/stages/SURFACE_PREPARATION/start")
+    start_surface_preparation(test_client, created["id"])
 
     response = test_client.post(f"/process/work-orders/{created['id']}/stages/SURFACE_PREPARATION/finish")
 
@@ -295,7 +355,7 @@ def test_packing_complete_splits_quantities_and_returns_to_production(test_clien
 
 def test_decoral_ok_quantity_goes_to_decoral_production_after_packing(test_client: TestClient) -> None:
     created = create_planned_work_order(test_client, title="Decoral packing path", queue_position=1, production_type="MANUAL", coating_type="DECORAL")
-    test_client.post(f"/process/work-orders/{created['id']}/stages/SURFACE_PREPARATION/start")
+    start_surface_preparation(test_client, created["id"])
     test_client.post(f"/process/work-orders/{created['id']}/stages/SURFACE_PREPARATION/finish")
     test_client.post(f"/process/work-orders/{created['id']}/stages/PRODUCTION/start")
     test_client.post(f"/process/work-orders/{created['id']}/stages/PRODUCTION/finish")
@@ -317,7 +377,7 @@ def test_decoral_ok_quantity_goes_to_decoral_production_after_packing(test_clien
 
 def test_decoral_production_finish_completes_order(test_client: TestClient) -> None:
     created = create_planned_work_order(test_client, title="Decoral complete", queue_position=1, production_type="MANUAL", coating_type="DECORAL")
-    test_client.post(f"/process/work-orders/{created['id']}/stages/SURFACE_PREPARATION/start")
+    start_surface_preparation(test_client, created["id"])
     test_client.post(f"/process/work-orders/{created['id']}/stages/SURFACE_PREPARATION/finish")
     test_client.post(f"/process/work-orders/{created['id']}/stages/PRODUCTION/start")
     test_client.post(f"/process/work-orders/{created['id']}/stages/PRODUCTION/finish")
@@ -503,7 +563,7 @@ def test_packing_complete_rejects_invalid_quantity_sum(test_client: TestClient) 
 
 def test_reopen_stage_moves_done_back_to_in_progress(test_client: TestClient) -> None:
     created = create_planned_work_order(test_client, title="Reopen me", queue_position=1)
-    test_client.post(f"/process/work-orders/{created['id']}/stages/SURFACE_PREPARATION/start")
+    start_surface_preparation(test_client, created["id"])
     test_client.post(f"/process/work-orders/{created['id']}/stages/SURFACE_PREPARATION/finish")
 
     response = test_client.post(f"/process/work-orders/{created['id']}/stages/SURFACE_PREPARATION/reopen")

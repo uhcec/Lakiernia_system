@@ -132,16 +132,24 @@ class ProcessService:
 
         return items
 
-    def start_stage(self, work_order_id: int, stage: ProcessStage, batch_id: int | None = None) -> ProcessStageWorkOrderRead:
+    def start_stage(
+        self,
+        work_order_id: int,
+        stage: ProcessStage,
+        batch_id: int | None = None,
+        counted_quantity: int | None = None,
+    ) -> ProcessStageWorkOrderRead:
         work_order = self.get_work_order_process(work_order_id)
         target_batch = self._resolve_batch_for_stage(work_order, stage, batch_id)
         if target_batch is not None:
-            return self._start_tracked_batch_stage(work_order, target_batch, stage)
+            return self._start_tracked_batch_stage(work_order, target_batch, stage, counted_quantity=counted_quantity)
 
         if self._is_automatic_production_preview_stage(work_order, stage):
             raise InvalidProcessStageTransitionError(
                 "Automatic production is preview-only. Start the process from HANGING and finish it from PACKING."
             )
+
+        self._store_stage_start_data(work_order, stage, counted_quantity)
 
         self.transition_stage(work_order_id, stage, StageStatus.IN_PROGRESS)
         work_order = self.get_work_order_process(work_order_id)
@@ -680,6 +688,7 @@ class ProcessService:
         work_order: WorkOrder,
         batch: WorkOrderQuantityBatch,
         stage: ProcessStage,
+        counted_quantity: int | None = None,
     ) -> ProcessStageWorkOrderRead:
         if stage == ProcessStage.PRODUCTION and work_order.production_type == ProductionType.AUTOMATIC:
             raise InvalidProcessStageTransitionError(
@@ -690,6 +699,7 @@ class ProcessService:
                 f"Cannot transition stage {stage.value} from {batch.current_stage_status.value if batch.current_stage_status else 'UNKNOWN'} to IN_PROGRESS."
             )
 
+        self._store_stage_start_data(work_order, stage, counted_quantity)
         batch.current_stage_status = StageStatus.IN_PROGRESS
         self._sync_legacy_current_active_batch(work_order)
         self._commit_process_changes()
@@ -867,6 +877,25 @@ class ProcessService:
             self.repository.rollback()
             raise
 
+    def _store_stage_start_data(
+        self,
+        work_order: WorkOrder,
+        stage: ProcessStage,
+        counted_quantity: int | None,
+    ) -> None:
+        if stage != ProcessStage.SURFACE_PREPARATION:
+            return
+
+        if counted_quantity is None:
+            raise InvalidProcessStageTransitionError("Counted quantity is required to start surface preparation.")
+
+        if counted_quantity <= 0:
+            raise InvalidProcessStageTransitionError("Counted quantity must be greater than zero.")
+
+        stage_state = self._get_stage_state(work_order, stage)
+        stage_state.counted_quantity = counted_quantity
+        stage_state.updated_at = datetime.now(UTC)
+
     @staticmethod
     def _get_previous_stage(
         stage_sequence: Sequence[ProcessStage],
@@ -890,8 +919,8 @@ class ProcessService:
         stage: ProcessStage,
         batch: WorkOrderQuantityBatch | None = None,
     ) -> ProcessStageWorkOrderRead:
+        stage_state = self._get_stage_state(work_order, stage)
         if batch is None:
-            stage_state = self._get_stage_state(work_order, stage)
             batch_quantity = work_order.current_active_quantity
             batch_type = None
             batch_is_partial = False
@@ -907,6 +936,9 @@ class ProcessService:
             batch_id = batch.id
             stage_status = self.build_stage_status_view(batch_status)
 
+        counted_quantity = stage_state.counted_quantity if stage == ProcessStage.SURFACE_PREPARATION else None
+        quantity_difference = counted_quantity - batch_quantity if counted_quantity is not None else None
+
         return ProcessStageWorkOrderRead(
             id=work_order.id,
             batch_id=batch_id,
@@ -915,6 +947,9 @@ class ProcessService:
             total_quantity=work_order.total_quantity,
             current_active_quantity=batch_quantity,
             batch_quantity=batch_quantity,
+            planned_quantity=batch_quantity,
+            counted_quantity=counted_quantity,
+            quantity_difference=quantity_difference,
             customer_name=work_order.customer_name,
             queue_position=work_order.queue_position,
             production_type=(

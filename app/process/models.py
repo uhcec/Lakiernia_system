@@ -39,6 +39,7 @@ class WorkOrderStageState(Base):
     work_order_id: Mapped[int] = mapped_column(ForeignKey("work_orders.id", ondelete="CASCADE"), nullable=False)
     stage: Mapped[ProcessStage] = mapped_column(process_stage_enum, nullable=False)
     status: Mapped[StageStatus] = mapped_column(stage_status_enum, default=StageStatus.NOT_STARTED, nullable=False)
+    counted_quantity: Mapped[int | None] = mapped_column(Integer(), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
