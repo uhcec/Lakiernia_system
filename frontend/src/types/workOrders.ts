@@ -60,6 +60,13 @@ export interface WorkOrderQuantityBatch {
   created_at: string;
 }
 
+export interface WorkOrderRelationSummary {
+  id: number;
+  order_number: string;
+  title: string;
+  total_quantity: number;
+}
+
 export interface WorkOrder {
   id: number;
   order_number: string;
@@ -67,6 +74,9 @@ export interface WorkOrder {
   total_quantity: number;
   completed_quantity: number;
   current_active_quantity: number;
+  is_correction: boolean;
+  parent_order: WorkOrderRelationSummary | null;
+  correction_orders: WorkOrderRelationSummary[];
   description: string | null;
   customer_name: string;
   ral_code: string;

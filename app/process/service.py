@@ -278,75 +278,29 @@ class ProcessService:
 
         packing_state.counted_quantity = counted_quantity
         packing_state.updated_at = datetime.now(UTC)
+        planned_quantity = active_batch.quantity
 
         production_state = self._get_stage_state(work_order, ProcessStage.PRODUCTION)
         if work_order.production_type == ProductionType.AUTOMATIC and hanging_state.status == StageStatus.IN_PROGRESS:
             hanging_state.status = StageStatus.DONE
             hanging_state.updated_at = datetime.now(UTC)
 
-        if (
-            work_order.coating_type == CoatingType.DECORAL
-            and work_order.production_type == ProductionType.AUTOMATIC
-            and ok_quantity > 0
-            and correction_quantity > 0
-        ):
-            packing_state.status = StageStatus.DONE
-            packing_state.updated_at = datetime.now(UTC)
-            active_batch.is_active = False
-            active_batch.current_stage = ProcessStage.PACKING
-            active_batch.current_stage_status = StageStatus.DONE
-
-            ok_batch = WorkOrderQuantityBatch(
-                work_order_id=work_order.id,
-                quantity=ok_quantity,
-                type=QuantityBatchType.MAIN,
-                parent_batch_id=active_batch.id,
-                is_active=True,
-                current_stage=ProcessStage.DECORAL_PRODUCTION,
-                current_stage_status=StageStatus.NOT_STARTED,
-                is_partial=True,
-            )
-            correction_batch = WorkOrderQuantityBatch(
-                work_order_id=work_order.id,
-                quantity=correction_quantity,
-                type=QuantityBatchType.CORRECTION,
-                parent_batch_id=active_batch.id,
-                is_active=True,
-                current_stage=ProcessStage.HANGING,
-                current_stage_status=StageStatus.NOT_STARTED,
-                is_partial=False,
-            )
-            self.repository.add_quantity_batch(ok_batch)
-            self.repository.add_quantity_batch(correction_batch)
-            work_order.current_active_batch_id = correction_batch.id
-
-            try:
-                self.repository.commit()
-            except Exception:
-                self.repository.rollback()
-                raise
-
-            refreshed_work_order = self.get_work_order_process(work_order_id)
-            refreshed_batch = self._get_batch(refreshed_work_order, correction_batch.id)
-            return self._to_stage_work_order_read(refreshed_work_order, ProcessStage.HANGING, batch=refreshed_batch)
-
         if correction_quantity > 0:
-            if work_order.coating_type == CoatingType.RAL:
-                work_order.completed_quantity += ok_quantity
-            active_batch.is_active = False
-            correction_batch = WorkOrderQuantityBatch(
-                work_order_id=work_order.id,
-                quantity=correction_quantity,
-                type=QuantityBatchType.CORRECTION,
-                parent_batch_id=active_batch.id,
-                is_active=True,
-                current_stage=None,
-                current_stage_status=None,
-                is_partial=False,
+            response_stage, response_batch = self._complete_packing_with_correction_order(
+                work_order,
+                active_batch,
+                packing_state,
+                production_state,
+                planned_quantity=planned_quantity,
+                ok_quantity=ok_quantity,
+                correction_quantity=correction_quantity,
             )
-            self.repository.add_quantity_batch(correction_batch)
-            work_order.current_active_batch_id = correction_batch.id
-            self._reset_stage_states_for_active_batch(work_order, self.get_correction_return_stage(work_order))
+            self._commit_process_changes()
+            refreshed_work_order = self.get_work_order_process(work_order_id)
+            if response_batch is not None:
+                refreshed_batch = self._get_batch(refreshed_work_order, response_batch.id)
+                return self._to_stage_work_order_read(refreshed_work_order, response_stage, batch=refreshed_batch)
+            return self._to_stage_work_order_read(refreshed_work_order, response_stage)
         else:
             packing_state.status = StageStatus.DONE
             packing_state.updated_at = datetime.now(UTC)
@@ -356,10 +310,7 @@ class ProcessService:
                 active_batch.is_active = False
 
         if work_order.production_type == ProductionType.AUTOMATIC:
-            if correction_quantity > 0:
-                production_state.status = StageStatus.NOT_STARTED
-            else:
-                production_state.status = StageStatus.DONE
+            production_state.status = StageStatus.DONE
             production_state.updated_at = datetime.now(UTC)
 
         if work_order.coating_type == CoatingType.DECORAL and correction_quantity == 0:
@@ -372,9 +323,7 @@ class ProcessService:
             raise
 
         refreshed_work_order = self.get_work_order_process(work_order_id)
-        if correction_quantity > 0:
-            return_stage = self.get_correction_return_stage(refreshed_work_order)
-        elif refreshed_work_order.coating_type == CoatingType.DECORAL:
+        if refreshed_work_order.coating_type == CoatingType.DECORAL:
             return_stage = ProcessStage.DECORAL_PRODUCTION
         else:
             return_stage = ProcessStage.PACKING
@@ -810,6 +759,7 @@ class ProcessService:
         packing_state = self._get_stage_state(work_order, ProcessStage.PACKING)
         packing_state.counted_quantity = counted_quantity
         packing_state.updated_at = datetime.now(UTC)
+        planned_quantity = batch.quantity
 
         batch.is_active = False
         batch.current_stage = ProcessStage.PACKING
@@ -817,6 +767,7 @@ class ProcessService:
         batch.is_partial = False
 
         created_batches: list[WorkOrderQuantityBatch] = []
+        work_order.total_quantity = max(0, work_order.total_quantity - planned_quantity + ok_quantity)
         if work_order.coating_type == CoatingType.DECORAL and ok_quantity > 0:
             ok_batch = WorkOrderQuantityBatch(
                 work_order_id=work_order.id,
@@ -834,18 +785,7 @@ class ProcessService:
             work_order.completed_quantity += ok_quantity
 
         if correction_quantity > 0:
-            correction_batch = WorkOrderQuantityBatch(
-                work_order_id=work_order.id,
-                quantity=correction_quantity,
-                type=QuantityBatchType.CORRECTION,
-                parent_batch_id=batch.id,
-                is_active=True,
-                current_stage=self.get_correction_return_stage(work_order),
-                current_stage_status=StageStatus.NOT_STARTED,
-                is_partial=False,
-            )
-            self.repository.add_quantity_batch(correction_batch)
-            created_batches.append(correction_batch)
+            self._create_correction_work_order(work_order, correction_quantity)
 
         self._sync_legacy_current_active_batch(work_order)
         self._commit_process_changes()
@@ -859,6 +799,94 @@ class ProcessService:
 
         refreshed_batch = self._get_batch(refreshed_work_order, batch.id)
         return self._to_stage_work_order_read(refreshed_work_order, ProcessStage.PACKING, batch=refreshed_batch)
+
+    def _complete_packing_with_correction_order(
+        self,
+        work_order: WorkOrder,
+        active_batch: WorkOrderQuantityBatch,
+        packing_state: WorkOrderStageState,
+        production_state: WorkOrderStageState,
+        *,
+        planned_quantity: int,
+        ok_quantity: int,
+        correction_quantity: int,
+    ) -> tuple[ProcessStage, WorkOrderQuantityBatch | None]:
+        work_order.total_quantity = max(0, work_order.total_quantity - planned_quantity + ok_quantity)
+        self._create_correction_work_order(work_order, correction_quantity)
+
+        packing_state.status = StageStatus.DONE
+        packing_state.updated_at = datetime.now(UTC)
+        active_batch.is_active = False
+        active_batch.current_stage = ProcessStage.PACKING
+        active_batch.current_stage_status = StageStatus.DONE
+
+        if work_order.production_type == ProductionType.AUTOMATIC:
+            production_state.status = StageStatus.DONE
+            production_state.updated_at = datetime.now(UTC)
+
+        if work_order.coating_type == CoatingType.RAL:
+            work_order.completed_quantity += ok_quantity
+            work_order.current_active_batch_id = None
+            return ProcessStage.PACKING, None
+
+        decoral_state = self._get_stage_state(work_order, ProcessStage.DECORAL_PRODUCTION)
+        if ok_quantity == 0:
+            decoral_state.status = StageStatus.DONE
+            decoral_state.updated_at = datetime.now(UTC)
+            work_order.current_active_batch_id = None
+            return ProcessStage.PACKING, None
+
+        ok_batch = WorkOrderQuantityBatch(
+            work_order_id=work_order.id,
+            quantity=ok_quantity,
+            type=QuantityBatchType.MAIN,
+            parent_batch_id=active_batch.id,
+            is_active=True,
+            current_stage=ProcessStage.DECORAL_PRODUCTION,
+            current_stage_status=StageStatus.NOT_STARTED,
+            is_partial=True,
+        )
+        self.repository.add_quantity_batch(ok_batch)
+        work_order.current_active_batch_id = ok_batch.id
+        return ProcessStage.DECORAL_PRODUCTION, ok_batch
+
+    def _create_correction_work_order(self, parent_work_order: WorkOrder, correction_quantity: int) -> WorkOrder:
+        correction_order = WorkOrder(
+            order_number=self._generate_work_order_number(),
+            title=parent_work_order.title,
+            total_quantity=correction_quantity,
+            completed_quantity=0,
+            current_active_batch_id=None,
+            parent_order_id=parent_work_order.id,
+            is_correction=True,
+            description=parent_work_order.description,
+            customer_name=parent_work_order.customer_name,
+            ral_code=parent_work_order.ral_code,
+            paint_producer=parent_work_order.paint_producer,
+            status=WorkOrderStatus.ENTERED,
+            coating_type=parent_work_order.coating_type,
+            production_type=None,
+            queue_position=None,
+            received_date=parent_work_order.received_date,
+            planned_pickup_date=parent_work_order.planned_pickup_date,
+            total_area_m2=parent_work_order.total_area_m2,
+            is_incomplete_on_arrival=False,
+            profiles_quantity=parent_work_order.profiles_quantity,
+            profiles_to_count=parent_work_order.profiles_to_count,
+            accessories_quantity=parent_work_order.accessories_quantity,
+            accessories_to_count=parent_work_order.accessories_to_count,
+            notes=parent_work_order.notes,
+        )
+        persisted_correction_order = self.repository.add_work_order(correction_order)
+        self.initialize_quantity_tracking(persisted_correction_order)
+        self.initialize_stage_states(persisted_correction_order)
+        return persisted_correction_order
+
+    def _generate_work_order_number(self) -> str:
+        year = datetime.now(UTC).year
+        latest_order_number = self.repository.get_latest_order_number_for_year(year)
+        next_sequence = 1 if latest_order_number is None else int(latest_order_number.rsplit("-", 1)[-1]) + 1
+        return f"WO-{year}-{next_sequence:04d}"
 
     @staticmethod
     def _uses_batch_tracking(work_order: WorkOrder) -> bool:

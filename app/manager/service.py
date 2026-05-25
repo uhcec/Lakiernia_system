@@ -3,12 +3,13 @@ from datetime import UTC, datetime
 from app.process.repository import ProcessRepository
 from app.process.service import ProcessService
 from app.manager.repository import ManagerRepository
-from app.manager.schemas import WorkOrderPlanAssignRequest, WorkOrderQueuePositionUpdateRequest
+from app.manager.schemas import WorkOrderPlanAssignRequest, WorkOrderQueuePositionUpdateRequest, WorkOrderQueueReorderRequest
 from app.shared.exceptions import InvalidManagerPlanningError, ResourceNotFoundError
 from app.work_orders.models import WorkOrder
 from app.work_orders.schemas import WorkOrderRead
 from app.work_orders.schemas import (
     WorkOrderQuantityBatchRead,
+    WorkOrderRelationSummaryRead,
     WorkOrderStageStateRead,
     build_coating_type_view,
     build_process_stage_view,
@@ -16,6 +17,7 @@ from app.work_orders.schemas import (
     build_production_type_view,
     build_quantity_batch_type_view,
     build_stage_status_info_view,
+    build_work_order_relation_summary,
 )
 from app.work_orders.service import WorkOrderService
 
@@ -70,6 +72,43 @@ class ManagerService:
 
         return self._to_read_model(work_order)
 
+    def reorder_queue(self, payload: list[WorkOrderQueueReorderRequest]) -> list[WorkOrderRead]:
+        if not payload:
+            return self.list_planned_work_orders()
+
+        work_order_ids = [item.work_order_id for item in payload]
+        queue_positions = [item.queue_position for item in payload]
+
+        if len(set(work_order_ids)) != len(work_order_ids):
+            raise InvalidManagerPlanningError("Queue reorder payload cannot contain duplicate work order IDs.")
+        if len(set(queue_positions)) != len(queue_positions):
+            raise InvalidManagerPlanningError("Queue reorder payload cannot contain duplicate queue positions.")
+
+        existing_work_orders = {work_order.id: work_order for work_order in self.repository.list_by_ids(work_order_ids)}
+        missing_ids = [work_order_id for work_order_id in work_order_ids if work_order_id not in existing_work_orders]
+        if missing_ids:
+            missing_id = missing_ids[0]
+            raise ResourceNotFoundError(f"Work order {missing_id} not found.")
+
+        now = datetime.now(UTC)
+        for item in payload:
+            work_order = existing_work_orders[item.work_order_id]
+            if not self._is_planned(work_order):
+                raise InvalidManagerPlanningError(
+                    f"Work order {item.work_order_id} must be planned before reordering the queue."
+                )
+
+            work_order.queue_position = item.queue_position
+            work_order.updated_at = now
+
+        try:
+            self.repository.commit()
+        except Exception:
+            self.repository.rollback()
+            raise
+
+        return self.list_planned_work_orders()
+
     def _get_existing_work_order(self, work_order_id: int) -> WorkOrder:
         work_order = self.repository.get_by_id(work_order_id)
         if work_order is None:
@@ -88,6 +127,12 @@ class ManagerService:
             total_quantity=work_order.total_quantity,
             completed_quantity=work_order.completed_quantity,
             current_active_quantity=work_order.current_active_quantity,
+            is_correction=work_order.is_correction,
+            parent_order=(build_work_order_relation_summary(work_order.parent_order) if work_order.parent_order is not None else None),
+            correction_orders=[
+                build_work_order_relation_summary(correction_order)
+                for correction_order in self._get_ordered_correction_orders(work_order)
+            ],
             description=work_order.description,
             customer_name=work_order.customer_name,
             ral_code=work_order.ral_code,
@@ -153,3 +198,7 @@ class ManagerService:
     @staticmethod
     def _get_ordered_batches(work_order: WorkOrder):
         return sorted(work_order.quantity_batches, key=lambda batch: (batch.created_at, batch.id))
+
+    @staticmethod
+    def _get_ordered_correction_orders(work_order: WorkOrder) -> list[WorkOrder]:
+        return sorted(work_order.correction_orders, key=lambda correction_order: (correction_order.created_at, correction_order.id))

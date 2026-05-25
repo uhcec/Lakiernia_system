@@ -1,10 +1,10 @@
-import { FormEvent, useEffect, useState } from "react";
+import { DragEvent, FormEvent, useEffect, useState } from "react";
 
 import {
   assignWorkOrderPlan,
   fetchPlannedWorkOrders,
   fetchUnplannedWorkOrders,
-  updateWorkOrderQueuePosition,
+  reorderWorkOrderQueue,
 } from "../api/managerApi";
 import type { ProductionTypeValue, WorkOrder } from "../types/workOrders";
 
@@ -40,27 +40,47 @@ function createPlanDrafts(workOrders: WorkOrder[]): Record<number, PlanDraft> {
   }, {});
 }
 
-function createQueueDrafts(workOrders: WorkOrder[]): Record<number, string> {
-  return workOrders.reduce<Record<number, string>>((drafts, workOrder) => {
-    drafts[workOrder.id] = workOrder.queue_position ? String(workOrder.queue_position) : "";
-    return drafts;
-  }, {});
+function splitPlannedWorkOrders(workOrders: WorkOrder[]) {
+  return {
+    active: workOrders.filter((workOrder) => workOrder.process_status.value !== "READY"),
+    completed: workOrders.filter((workOrder) => workOrder.process_status.value === "READY"),
+  };
+}
+
+function assignQueuePositions(workOrders: WorkOrder[], startPosition = 1): WorkOrder[] {
+  return workOrders.map((workOrder, index) => ({
+    ...workOrder,
+    queue_position: startPosition + index,
+  }));
+}
+
+function moveWorkOrder(workOrders: WorkOrder[], draggedWorkOrderId: number, targetWorkOrderId: number): WorkOrder[] {
+  const draggedIndex = workOrders.findIndex((workOrder) => workOrder.id === draggedWorkOrderId);
+  const targetIndex = workOrders.findIndex((workOrder) => workOrder.id === targetWorkOrderId);
+
+  if (draggedIndex === -1 || targetIndex === -1 || draggedIndex === targetIndex) {
+    return workOrders;
+  }
+
+  const nextWorkOrders = [...workOrders];
+  const [draggedWorkOrder] = nextWorkOrders.splice(draggedIndex, 1);
+  nextWorkOrders.splice(targetIndex, 0, draggedWorkOrder);
+  return assignQueuePositions(nextWorkOrders);
 }
 
 export function ManagerPanelPage() {
   const [unplannedWorkOrders, setUnplannedWorkOrders] = useState<WorkOrder[]>([]);
-  const [plannedWorkOrders, setPlannedWorkOrders] = useState<WorkOrder[]>([]);
+  const [activePlannedWorkOrders, setActivePlannedWorkOrders] = useState<WorkOrder[]>([]);
+  const [completedPlannedWorkOrders, setCompletedPlannedWorkOrders] = useState<WorkOrder[]>([]);
   const [planDrafts, setPlanDrafts] = useState<Record<number, PlanDraft>>({});
-  const [queueDrafts, setQueueDrafts] = useState<Record<number, string>>({});
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [planningWorkOrderId, setPlanningWorkOrderId] = useState<number | null>(null);
-  const [updatingWorkOrderId, setUpdatingWorkOrderId] = useState<number | null>(null);
+  const [isSavingQueueOrder, setIsSavingQueueOrder] = useState(false);
+  const [hasPendingQueueChanges, setHasPendingQueueChanges] = useState(false);
+  const [draggedWorkOrderId, setDraggedWorkOrderId] = useState<number | null>(null);
   const [showCompleted, setShowCompleted] = useState(false);
-
-  const activePlannedWorkOrders = plannedWorkOrders.filter((workOrder) => workOrder.process_status.value !== "READY");
-  const completedPlannedWorkOrders = plannedWorkOrders.filter((workOrder) => workOrder.process_status.value === "READY");
 
   async function loadManagerData() {
     setIsLoading(true);
@@ -68,10 +88,12 @@ export function ManagerPanelPage() {
 
     try {
       const [unplanned, planned] = await Promise.all([fetchUnplannedWorkOrders(), fetchPlannedWorkOrders()]);
+      const splitPlanned = splitPlannedWorkOrders(planned);
       setUnplannedWorkOrders(unplanned);
-      setPlannedWorkOrders(planned);
+      setActivePlannedWorkOrders(assignQueuePositions(splitPlanned.active));
+      setCompletedPlannedWorkOrders(splitPlanned.completed);
       setPlanDrafts(createPlanDrafts(unplanned));
-      setQueueDrafts(createQueueDrafts(planned));
+      setHasPendingQueueChanges(false);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "Nie udało się pobrać panelu kierownika");
     } finally {
@@ -91,13 +113,6 @@ export function ManagerPanelPage() {
         queuePosition: current[workOrderId]?.queuePosition ?? "1",
         ...patch,
       },
-    }));
-  }
-
-  function updateQueueDraft(workOrderId: number, value: string) {
-    setQueueDrafts((current) => ({
-      ...current,
-      [workOrderId]: value,
     }));
   }
 
@@ -131,31 +146,123 @@ export function ManagerPanelPage() {
     }
   }
 
-  async function handleQueueUpdate(workOrderId: number) {
-    const parsedQueuePosition = Number(queueDrafts[workOrderId]);
+  async function saveQueueOrder(workOrders: WorkOrder[]) {
+    const payload = [
+      ...workOrders.map((workOrder, index) => ({
+        work_order_id: workOrder.id,
+        queue_position: index + 1,
+      })),
+      ...completedPlannedWorkOrders.map((workOrder, index) => ({
+        work_order_id: workOrder.id,
+        queue_position: workOrders.length + index + 1,
+      })),
+    ];
 
-    if (!Number.isInteger(parsedQueuePosition) || parsedQueuePosition < 1) {
-      setSuccessMessage(null);
-      setErrorMessage("Pozycja w kolejce musi być liczbą większą lub równą 1");
-      return;
-    }
-
-    setUpdatingWorkOrderId(workOrderId);
+    setIsSavingQueueOrder(true);
     setErrorMessage(null);
     setSuccessMessage(null);
 
     try {
-      await updateWorkOrderQueuePosition(workOrderId, { queue_position: parsedQueuePosition });
+      await reorderWorkOrderQueue(payload);
       await loadManagerData();
       setSuccessMessage("Kolejność została zaktualizowana");
     } catch (error) {
+      setHasPendingQueueChanges(true);
       setErrorMessage(error instanceof Error ? error.message : "Nie udało się zmienić kolejności");
     } finally {
-      setUpdatingWorkOrderId(null);
+      setIsSavingQueueOrder(false);
     }
   }
 
-  function renderPlannedWorkOrdersTable(workOrders: WorkOrder[]) {
+  async function handleSaveQueueOrder() {
+    if (activePlannedWorkOrders.length === 0) {
+      return;
+    }
+
+    await saveQueueOrder(activePlannedWorkOrders);
+  }
+
+  function handleQueueDragStart(workOrderId: number) {
+    setDraggedWorkOrderId(workOrderId);
+    setSuccessMessage(null);
+  }
+
+  function handleQueueDragOver(event: DragEvent<HTMLElement>) {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+  }
+
+  function handleQueueDragEnd() {
+    setDraggedWorkOrderId(null);
+  }
+
+  function handleQueueDrop(event: DragEvent<HTMLElement>, targetWorkOrderId: number) {
+    event.preventDefault();
+    if (draggedWorkOrderId === null) {
+      return;
+    }
+
+    const reorderedWorkOrders = moveWorkOrder(activePlannedWorkOrders, draggedWorkOrderId, targetWorkOrderId);
+    setDraggedWorkOrderId(null);
+
+    if (reorderedWorkOrders === activePlannedWorkOrders) {
+      return;
+    }
+
+    setActivePlannedWorkOrders(reorderedWorkOrders);
+    setHasPendingQueueChanges(true);
+    void saveQueueOrder(reorderedWorkOrders);
+  }
+
+  function renderActiveQueue(workOrders: WorkOrder[]) {
+    return (
+      <div className="space-y-3">
+        {workOrders.map((workOrder) => {
+          const isDragged = draggedWorkOrderId === workOrder.id;
+
+          return (
+            <article
+              key={workOrder.id}
+              draggable={!isSavingQueueOrder}
+              onDragStart={() => handleQueueDragStart(workOrder.id)}
+              onDragOver={handleQueueDragOver}
+              onDrop={(event) => handleQueueDrop(event, workOrder.id)}
+              onDragEnd={handleQueueDragEnd}
+              className={[
+                "flex cursor-grab flex-col gap-4 rounded-3xl border bg-white p-5 transition sm:flex-row sm:items-center sm:justify-between",
+                isDragged ? "border-accent/60 bg-mist/60 opacity-70" : "border-line/80",
+              ].join(" ")}
+            >
+              <div className="flex items-start gap-4">
+                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-mist text-sm font-semibold text-ink">
+                  {workOrder.queue_position ?? "-"}
+                </div>
+                <div className="space-y-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="text-xs font-semibold uppercase tracking-[0.14em] text-accent">{workOrder.order_number}</p>
+                    <span className="inline-flex rounded-full bg-white px-2 py-1 text-[11px] font-semibold text-steel shadow-sm">
+                      Przeciągnij, aby zmienić kolejność
+                    </span>
+                  </div>
+                  <h4 className="text-lg font-semibold text-ink">{workOrder.title}</h4>
+                  <p className="text-sm text-steel">{workOrder.customer_name || "Brak firmy"}</p>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-3 text-sm text-steel">
+                <span className="inline-flex rounded-full bg-mist px-3 py-1 font-medium text-ink">
+                  {getProductionTypeLabel(workOrder.production_type?.value)}
+                </span>
+                <span className="font-mono text-base text-accent">::</span>
+              </div>
+            </article>
+          );
+        })}
+      </div>
+    );
+  }
+
+  function renderCompletedWorkOrdersTable(workOrders: WorkOrder[]) {
     return (
       <div className="overflow-hidden rounded-3xl border border-line bg-white shadow-panel">
         <div className="overflow-x-auto">
@@ -167,41 +274,18 @@ export function ManagerPanelPage() {
                 <th className="px-5 py-4 font-semibold">Tytuł</th>
                 <th className="px-5 py-4 font-semibold">Firma</th>
                 <th className="px-5 py-4 font-semibold">Typ produkcji</th>
-                <th className="px-5 py-4 font-semibold text-right">Akcja</th>
               </tr>
             </thead>
             <tbody>
-              {workOrders.map((workOrder) => {
-                const isSubmitting = updatingWorkOrderId === workOrder.id;
-
-                return (
-                  <tr key={workOrder.id} className="border-t border-line/80 text-ink">
-                    <td className="px-5 py-4">
-                      <input
-                        type="number"
-                        min={1}
-                        value={queueDrafts[workOrder.id] ?? ""}
-                        onChange={(event) => updateQueueDraft(workOrder.id, event.target.value)}
-                        className="w-24 rounded-2xl border border-line bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-accent"
-                      />
-                    </td>
+              {workOrders.map((workOrder) => (
+                <tr key={workOrder.id} className="border-t border-line/80 text-ink">
+                    <td className="px-5 py-4 font-semibold">{workOrder.queue_position ?? "-"}</td>
                     <td className="px-5 py-4 font-semibold">{workOrder.order_number}</td>
                     <td className="px-5 py-4">{workOrder.title}</td>
                     <td className="px-5 py-4 text-steel">{workOrder.customer_name || "-"}</td>
                     <td className="px-5 py-4 text-steel">{getProductionTypeLabel(workOrder.production_type?.value)}</td>
-                    <td className="px-5 py-4 text-right">
-                      <button
-                        type="button"
-                        disabled={isSubmitting}
-                        onClick={() => void handleQueueUpdate(workOrder.id)}
-                        className="inline-flex items-center justify-center rounded-full border border-line bg-white px-4 py-2 text-sm font-medium text-steel transition hover:border-accent hover:text-accent disabled:cursor-not-allowed disabled:border-line disabled:text-slate-400"
-                      >
-                        {isSubmitting ? "Zapisywanie..." : "Zmień kolejność"}
-                      </button>
-                    </td>
                   </tr>
-                );
-              })}
+              ))}
             </tbody>
           </table>
         </div>
@@ -226,7 +310,7 @@ export function ManagerPanelPage() {
           <div className="rounded-2xl border border-line bg-mist px-4 py-3 text-sm text-steel">
             Do zaplanowania: <span className="font-semibold text-ink">{unplannedWorkOrders.length}</span>
             <span className="mx-2 text-line">|</span>
-            Zaplanowane: <span className="font-semibold text-ink">{plannedWorkOrders.length}</span>
+            Zaplanowane: <span className="font-semibold text-ink">{activePlannedWorkOrders.length + completedPlannedWorkOrders.length}</span>
           </div>
         </div>
       </section>
@@ -332,23 +416,33 @@ export function ManagerPanelPage() {
             <div className="rounded-3xl border border-dashed border-line bg-mist px-6 py-12 text-center text-base text-steel">
               Ładowanie...
             </div>
-          ) : plannedWorkOrders.length === 0 ? (
+          ) : activePlannedWorkOrders.length + completedPlannedWorkOrders.length === 0 ? (
             <div className="rounded-3xl border border-dashed border-line bg-mist px-6 py-12 text-center text-base text-steel">
               Brak zaplanowanych zleceń
             </div>
           ) : (
             <div className="space-y-6">
               <div className="space-y-4">
-                <div>
-                  <h4 className="text-lg font-semibold text-ink">Aktywne</h4>
-                  <p className="mt-1 text-sm text-steel">Zlecenia nadal obecne w kolejce roboczej i widoczne do planowania.</p>
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <h4 className="text-lg font-semibold text-ink">Aktywne</h4>
+                    <p className="mt-1 text-sm text-steel">Przeciągnij zlecenia, aby ustawić kolejkę produkcji. Zmiany zapisują się po upuszczeniu.</p>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={isSavingQueueOrder || activePlannedWorkOrders.length < 2}
+                    onClick={() => void handleSaveQueueOrder()}
+                    className="inline-flex items-center justify-center rounded-full border border-line bg-white px-4 py-2 text-sm font-medium text-steel transition hover:border-accent hover:text-accent disabled:cursor-not-allowed disabled:border-line disabled:text-slate-400"
+                  >
+                    {isSavingQueueOrder ? "Zapisywanie..." : hasPendingQueueChanges ? "Zapisz kolejność" : "Kolejność zapisana"}
+                  </button>
                 </div>
                 {activePlannedWorkOrders.length === 0 ? (
                   <div className="rounded-3xl border border-dashed border-line bg-mist px-6 py-12 text-center text-base text-steel">
                     Brak aktywnych zaplanowanych zleceń
                   </div>
                 ) : (
-                  renderPlannedWorkOrdersTable(activePlannedWorkOrders)
+                  renderActiveQueue(activePlannedWorkOrders)
                 )}
               </div>
 
@@ -368,7 +462,7 @@ export function ManagerPanelPage() {
                     </button>
                   </div>
 
-                  {showCompleted ? renderPlannedWorkOrdersTable(completedPlannedWorkOrders) : null}
+                  {showCompleted ? renderCompletedWorkOrdersTable(completedPlannedWorkOrders) : null}
                 </div>
               ) : null}
             </div>

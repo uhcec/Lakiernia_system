@@ -79,6 +79,13 @@ class WorkOrderQuantityBatchRead(BaseModel):
     created_at: datetime
 
 
+class WorkOrderRelationSummaryRead(BaseModel):
+    id: int
+    order_number: str
+    title: str
+    total_quantity: int
+
+
 def _validate_counting_rule(field_name: str, quantity: int | None, to_count: bool) -> None:
     if quantity is None and not to_count:
         raise ValueError(f"{field_name}: podaj ilość albo zaznacz 'Do policzenia na produkcji'.")
@@ -146,6 +153,9 @@ class WorkOrderRead(BaseModel):
     total_quantity: int
     completed_quantity: int
     current_active_quantity: int
+    is_correction: bool
+    parent_order: WorkOrderRelationSummaryRead | None = None
+    correction_orders: list[WorkOrderRelationSummaryRead] = Field(default_factory=list)
     description: str | None
     customer_name: str
     ral_code: str
@@ -192,6 +202,15 @@ def build_stage_status_info_view(status: StageStatus) -> StageStatusInfoView:
 
 def build_quantity_batch_type_view(batch_type: QuantityBatchType) -> QuantityBatchTypeView:
     return QuantityBatchTypeView(value=batch_type, label=get_quantity_batch_type_label(batch_type))
+
+
+def build_work_order_relation_summary(work_order: "WorkOrder") -> WorkOrderRelationSummaryRead:
+    return WorkOrderRelationSummaryRead(
+        id=work_order.id,
+        order_number=work_order.order_number,
+        title=work_order.title,
+        total_quantity=work_order.total_quantity,
+    )
 
 
 class WorkOrderListResponse(BaseModel):

@@ -88,6 +88,39 @@ def test_cannot_plan_incomplete_order(test_client: TestClient) -> None:
     assert response.json()["detail"] == "Cannot plan incomplete order. Mark as complete first."
 
 
+def test_packing_correction_creates_new_unplanned_work_order(test_client: TestClient) -> None:
+    created = create_work_order(test_client, title="Correction planning", coating_type="RAL", total_quantity=100)
+
+    test_client.post(
+        f"/manager/work-orders/{created['id']}/plan",
+        json={"production_type": "MANUAL", "queue_position": 1},
+    )
+    test_client.post(
+        f"/process/work-orders/{created['id']}/stages/SURFACE_PREPARATION/start",
+        json={"counted_quantity": 100},
+    )
+    test_client.post(
+        f"/process/work-orders/{created['id']}/stages/SURFACE_PREPARATION/finish",
+        json={"counted_quantity": 100},
+    )
+    test_client.post(f"/process/work-orders/{created['id']}/stages/PRODUCTION/start")
+    test_client.post(f"/process/work-orders/{created['id']}/stages/PRODUCTION/finish")
+    test_client.post(f"/process/work-orders/{created['id']}/stages/PACKING/start")
+    packing_response = test_client.post(
+        f"/process/work-orders/{created['id']}/packing/complete",
+        json={"counted_quantity": 100, "ok_quantity": 92, "correction_quantity": 8},
+    )
+
+    response = test_client.get("/manager/work-orders/unplanned")
+
+    assert packing_response.status_code == 200
+    assert response.status_code == 200
+    correction_order = next(item for item in response.json() if item["is_correction"] is True)
+    assert correction_order["total_quantity"] == 8
+    assert correction_order["parent_order"]["id"] == created["id"]
+    assert correction_order["queue_position"] is None
+
+
 def test_complete_order_can_still_be_planned(test_client: TestClient) -> None:
     created = create_work_order(test_client, "Complete plan")
 
@@ -132,6 +165,60 @@ def test_update_queue_position_for_planned_order(test_client: TestClient) -> Non
 
     assert response.status_code == 200
     assert response.json()["queue_position"] == 2
+
+
+def test_bulk_reorder_updates_queue_positions(test_client: TestClient) -> None:
+    first = create_work_order(test_client, "Bulk queue 1")
+    second = create_work_order(test_client, "Bulk queue 2")
+    third = create_work_order(test_client, "Bulk queue 3")
+
+    test_client.post(
+        f"/manager/work-orders/{first['id']}/plan",
+        json={"production_type": "MANUAL", "queue_position": 1},
+    )
+    test_client.post(
+        f"/manager/work-orders/{second['id']}/plan",
+        json={"production_type": "MANUAL", "queue_position": 2},
+    )
+    test_client.post(
+        f"/manager/work-orders/{third['id']}/plan",
+        json={"production_type": "AUTOMATIC", "queue_position": 3},
+    )
+
+    response = test_client.post(
+        "/manager/queue/reorder",
+        json=[
+            {"work_order_id": third["id"], "queue_position": 1},
+            {"work_order_id": first["id"], "queue_position": 2},
+            {"work_order_id": second["id"], "queue_position": 3},
+        ],
+    )
+
+    assert response.status_code == 200
+    assert [(item["id"], item["queue_position"]) for item in response.json()] == [
+        (third["id"], 1),
+        (first["id"], 2),
+        (second["id"], 3),
+    ]
+
+
+def test_bulk_reorder_rejects_invalid_ids(test_client: TestClient) -> None:
+    created = create_work_order(test_client, "Bulk queue invalid")
+    test_client.post(
+        f"/manager/work-orders/{created['id']}/plan",
+        json={"production_type": "MANUAL", "queue_position": 1},
+    )
+
+    response = test_client.post(
+        "/manager/queue/reorder",
+        json=[
+            {"work_order_id": created["id"], "queue_position": 1},
+            {"work_order_id": 9999, "queue_position": 2},
+        ],
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Work order 9999 not found."
 
 
 def test_marking_incomplete_order_complete_adds_it_to_unplanned_list(test_client: TestClient) -> None:

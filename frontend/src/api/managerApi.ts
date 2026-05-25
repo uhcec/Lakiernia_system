@@ -1,4 +1,4 @@
-import type { AssignWorkOrderPlanRequest, UpdateQueuePositionRequest } from "../types/manager";
+import type { AssignWorkOrderPlanRequest, ReorderQueueItemRequest, UpdateQueuePositionRequest } from "../types/manager";
 import type { WorkOrder } from "../types/workOrders";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL?.trim();
@@ -89,4 +89,21 @@ export async function updateWorkOrderQueuePosition(
   }
 
   return response.json() as Promise<WorkOrder>;
+}
+
+export async function reorderWorkOrderQueue(payload: ReorderQueueItemRequest[]): Promise<WorkOrder[]> {
+  const response = await fetch(createApiUrl("/manager/queue/reorder"), {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response, "Nie udało się zapisać kolejności"));
+  }
+
+  return response.json() as Promise<WorkOrder[]>;
 }

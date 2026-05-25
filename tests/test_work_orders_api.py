@@ -365,11 +365,15 @@ def test_list_work_orders_includes_quantity_progress_fields(test_client: TestCli
     complete_packing_request(test_client, created["id"], counted_quantity=100, ok_quantity=98, correction_quantity=2)
 
     response = test_client.get("/work-orders")
+    original_item = next(item for item in response.json()["items"] if item["id"] == created["id"])
+    correction_item = next(item for item in response.json()["items"] if item["is_correction"] is True)
 
     assert response.status_code == 200
-    assert response.json()["items"][0]["total_quantity"] == 100
-    assert response.json()["items"][0]["completed_quantity"] == 98
-    assert response.json()["items"][0]["current_active_quantity"] == 2
+    assert original_item["total_quantity"] == 98
+    assert original_item["completed_quantity"] == 98
+    assert original_item["current_active_quantity"] == 0
+    assert correction_item["total_quantity"] == 2
+    assert correction_item["parent_order"]["id"] == created["id"]
 
 
 def test_list_work_orders_can_filter_by_status(test_client: TestClient) -> None:
@@ -591,8 +595,8 @@ def test_after_packing_done_process_status_is_gotowe(test_client: TestClient) ->
     assert response.json()["process_status"] == {"value": "READY", "label": "Gotowe"}
 
 
-def test_work_order_detail_returns_batches_in_created_order_with_main_and_correction(test_client: TestClient) -> None:
-    created = create_work_order(test_client, title="Batch history", coating_type="RAL", total_quantity=100).json()
+def test_work_order_detail_returns_parent_and_correction_orders(test_client: TestClient) -> None:
+    created = create_work_order(test_client, title="Correction history", coating_type="RAL", total_quantity=100).json()
     test_client.post(f"/manager/work-orders/{created['id']}/plan", json={"production_type": "MANUAL", "queue_position": 1})
     for stage in ["SURFACE_PREPARATION", "HANGING", "PRODUCTION"]:
         if stage == "SURFACE_PREPARATION":
@@ -602,18 +606,18 @@ def test_work_order_detail_returns_batches_in_created_order_with_main_and_correc
         test_client.post(f"/process/work-orders/{created['id']}/stages/{stage}/finish")
     test_client.post(f"/process/work-orders/{created['id']}/stages/PACKING/start")
     complete_packing_request(test_client, created["id"], counted_quantity=100, ok_quantity=90, correction_quantity=10)
-    test_client.post(f"/process/work-orders/{created['id']}/stages/PRODUCTION/start")
-    test_client.post(f"/process/work-orders/{created['id']}/stages/PRODUCTION/finish")
-    test_client.post(f"/process/work-orders/{created['id']}/stages/PACKING/start")
-    complete_packing_request(test_client, created["id"], counted_quantity=10, ok_quantity=8, correction_quantity=2)
+    correction_order = next(item for item in test_client.get("/manager/work-orders/unplanned").json() if item["parent_order"]["id"] == created["id"])
 
     response = test_client.get(f"/work-orders/{created['id']}")
+    correction_response = test_client.get(f"/work-orders/{correction_order['id']}")
 
     assert response.status_code == 200
-    assert [batch["type"]["value"] for batch in response.json()["batches"]] == ["MAIN", "CORRECTION", "CORRECTION"]
-    assert [batch["quantity"] for batch in response.json()["batches"]] == [100, 10, 2]
-    assert [batch["parent_batch_id"] for batch in response.json()["batches"]] == [None, response.json()["batches"][0]["id"], response.json()["batches"][1]["id"]]
-    assert response.json()["batches"][0]["is_finished"] is True
-    assert response.json()["batches"][1]["is_finished"] is True
-    assert response.json()["batches"][2]["is_active"] is True
-    assert response.json()["batches"][2]["is_finished"] is False
+    assert response.json()["is_correction"] is False
+    assert response.json()["parent_order"] is None
+    assert len(response.json()["correction_orders"]) == 1
+    assert response.json()["correction_orders"][0]["id"] == correction_order["id"]
+    assert response.json()["correction_orders"][0]["total_quantity"] == 10
+    assert correction_response.status_code == 200
+    assert correction_response.json()["is_correction"] is True
+    assert correction_response.json()["parent_order"]["id"] == created["id"]
+    assert correction_response.json()["correction_orders"] == []

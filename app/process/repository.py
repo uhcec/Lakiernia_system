@@ -1,4 +1,5 @@
 from collections.abc import Sequence
+from datetime import UTC, datetime
 
 from sqlalchemy import Select, select
 from sqlalchemy.orm import Session, selectinload
@@ -19,7 +20,12 @@ class ProcessRepository:
     def get_work_order_with_stage_states(self, work_order_id: int) -> WorkOrder | None:
         statement = (
             select(WorkOrder)
-            .options(selectinload(WorkOrder.stage_states), selectinload(WorkOrder.quantity_batches))
+            .options(
+                selectinload(WorkOrder.stage_states),
+                selectinload(WorkOrder.quantity_batches),
+                selectinload(WorkOrder.parent_order),
+                selectinload(WorkOrder.correction_orders),
+            )
             .where(WorkOrder.id == work_order_id)
         )
         return self.session.scalar(statement)
@@ -40,7 +46,12 @@ class ProcessRepository:
         statement = (
             select(WorkOrder)
             .join(WorkOrderStageState, WorkOrderStageState.work_order_id == WorkOrder.id)
-            .options(selectinload(WorkOrder.stage_states), selectinload(WorkOrder.quantity_batches))
+            .options(
+                selectinload(WorkOrder.stage_states),
+                selectinload(WorkOrder.quantity_batches),
+                selectinload(WorkOrder.parent_order),
+                selectinload(WorkOrder.correction_orders),
+            )
             .where(WorkOrderStageState.stage == stage)
             .where(WorkOrder.is_incomplete_on_arrival.is_(False))
             .order_by(WorkOrder.queue_position.asc(), WorkOrder.id.asc())
@@ -54,6 +65,22 @@ class ProcessRepository:
     def add_quantity_batch(self, batch) -> None:
         self.session.add(batch)
         self.session.flush()
+
+    def add_work_order(self, work_order: WorkOrder) -> WorkOrder:
+        self.session.add(work_order)
+        self.session.flush()
+        self.session.refresh(work_order)
+        return work_order
+
+    def get_latest_order_number_for_year(self, year: int) -> str | None:
+        prefix = f"WO-{year}-"
+        statement = (
+            select(WorkOrder.order_number)
+            .where(WorkOrder.order_number.like(f"{prefix}%"))
+            .order_by(WorkOrder.order_number.desc())
+            .limit(1)
+        )
+        return self.session.scalar(statement)
 
     def commit(self) -> None:
         self.session.commit()

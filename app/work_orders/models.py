@@ -1,6 +1,6 @@
 from datetime import UTC, date, datetime
 
-from sqlalchemy import Boolean, Date, DateTime, Enum, Float, Integer, String, Text
+from sqlalchemy import Boolean, Date, DateTime, Enum, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database.base import Base
@@ -39,6 +39,8 @@ class WorkOrder(Base):
     total_quantity: Mapped[int] = mapped_column(Integer(), nullable=False, default=1)
     completed_quantity: Mapped[int] = mapped_column(Integer(), nullable=False, default=0)
     current_active_batch_id: Mapped[int | None] = mapped_column(Integer(), nullable=True)
+    parent_order_id: Mapped[int | None] = mapped_column(ForeignKey("work_orders.id", ondelete="SET NULL"), nullable=True)
+    is_correction: Mapped[bool] = mapped_column(Boolean(), nullable=False, default=False)
     description: Mapped[str | None] = mapped_column(Text(), nullable=True)
     customer_name: Mapped[str] = mapped_column(String(255), nullable=False)
     ral_code: Mapped[str] = mapped_column(String(64), nullable=False)
@@ -75,6 +77,12 @@ class WorkOrder(Base):
         cascade="all, delete-orphan",
         passive_deletes=True,
     )
+    parent_order = relationship(
+        "WorkOrder",
+        remote_side="WorkOrder.id",
+        back_populates="correction_orders",
+    )
+    correction_orders = relationship("WorkOrder", back_populates="parent_order")
 
     @property
     def active_batches(self):

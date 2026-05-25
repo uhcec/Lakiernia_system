@@ -10,6 +10,7 @@ from app.work_orders.schemas import (
     WorkOrderCreate,
     WorkOrderListResponse,
     WorkOrderQuantityBatchRead,
+    WorkOrderRelationSummaryRead,
     WorkOrderRead,
     WorkOrderStageStateRead,
     WorkOrderStatusTransitionRequest,
@@ -21,6 +22,7 @@ from app.work_orders.schemas import (
     build_process_stage_view,
     build_stage_status_info_view,
     build_quantity_batch_type_view,
+    build_work_order_relation_summary,
     build_production_type_view,
 )
 from app.work_orders.workflow import validate_transition
@@ -187,6 +189,12 @@ class WorkOrderService:
             total_quantity=work_order.total_quantity,
             completed_quantity=work_order.completed_quantity,
             current_active_quantity=work_order.current_active_quantity,
+            is_correction=work_order.is_correction,
+            parent_order=(build_work_order_relation_summary(work_order.parent_order) if work_order.parent_order is not None else None),
+            correction_orders=[
+                build_work_order_relation_summary(correction_order)
+                for correction_order in self._get_ordered_correction_orders(work_order)
+            ],
             description=work_order.description,
             customer_name=work_order.customer_name,
             ral_code=work_order.ral_code,
@@ -252,3 +260,7 @@ class WorkOrderService:
     @staticmethod
     def _get_ordered_batches(work_order: WorkOrder):
         return sorted(work_order.quantity_batches, key=lambda batch: (batch.created_at, batch.id))
+
+    @staticmethod
+    def _get_ordered_correction_orders(work_order: WorkOrder) -> list[WorkOrder]:
+        return sorted(work_order.correction_orders, key=lambda correction_order: (correction_order.created_at, correction_order.id))

@@ -19,11 +19,29 @@ class WorkOrderRepository:
         return work_order
 
     def get_by_id(self, work_order_id: int) -> WorkOrder | None:
-        statement = select(WorkOrder).options(selectinload(WorkOrder.stage_states), selectinload(WorkOrder.quantity_batches)).where(WorkOrder.id == work_order_id)
+        statement = (
+            select(WorkOrder)
+            .options(
+                selectinload(WorkOrder.stage_states),
+                selectinload(WorkOrder.quantity_batches),
+                selectinload(WorkOrder.parent_order),
+                selectinload(WorkOrder.correction_orders),
+            )
+            .where(WorkOrder.id == work_order_id)
+        )
         return self.session.scalar(statement)
 
     def list(self, *, limit: int, offset: int, status: WorkOrderStatus | None = None) -> Sequence[WorkOrder]:
-        statement: Select[tuple[WorkOrder]] = select(WorkOrder).options(selectinload(WorkOrder.stage_states), selectinload(WorkOrder.quantity_batches)).order_by(WorkOrder.queue_position.asc(), WorkOrder.id.asc())
+        statement: Select[tuple[WorkOrder]] = (
+            select(WorkOrder)
+            .options(
+                selectinload(WorkOrder.stage_states),
+                selectinload(WorkOrder.quantity_batches),
+                selectinload(WorkOrder.parent_order),
+                selectinload(WorkOrder.correction_orders),
+            )
+            .order_by(WorkOrder.queue_position.asc(), WorkOrder.id.asc())
+        )
         if status is not None:
             statement = statement.where(WorkOrder.status == status)
         statement = statement.offset(offset).limit(limit)

@@ -5,11 +5,11 @@ from sqlalchemy.orm import Session
 
 from app.database.session import get_db_session
 from app.manager.repository import ManagerRepository
-from app.manager.schemas import WorkOrderPlanAssignRequest, WorkOrderQueuePositionUpdateRequest
+from app.manager.schemas import WorkOrderPlanAssignRequest, WorkOrderQueuePositionUpdateRequest, WorkOrderQueueReorderRequest
 from app.manager.service import ManagerService
 from app.work_orders.schemas import WorkOrderRead
 
-router = APIRouter(prefix="/manager/work-orders", tags=["manager-work-orders"])
+router = APIRouter(prefix="/manager", tags=["manager-work-orders"])
 
 
 def get_manager_service(session: Annotated[Session, Depends(get_db_session)]) -> ManagerService:
@@ -17,21 +17,21 @@ def get_manager_service(session: Annotated[Session, Depends(get_db_session)]) ->
     return ManagerService(repository)
 
 
-@router.get("/unplanned", response_model=list[WorkOrderRead])
+@router.get("/work-orders/unplanned", response_model=list[WorkOrderRead])
 def list_unplanned_work_orders(
     service: Annotated[ManagerService, Depends(get_manager_service)],
 ) -> list[WorkOrderRead]:
     return service.list_unplanned_work_orders()
 
 
-@router.get("", response_model=list[WorkOrderRead])
+@router.get("/work-orders", response_model=list[WorkOrderRead])
 def list_planned_work_orders(
     service: Annotated[ManagerService, Depends(get_manager_service)],
 ) -> list[WorkOrderRead]:
     return service.list_planned_work_orders()
 
 
-@router.post("/{work_order_id}/plan", response_model=WorkOrderRead)
+@router.post("/work-orders/{work_order_id}/plan", response_model=WorkOrderRead)
 def assign_plan(
     work_order_id: int,
     payload: WorkOrderPlanAssignRequest,
@@ -40,10 +40,18 @@ def assign_plan(
     return service.assign_plan(work_order_id, payload)
 
 
-@router.patch("/{work_order_id}/queue-position", response_model=WorkOrderRead)
+@router.patch("/work-orders/{work_order_id}/queue-position", response_model=WorkOrderRead)
 def update_queue_position(
     work_order_id: int,
     payload: WorkOrderQueuePositionUpdateRequest,
     service: Annotated[ManagerService, Depends(get_manager_service)],
 ) -> WorkOrderRead:
     return service.update_queue_position(work_order_id, payload)
+
+
+@router.post("/queue/reorder", response_model=list[WorkOrderRead])
+def reorder_queue(
+    payload: list[WorkOrderQueueReorderRequest],
+    service: Annotated[ManagerService, Depends(get_manager_service)],
+) -> list[WorkOrderRead]:
+    return service.reorder_queue(payload)

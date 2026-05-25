@@ -12,13 +12,43 @@ class ManagerRepository:
         self.session = session
 
     def get_by_id(self, work_order_id: int) -> WorkOrder | None:
-        statement = select(WorkOrder).options(selectinload(WorkOrder.stage_states), selectinload(WorkOrder.quantity_batches)).where(WorkOrder.id == work_order_id)
+        statement = (
+            select(WorkOrder)
+            .options(
+                selectinload(WorkOrder.stage_states),
+                selectinload(WorkOrder.quantity_batches),
+                selectinload(WorkOrder.parent_order),
+                selectinload(WorkOrder.correction_orders),
+            )
+            .where(WorkOrder.id == work_order_id)
+        )
         return self.session.scalar(statement)
+
+    def list_by_ids(self, work_order_ids: Sequence[int]) -> Sequence[WorkOrder]:
+        if not work_order_ids:
+            return []
+
+        statement = (
+            select(WorkOrder)
+            .options(
+                selectinload(WorkOrder.stage_states),
+                selectinload(WorkOrder.quantity_batches),
+                selectinload(WorkOrder.parent_order),
+                selectinload(WorkOrder.correction_orders),
+            )
+            .where(WorkOrder.id.in_(work_order_ids))
+        )
+        return self.session.scalars(statement).all()
 
     def list_unplanned_work_orders(self) -> Sequence[WorkOrder]:
         statement = (
             select(WorkOrder)
-            .options(selectinload(WorkOrder.stage_states), selectinload(WorkOrder.quantity_batches))
+            .options(
+                selectinload(WorkOrder.stage_states),
+                selectinload(WorkOrder.quantity_batches),
+                selectinload(WorkOrder.parent_order),
+                selectinload(WorkOrder.correction_orders),
+            )
             .where(
                 WorkOrder.production_type.is_(None),
                 WorkOrder.queue_position.is_(None),
@@ -31,7 +61,12 @@ class ManagerRepository:
     def list_planned_work_orders(self) -> Sequence[WorkOrder]:
         statement = (
             select(WorkOrder)
-            .options(selectinload(WorkOrder.stage_states), selectinload(WorkOrder.quantity_batches))
+            .options(
+                selectinload(WorkOrder.stage_states),
+                selectinload(WorkOrder.quantity_batches),
+                selectinload(WorkOrder.parent_order),
+                selectinload(WorkOrder.correction_orders),
+            )
             .where(WorkOrder.production_type.is_not(None), WorkOrder.queue_position.is_not(None))
             .order_by(WorkOrder.queue_position.asc(), WorkOrder.id.asc())
         )

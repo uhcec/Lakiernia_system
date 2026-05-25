@@ -149,7 +149,14 @@ export function WorkOrderDetailPage() {
                 </div>
                 <div>
                   <dt className="text-sm font-medium text-steel">Tytuł</dt>
-                  <dd className="mt-1 text-base font-semibold text-ink">{workOrder.title}</dd>
+                  <dd className="mt-1 flex flex-wrap items-center gap-2 text-base font-semibold text-ink">
+                    <span>{workOrder.title}</span>
+                    {workOrder.is_correction ? (
+                      <span className="inline-flex rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800">
+                        Poprawka
+                      </span>
+                    ) : null}
+                  </dd>
                 </div>
                 <div>
                   <dt className="text-sm font-medium text-steel">Firma</dt>
@@ -202,6 +209,38 @@ export function WorkOrderDetailPage() {
                 <div className="md:col-span-2">
                   <dt className="text-sm font-medium text-steel">Uwagi</dt>
                   <dd className="mt-1 whitespace-pre-wrap text-base text-ink">{workOrder.notes || "-"}</dd>
+                </div>
+                <div className="md:col-span-2">
+                  <dt className="text-sm font-medium text-steel">Zlecenie nadrzędne</dt>
+                  <dd className="mt-1 text-base text-ink">
+                    {workOrder.parent_order ? (
+                      <Link to={`/zlecenia/${workOrder.parent_order.id}`} className="font-semibold text-accent hover:underline">
+                        {workOrder.parent_order.order_number} · {workOrder.parent_order.title} · {workOrder.parent_order.total_quantity} szt.
+                      </Link>
+                    ) : (
+                      "-"
+                    )}
+                  </dd>
+                </div>
+                <div className="md:col-span-2">
+                  <dt className="text-sm font-medium text-steel">Zlecenia poprawek</dt>
+                  <dd className="mt-1 text-base text-ink">
+                    {workOrder.correction_orders.length > 0 ? (
+                      <div className="flex flex-col gap-2">
+                        {workOrder.correction_orders.map((correctionOrder) => (
+                          <Link
+                            key={correctionOrder.id}
+                            to={`/zlecenia/${correctionOrder.id}`}
+                            className="font-semibold text-accent hover:underline"
+                          >
+                            {correctionOrder.order_number} · {correctionOrder.title} · {correctionOrder.total_quantity} szt.
+                          </Link>
+                        ))}
+                      </div>
+                    ) : (
+                      "-"
+                    )}
+                  </dd>
                 </div>
               </dl>
             </div>
