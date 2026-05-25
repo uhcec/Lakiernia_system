@@ -11,3 +11,4 @@ local.db-*
 frontend/node_modules/
 frontend/dist/
 frontend/*.tsbuildinfo
+storage/
