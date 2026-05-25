@@ -387,6 +387,9 @@ class ProcessService:
         production_type: ProductionType | None = None,
         include_done: bool = False,
     ) -> bool:
+        if work_order.is_incomplete_on_arrival:
+            return False
+
         if not self._is_planned(work_order):
             return False
 

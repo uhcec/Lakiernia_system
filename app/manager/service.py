@@ -35,6 +35,8 @@ class ManagerService:
         work_order = self._get_existing_work_order(work_order_id)
         if self._is_planned(work_order):
             raise InvalidManagerPlanningError(f"Work order {work_order_id} is already planned.")
+        if work_order.is_incomplete_on_arrival:
+            raise InvalidManagerPlanningError("Cannot plan incomplete order. Mark as complete first.")
 
         work_order.production_type = payload.production_type
         work_order.queue_position = payload.queue_position

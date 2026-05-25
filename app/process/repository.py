@@ -42,6 +42,7 @@ class ProcessRepository:
             .join(WorkOrderStageState, WorkOrderStageState.work_order_id == WorkOrder.id)
             .options(selectinload(WorkOrder.stage_states), selectinload(WorkOrder.quantity_batches))
             .where(WorkOrderStageState.stage == stage)
+            .where(WorkOrder.is_incomplete_on_arrival.is_(False))
             .order_by(WorkOrder.queue_position.asc(), WorkOrder.id.asc())
         )
 

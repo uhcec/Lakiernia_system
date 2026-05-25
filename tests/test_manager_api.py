@@ -76,6 +76,31 @@ def test_assign_plan_sets_production_type_and_queue_position(test_client: TestCl
     assert response.json()["queue_position"] == 5
 
 
+def test_cannot_plan_incomplete_order(test_client: TestClient) -> None:
+    created = create_work_order(test_client, "Incomplete plan", is_incomplete_on_arrival=True)
+
+    response = test_client.post(
+        f"/manager/work-orders/{created['id']}/plan",
+        json={"production_type": "MANUAL", "queue_position": 1},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Cannot plan incomplete order. Mark as complete first."
+
+
+def test_complete_order_can_still_be_planned(test_client: TestClient) -> None:
+    created = create_work_order(test_client, "Complete plan")
+
+    response = test_client.post(
+        f"/manager/work-orders/{created['id']}/plan",
+        json={"production_type": "MANUAL", "queue_position": 1},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["production_type"] == {"value": "MANUAL", "label": "Manualna"}
+    assert response.json()["queue_position"] == 1
+
+
 def test_cannot_assign_plan_twice(test_client: TestClient) -> None:
     created = create_work_order(test_client, "Plan once")
 

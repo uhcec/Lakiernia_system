@@ -423,6 +423,32 @@ def test_unplanned_orders_are_hidden_from_process_visibility(db_session: Session
     assert [work_order.id for work_order in visible] == [planned_order.id]
 
 
+def test_incomplete_order_does_not_appear_in_stage_lists_even_if_planned_earlier(db_session: Session) -> None:
+    work_order_service, process_service, manager_service, _, process_repository = build_services(db_session)
+
+    visible_order = create_ral_work_order(work_order_service, "Visible planned")
+    incomplete_order = work_order_service.create_work_order(
+        build_work_order_create(title="Incomplete planned", coating_type=CoatingType.RAL, total_quantity=100).model_copy(
+            update={"is_incomplete_on_arrival": True}
+        )
+    )
+
+    manager_service.assign_plan(
+        visible_order.id,
+        WorkOrderPlanAssignRequest(production_type=ProductionType.MANUAL, queue_position=1),
+    )
+
+    persisted_incomplete = process_repository.get_work_order_with_stage_states(incomplete_order.id)
+    assert persisted_incomplete is not None
+    persisted_incomplete.production_type = ProductionType.MANUAL
+    persisted_incomplete.queue_position = 2
+    process_repository.commit()
+
+    visible = process_service.list_visible_work_orders(ProcessStage.SURFACE_PREPARATION)
+
+    assert [work_order.id for work_order in visible] == [visible_order.id]
+
+
 def test_complete_packing_splits_ok_and_correction_quantities(db_session: Session) -> None:
     work_order_service, process_service, manager_service, _, process_repository = build_services(db_session)
 
