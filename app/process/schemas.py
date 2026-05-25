@@ -41,6 +41,7 @@ class StageStartRequest(BaseModel):
 
 
 class PackingCompleteRequest(BaseModel):
+    counted_quantity: int = Field(gt=0)
     ok_quantity: int = Field(ge=0)
     correction_quantity: int = Field(ge=0)
 

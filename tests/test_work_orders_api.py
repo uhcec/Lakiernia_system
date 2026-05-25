@@ -36,6 +36,24 @@ def start_surface_preparation(test_client: TestClient, work_order_id: int, count
     )
 
 
+def complete_packing_request(
+    test_client: TestClient,
+    work_order_id: int,
+    *,
+    counted_quantity: int,
+    ok_quantity: int,
+    correction_quantity: int,
+) -> None:
+    test_client.post(
+        f"/process/work-orders/{work_order_id}/packing/complete",
+        json={
+            "counted_quantity": counted_quantity,
+            "ok_quantity": ok_quantity,
+            "correction_quantity": correction_quantity,
+        },
+    )
+
+
 def finish_ral_work_order(test_client: TestClient, work_order_id: int) -> None:
     test_client.post(f"/manager/work-orders/{work_order_id}/plan", json={"production_type": "MANUAL", "queue_position": 1})
     for stage in ["SURFACE_PREPARATION", "HANGING", "PRODUCTION", "PACKING"]:
@@ -344,10 +362,7 @@ def test_list_work_orders_includes_quantity_progress_fields(test_client: TestCli
             test_client.post(f"/process/work-orders/{created['id']}/stages/{stage}/start")
         test_client.post(f"/process/work-orders/{created['id']}/stages/{stage}/finish")
     test_client.post(f"/process/work-orders/{created['id']}/stages/PACKING/start")
-    test_client.post(
-        f"/process/work-orders/{created['id']}/packing/complete",
-        json={"ok_quantity": 98, "correction_quantity": 2},
-    )
+    complete_packing_request(test_client, created["id"], counted_quantity=100, ok_quantity=98, correction_quantity=2)
 
     response = test_client.get("/work-orders")
 
@@ -586,17 +601,11 @@ def test_work_order_detail_returns_batches_in_created_order_with_main_and_correc
             test_client.post(f"/process/work-orders/{created['id']}/stages/{stage}/start")
         test_client.post(f"/process/work-orders/{created['id']}/stages/{stage}/finish")
     test_client.post(f"/process/work-orders/{created['id']}/stages/PACKING/start")
-    test_client.post(
-        f"/process/work-orders/{created['id']}/packing/complete",
-        json={"ok_quantity": 90, "correction_quantity": 10},
-    )
+    complete_packing_request(test_client, created["id"], counted_quantity=100, ok_quantity=90, correction_quantity=10)
     test_client.post(f"/process/work-orders/{created['id']}/stages/PRODUCTION/start")
     test_client.post(f"/process/work-orders/{created['id']}/stages/PRODUCTION/finish")
     test_client.post(f"/process/work-orders/{created['id']}/stages/PACKING/start")
-    test_client.post(
-        f"/process/work-orders/{created['id']}/packing/complete",
-        json={"ok_quantity": 8, "correction_quantity": 2},
-    )
+    complete_packing_request(test_client, created["id"], counted_quantity=10, ok_quantity=8, correction_quantity=2)
 
     response = test_client.get(f"/work-orders/{created['id']}")
 

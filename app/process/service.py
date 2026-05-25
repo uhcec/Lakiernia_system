@@ -182,6 +182,7 @@ class ProcessService:
         if stage == ProcessStage.PACKING:
             return self.complete_packing(
                 work_order_id,
+                counted_quantity=work_order.current_active_quantity,
                 ok_quantity=work_order.current_active_quantity,
                 correction_quantity=0,
             )
@@ -241,6 +242,7 @@ class ProcessService:
         self,
         work_order_id: int,
         *,
+        counted_quantity: int,
         ok_quantity: int,
         correction_quantity: int,
         batch_id: int | None = None,
@@ -251,6 +253,7 @@ class ProcessService:
             return self._complete_tracked_batch_packing(
                 work_order,
                 target_batch,
+                counted_quantity=counted_quantity,
                 ok_quantity=ok_quantity,
                 correction_quantity=correction_quantity,
             )
@@ -265,14 +268,16 @@ class ProcessService:
         if active_batch is None:
             raise InvalidProcessStageTransitionError("No active quantity batch available for packing.")
 
-        active_quantity = active_batch.quantity
-        if ok_quantity + correction_quantity != active_quantity:
+        if ok_quantity + correction_quantity != counted_quantity:
             raise InvalidProcessStageTransitionError(
-                "Packing quantities must add up to the current active quantity."
+                "Packing quantities must add up to the counted quantity."
             )
 
         if ok_quantity < 0 or correction_quantity < 0:
             raise InvalidProcessStageTransitionError("Packing quantities cannot be negative.")
+
+        packing_state.counted_quantity = counted_quantity
+        packing_state.updated_at = datetime.now(UTC)
 
         production_state = self._get_stage_state(work_order, ProcessStage.PRODUCTION)
         if work_order.production_type == ProductionType.AUTOMATIC and hanging_state.status == StageStatus.IN_PROGRESS:
@@ -783,6 +788,7 @@ class ProcessService:
         work_order: WorkOrder,
         batch: WorkOrderQuantityBatch,
         *,
+        counted_quantity: int,
         ok_quantity: int,
         correction_quantity: int,
     ) -> ProcessStageWorkOrderRead:
@@ -798,8 +804,12 @@ class ProcessService:
             raise InvalidProcessStageTransitionError("Packing can be completed only from IN_PROGRESS state.")
         if ok_quantity < 0 or correction_quantity < 0:
             raise InvalidProcessStageTransitionError("Packing quantities cannot be negative.")
-        if ok_quantity + correction_quantity != batch.quantity:
-            raise InvalidProcessStageTransitionError("Packing quantities must add up to the current active quantity.")
+        if ok_quantity + correction_quantity != counted_quantity:
+            raise InvalidProcessStageTransitionError("Packing quantities must add up to the counted quantity.")
+
+        packing_state = self._get_stage_state(work_order, ProcessStage.PACKING)
+        packing_state.counted_quantity = counted_quantity
+        packing_state.updated_at = datetime.now(UTC)
 
         batch.is_active = False
         batch.current_stage = ProcessStage.PACKING
@@ -936,7 +946,7 @@ class ProcessService:
             batch_id = batch.id
             stage_status = self.build_stage_status_view(batch_status)
 
-        counted_quantity = stage_state.counted_quantity if stage == ProcessStage.SURFACE_PREPARATION else None
+        counted_quantity = stage_state.counted_quantity if stage in {ProcessStage.SURFACE_PREPARATION, ProcessStage.PACKING} else None
         quantity_difference = counted_quantity - batch_quantity if counted_quantity is not None else None
 
         return ProcessStageWorkOrderRead(

@@ -73,6 +73,21 @@ def create_ral_work_order(work_order_service: WorkOrderService, title: str):
     return work_order_service.create_work_order(build_work_order_create(title=title, coating_type=CoatingType.RAL, total_quantity=100))
 
 
+def complete_packing(
+    process_service: ProcessService,
+    work_order_id: int,
+    *,
+    ok_quantity: int,
+    correction_quantity: int,
+):
+    return process_service.complete_packing(
+        work_order_id,
+        counted_quantity=ok_quantity + correction_quantity,
+        ok_quantity=ok_quantity,
+        correction_quantity=correction_quantity,
+    )
+
+
 def test_creating_work_order_initializes_stage_states(db_session: Session) -> None:
     work_order_service, process_service, _, work_order_repository, _ = build_services(db_session)
 
@@ -262,7 +277,7 @@ def test_decoral_path_goes_after_packing_for_manual_orders(db_session: Session) 
     process_service.transition_stage(created.id, ProcessStage.PRODUCTION, StageStatus.DONE)
     process_service.transition_stage(created.id, ProcessStage.PACKING, StageStatus.IN_PROGRESS)
 
-    response = process_service.complete_packing(created.id, ok_quantity=100, correction_quantity=0)
+    response = complete_packing(process_service, created.id, ok_quantity=100, correction_quantity=0)
     work_order = process_repository.get_work_order_with_stage_states(created.id)
 
     assert response.stage_status.stage == ProcessStage.DECORAL_PRODUCTION
@@ -287,7 +302,7 @@ def test_decoral_production_finishes_order(db_session: Session) -> None:
     process_service.transition_stage(created.id, ProcessStage.PRODUCTION, StageStatus.IN_PROGRESS)
     process_service.transition_stage(created.id, ProcessStage.PRODUCTION, StageStatus.DONE)
     process_service.transition_stage(created.id, ProcessStage.PACKING, StageStatus.IN_PROGRESS)
-    process_service.complete_packing(created.id, ok_quantity=100, correction_quantity=0)
+    complete_packing(process_service, created.id, ok_quantity=100, correction_quantity=0)
     process_service.transition_stage(created.id, ProcessStage.DECORAL_PRODUCTION, StageStatus.IN_PROGRESS)
     process_service.finish_stage(created.id, ProcessStage.DECORAL_PRODUCTION)
     work_order = process_repository.get_work_order_with_stage_states(created.id)
@@ -329,8 +344,8 @@ def test_corrections_return_to_correct_action_stage(db_session: Session) -> None
     )
     advance_to_packing(process_service, manual_order.id)
     advance_to_packing(process_service, automatic_order.id)
-    process_service.complete_packing(manual_order.id, ok_quantity=90, correction_quantity=10)
-    process_service.complete_packing(automatic_order.id, ok_quantity=90, correction_quantity=10)
+    complete_packing(process_service, manual_order.id, ok_quantity=90, correction_quantity=10)
+    complete_packing(process_service, automatic_order.id, ok_quantity=90, correction_quantity=10)
     manual_work_order = process_repository.get_work_order_with_stage_states(manual_order.id)
     automatic_work_order = process_repository.get_work_order_with_stage_states(automatic_order.id)
 
@@ -353,7 +368,7 @@ def test_decoral_automatic_mixed_split_creates_parallel_batches(db_session: Sess
     )
     advance_to_packing(process_service, created.id)
 
-    process_service.complete_packing(created.id, ok_quantity=7, correction_quantity=3)
+    complete_packing(process_service, created.id, ok_quantity=7, correction_quantity=3)
 
     work_order = process_repository.get_work_order_with_stage_states(created.id)
     hanging_rows = process_service.list_stage_work_orders(ProcessStage.HANGING)
@@ -459,7 +474,7 @@ def test_complete_packing_splits_ok_and_correction_quantities(db_session: Sessio
     )
     advance_to_packing(process_service, created.id)
 
-    response = process_service.complete_packing(created.id, ok_quantity=90, correction_quantity=10)
+    response = complete_packing(process_service, created.id, ok_quantity=90, correction_quantity=10)
     work_order = process_repository.get_work_order_with_stage_states(created.id)
 
     assert response.stage_status.stage == ProcessStage.PRODUCTION
@@ -487,7 +502,7 @@ def test_complete_packing_full_ok_marks_work_order_ready(db_session: Session) ->
     )
     advance_to_packing(process_service, created.id)
 
-    response = process_service.complete_packing(created.id, ok_quantity=100, correction_quantity=0)
+    response = complete_packing(process_service, created.id, ok_quantity=100, correction_quantity=0)
     work_order = process_repository.get_work_order_with_stage_states(created.id)
 
     assert response.stage_status.stage == ProcessStage.PACKING
@@ -507,7 +522,7 @@ def test_complete_packing_full_correction_returns_entire_batch(db_session: Sessi
     )
     advance_to_packing(process_service, created.id)
 
-    response = process_service.complete_packing(created.id, ok_quantity=0, correction_quantity=100)
+    response = complete_packing(process_service, created.id, ok_quantity=0, correction_quantity=100)
     work_order = process_repository.get_work_order_with_stage_states(created.id)
 
     assert response.stage_status.stage == ProcessStage.PRODUCTION
@@ -527,12 +542,12 @@ def test_multiple_packing_corrections_can_chain(db_session: Session) -> None:
         WorkOrderPlanAssignRequest(production_type=ProductionType.MANUAL, queue_position=1),
     )
     advance_to_packing(process_service, created.id)
-    process_service.complete_packing(created.id, ok_quantity=70, correction_quantity=30)
+    complete_packing(process_service, created.id, ok_quantity=70, correction_quantity=30)
 
     process_service.transition_stage(created.id, ProcessStage.PRODUCTION, StageStatus.IN_PROGRESS)
     process_service.transition_stage(created.id, ProcessStage.PRODUCTION, StageStatus.DONE)
     process_service.transition_stage(created.id, ProcessStage.PACKING, StageStatus.IN_PROGRESS)
-    process_service.complete_packing(created.id, ok_quantity=20, correction_quantity=10)
+    complete_packing(process_service, created.id, ok_quantity=20, correction_quantity=10)
 
     work_order = process_repository.get_work_order_with_stage_states(created.id)
 
@@ -551,7 +566,7 @@ def test_fully_packed_order_cannot_reopen_any_stage(db_session: Session) -> None
         WorkOrderPlanAssignRequest(production_type=ProductionType.MANUAL, queue_position=1),
     )
     advance_to_packing(process_service, created.id)
-    process_service.complete_packing(created.id, ok_quantity=100, correction_quantity=0)
+    complete_packing(process_service, created.id, ok_quantity=100, correction_quantity=0)
 
     with pytest.raises(InvalidProcessStageTransitionError) as exc_info:
         process_service.reopen_stage(created.id, ProcessStage.PACKING)
@@ -568,7 +583,7 @@ def test_correction_active_batch_can_still_continue_workflow(db_session: Session
         WorkOrderPlanAssignRequest(production_type=ProductionType.MANUAL, queue_position=1),
     )
     advance_to_packing(process_service, created.id)
-    process_service.complete_packing(created.id, ok_quantity=80, correction_quantity=20)
+    complete_packing(process_service, created.id, ok_quantity=80, correction_quantity=20)
 
     started = process_service.start_stage(created.id, ProcessStage.PRODUCTION)
     process_service.finish_stage(created.id, ProcessStage.PRODUCTION)

@@ -36,6 +36,30 @@ def start_surface_preparation(
     )
 
 
+def complete_packing_request(
+    test_client: TestClient,
+    work_order_id: int,
+    *,
+    counted_quantity: int,
+    ok_quantity: int,
+    correction_quantity: int,
+    batch_id: int | None = None,
+):
+    path = (
+        f"/process/work-orders/{work_order_id}/batches/{batch_id}/packing/complete"
+        if batch_id is not None
+        else f"/process/work-orders/{work_order_id}/packing/complete"
+    )
+    return test_client.post(
+        path,
+        json={
+            "counted_quantity": counted_quantity,
+            "ok_quantity": ok_quantity,
+            "correction_quantity": correction_quantity,
+        },
+    )
+
+
 def advance_to_hanging(test_client: TestClient, work_order_id: int) -> None:
     start_surface_preparation(test_client, work_order_id)
     test_client.post(f"/process/work-orders/{work_order_id}/stages/SURFACE_PREPARATION/finish")
@@ -192,10 +216,7 @@ def test_automatic_packing_can_complete_after_hanging_start(test_client: TestCli
 
     test_client.post(f"/process/work-orders/{automatic['id']}/stages/HANGING/start")
 
-    response = test_client.post(
-        f"/process/work-orders/{automatic['id']}/packing/complete",
-        json={"ok_quantity": 100, "correction_quantity": 0},
-    )
+    response = complete_packing_request(test_client, automatic["id"], counted_quantity=100, ok_quantity=100, correction_quantity=0)
     detail = test_client.get(f"/work-orders/{automatic['id']}")
 
     assert response.status_code == 200
@@ -243,10 +264,7 @@ def test_ral_orders_do_not_appear_in_decoral_stage(test_client: TestClient) -> N
     test_client.post(f"/process/work-orders/{decoral['id']}/stages/PRODUCTION/start")
     test_client.post(f"/process/work-orders/{decoral['id']}/stages/PRODUCTION/finish")
     test_client.post(f"/process/work-orders/{decoral['id']}/stages/PACKING/start")
-    test_client.post(
-        f"/process/work-orders/{decoral['id']}/packing/complete",
-        json={"ok_quantity": 100, "correction_quantity": 0},
-    )
+    complete_packing_request(test_client, decoral["id"], counted_quantity=100, ok_quantity=100, correction_quantity=0)
 
     response = test_client.get("/process/stages/DECORAL_PRODUCTION/work-orders")
 
@@ -339,10 +357,7 @@ def test_packing_complete_splits_quantities_and_returns_to_production(test_clien
     created = create_planned_work_order(test_client, title="Packing split", queue_position=1)
     advance_to_packing(test_client, created["id"])
 
-    response = test_client.post(
-        f"/process/work-orders/{created['id']}/packing/complete",
-        json={"ok_quantity": 90, "correction_quantity": 10},
-    )
+    response = complete_packing_request(test_client, created["id"], counted_quantity=100, ok_quantity=90, correction_quantity=10)
 
     assert response.status_code == 200
     assert response.json()["stage_status"] == {
@@ -361,10 +376,7 @@ def test_decoral_ok_quantity_goes_to_decoral_production_after_packing(test_clien
     test_client.post(f"/process/work-orders/{created['id']}/stages/PRODUCTION/finish")
     test_client.post(f"/process/work-orders/{created['id']}/stages/PACKING/start")
 
-    response = test_client.post(
-        f"/process/work-orders/{created['id']}/packing/complete",
-        json={"ok_quantity": 100, "correction_quantity": 0},
-    )
+    response = complete_packing_request(test_client, created["id"], counted_quantity=100, ok_quantity=100, correction_quantity=0)
     detail = test_client.get(f"/work-orders/{created['id']}")
 
     assert response.status_code == 200
@@ -382,10 +394,7 @@ def test_decoral_production_finish_completes_order(test_client: TestClient) -> N
     test_client.post(f"/process/work-orders/{created['id']}/stages/PRODUCTION/start")
     test_client.post(f"/process/work-orders/{created['id']}/stages/PRODUCTION/finish")
     test_client.post(f"/process/work-orders/{created['id']}/stages/PACKING/start")
-    test_client.post(
-        f"/process/work-orders/{created['id']}/packing/complete",
-        json={"ok_quantity": 100, "correction_quantity": 0},
-    )
+    complete_packing_request(test_client, created["id"], counted_quantity=100, ok_quantity=100, correction_quantity=0)
     test_client.post(f"/process/work-orders/{created['id']}/stages/DECORAL_PRODUCTION/start")
 
     response = test_client.post(f"/process/work-orders/{created['id']}/stages/DECORAL_PRODUCTION/finish")
@@ -416,10 +425,7 @@ def test_automatic_full_ok_can_finish_from_packing(test_client: TestClient) -> N
     created = create_planned_work_order(test_client, title="Automatic full OK", queue_position=1, production_type="AUTOMATIC")
     advance_to_packing(test_client, created["id"])
 
-    response = test_client.post(
-        f"/process/work-orders/{created['id']}/packing/complete",
-        json={"ok_quantity": 100, "correction_quantity": 0},
-    )
+    response = complete_packing_request(test_client, created["id"], counted_quantity=100, ok_quantity=100, correction_quantity=0)
     detail = test_client.get(f"/work-orders/{created['id']}")
 
     assert response.status_code == 200
@@ -438,14 +444,8 @@ def test_manual_and_automatic_corrections_return_to_correct_action_lists(test_cl
     advance_to_packing(test_client, manual["id"])
     advance_to_packing(test_client, automatic["id"])
 
-    test_client.post(
-        f"/process/work-orders/{manual['id']}/packing/complete",
-        json={"ok_quantity": 95, "correction_quantity": 5},
-    )
-    test_client.post(
-        f"/process/work-orders/{automatic['id']}/packing/complete",
-        json={"ok_quantity": 95, "correction_quantity": 5},
-    )
+    complete_packing_request(test_client, manual["id"], counted_quantity=100, ok_quantity=95, correction_quantity=5)
+    complete_packing_request(test_client, automatic["id"], counted_quantity=100, ok_quantity=95, correction_quantity=5)
 
     manual_production = test_client.get("/process/stages/PRODUCTION/work-orders", params={"production_type": "MANUAL"})
     automatic_hanging = test_client.get("/process/stages/HANGING/work-orders")
@@ -458,10 +458,7 @@ def test_automatic_correction_batch_can_finish_from_packing(test_client: TestCli
     created = create_planned_work_order(test_client, title="Automatic correction finish", queue_position=1, production_type="AUTOMATIC")
     advance_to_packing(test_client, created["id"])
 
-    split_response = test_client.post(
-        f"/process/work-orders/{created['id']}/packing/complete",
-        json={"ok_quantity": 95, "correction_quantity": 5},
-    )
+    split_response = complete_packing_request(test_client, created["id"], counted_quantity=100, ok_quantity=95, correction_quantity=5)
     assert split_response.status_code == 200
 
     detail_after_split = test_client.get(f"/work-orders/{created['id']}").json()
@@ -473,9 +470,13 @@ def test_automatic_correction_batch_can_finish_from_packing(test_client: TestCli
     batch_id = correction_batch["id"]
 
     start_response = test_client.post(f"/process/work-orders/{created['id']}/batches/{batch_id}/stages/HANGING/start")
-    finish_packing_response = test_client.post(
-        f"/process/work-orders/{created['id']}/batches/{batch_id}/packing/complete",
-        json={"ok_quantity": 5, "correction_quantity": 0},
+    finish_packing_response = complete_packing_request(
+        test_client,
+        created["id"],
+        batch_id=batch_id,
+        counted_quantity=5,
+        ok_quantity=5,
+        correction_quantity=0,
     )
     detail = test_client.get(f"/work-orders/{created['id']}")
 
@@ -500,10 +501,7 @@ def test_decoral_automatic_mixed_split_is_visible_in_hanging_and_decoral(test_cl
     )
     advance_to_packing(test_client, created["id"])
 
-    response = test_client.post(
-        f"/process/work-orders/{created['id']}/packing/complete",
-        json={"ok_quantity": 70, "correction_quantity": 30},
-    )
+    response = complete_packing_request(test_client, created["id"], counted_quantity=100, ok_quantity=70, correction_quantity=30)
     hanging_response = test_client.get("/process/stages/HANGING/work-orders")
     decoral_response = test_client.get("/process/stages/DECORAL_PRODUCTION/work-orders")
 
@@ -533,10 +531,7 @@ def test_fully_packed_order_reopen_returns_clear_validation_error(test_client: T
 def test_order_with_correction_active_batch_can_still_reopen_stage(test_client: TestClient) -> None:
     created = create_planned_work_order(test_client, title="Correction still active", queue_position=1)
     advance_to_packing(test_client, created["id"])
-    test_client.post(
-        f"/process/work-orders/{created['id']}/packing/complete",
-        json={"ok_quantity": 90, "correction_quantity": 10},
-    )
+    complete_packing_request(test_client, created["id"], counted_quantity=100, ok_quantity=90, correction_quantity=10)
     test_client.post(f"/process/work-orders/{created['id']}/stages/PRODUCTION/start")
     test_client.post(f"/process/work-orders/{created['id']}/stages/PRODUCTION/finish")
 
@@ -553,12 +548,58 @@ def test_packing_complete_rejects_invalid_quantity_sum(test_client: TestClient) 
     created = create_planned_work_order(test_client, title="Packing invalid", queue_position=1)
     advance_to_packing(test_client, created["id"])
 
-    response = test_client.post(
-        f"/process/work-orders/{created['id']}/packing/complete",
-        json={"ok_quantity": 60, "correction_quantity": 50},
-    )
+    response = complete_packing_request(test_client, created["id"], counted_quantity=100, ok_quantity=60, correction_quantity=50)
 
     assert response.status_code == 409
+
+
+def test_packing_complete_requires_counted_quantity(test_client: TestClient) -> None:
+    created = create_planned_work_order(test_client, title="Packing missing counted", queue_position=1)
+    advance_to_packing(test_client, created["id"])
+
+    response = test_client.post(
+        f"/process/work-orders/{created['id']}/packing/complete",
+        json={"ok_quantity": 100, "correction_quantity": 0},
+    )
+
+    assert response.status_code == 422
+
+
+def test_packing_complete_rejects_when_split_does_not_match_counted_quantity(test_client: TestClient) -> None:
+    created = create_planned_work_order(test_client, title="Packing counted mismatch", queue_position=1)
+    advance_to_packing(test_client, created["id"])
+
+    response = complete_packing_request(test_client, created["id"], counted_quantity=96, ok_quantity=90, correction_quantity=5)
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Packing quantities must add up to the counted quantity."
+
+
+def test_packing_complete_accepts_valid_counted_quantity_split(test_client: TestClient) -> None:
+    created = create_planned_work_order(test_client, title="Packing counted valid", queue_position=1)
+    advance_to_packing(test_client, created["id"])
+
+    response = complete_packing_request(test_client, created["id"], counted_quantity=96, ok_quantity=90, correction_quantity=6)
+
+    assert response.status_code == 200
+    assert response.json()["stage_status"] == {
+        "stage": "PRODUCTION",
+        "status": {"value": "NOT_STARTED", "label": "Nie rozpoczęte"},
+    }
+    assert response.json()["current_active_quantity"] == 6
+
+
+def test_packing_stage_list_includes_counted_quantity_difference(test_client: TestClient) -> None:
+    created = create_planned_work_order(test_client, title="Packing difference", queue_position=1)
+    advance_to_packing(test_client, created["id"])
+
+    response = test_client.get("/process/stages/PACKING/work-orders")
+
+    assert response.status_code == 200
+    item = next(item for item in response.json() if item["id"] == created["id"])
+    assert item["planned_quantity"] == 100
+    assert item["counted_quantity"] is None
+    assert item["quantity_difference"] is None
 
 
 def test_reopen_stage_moves_done_back_to_in_progress(test_client: TestClient) -> None:

@@ -4,6 +4,7 @@ import { completePacking, fetchStageWorkOrders, transitionStage } from "../api/p
 import type { StageWorkOrder, StageStatusValue } from "../types/process";
 
 interface PackingDraft {
+  countedQuantity: string;
   okQuantity: string;
   correctionQuantity: string;
 }
@@ -20,11 +21,15 @@ function getActionLabel(status: StageStatusValue): string {
 }
 
 function parseQuantity(value: string): number {
-  if (value.trim() == "") {
+  if (value.trim() === "") {
     return 0;
   }
 
   return Number(value);
+}
+
+function formatDifference(difference: number): string {
+  return difference > 0 ? `+${difference}` : String(difference);
 }
 
 export function PackingWorkOrdersPage() {
@@ -53,9 +58,11 @@ export function PackingWorkOrdersPage() {
         const nextDrafts = { ...current };
         for (const item of items) {
           const draftKey = getDraftKey(item);
-          if (!(draftKey in nextDrafts)) {
+          const existingDraft = nextDrafts[draftKey];
+          if (!existingDraft) {
             nextDrafts[draftKey] = {
-              okQuantity: String(item.current_active_quantity),
+              countedQuantity: item.counted_quantity?.toString() ?? "",
+              okQuantity: String(item.counted_quantity ?? item.current_active_quantity),
               correctionQuantity: "0",
             };
           }
@@ -77,7 +84,7 @@ export function PackingWorkOrdersPage() {
     setDrafts((current) => ({
       ...current,
       [workOrderId]: {
-        ...(current[workOrderId] ?? { okQuantity: "0", correctionQuantity: "0" }),
+        ...(current[workOrderId] ?? { countedQuantity: "", okQuantity: "0", correctionQuantity: "0" }),
         [fieldName]: value,
       },
     }));
@@ -104,22 +111,25 @@ export function PackingWorkOrdersPage() {
 
   async function handlePackingSubmit(workOrder: StageWorkOrder) {
     const draftKey = getDraftKey(workOrder);
-    const draft = drafts[draftKey] ?? { okQuantity: "0", correctionQuantity: "0" };
+    const draft = drafts[draftKey] ?? { countedQuantity: "", okQuantity: "0", correctionQuantity: "0" };
+    const countedQuantity = parseQuantity(draft.countedQuantity);
     const okQuantity = parseQuantity(draft.okQuantity);
     const correctionQuantity = parseQuantity(draft.correctionQuantity);
 
     if (
+      !Number.isInteger(countedQuantity) ||
+      countedQuantity <= 0 ||
       !Number.isInteger(okQuantity) ||
       !Number.isInteger(correctionQuantity) ||
       okQuantity < 0 ||
       correctionQuantity < 0
     ) {
-      setErrorMessage("Ilości pakowania muszą być nieujemnymi liczbami całkowitymi");
+      setErrorMessage("Policzono musi być dodatnią liczbą całkowitą, a ilości pakowania muszą być nieujemnymi liczbami całkowitymi");
       return;
     }
 
-    if (okQuantity + correctionQuantity !== workOrder.current_active_quantity) {
-      setErrorMessage("Suma ilości OK i do poprawki musi być równa aktywnej ilości partii");
+    if (okQuantity + correctionQuantity !== countedQuantity) {
+      setErrorMessage("Suma ilości OK i do poprawki musi być równa wartości Policzono");
       return;
     }
 
@@ -127,10 +137,15 @@ export function PackingWorkOrdersPage() {
     setErrorMessage(null);
 
     try {
-      await completePacking(workOrder.id, {
-        ok_quantity: okQuantity,
-        correction_quantity: correctionQuantity,
-      }, workOrder.batch_id ?? undefined);
+      await completePacking(
+        workOrder.id,
+        {
+          counted_quantity: countedQuantity,
+          ok_quantity: okQuantity,
+          correction_quantity: correctionQuantity,
+        },
+        workOrder.batch_id ?? undefined,
+      );
       await loadWorkOrders();
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "Nie udało się zatwierdzić pakowania");
@@ -149,8 +164,11 @@ export function PackingWorkOrdersPage() {
                 <th className="px-5 py-4 font-semibold">Pozycja</th>
                 <th className="px-5 py-4 font-semibold">Nr zlecenia</th>
                 <th className="px-5 py-4 font-semibold">Tytuł</th>
-                <th className="px-5 py-4 font-semibold">Aktywna ilość</th>
-                <th className="px-5 py-4 font-semibold">Ilość całkowita</th>
+                <th className="px-5 py-4 font-semibold">Plan</th>
+                <th className="px-5 py-4 font-semibold">Policzono</th>
+                <th className="px-5 py-4 font-semibold">Różnica</th>
+                <th className="px-5 py-4 font-semibold">OK</th>
+                <th className="px-5 py-4 font-semibold">Poprawki</th>
                 <th className="px-5 py-4 font-semibold">Status etapu</th>
                 <th className="px-5 py-4 font-semibold text-right">Akcje</th>
               </tr>
@@ -160,23 +178,80 @@ export function PackingWorkOrdersPage() {
                 const status = workOrder.stage_status.status.value;
                 const draftKey = getDraftKey(workOrder);
                 const isSubmitting = activeWorkOrderId === draftKey;
-                const draft = drafts[draftKey] ?? { okQuantity: "0", correctionQuantity: "0" };
+                const draft = drafts[draftKey] ?? { countedQuantity: "", okQuantity: "0", correctionQuantity: "0" };
+                const countedQuantity = parseQuantity(draft.countedQuantity);
                 const okQuantity = parseQuantity(draft.okQuantity);
                 const correctionQuantity = parseQuantity(draft.correctionQuantity);
+                const difference =
+                  Number.isInteger(countedQuantity) && countedQuantity > 0
+                    ? countedQuantity - workOrder.planned_quantity
+                    : null;
                 const isDraftValid =
+                  Number.isInteger(countedQuantity) &&
+                  countedQuantity > 0 &&
                   Number.isInteger(okQuantity) &&
                   Number.isInteger(correctionQuantity) &&
                   okQuantity >= 0 &&
                   correctionQuantity >= 0 &&
-                  okQuantity + correctionQuantity === workOrder.current_active_quantity;
+                  okQuantity + correctionQuantity === countedQuantity;
 
                 return (
                   <tr key={`${workOrder.id}-${draftKey}`} className="border-t border-line/80 text-ink align-top">
                     <td className="px-5 py-4 font-semibold">{workOrder.queue_position ?? "-"}</td>
                     <td className="px-5 py-4 font-semibold">{workOrder.order_number}</td>
                     <td className="px-5 py-4">{workOrder.title}</td>
-                    <td className="px-5 py-4 font-semibold">{workOrder.current_active_quantity}</td>
-                    <td className="px-5 py-4 text-steel">{workOrder.total_quantity}</td>
+                    <td className="px-5 py-4 font-semibold">{workOrder.planned_quantity}</td>
+                    <td className="px-5 py-4">
+                      {status === "IN_PROGRESS" ? (
+                        <input
+                          type="number"
+                          min="1"
+                          step="1"
+                          value={draft.countedQuantity}
+                          onChange={(event) => updateDraft(draftKey, "countedQuantity", event.target.value)}
+                          className="w-24 rounded-2xl border border-line bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-accent"
+                        />
+                      ) : (
+                        <span className="font-semibold text-ink">{workOrder.counted_quantity ?? "-"}</span>
+                      )}
+                    </td>
+                    <td className="px-5 py-4">
+                      {difference === null ? (
+                        <span className="text-steel">-</span>
+                      ) : difference === 0 ? (
+                        <span className="font-medium text-emerald-700">Brak różnicy</span>
+                      ) : (
+                        <span className="font-medium text-amber-700">Różnica: {formatDifference(difference)} szt.</span>
+                      )}
+                    </td>
+                    <td className="px-5 py-4">
+                      {status === "IN_PROGRESS" ? (
+                        <input
+                          type="number"
+                          min="0"
+                          step="1"
+                          value={draft.okQuantity}
+                          onChange={(event) => updateDraft(draftKey, "okQuantity", event.target.value)}
+                          className="w-24 rounded-2xl border border-line bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-accent"
+                        />
+                      ) : (
+                        <span className="text-steel">-</span>
+                      )}
+                    </td>
+                    <td className="px-5 py-4">
+                      {status === "IN_PROGRESS" ? (
+                        <input
+                          type="number"
+                          min="0"
+                          step="1"
+                          value={draft.correctionQuantity}
+                          onChange={(event) => updateDraft(draftKey, "correctionQuantity", event.target.value)}
+                          className="w-24 rounded-2xl border border-line bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-accent"
+                        />
+                      ) : (
+                        <span className="text-steel">-</span>
+                      )}
+                    </td>
                     <td className="px-5 py-4">
                       <span className="inline-flex rounded-full bg-mist px-3 py-1 text-xs font-semibold text-ink">
                         {workOrder.stage_status.status.label}
@@ -185,32 +260,8 @@ export function PackingWorkOrdersPage() {
                     <td className="px-5 py-4">
                       {status === "IN_PROGRESS" ? (
                         <div className="flex min-w-[20rem] flex-col items-end gap-3">
-                          <div className="grid w-full gap-3 sm:grid-cols-2">
-                            <label className="flex flex-col gap-2 text-left">
-                              <span className="text-xs font-semibold uppercase tracking-[0.14em] text-steel">Ilość OK</span>
-                              <input
-                                type="number"
-                                min="0"
-                                step="1"
-                                value={draft.okQuantity}
-                                onChange={(event) => updateDraft(draftKey, "okQuantity", event.target.value)}
-                                className="rounded-2xl border border-line bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-accent"
-                              />
-                            </label>
-                            <label className="flex flex-col gap-2 text-left">
-                              <span className="text-xs font-semibold uppercase tracking-[0.14em] text-steel">Ilość do poprawki</span>
-                              <input
-                                type="number"
-                                min="0"
-                                step="1"
-                                value={draft.correctionQuantity}
-                                onChange={(event) => updateDraft(draftKey, "correctionQuantity", event.target.value)}
-                                className="rounded-2xl border border-line bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-accent"
-                              />
-                            </label>
-                          </div>
                           <p className="text-xs text-steel">
-                            Suma musi wynosić {workOrder.current_active_quantity}.
+                            Plan: {workOrder.planned_quantity}. Zatwierdzenie jest dostępne dopiero, gdy OK + poprawki = Policzono.
                           </p>
                           <button
                             type="button"
@@ -252,7 +303,7 @@ export function PackingWorkOrdersPage() {
           <div>
             <h2 className="text-3xl font-semibold text-ink sm:text-4xl">Pakowanie</h2>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-steel sm:text-base">
-              Zatwierdź ilość OK i ilość do poprawki dla aktualnej partii. Korekta wraca do produkcji jako nowa aktywna partia.
+              Najpierw potwierdź policzoną ilość, potem rozdziel ją na OK i poprawki. Korekta wraca do produkcji jako nowa aktywna partia.
             </p>
           </div>
         </div>
@@ -276,7 +327,7 @@ export function PackingWorkOrdersPage() {
             <div className="space-y-4">
               <div>
                 <h3 className="text-lg font-semibold text-ink">Do wykonania</h3>
-                <p className="mt-1 text-sm text-steel">Uruchom pakowanie lub rozdziel aktywną partię na ilość OK i poprawki.</p>
+                <p className="mt-1 text-sm text-steel">Uruchom pakowanie, wpisz ilość policzoną i dopiero wtedy rozdziel partię na OK i poprawki.</p>
               </div>
               {activeWorkOrders.length === 0 ? (
                 <div className="rounded-3xl border border-dashed border-line bg-mist px-6 py-12 text-center text-base text-steel">

@@ -66,6 +66,7 @@ interface StageStartPayload {
 }
 
 interface CompletePackingPayload {
+  counted_quantity: number;
   ok_quantity: number;
   correction_quantity: number;
 }

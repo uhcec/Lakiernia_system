@@ -98,6 +98,7 @@ def complete_packing(
 ) -> ProcessStageWorkOrderRead:
     return service.complete_packing(
         work_order_id,
+        counted_quantity=payload.counted_quantity,
         ok_quantity=payload.ok_quantity,
         correction_quantity=payload.correction_quantity,
     )
@@ -112,6 +113,7 @@ def complete_packing_for_batch(
 ) -> ProcessStageWorkOrderRead:
     return service.complete_packing(
         work_order_id,
+        counted_quantity=payload.counted_quantity,
         ok_quantity=payload.ok_quantity,
         correction_quantity=payload.correction_quantity,
         batch_id=batch_id,
