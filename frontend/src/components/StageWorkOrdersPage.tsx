@@ -10,6 +10,8 @@ interface StageWorkOrdersPageProps {
   emptyMessage: string;
   productionType?: ProductionTypeValue;
   allowManualStart?: boolean;
+  readOnly?: boolean;
+  readOnlyLabel?: string;
 }
 
 function getActionLabel(status: StageStatusValue): string {
@@ -34,7 +36,25 @@ function getStageAction(status: StageStatusValue): "start" | "finish" | "reopen"
   }
 }
 
-export function StageWorkOrdersPage({ stage, title, emptyMessage, productionType, allowManualStart = true }: StageWorkOrdersPageProps) {
+function getBatchTypeLabel(batchType: StageWorkOrder["batch_type"]): string {
+  if (batchType === "CORRECTION") {
+    return "Poprawka";
+  }
+  if (batchType === "MAIN") {
+    return "Partia";
+  }
+  return "-";
+}
+
+export function StageWorkOrdersPage({
+  stage,
+  title,
+  emptyMessage,
+  productionType,
+  allowManualStart = true,
+  readOnly = false,
+  readOnlyLabel = "Podgląd",
+}: StageWorkOrdersPageProps) {
   const [workOrders, setWorkOrders] = useState<StageWorkOrder[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -67,7 +87,7 @@ export function StageWorkOrdersPage({ stage, title, emptyMessage, productionType
     setErrorMessage(null);
 
     try {
-      await transitionStage(workOrder.id, stage, getStageAction(workOrder.stage_status.status.value));
+      await transitionStage(workOrder.id, stage, getStageAction(workOrder.stage_status.status.value), workOrder.batch_id ?? undefined);
       await loadWorkOrders();
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "Nie udało się zmienić statusu");
@@ -77,6 +97,18 @@ export function StageWorkOrdersPage({ stage, title, emptyMessage, productionType
   }
 
   function canTriggerAction(workOrder: StageWorkOrder): boolean {
+    if (readOnly) {
+      return false;
+    }
+
+    if (
+      stage === "HANGING" &&
+      workOrder.production_type?.value === "AUTOMATIC" &&
+      workOrder.stage_status.status.value === "IN_PROGRESS"
+    ) {
+      return false;
+    }
+
     if (
       stage === "PRODUCTION" &&
       productionType === "AUTOMATIC" &&
@@ -87,6 +119,22 @@ export function StageWorkOrdersPage({ stage, title, emptyMessage, productionType
     }
 
     return true;
+  }
+
+  function getUnavailableLabel(workOrder: StageWorkOrder): string {
+    if (readOnly) {
+      return readOnlyLabel;
+    }
+
+    if (
+      stage === "HANGING" &&
+      workOrder.production_type?.value === "AUTOMATIC" &&
+      workOrder.stage_status.status.value === "IN_PROGRESS"
+    ) {
+      return "Dokończ w pakowaniu";
+    }
+
+    return "Start po zawieszaniu";
   }
 
   function renderWorkOrdersTable(items: StageWorkOrder[]) {
@@ -100,6 +148,8 @@ export function StageWorkOrdersPage({ stage, title, emptyMessage, productionType
                 <th className="px-5 py-4 font-semibold">Nr zlecenia</th>
                 <th className="px-5 py-4 font-semibold">Tytuł</th>
                 <th className="px-5 py-4 font-semibold">Firma</th>
+                <th className="px-5 py-4 font-semibold">Partia</th>
+                <th className="px-5 py-4 font-semibold">Ilość</th>
                 <th className="px-5 py-4 font-semibold">Technologia</th>
                 <th className="px-5 py-4 font-semibold">Typ produkcji</th>
                 <th className="px-5 py-4 font-semibold">Status etapu</th>
@@ -111,13 +161,25 @@ export function StageWorkOrdersPage({ stage, title, emptyMessage, productionType
                 const status = workOrder.stage_status.status.value;
                 const isSubmitting = activeWorkOrderId === workOrder.id;
                 const showActionButton = canTriggerAction(workOrder);
+                const rowKey = `${workOrder.id}-${workOrder.batch_id ?? workOrder.id}-${stage}`;
 
                 return (
-                  <tr key={workOrder.id} className="border-t border-line/80 text-ink">
+                  <tr key={rowKey} className="border-t border-line/80 text-ink">
                     <td className="px-5 py-4 font-semibold">{workOrder.queue_position ?? "-"}</td>
                     <td className="px-5 py-4 font-semibold">{workOrder.order_number}</td>
                     <td className="px-5 py-4">{workOrder.title}</td>
                     <td className="px-5 py-4 text-steel">{workOrder.customer_name || "-"}</td>
+                    <td className="px-5 py-4 text-steel">
+                      <div className="flex flex-wrap gap-2">
+                        <span>{getBatchTypeLabel(workOrder.batch_type)}</span>
+                        {workOrder.batch_is_partial ? (
+                          <span className="inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800">
+                            Niepełne
+                          </span>
+                        ) : null}
+                      </div>
+                    </td>
+                    <td className="px-5 py-4 font-semibold">{workOrder.batch_quantity ?? workOrder.current_active_quantity}</td>
                     <td className="px-5 py-4 text-steel">{workOrder.coating_type.label}</td>
                     <td className="px-5 py-4 text-steel">{workOrder.production_type?.label ?? "-"}</td>
                     <td className="px-5 py-4">
@@ -137,7 +199,7 @@ export function StageWorkOrdersPage({ stage, title, emptyMessage, productionType
                         </button>
                       ) : (
                         <span className="inline-flex rounded-full bg-mist px-3 py-1 text-xs font-semibold text-steel">
-                          Start po zawieszaniu
+                          {getUnavailableLabel(workOrder)}
                         </span>
                       )}
                     </td>
@@ -159,7 +221,9 @@ export function StageWorkOrdersPage({ stage, title, emptyMessage, productionType
           <div>
             <h2 className="text-3xl font-semibold text-ink sm:text-4xl">{title}</h2>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-steel sm:text-base">
-              Lista zaplanowanych zleceń gotowych do rozpoczęcia, kontynuacji albo cofnięcia na wybranym etapie.
+              {readOnly
+                ? "Widok podglądowy dla automatu. Malowanie uruchamia Zawieszanie, a wynik zapisuje Pakowanie."
+                : "Lista zaplanowanych zleceń gotowych do rozpoczęcia, kontynuacji albo cofnięcia na wybranym etapie."}
             </p>
           </div>
         </div>

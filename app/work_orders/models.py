@@ -68,15 +68,21 @@ class WorkOrder(Base):
     )
 
     @property
+    def active_batches(self):
+        return [batch for batch in self.quantity_batches if batch.is_active]
+
+    @property
     def active_batch(self):
+        for batch in self.active_batches:
+            if batch.id == self.current_active_batch_id:
+                return batch
         for batch in self.quantity_batches:
             if batch.id == self.current_active_batch_id:
                 return batch
+        if len(self.active_batches) == 1:
+            return self.active_batches[0]
         return None
 
     @property
     def current_active_quantity(self) -> int:
-        active_batch = self.active_batch
-        if active_batch is None:
-            return 0
-        return active_batch.quantity
+        return sum(batch.quantity for batch in self.active_batches)

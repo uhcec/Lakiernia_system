@@ -105,6 +105,9 @@ def test_get_work_order_by_id(test_client: TestClient) -> None:
             "parent_batch_id": None,
             "is_active": True,
             "is_finished": False,
+            "current_stage": None,
+            "current_stage_status": None,
+            "is_partial": False,
             "created_at": response.json()["batches"][0]["created_at"],
         }
     ]

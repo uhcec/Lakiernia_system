@@ -180,8 +180,15 @@ class WorkOrderService:
                     quantity=batch.quantity,
                     type=build_quantity_batch_type_view(batch.type),
                     parent_batch_id=batch.parent_batch_id,
-                    is_active=batch.id == work_order.current_active_batch_id,
-                    is_finished=batch.id != work_order.current_active_batch_id,
+                    is_active=batch.is_active,
+                    is_finished=not batch.is_active,
+                    current_stage=(build_process_stage_view(batch.current_stage) if batch.current_stage is not None else None),
+                    current_stage_status=(
+                        build_stage_status_info_view(batch.current_stage_status)
+                        if batch.current_stage_status is not None
+                        else None
+                    ),
+                    is_partial=batch.is_partial,
                     created_at=batch.created_at,
                 )
                 for batch in self._get_ordered_batches(work_order)

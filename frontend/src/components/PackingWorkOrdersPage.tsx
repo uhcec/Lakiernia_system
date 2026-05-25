@@ -35,6 +35,10 @@ export function PackingWorkOrdersPage() {
   const [showCompleted, setShowCompleted] = useState(false);
   const [drafts, setDrafts] = useState<Record<number, PackingDraft>>({});
 
+  function getDraftKey(workOrder: StageWorkOrder): number {
+    return workOrder.batch_id ?? workOrder.id;
+  }
+
   const activeWorkOrders = workOrders.filter((workOrder) => workOrder.stage_status.status.value !== "DONE");
   const completedWorkOrders = workOrders.filter((workOrder) => workOrder.stage_status.status.value === "DONE");
 
@@ -48,8 +52,9 @@ export function PackingWorkOrdersPage() {
       setDrafts((current) => {
         const nextDrafts = { ...current };
         for (const item of items) {
-          if (!(item.id in nextDrafts)) {
-            nextDrafts[item.id] = {
+          const draftKey = getDraftKey(item);
+          if (!(draftKey in nextDrafts)) {
+            nextDrafts[draftKey] = {
               okQuantity: String(item.current_active_quantity),
               correctionQuantity: "0",
             };
@@ -80,14 +85,14 @@ export function PackingWorkOrdersPage() {
 
   async function handleStageAction(workOrder: StageWorkOrder) {
     const status = workOrder.stage_status.status.value;
-    setActiveWorkOrderId(workOrder.id);
+    setActiveWorkOrderId(getDraftKey(workOrder));
     setErrorMessage(null);
 
     try {
       if (status === "NOT_STARTED") {
-        await transitionStage(workOrder.id, "PACKING", "start");
+        await transitionStage(workOrder.id, "PACKING", "start", workOrder.batch_id ?? undefined);
       } else if (status === "DONE") {
-        await transitionStage(workOrder.id, "PACKING", "reopen");
+        await transitionStage(workOrder.id, "PACKING", "reopen", workOrder.batch_id ?? undefined);
       }
       await loadWorkOrders();
     } catch (error) {
@@ -98,7 +103,8 @@ export function PackingWorkOrdersPage() {
   }
 
   async function handlePackingSubmit(workOrder: StageWorkOrder) {
-    const draft = drafts[workOrder.id] ?? { okQuantity: "0", correctionQuantity: "0" };
+    const draftKey = getDraftKey(workOrder);
+    const draft = drafts[draftKey] ?? { okQuantity: "0", correctionQuantity: "0" };
     const okQuantity = parseQuantity(draft.okQuantity);
     const correctionQuantity = parseQuantity(draft.correctionQuantity);
 
@@ -117,14 +123,14 @@ export function PackingWorkOrdersPage() {
       return;
     }
 
-    setActiveWorkOrderId(workOrder.id);
+    setActiveWorkOrderId(draftKey);
     setErrorMessage(null);
 
     try {
       await completePacking(workOrder.id, {
         ok_quantity: okQuantity,
         correction_quantity: correctionQuantity,
-      });
+      }, workOrder.batch_id ?? undefined);
       await loadWorkOrders();
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "Nie udało się zatwierdzić pakowania");
@@ -152,8 +158,9 @@ export function PackingWorkOrdersPage() {
             <tbody>
               {items.map((workOrder) => {
                 const status = workOrder.stage_status.status.value;
-                const isSubmitting = activeWorkOrderId === workOrder.id;
-                const draft = drafts[workOrder.id] ?? { okQuantity: "0", correctionQuantity: "0" };
+                const draftKey = getDraftKey(workOrder);
+                const isSubmitting = activeWorkOrderId === draftKey;
+                const draft = drafts[draftKey] ?? { okQuantity: "0", correctionQuantity: "0" };
                 const okQuantity = parseQuantity(draft.okQuantity);
                 const correctionQuantity = parseQuantity(draft.correctionQuantity);
                 const isDraftValid =
@@ -164,7 +171,7 @@ export function PackingWorkOrdersPage() {
                   okQuantity + correctionQuantity === workOrder.current_active_quantity;
 
                 return (
-                  <tr key={workOrder.id} className="border-t border-line/80 text-ink align-top">
+                  <tr key={`${workOrder.id}-${draftKey}`} className="border-t border-line/80 text-ink align-top">
                     <td className="px-5 py-4 font-semibold">{workOrder.queue_position ?? "-"}</td>
                     <td className="px-5 py-4 font-semibold">{workOrder.order_number}</td>
                     <td className="px-5 py-4">{workOrder.title}</td>
@@ -186,7 +193,7 @@ export function PackingWorkOrdersPage() {
                                 min="0"
                                 step="1"
                                 value={draft.okQuantity}
-                                onChange={(event) => updateDraft(workOrder.id, "okQuantity", event.target.value)}
+                                onChange={(event) => updateDraft(draftKey, "okQuantity", event.target.value)}
                                 className="rounded-2xl border border-line bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-accent"
                               />
                             </label>
@@ -197,7 +204,7 @@ export function PackingWorkOrdersPage() {
                                 min="0"
                                 step="1"
                                 value={draft.correctionQuantity}
-                                onChange={(event) => updateDraft(workOrder.id, "correctionQuantity", event.target.value)}
+                                onChange={(event) => updateDraft(draftKey, "correctionQuantity", event.target.value)}
                                 className="rounded-2xl border border-line bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-accent"
                               />
                             </label>

@@ -73,6 +73,9 @@ class WorkOrderQuantityBatchRead(BaseModel):
     parent_batch_id: int | None
     is_active: bool
     is_finished: bool
+    current_stage: ProcessStageView | None = None
+    current_stage_status: StageStatusInfoView | None = None
+    is_partial: bool = False
     created_at: datetime
 
 

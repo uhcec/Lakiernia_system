@@ -68,8 +68,13 @@ export async function transitionStage(
   workOrderId: number,
   stage: ProcessStageValue,
   action: StageAction,
+  batchId?: number,
 ): Promise<StageWorkOrder> {
-  const response = await fetch(createApiUrl(`/process/work-orders/${workOrderId}/stages/${stage}/${action}`), {
+  const pathname = batchId
+    ? `/process/work-orders/${workOrderId}/batches/${batchId}/stages/${stage}/${action}`
+    : `/process/work-orders/${workOrderId}/stages/${stage}/${action}`;
+
+  const response = await fetch(createApiUrl(pathname), {
     method: "POST",
     headers: {
       Accept: "application/json",
@@ -86,8 +91,13 @@ export async function transitionStage(
 export async function completePacking(
   workOrderId: number,
   payload: CompletePackingPayload,
+  batchId?: number,
 ): Promise<StageWorkOrder> {
-  const response = await fetch(createApiUrl(`/process/work-orders/${workOrderId}/packing/complete`), {
+  const pathname = batchId
+    ? `/process/work-orders/${workOrderId}/batches/${batchId}/packing/complete`
+    : `/process/work-orders/${workOrderId}/packing/complete`;
+
+  const response = await fetch(createApiUrl(pathname), {
     method: "POST",
     headers: {
       Accept: "application/json",

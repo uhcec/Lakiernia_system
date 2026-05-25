@@ -6,6 +6,8 @@ export function AutomaticProductionPage() {
       stage="PRODUCTION"
       productionType="AUTOMATIC"
       allowManualStart={false}
+      readOnly
+      readOnlyLabel="Podgląd automatu"
       title="Produkcja automat"
       emptyMessage="Brak zleceń do produkcji automat"
     />

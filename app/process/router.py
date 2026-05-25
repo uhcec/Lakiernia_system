@@ -35,6 +35,16 @@ def start_stage(
     return service.start_stage(work_order_id, stage)
 
 
+@router.post("/work-orders/{work_order_id}/batches/{batch_id}/stages/{stage}/start", response_model=ProcessStageWorkOrderRead)
+def start_stage_for_batch(
+    work_order_id: int,
+    batch_id: int,
+    stage: ProcessStage,
+    service: Annotated[ProcessService, Depends(get_process_service)],
+) -> ProcessStageWorkOrderRead:
+    return service.start_stage(work_order_id, stage, batch_id=batch_id)
+
+
 @router.post("/work-orders/{work_order_id}/stages/{stage}/finish", response_model=ProcessStageWorkOrderRead)
 def finish_stage(
     work_order_id: int,
@@ -44,6 +54,16 @@ def finish_stage(
     return service.finish_stage(work_order_id, stage)
 
 
+@router.post("/work-orders/{work_order_id}/batches/{batch_id}/stages/{stage}/finish", response_model=ProcessStageWorkOrderRead)
+def finish_stage_for_batch(
+    work_order_id: int,
+    batch_id: int,
+    stage: ProcessStage,
+    service: Annotated[ProcessService, Depends(get_process_service)],
+) -> ProcessStageWorkOrderRead:
+    return service.finish_stage(work_order_id, stage, batch_id=batch_id)
+
+
 @router.post("/work-orders/{work_order_id}/stages/{stage}/reopen", response_model=ProcessStageWorkOrderRead)
 def reopen_stage(
     work_order_id: int,
@@ -51,6 +71,16 @@ def reopen_stage(
     service: Annotated[ProcessService, Depends(get_process_service)],
 ) -> ProcessStageWorkOrderRead:
     return service.reopen_stage(work_order_id, stage)
+
+
+@router.post("/work-orders/{work_order_id}/batches/{batch_id}/stages/{stage}/reopen", response_model=ProcessStageWorkOrderRead)
+def reopen_stage_for_batch(
+    work_order_id: int,
+    batch_id: int,
+    stage: ProcessStage,
+    service: Annotated[ProcessService, Depends(get_process_service)],
+) -> ProcessStageWorkOrderRead:
+    return service.reopen_stage(work_order_id, stage, batch_id=batch_id)
 
 
 @router.post("/work-orders/{work_order_id}/packing/complete", response_model=ProcessStageWorkOrderRead)
@@ -63,4 +93,19 @@ def complete_packing(
         work_order_id,
         ok_quantity=payload.ok_quantity,
         correction_quantity=payload.correction_quantity,
+    )
+
+
+@router.post("/work-orders/{work_order_id}/batches/{batch_id}/packing/complete", response_model=ProcessStageWorkOrderRead)
+def complete_packing_for_batch(
+    work_order_id: int,
+    batch_id: int,
+    payload: PackingCompleteRequest,
+    service: Annotated[ProcessService, Depends(get_process_service)],
+) -> ProcessStageWorkOrderRead:
+    return service.complete_packing(
+        work_order_id,
+        ok_quantity=payload.ok_quantity,
+        correction_quantity=payload.correction_quantity,
+        batch_id=batch_id,
     )
