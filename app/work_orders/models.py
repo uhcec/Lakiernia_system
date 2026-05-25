@@ -83,6 +83,13 @@ class WorkOrder(Base):
         back_populates="correction_orders",
     )
     correction_orders = relationship("WorkOrder", back_populates="parent_order")
+    attachments = relationship(
+        "WorkOrderAttachment",
+        back_populates="work_order",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        order_by="WorkOrderAttachment.uploaded_at.desc()",
+    )
 
     @property
     def active_batches(self):
@@ -103,3 +110,20 @@ class WorkOrder(Base):
     @property
     def current_active_quantity(self) -> int:
         return sum(batch.quantity for batch in self.active_batches)
+
+
+class WorkOrderAttachment(Base):
+    __tablename__ = "work_order_attachments"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    work_order_id: Mapped[int] = mapped_column(ForeignKey("work_orders.id", ondelete="CASCADE"), nullable=False, index=True)
+    original_filename: Mapped[str] = mapped_column(String(255), nullable=False)
+    stored_filename: Mapped[str] = mapped_column(String(255), nullable=False)
+    storage_path: Mapped[str] = mapped_column(String(512), nullable=False)
+    content_type: Mapped[str] = mapped_column(String(128), nullable=False)
+    file_size: Mapped[int] = mapped_column(Integer(), nullable=False)
+    attachment_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    description: Mapped[str | None] = mapped_column(Text(), nullable=True)
+    uploaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False)
+
+    work_order = relationship("WorkOrder", back_populates="attachments")

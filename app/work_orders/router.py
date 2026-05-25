@@ -1,6 +1,7 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, File, Form, Query, Response, UploadFile, status
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from app.database.session import get_db_session
@@ -8,6 +9,7 @@ from app.shared.enums import WorkOrderStatus
 from app.work_orders.repository import WorkOrderRepository
 from app.work_orders.schemas import (
 	WorkOrderCreate,
+	WorkOrderAttachmentRead,
 	WorkOrderListResponse,
 	WorkOrderRead,
 	WorkOrderStatusTransitionRequest,
@@ -73,3 +75,51 @@ def mark_work_order_complete_arrival(
 	service: Annotated[WorkOrderService, Depends(get_work_order_service)],
 ) -> WorkOrderRead:
 	return service.mark_complete_arrival(work_order_id)
+
+
+@router.post("/{work_order_id}/attachments", response_model=WorkOrderAttachmentRead, status_code=status.HTTP_201_CREATED)
+async def upload_work_order_attachment(
+	work_order_id: int,
+	service: Annotated[WorkOrderService, Depends(get_work_order_service)],
+	file: UploadFile = File(...),
+	attachment_type: Annotated[str | None, Form()] = None,
+	description: Annotated[str | None, Form()] = None,
+) -> WorkOrderAttachmentRead:
+	return await service.upload_attachment(
+		work_order_id,
+		file,
+		attachment_type=attachment_type,
+		description=description,
+	)
+
+
+@router.get("/{work_order_id}/attachments", response_model=list[WorkOrderAttachmentRead])
+def list_work_order_attachments(
+	work_order_id: int,
+	service: Annotated[WorkOrderService, Depends(get_work_order_service)],
+) -> list[WorkOrderAttachmentRead]:
+	return service.list_attachments(work_order_id)
+
+
+@router.get("/{work_order_id}/attachments/{attachment_id}/download")
+def download_work_order_attachment(
+	work_order_id: int,
+	attachment_id: int,
+	service: Annotated[WorkOrderService, Depends(get_work_order_service)],
+) -> Response:
+	attachment, file_path = service.get_attachment_download(work_order_id, attachment_id)
+	return FileResponse(
+		path=file_path,
+		media_type=attachment.content_type,
+		filename=attachment.original_filename,
+	)
+
+
+@router.delete("/{work_order_id}/attachments/{attachment_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_work_order_attachment(
+	work_order_id: int,
+	attachment_id: int,
+	service: Annotated[WorkOrderService, Depends(get_work_order_service)],
+) -> Response:
+	service.delete_attachment(work_order_id, attachment_id)
+	return Response(status_code=status.HTTP_204_NO_CONTENT)

@@ -5,7 +5,7 @@ from sqlalchemy import Select, func, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.shared.enums import WorkOrderStatus
-from app.work_orders.models import WorkOrder
+from app.work_orders.models import WorkOrder, WorkOrderAttachment
 
 
 class WorkOrderRepository:
@@ -26,6 +26,7 @@ class WorkOrderRepository:
                 selectinload(WorkOrder.quantity_batches),
                 selectinload(WorkOrder.parent_order),
                 selectinload(WorkOrder.correction_orders),
+                selectinload(WorkOrder.attachments),
             )
             .where(WorkOrder.id == work_order_id)
         )
@@ -39,6 +40,7 @@ class WorkOrderRepository:
                 selectinload(WorkOrder.quantity_batches),
                 selectinload(WorkOrder.parent_order),
                 selectinload(WorkOrder.correction_orders),
+                selectinload(WorkOrder.attachments),
             )
             .order_by(WorkOrder.queue_position.asc(), WorkOrder.id.asc())
         )
@@ -67,6 +69,30 @@ class WorkOrderRepository:
         statement = select(func.max(WorkOrder.queue_position))
         current_max = self.session.scalar(statement)
         return 1 if current_max is None else current_max + 1
+
+    def add_attachment(self, attachment: WorkOrderAttachment) -> WorkOrderAttachment:
+        self.session.add(attachment)
+        self.session.flush()
+        self.session.refresh(attachment)
+        return attachment
+
+    def list_attachments(self, work_order_id: int) -> Sequence[WorkOrderAttachment]:
+        statement = (
+            select(WorkOrderAttachment)
+            .where(WorkOrderAttachment.work_order_id == work_order_id)
+            .order_by(WorkOrderAttachment.uploaded_at.desc(), WorkOrderAttachment.id.desc())
+        )
+        return self.session.scalars(statement).all()
+
+    def get_attachment(self, work_order_id: int, attachment_id: int) -> WorkOrderAttachment | None:
+        statement = select(WorkOrderAttachment).where(
+            WorkOrderAttachment.id == attachment_id,
+            WorkOrderAttachment.work_order_id == work_order_id,
+        )
+        return self.session.scalar(statement)
+
+    def delete_attachment(self, attachment: WorkOrderAttachment) -> None:
+        self.session.delete(attachment)
 
     def commit(self) -> None:
         self.session.commit()

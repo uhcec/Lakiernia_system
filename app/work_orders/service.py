@@ -1,12 +1,18 @@
 from datetime import UTC, datetime
+from pathlib import Path
+from uuid import uuid4
 
+from fastapi import UploadFile
+
+from app.core.config import get_settings, get_work_order_attachments_path
 from app.process.repository import ProcessRepository
 from app.process.service import ProcessService
 from app.shared.enums import WorkOrderStatus, get_work_order_status_label
-from app.shared.exceptions import InvalidStatusTransitionError, ResourceNotFoundError
-from app.work_orders.models import WorkOrder
+from app.shared.exceptions import InvalidAttachmentError, InvalidStatusTransitionError, ResourceNotFoundError
+from app.work_orders.models import WorkOrder, WorkOrderAttachment
 from app.work_orders.repository import WorkOrderRepository
 from app.work_orders.schemas import (
+    WorkOrderAttachmentRead,
     WorkOrderCreate,
     WorkOrderListResponse,
     WorkOrderQuantityBatchRead,
@@ -17,6 +23,7 @@ from app.work_orders.schemas import (
     WorkOrderStatusOption,
     WorkOrderStatusView,
     WorkOrderUpdate,
+    build_work_order_attachment_read,
     build_coating_type_view,
     build_process_status_view,
     build_process_stage_view,
@@ -29,6 +36,8 @@ from app.work_orders.workflow import validate_transition
 
 
 class WorkOrderService:
+    ALLOWED_ATTACHMENT_CONTENT_TYPES = {"application/pdf"}
+
     def __init__(self, repository: WorkOrderRepository) -> None:
         self.repository = repository
         self.process_service = ProcessService(ProcessRepository(repository.session))
@@ -170,6 +179,101 @@ class WorkOrderService:
 
         return self._to_read_model(work_order)
 
+    async def upload_attachment(
+        self,
+        work_order_id: int,
+        file: UploadFile,
+        *,
+        attachment_type: str | None = None,
+        description: str | None = None,
+    ) -> WorkOrderAttachmentRead:
+        work_order = self._get_existing_work_order(work_order_id)
+        original_filename = Path(file.filename or "").name.strip()
+        if not original_filename:
+            raise InvalidAttachmentError("Plik musi mieć nazwę.")
+        if file.content_type not in self.ALLOWED_ATTACHMENT_CONTENT_TYPES:
+            raise InvalidAttachmentError("Dozwolone są tylko pliki PDF.", status_code=415)
+
+        settings = get_settings()
+        root_path = get_work_order_attachments_path()
+        attachment_directory = root_path / str(work_order.id)
+        attachment_directory.mkdir(parents=True, exist_ok=True)
+
+        stored_filename = f"{uuid4().hex}.pdf"
+        destination_path = attachment_directory / stored_filename
+        relative_storage_path = destination_path.relative_to(root_path).as_posix()
+
+        file_size = 0
+        try:
+            with destination_path.open("wb") as output_file:
+                while chunk := await file.read(1024 * 1024):
+                    file_size += len(chunk)
+                    if file_size > settings.work_order_attachment_max_size_bytes:
+                        raise InvalidAttachmentError(
+                            f"Plik przekracza limit {settings.work_order_attachment_max_size_bytes} B.",
+                            status_code=413,
+                        )
+                    output_file.write(chunk)
+
+            if file_size == 0:
+                raise InvalidAttachmentError("Nie można przesłać pustego pliku PDF.")
+
+            attachment = WorkOrderAttachment(
+                work_order_id=work_order.id,
+                original_filename=original_filename,
+                stored_filename=stored_filename,
+                storage_path=relative_storage_path,
+                content_type=file.content_type,
+                file_size=file_size,
+                attachment_type=self._normalize_optional_text(attachment_type),
+                description=self._normalize_optional_text(description),
+            )
+
+            persisted_attachment = self.repository.add_attachment(attachment)
+            self.repository.commit()
+        except Exception:
+            self.repository.rollback()
+            if destination_path.exists():
+                destination_path.unlink()
+            raise
+        finally:
+            await file.close()
+
+        return build_work_order_attachment_read(persisted_attachment)
+
+    def list_attachments(self, work_order_id: int) -> list[WorkOrderAttachmentRead]:
+        self._get_existing_work_order(work_order_id)
+        return [
+            build_work_order_attachment_read(attachment)
+            for attachment in self.repository.list_attachments(work_order_id)
+        ]
+
+    def get_attachment_download(self, work_order_id: int, attachment_id: int) -> tuple[WorkOrderAttachmentRead, Path]:
+        attachment = self._get_existing_attachment(work_order_id, attachment_id)
+        root_path = get_work_order_attachments_path()
+        absolute_path = (root_path / attachment.storage_path).resolve()
+        if not absolute_path.exists():
+            raise ResourceNotFoundError(f"Attachment {attachment_id} file not found.")
+        return build_work_order_attachment_read(attachment), absolute_path
+
+    def delete_attachment(self, work_order_id: int, attachment_id: int) -> None:
+        attachment = self._get_existing_attachment(work_order_id, attachment_id)
+        file_path = get_work_order_attachments_path() / attachment.storage_path
+
+        try:
+            self.repository.delete_attachment(attachment)
+            self.repository.commit()
+        except Exception:
+            self.repository.rollback()
+            raise
+
+        if file_path.exists():
+            file_path.unlink()
+
+        parent_directory = file_path.parent
+        if parent_directory.exists() and not any(parent_directory.iterdir()):
+            parent_directory.rmdir()
+
     def _generate_order_number(self) -> str:
         year = datetime.now(UTC).year
         latest_order_number = self.repository.get_latest_order_number_for_year(year)
@@ -181,6 +285,20 @@ class WorkOrderService:
         if work_order is None:
             raise ResourceNotFoundError(f"Work order {work_order_id} not found.")
         return work_order
+
+    def _get_existing_attachment(self, work_order_id: int, attachment_id: int) -> WorkOrderAttachment:
+        self._get_existing_work_order(work_order_id)
+        attachment = self.repository.get_attachment(work_order_id, attachment_id)
+        if attachment is None:
+            raise ResourceNotFoundError(f"Attachment {attachment_id} not found for work order {work_order_id}.")
+        return attachment
+
+    @staticmethod
+    def _normalize_optional_text(value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        return normalized or None
 
     def _to_read_model(self, work_order: WorkOrder) -> WorkOrderRead:
         return WorkOrderRead(

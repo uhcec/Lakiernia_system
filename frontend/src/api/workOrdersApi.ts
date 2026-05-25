@@ -1,8 +1,8 @@
-import type { CreateWorkOrderRequest, WorkOrder, WorkOrdersListResponse } from "../types/workOrders";
+import type { CreateWorkOrderRequest, WorkOrder, WorkOrderAttachment, WorkOrdersListResponse } from "../types/workOrders";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL?.trim();
 
-function createApiUrl(pathname: string): string {
+export function createApiUrl(pathname: string): string {
   const normalizedPath = pathname.startsWith("/") ? pathname : `/${pathname}`;
 
   if (!API_BASE_URL) {
@@ -99,4 +99,63 @@ export async function markWorkOrderCompleteArrival(workOrderId: number): Promise
   }
 
   return response.json() as Promise<WorkOrder>;
+}
+
+export async function fetchWorkOrderAttachments(workOrderId: number): Promise<WorkOrderAttachment[]> {
+  const response = await fetch(createApiUrl(`/work-orders/${workOrderId}/attachments`), {
+    headers: {
+      Accept: "application/json",
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response, "Nie udało się pobrać załączników"));
+  }
+
+  return response.json() as Promise<WorkOrderAttachment[]>;
+}
+
+export async function uploadWorkOrderAttachment(
+  workOrderId: number,
+  payload: { file: File; attachmentType?: string; description?: string },
+): Promise<WorkOrderAttachment> {
+  const formData = new FormData();
+  formData.append("file", payload.file);
+  if (payload.attachmentType?.trim()) {
+    formData.append("attachment_type", payload.attachmentType.trim());
+  }
+  if (payload.description?.trim()) {
+    formData.append("description", payload.description.trim());
+  }
+
+  const response = await fetch(createApiUrl(`/work-orders/${workOrderId}/attachments`), {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+    },
+    body: formData,
+  });
+
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response, "Nie udało się przesłać załącznika"));
+  }
+
+  return response.json() as Promise<WorkOrderAttachment>;
+}
+
+export async function deleteWorkOrderAttachment(workOrderId: number, attachmentId: number): Promise<void> {
+  const response = await fetch(createApiUrl(`/work-orders/${workOrderId}/attachments/${attachmentId}`), {
+    method: "DELETE",
+    headers: {
+      Accept: "application/json",
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response, "Nie udało się usunąć załącznika"));
+  }
+}
+
+export function getWorkOrderAttachmentDownloadUrl(workOrderId: number, attachmentId: number): string {
+  return createApiUrl(`/work-orders/${workOrderId}/attachments/${attachmentId}/download`);
 }

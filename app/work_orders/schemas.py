@@ -79,6 +79,19 @@ class WorkOrderQuantityBatchRead(BaseModel):
     created_at: datetime
 
 
+class WorkOrderAttachmentRead(BaseModel):
+    id: int
+    work_order_id: int
+    original_filename: str
+    stored_filename: str
+    storage_path: str
+    content_type: str
+    file_size: int
+    attachment_type: str | None
+    description: str | None
+    uploaded_at: datetime
+
+
 class WorkOrderRelationSummaryRead(BaseModel):
     id: int
     order_number: str
@@ -216,6 +229,21 @@ def build_work_order_relation_summary(work_order: "WorkOrder") -> WorkOrderRelat
         ral_code=work_order.ral_code,
         total_area_m2=work_order.total_area_m2,
         total_quantity=work_order.total_quantity,
+    )
+
+
+def build_work_order_attachment_read(attachment: "WorkOrderAttachment") -> WorkOrderAttachmentRead:
+    return WorkOrderAttachmentRead(
+        id=attachment.id,
+        work_order_id=attachment.work_order_id,
+        original_filename=attachment.original_filename,
+        stored_filename=attachment.stored_filename,
+        storage_path=attachment.storage_path,
+        content_type=attachment.content_type,
+        file_size=attachment.file_size,
+        attachment_type=attachment.attachment_type,
+        description=attachment.description,
+        uploaded_at=attachment.uploaded_at,
     )
 
 

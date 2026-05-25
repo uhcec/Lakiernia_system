@@ -1,4 +1,5 @@
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -16,6 +17,15 @@ class Settings(BaseSettings):
         default="sqlite:///./local.db",
         description="Database connection string. Swap for PostgreSQL in higher environments.",
     )
+    work_order_attachments_dir: str = Field(
+        default="./storage/work_order_attachments",
+        description="Local filesystem directory for work order attachments.",
+    )
+    work_order_attachment_max_size_bytes: int = Field(
+        default=10 * 1024 * 1024,
+        gt=0,
+        description="Maximum allowed attachment size in bytes.",
+    )
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -27,3 +37,7 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
+
+
+def get_work_order_attachments_path() -> Path:
+    return Path(get_settings().work_order_attachments_dir).resolve()

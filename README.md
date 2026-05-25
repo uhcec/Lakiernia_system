@@ -43,6 +43,8 @@ APP_ENV=development
 DEBUG=false
 BACKEND_CORS_ORIGINS=["http://127.0.0.1:5173","http://localhost:5173"]
 DATABASE_URL=sqlite:///./local.db
+WORK_ORDER_ATTACHMENTS_DIR=./storage/work_order_attachments
+WORK_ORDER_ATTACHMENT_MAX_SIZE_BYTES=10485760
 ```
 
 Local development database note:
@@ -99,6 +101,8 @@ VITE_API_BASE_URL=http://127.0.0.1:8000
 ```
 
 If `VITE_API_BASE_URL` is not set, the frontend uses same-origin requests. In local development, Vite proxies `/work-orders` and `/health` to `http://127.0.0.1:8000`.
+
+Work order attachments are stored on the local filesystem under `WORK_ORDER_ATTACHMENTS_DIR`. File binaries are not stored in the database.
 
 4. Start the Vite development server:
 

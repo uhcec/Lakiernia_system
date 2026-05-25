@@ -1,8 +1,15 @@
-import { useEffect, useState } from "react";
+import { ChangeEvent, FormEvent, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 
-import { fetchWorkOrder, markWorkOrderCompleteArrival } from "../api/workOrdersApi";
-import type { WorkOrder } from "../types/workOrders";
+import {
+  deleteWorkOrderAttachment,
+  fetchWorkOrder,
+  fetchWorkOrderAttachments,
+  getWorkOrderAttachmentDownloadUrl,
+  markWorkOrderCompleteArrival,
+  uploadWorkOrderAttachment,
+} from "../api/workOrdersApi";
+import type { WorkOrder, WorkOrderAttachment } from "../types/workOrders";
 import { formatWorkOrderPrimaryInfo } from "../utils/workOrderDisplay";
 
 function formatDate(value: string | null): string {
@@ -28,12 +35,33 @@ function formatCountOrFlag(quantity: number | null, toCount: boolean): string {
   return quantity === null ? "-" : String(quantity);
 }
 
+function formatFileSize(fileSize: number): string {
+  if (fileSize < 1024) {
+    return `${fileSize} B`;
+  }
+
+  if (fileSize < 1024 * 1024) {
+    return `${(fileSize / 1024).toFixed(1)} KB`;
+  }
+
+  return `${(fileSize / (1024 * 1024)).toFixed(2)} MB`;
+}
+
 export function WorkOrderDetailPage() {
   const { id } = useParams();
   const [workOrder, setWorkOrder] = useState<WorkOrder | null>(null);
+  const [attachments, setAttachments] = useState<WorkOrderAttachment[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isLoadingAttachments, setIsLoadingAttachments] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [attachmentsErrorMessage, setAttachmentsErrorMessage] = useState<string | null>(null);
+  const [uploadErrorMessage, setUploadErrorMessage] = useState<string | null>(null);
   const [isUpdatingArrival, setIsUpdatingArrival] = useState(false);
+  const [isUploadingAttachment, setIsUploadingAttachment] = useState(false);
+  const [deletingAttachmentId, setDeletingAttachmentId] = useState<number | null>(null);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [attachmentType, setAttachmentType] = useState("");
+  const [attachmentDescription, setAttachmentDescription] = useState("");
 
   async function loadWorkOrder(workOrderId: number) {
     setIsLoading(true);
@@ -49,6 +77,20 @@ export function WorkOrderDetailPage() {
     }
   }
 
+  async function loadAttachments(workOrderId: number) {
+    setIsLoadingAttachments(true);
+    setAttachmentsErrorMessage(null);
+
+    try {
+      const items = await fetchWorkOrderAttachments(workOrderId);
+      setAttachments(items);
+    } catch (error) {
+      setAttachmentsErrorMessage(error instanceof Error ? error.message : "Nie udało się pobrać załączników");
+    } finally {
+      setIsLoadingAttachments(false);
+    }
+  }
+
   useEffect(() => {
     let isActive = true;
 
@@ -60,12 +102,18 @@ export function WorkOrderDetailPage() {
       }
 
       try {
-        const item = await fetchWorkOrder(Number(id));
+        const workOrderId = Number(id);
+        const [item, attachmentItems] = await Promise.all([
+          fetchWorkOrder(workOrderId),
+          fetchWorkOrderAttachments(workOrderId),
+        ]);
         if (!isActive) {
           return;
         }
         setErrorMessage(null);
         setWorkOrder(item);
+        setAttachments(attachmentItems);
+        setAttachmentsErrorMessage(null);
       } catch (error) {
         if (!isActive) {
           return;
@@ -74,6 +122,7 @@ export function WorkOrderDetailPage() {
       } finally {
         if (isActive) {
           setIsLoading(false);
+          setIsLoadingAttachments(false);
         }
       }
     }
@@ -105,6 +154,71 @@ export function WorkOrderDetailPage() {
       setErrorMessage(error instanceof Error ? error.message : "Nie udało się oznaczyć zlecenia jako kompletne");
     } finally {
       setIsUpdatingArrival(false);
+    }
+  }
+
+  function handleFileSelection(event: ChangeEvent<HTMLInputElement>) {
+    const nextFile = event.target.files?.[0] ?? null;
+    setSelectedFile(nextFile);
+    setUploadErrorMessage(null);
+  }
+
+  async function handleAttachmentUpload(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!id) {
+      setUploadErrorMessage("Nieprawidłowy identyfikator zlecenia");
+      return;
+    }
+    if (!selectedFile) {
+      setUploadErrorMessage("Wybierz plik PDF do przesłania.");
+      return;
+    }
+    if (selectedFile.type !== "application/pdf") {
+      setUploadErrorMessage("Dozwolone są tylko pliki PDF.");
+      return;
+    }
+
+    setIsUploadingAttachment(true);
+    setUploadErrorMessage(null);
+
+    try {
+      await uploadWorkOrderAttachment(Number(id), {
+        file: selectedFile,
+        attachmentType,
+        description: attachmentDescription,
+      });
+      setSelectedFile(null);
+      setAttachmentType("");
+      setAttachmentDescription("");
+      await loadAttachments(Number(id));
+    } catch (error) {
+      setUploadErrorMessage(error instanceof Error ? error.message : "Nie udało się przesłać załącznika");
+    } finally {
+      setIsUploadingAttachment(false);
+    }
+  }
+
+  async function handleAttachmentDelete(attachment: WorkOrderAttachment) {
+    if (!id) {
+      return;
+    }
+
+    const shouldContinue = window.confirm(`Czy usunąć załącznik ${attachment.original_filename}?`);
+    if (!shouldContinue) {
+      return;
+    }
+
+    setDeletingAttachmentId(attachment.id);
+    setAttachmentsErrorMessage(null);
+
+    try {
+      await deleteWorkOrderAttachment(Number(id), attachment.id);
+      await loadAttachments(Number(id));
+    } catch (error) {
+      setAttachmentsErrorMessage(error instanceof Error ? error.message : "Nie udało się usunąć załącznika");
+    } finally {
+      setDeletingAttachmentId(null);
     }
   }
 
@@ -324,6 +438,124 @@ export function WorkOrderDetailPage() {
                 </div>
               ))}
             </div>
+          </section>
+
+          <section className="rounded-[2rem] border border-white/70 bg-white/80 p-6 shadow-panel backdrop-blur sm:p-8">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+              <div>
+                <h3 className="text-2xl font-semibold text-ink">Załączniki</h3>
+                <p className="mt-2 text-sm text-steel">Sekcja jest neutralna biznesowo i gotowa na kolejne typy oraz kategorie plików. Aktualnie dozwolone są tylko PDF.</p>
+              </div>
+            </div>
+
+            <form className="mt-6 grid gap-4 rounded-3xl border border-line/80 bg-white p-5 md:grid-cols-[1.1fr_0.9fr]" onSubmit={handleAttachmentUpload}>
+              <div className="space-y-4">
+                <label className="flex flex-col gap-2">
+                  <span className="text-sm font-medium text-ink">Plik PDF</span>
+                  <input
+                    type="file"
+                    accept="application/pdf,.pdf"
+                    onChange={handleFileSelection}
+                    className="rounded-2xl border border-line bg-white px-4 py-3 text-sm text-ink outline-none transition file:mr-4 file:rounded-full file:border-0 file:bg-mist file:px-4 file:py-2 file:text-sm file:font-medium file:text-ink hover:file:bg-line/40"
+                  />
+                </label>
+                <p className="text-sm text-steel">{selectedFile ? `Wybrano: ${selectedFile.name}` : "Nie wybrano pliku"}</p>
+              </div>
+
+              <div className="grid gap-4">
+                <label className="flex flex-col gap-2">
+                  <span className="text-sm font-medium text-ink">Typ załącznika</span>
+                  <input
+                    value={attachmentType}
+                    onChange={(event) => setAttachmentType(event.target.value)}
+                    className="rounded-2xl border border-line bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-accent"
+                    placeholder="Np. SPEC, KARTA, OFERTA"
+                  />
+                </label>
+                <label className="flex flex-col gap-2">
+                  <span className="text-sm font-medium text-ink">Opis</span>
+                  <textarea
+                    value={attachmentDescription}
+                    onChange={(event) => setAttachmentDescription(event.target.value)}
+                    rows={3}
+                    className="rounded-2xl border border-line bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-accent"
+                    placeholder="Opcjonalny opis załącznika"
+                  />
+                </label>
+                <div className="flex flex-wrap items-center gap-3">
+                  <button
+                    type="submit"
+                    disabled={isUploadingAttachment}
+                    className="inline-flex items-center justify-center rounded-full bg-accent px-5 py-3 text-sm font-medium text-white transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:bg-teal-300"
+                  >
+                    {isUploadingAttachment ? "Przesyłanie..." : "Dodaj załącznik"}
+                  </button>
+                  <span className="text-sm text-steel">Maksymalny rozmiar kontroluje backend.</span>
+                </div>
+              </div>
+            </form>
+
+            {uploadErrorMessage ? (
+              <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{uploadErrorMessage}</div>
+            ) : null}
+
+            {attachmentsErrorMessage ? (
+              <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{attachmentsErrorMessage}</div>
+            ) : null}
+
+            {isLoadingAttachments ? (
+              <div className="mt-6 rounded-3xl border border-line/80 bg-white px-5 py-8 text-center text-sm text-steel">Ładowanie załączników...</div>
+            ) : attachments.length === 0 ? (
+              <div className="mt-6 rounded-3xl border border-dashed border-line bg-white px-5 py-8 text-center text-sm text-steel">
+                Brak załączników dla tego zlecenia.
+              </div>
+            ) : (
+              <div className="mt-6 overflow-hidden rounded-3xl border border-line bg-white shadow-panel">
+                <div className="overflow-x-auto">
+                  <table className="min-w-full border-collapse text-left text-sm">
+                    <thead className="bg-mist text-steel">
+                      <tr>
+                        <th className="px-5 py-4 font-semibold">Nazwa pliku</th>
+                        <th className="px-5 py-4 font-semibold">Rozmiar</th>
+                        <th className="px-5 py-4 font-semibold">Data dodania</th>
+                        <th className="px-5 py-4 font-semibold">Typ</th>
+                        <th className="px-5 py-4 font-semibold">Opis</th>
+                        <th className="px-5 py-4 font-semibold text-right">Akcje</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {attachments.map((attachment) => (
+                        <tr key={attachment.id} className="border-t border-line/80 text-ink">
+                          <td className="px-5 py-4 font-medium">{attachment.original_filename}</td>
+                          <td className="px-5 py-4 text-steel">{formatFileSize(attachment.file_size)}</td>
+                          <td className="px-5 py-4 text-steel">{formatDateTime(attachment.uploaded_at)}</td>
+                          <td className="px-5 py-4 text-steel">{attachment.attachment_type ?? "-"}</td>
+                          <td className="px-5 py-4 text-steel">{attachment.description ?? "-"}</td>
+                          <td className="px-5 py-4">
+                            <div className="flex justify-end gap-3">
+                              <a
+                                href={getWorkOrderAttachmentDownloadUrl(workOrder.id, attachment.id)}
+                                className="inline-flex items-center justify-center rounded-full border border-line bg-white px-4 py-2 text-sm font-medium text-steel transition hover:border-accent hover:text-accent"
+                              >
+                                Pobierz
+                              </a>
+                              <button
+                                type="button"
+                                onClick={() => void handleAttachmentDelete(attachment)}
+                                disabled={deletingAttachmentId === attachment.id}
+                                className="inline-flex items-center justify-center rounded-full border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-medium text-rose-700 transition hover:border-rose-300 hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-60"
+                              >
+                                {deletingAttachmentId === attachment.id ? "Usuwanie..." : "Usuń"}
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
           </section>
         </>
       ) : null}

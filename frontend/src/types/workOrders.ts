@@ -60,6 +60,19 @@ export interface WorkOrderQuantityBatch {
   created_at: string;
 }
 
+export interface WorkOrderAttachment {
+  id: number;
+  work_order_id: number;
+  original_filename: string;
+  stored_filename: string;
+  storage_path: string;
+  content_type: string;
+  file_size: number;
+  attachment_type: string | null;
+  description: string | null;
+  uploaded_at: string;
+}
+
 export interface WorkOrderRelationSummary {
   id: number;
   order_number: string;
