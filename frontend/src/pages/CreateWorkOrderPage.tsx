@@ -15,6 +15,7 @@ interface FormState {
   received_date: string;
   planned_pickup_date: string;
   total_area_m2: string;
+  is_incomplete_on_arrival: boolean;
   profiles_quantity: string;
   profiles_to_count: boolean;
   accessories_quantity: string;
@@ -33,6 +34,7 @@ const initialFormState: FormState = {
   received_date: "",
   planned_pickup_date: "",
   total_area_m2: "",
+  is_incomplete_on_arrival: false,
   profiles_quantity: "",
   profiles_to_count: false,
   accessories_quantity: "",
@@ -174,6 +176,7 @@ export function CreateWorkOrderPage() {
         received_date: formState.received_date,
         planned_pickup_date: formState.planned_pickup_date || undefined,
         total_area_m2: totalArea,
+        is_incomplete_on_arrival: formState.is_incomplete_on_arrival,
         profiles_quantity: profilesQuantity,
         profiles_to_count: formState.profiles_to_count,
         accessories_quantity: accessoriesQuantity,
@@ -313,6 +316,16 @@ export function CreateWorkOrderPage() {
                 className="rounded-2xl border border-line bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-accent"
                 placeholder="Opcjonalnie"
               />
+            </label>
+
+            <label className="md:col-span-2 flex items-center gap-3 rounded-3xl border border-line/80 bg-mist/40 px-4 py-4 text-sm text-ink">
+              <input
+                type="checkbox"
+                checked={formState.is_incomplete_on_arrival}
+                onChange={(event) => setFormState((current) => ({ ...current, is_incomplete_on_arrival: event.target.checked }))}
+                className="h-4 w-4 rounded border-line text-accent focus:ring-accent"
+              />
+              Zlecenie przyszło niekompletne
             </label>
 
             <div className="space-y-3 rounded-3xl border border-line/80 bg-mist/40 p-4">

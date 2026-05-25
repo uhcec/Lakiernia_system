@@ -97,6 +97,7 @@ class WorkOrderCreate(BaseModel):
     received_date: date
     planned_pickup_date: date | None = None
     total_area_m2: float | None = Field(default=None, gt=0)
+    is_incomplete_on_arrival: bool = False
     profiles_quantity: int | None = Field(default=None, gt=0)
     profiles_to_count: bool = False
     accessories_quantity: int | None = Field(default=None, gt=0)
@@ -128,6 +129,7 @@ class WorkOrderUpdate(BaseModel):
     received_date: date | None = None
     planned_pickup_date: date | None = None
     total_area_m2: float | None = Field(default=None, gt=0)
+    is_incomplete_on_arrival: bool | None = None
     profiles_quantity: int | None = Field(default=None, gt=0)
     profiles_to_count: bool | None = None
     accessories_quantity: int | None = Field(default=None, gt=0)
@@ -158,6 +160,7 @@ class WorkOrderRead(BaseModel):
     received_date: date
     planned_pickup_date: date | None
     total_area_m2: float | None
+    is_incomplete_on_arrival: bool
     profiles_quantity: int | None
     profiles_to_count: bool
     accessories_quantity: int | None

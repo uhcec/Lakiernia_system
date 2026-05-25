@@ -27,6 +27,7 @@ PRODUCTION_TYPE_LABELS_PL = {
 
 PROCESS_DISPLAY_STATUS_LABELS_PL = {
     "TO_BE_PLANNED": "Do zaplanowania",
+    "INCOMPLETE": "Nie kompletne",
     "SURFACE_PREPARATION": "Przygotowanie",
     "HANGING": "Zawieszanie",
     "PRODUCTION_MANUAL": "Produkcja ręczna",
@@ -62,6 +63,7 @@ class ProductionType(StrEnum):
 
 class ProcessDisplayStatus(StrEnum):
     TO_BE_PLANNED = "TO_BE_PLANNED"
+    INCOMPLETE = "INCOMPLETE"
     SURFACE_PREPARATION = "SURFACE_PREPARATION"
     HANGING = "HANGING"
     PRODUCTION_MANUAL = "PRODUCTION_MANUAL"

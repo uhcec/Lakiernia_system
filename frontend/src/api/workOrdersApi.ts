@@ -83,3 +83,20 @@ export async function fetchWorkOrder(workOrderId: number): Promise<WorkOrder> {
 
   return response.json() as Promise<WorkOrder>;
 }
+
+export async function markWorkOrderCompleteArrival(workOrderId: number): Promise<WorkOrder> {
+  const url = createApiUrl(`/work-orders/${workOrderId}/mark-complete-arrival`);
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response, "Nie udało się oznaczyć zlecenia jako kompletne"));
+  }
+
+  return response.json() as Promise<WorkOrder>;
+}

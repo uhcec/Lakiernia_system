@@ -3,7 +3,7 @@ from datetime import UTC, datetime
 from app.process.repository import ProcessRepository
 from app.process.service import ProcessService
 from app.shared.enums import WorkOrderStatus, get_work_order_status_label
-from app.shared.exceptions import ResourceNotFoundError
+from app.shared.exceptions import InvalidStatusTransitionError, ResourceNotFoundError
 from app.work_orders.models import WorkOrder
 from app.work_orders.repository import WorkOrderRepository
 from app.work_orders.schemas import (
@@ -43,6 +43,8 @@ class WorkOrderService:
         return WorkOrderStatusView(value=status, label=get_work_order_status_label(status))
 
     def create_work_order(self, payload: WorkOrderCreate) -> WorkOrderRead:
+        initial_status = WorkOrderStatus.INCOMPLETE if payload.is_incomplete_on_arrival else WorkOrderStatus.ENTERED
+
         work_order = WorkOrder(
             order_number=self._generate_order_number(),
             title=payload.title,
@@ -51,11 +53,12 @@ class WorkOrderService:
             customer_name=payload.customer_name,
             ral_code=payload.ral_code,
             paint_producer=payload.paint_producer,
-            status=WorkOrderStatus.ENTERED,
+            status=initial_status,
             coating_type=payload.coating_type,
             received_date=payload.received_date,
             planned_pickup_date=payload.planned_pickup_date,
             total_area_m2=payload.total_area_m2,
+            is_incomplete_on_arrival=payload.is_incomplete_on_arrival,
             profiles_quantity=payload.profiles_quantity,
             profiles_to_count=payload.profiles_to_count,
             accessories_quantity=payload.accessories_quantity,
@@ -144,6 +147,26 @@ class WorkOrderService:
             comment=payload.comment,
         )
 
+    def mark_complete_arrival(self, work_order_id: int) -> WorkOrderRead:
+        work_order = self._get_existing_work_order(work_order_id)
+
+        if work_order.status != WorkOrderStatus.INCOMPLETE:
+            raise InvalidStatusTransitionError(
+                f"Work order {work_order_id} is not marked as incomplete on arrival."
+            )
+
+        work_order.is_incomplete_on_arrival = False
+        work_order.status = WorkOrderStatus.ENTERED
+        work_order.updated_at = datetime.now(UTC)
+
+        try:
+            self.repository.commit()
+        except Exception:
+            self.repository.rollback()
+            raise
+
+        return self._to_read_model(work_order)
+
     def _generate_order_number(self) -> str:
         year = datetime.now(UTC).year
         latest_order_number = self.repository.get_latest_order_number_for_year(year)
@@ -206,6 +229,7 @@ class WorkOrderService:
             received_date=work_order.received_date,
             planned_pickup_date=work_order.planned_pickup_date,
             total_area_m2=work_order.total_area_m2,
+            is_incomplete_on_arrival=work_order.is_incomplete_on_arrival,
             profiles_quantity=work_order.profiles_quantity,
             profiles_to_count=work_order.profiles_to_count,
             accessories_quantity=work_order.accessories_quantity,

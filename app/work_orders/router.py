@@ -65,3 +65,11 @@ def transition_work_order_status(
 	service: Annotated[WorkOrderService, Depends(get_work_order_service)],
 ) -> WorkOrderRead:
 	return service.transition_work_order_status_from_request(work_order_id, payload)
+
+
+@router.post("/{work_order_id}/mark-complete-arrival", response_model=WorkOrderRead)
+def mark_work_order_complete_arrival(
+	work_order_id: int,
+	service: Annotated[WorkOrderService, Depends(get_work_order_service)],
+) -> WorkOrderRead:
+	return service.mark_complete_arrival(work_order_id)

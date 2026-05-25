@@ -3,6 +3,7 @@ from collections.abc import Sequence
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
+from app.shared.enums import WorkOrderStatus
 from app.work_orders.models import WorkOrder
 
 
@@ -18,7 +19,11 @@ class ManagerRepository:
         statement = (
             select(WorkOrder)
             .options(selectinload(WorkOrder.stage_states), selectinload(WorkOrder.quantity_batches))
-            .where(WorkOrder.production_type.is_(None), WorkOrder.queue_position.is_(None))
+            .where(
+                WorkOrder.production_type.is_(None),
+                WorkOrder.queue_position.is_(None),
+                WorkOrder.status != WorkOrderStatus.INCOMPLETE,
+            )
             .order_by(WorkOrder.id.asc())
         )
         return self.session.scalars(statement).all()

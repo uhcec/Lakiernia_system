@@ -1,9 +1,10 @@
-export type WorkOrderStatusValue = "ENTERED" | "ASSIGNED" | "IN_PROGRESS" | "FINISHED";
+export type WorkOrderStatusValue = "ENTERED" | "INCOMPLETE" | "ASSIGNED" | "IN_PROGRESS" | "FINISHED";
 export type ProductionTypeValue = "MANUAL" | "AUTOMATIC";
 export type CoatingTypeValue = "RAL" | "DECORAL";
 export type QuantityBatchTypeValue = "MAIN" | "CORRECTION";
 export type ProcessStatusValue =
   | "TO_BE_PLANNED"
+  | "INCOMPLETE"
   | "SURFACE_PREPARATION"
   | "HANGING"
   | "PRODUCTION_MANUAL"
@@ -80,6 +81,7 @@ export interface WorkOrder {
   received_date: string;
   planned_pickup_date: string | null;
   total_area_m2: number | null;
+  is_incomplete_on_arrival: boolean;
   profiles_quantity: number | null;
   profiles_to_count: boolean;
   accessories_quantity: number | null;
@@ -106,6 +108,7 @@ export interface CreateWorkOrderRequest {
   received_date: string;
   planned_pickup_date?: string;
   total_area_m2?: number;
+  is_incomplete_on_arrival?: boolean;
   profiles_quantity?: number;
   profiles_to_count: boolean;
   accessories_quantity?: number;

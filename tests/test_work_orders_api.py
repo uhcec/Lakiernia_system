@@ -67,6 +67,7 @@ def test_create_work_order(test_client: TestClient) -> None:
     assert body["received_date"] == "2026-05-20"
     assert body["planned_pickup_date"] == "2026-06-15"
     assert body["total_area_m2"] == 42.5
+    assert body["is_incomplete_on_arrival"] is False
     assert body["profiles_quantity"] == 12
     assert body["profiles_to_count"] is False
     assert body["accessories_quantity"] == 8
@@ -88,6 +89,21 @@ def test_create_work_order_with_missing_optional_fields(test_client: TestClient)
     assert response.status_code == 201
     assert response.json()["planned_pickup_date"] is None
     assert response.json()["total_area_m2"] is None
+
+
+def test_create_incomplete_work_order_sets_incomplete_status(test_client: TestClient) -> None:
+    response = create_work_order(
+        test_client,
+        title="Incomplete on arrival",
+        is_incomplete_on_arrival=True,
+    )
+
+    body = response.json()
+
+    assert response.status_code == 201
+    assert body["is_incomplete_on_arrival"] is True
+    assert body["status"] == {"value": "INCOMPLETE", "label": "Nie kompletne"}
+    assert body["process_status"] == {"value": "INCOMPLETE", "label": "Nie kompletne"}
 
 
 def test_create_work_order_with_to_count_flags(test_client: TestClient) -> None:
@@ -138,6 +154,7 @@ def test_created_work_order_defaults_to_entered_with_polish_label(test_client: T
 
     assert response.status_code == 201
     assert body["status"] == {"value": "ENTERED", "label": "Wprowadzone"}
+    assert body["process_status"] == {"value": "TO_BE_PLANNED", "label": "Do zaplanowania"}
 
 
 def test_client_cannot_set_initial_status(test_client: TestClient) -> None:
@@ -487,8 +504,41 @@ def test_transition_response_includes_polish_status_label(test_client: TestClien
     assert response.json()["status"]["label"] == "Przypisane"
 
 
+def test_incomplete_order_can_be_marked_complete_arrival(test_client: TestClient) -> None:
+    created = create_work_order(test_client, title="Incomplete to planning", is_incomplete_on_arrival=True).json()
+
+    response = test_client.post(f"/work-orders/{created['id']}/mark-complete-arrival")
+
+    assert response.status_code == 200
+    assert response.json()["is_incomplete_on_arrival"] is False
+    assert response.json()["status"] == {"value": "ENTERED", "label": "Wprowadzone"}
+    assert response.json()["process_status"] == {"value": "TO_BE_PLANNED", "label": "Do zaplanowania"}
+
+
+def test_normal_order_cannot_be_marked_complete_arrival(test_client: TestClient) -> None:
+    created = create_work_order(test_client, title="Normal order", is_incomplete_on_arrival=False).json()
+
+    response = test_client.post(f"/work-orders/{created['id']}/mark-complete-arrival")
+
+    assert response.status_code == 409
+
+
 def test_detail_and_list_include_process_status(test_client: TestClient) -> None:
     created = create_work_order(test_client, title="Process status", coating_type="RAL").json()
+
+    detail_response = test_client.get(f"/work-orders/{created['id']}")
+    list_response = test_client.get("/work-orders")
+
+    assert detail_response.status_code == 200
+    assert detail_response.json()["process_status"] == {"value": "TO_BE_PLANNED", "label": "Do zaplanowania"}
+    assert list_response.status_code == 200
+    assert list_response.json()["items"][0]["process_status"] == {"value": "TO_BE_PLANNED", "label": "Do zaplanowania"}
+
+
+def test_mark_complete_arrival_updates_detail_and_list_process_status(test_client: TestClient) -> None:
+    created = create_work_order(test_client, title="Arrival done", is_incomplete_on_arrival=True).json()
+
+    test_client.post(f"/work-orders/{created['id']}/mark-complete-arrival")
 
     detail_response = test_client.get(f"/work-orders/{created['id']}")
     list_response = test_client.get("/work-orders")

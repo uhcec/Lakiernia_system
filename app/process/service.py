@@ -5,6 +5,7 @@ from app.process.enums import CoatingType, ProcessDisplayStatus, ProcessStage, P
 from app.process.models import WorkOrderQuantityBatch, WorkOrderStageState
 from app.process.repository import ProcessRepository
 from app.process.schemas import ProcessStageStatusRead, ProcessStageWorkOrderRead, StageStatusView
+from app.shared.enums import WorkOrderStatus
 from app.shared.exceptions import InvalidProcessStageTransitionError, ResourceNotFoundError
 from app.work_orders.models import WorkOrder
 from app.work_orders.schemas import build_coating_type_view, build_production_type_view
@@ -429,6 +430,9 @@ class ProcessService:
         return work_order.production_type is not None and work_order.queue_position is not None
 
     def get_display_status(self, work_order: WorkOrder) -> ProcessDisplayStatus:
+        if work_order.status == WorkOrderStatus.INCOMPLETE:
+            return ProcessDisplayStatus.INCOMPLETE
+
         if not self._is_planned(work_order):
             return ProcessDisplayStatus.TO_BE_PLANNED
 

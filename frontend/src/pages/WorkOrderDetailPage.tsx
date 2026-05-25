@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 
-import { fetchWorkOrder } from "../api/workOrdersApi";
+import { fetchWorkOrder, markWorkOrderCompleteArrival } from "../api/workOrdersApi";
 import type { WorkOrder } from "../types/workOrders";
 
 function formatDate(value: string | null): string {
@@ -32,25 +32,38 @@ export function WorkOrderDetailPage() {
   const [workOrder, setWorkOrder] = useState<WorkOrder | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isUpdatingArrival, setIsUpdatingArrival] = useState(false);
+
+  async function loadWorkOrder(workOrderId: number) {
+    setIsLoading(true);
+    setErrorMessage(null);
+
+    try {
+      const item = await fetchWorkOrder(workOrderId);
+      setWorkOrder(item);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Nie udało się pobrać zlecenia");
+    } finally {
+      setIsLoading(false);
+    }
+  }
 
   useEffect(() => {
     let isActive = true;
 
-    async function loadWorkOrder() {
+    async function loadWorkOrderForEffect() {
       if (!id) {
         setErrorMessage("Nieprawidłowy identyfikator zlecenia");
         setIsLoading(false);
         return;
       }
 
-      setIsLoading(true);
-      setErrorMessage(null);
-
       try {
         const item = await fetchWorkOrder(Number(id));
         if (!isActive) {
           return;
         }
+        setErrorMessage(null);
         setWorkOrder(item);
       } catch (error) {
         if (!isActive) {
@@ -64,12 +77,35 @@ export function WorkOrderDetailPage() {
       }
     }
 
-    void loadWorkOrder();
+    void loadWorkOrderForEffect();
 
     return () => {
       isActive = false;
     };
   }, [id]);
+
+  async function handleMarkCompleteArrival() {
+    if (!id || !workOrder) {
+      return;
+    }
+
+    const shouldContinue = window.confirm("Czy oznaczyć to zlecenie jako kompletne i przenieść do planowania?");
+    if (!shouldContinue) {
+      return;
+    }
+
+    setIsUpdatingArrival(true);
+    setErrorMessage(null);
+
+    try {
+      await markWorkOrderCompleteArrival(Number(id));
+      await loadWorkOrder(Number(id));
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Nie udało się oznaczyć zlecenia jako kompletne");
+    } finally {
+      setIsUpdatingArrival(false);
+    }
+  }
 
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-7xl flex-col gap-6 px-4 py-8 sm:px-6 lg:px-8">
@@ -152,6 +188,10 @@ export function WorkOrderDetailPage() {
                   <dd className="mt-1 text-base text-ink">{workOrder.total_area_m2 ?? "-"}</dd>
                 </div>
                 <div>
+                  <dt className="text-sm font-medium text-steel">Kompletność przy przyjęciu</dt>
+                  <dd className="mt-1 text-base text-ink">{workOrder.is_incomplete_on_arrival ? "Nie kompletne" : "Kompletne"}</dd>
+                </div>
+                <div>
                   <dt className="text-sm font-medium text-steel">Profile</dt>
                   <dd className="mt-1 text-base text-ink">{formatCountOrFlag(workOrder.profiles_quantity, workOrder.profiles_to_count)}</dd>
                 </div>
@@ -186,6 +226,16 @@ export function WorkOrderDetailPage() {
                 <div className="mt-6 inline-flex rounded-full bg-mist px-4 py-2 text-sm font-semibold text-ink">
                   {workOrder.process_status.label}
                 </div>
+                {workOrder.process_status.value === "INCOMPLETE" ? (
+                  <button
+                    type="button"
+                    onClick={() => void handleMarkCompleteArrival()}
+                    disabled={isUpdatingArrival}
+                    className="mt-4 inline-flex items-center justify-center rounded-full bg-accent px-5 py-3 text-sm font-medium text-white transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:bg-teal-300"
+                  >
+                    {isUpdatingArrival ? "Zapisywanie..." : "Oznacz jako kompletne"}
+                  </button>
+                ) : null}
               </section>
             </div>
           </section>

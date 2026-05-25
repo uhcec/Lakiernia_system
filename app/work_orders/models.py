@@ -50,6 +50,7 @@ class WorkOrder(Base):
     received_date: Mapped[date] = mapped_column(Date(), nullable=False)
     planned_pickup_date: Mapped[date | None] = mapped_column(Date(), nullable=True)
     total_area_m2: Mapped[float | None] = mapped_column(Float(), nullable=True)
+    is_incomplete_on_arrival: Mapped[bool] = mapped_column(Boolean(), nullable=False, default=False)
     profiles_quantity: Mapped[int | None] = mapped_column(Integer(), nullable=True)
     profiles_to_count: Mapped[bool] = mapped_column(Boolean(), nullable=False, default=False)
     accessories_quantity: Mapped[int | None] = mapped_column(Integer(), nullable=True)

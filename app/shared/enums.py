@@ -3,6 +3,7 @@ from enum import StrEnum
 
 WORK_ORDER_STATUS_LABELS_PL = {
     "ENTERED": "Wprowadzone",
+    "INCOMPLETE": "Nie kompletne",
     "ASSIGNED": "Przypisane",
     "IN_PROGRESS": "W trakcie",
     "FINISHED": "Skończone",
@@ -11,6 +12,7 @@ WORK_ORDER_STATUS_LABELS_PL = {
 
 class WorkOrderStatus(StrEnum):
     ENTERED = "ENTERED"
+    INCOMPLETE = "INCOMPLETE"
     ASSIGNED = "ASSIGNED"
     IN_PROGRESS = "IN_PROGRESS"
     FINISHED = "FINISHED"

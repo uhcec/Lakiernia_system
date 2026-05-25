@@ -10,6 +10,8 @@ function statusClasses(statusValue: WorkOrder["process_status"]["value"]): strin
   switch (statusValue) {
     case "TO_BE_PLANNED":
       return "bg-slate-100 text-slate-700";
+    case "INCOMPLETE":
+      return "bg-rose-100 text-rose-700";
     case "SURFACE_PREPARATION":
       return "bg-amber-100 text-amber-800";
     case "HANGING":

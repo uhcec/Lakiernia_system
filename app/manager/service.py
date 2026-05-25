@@ -128,6 +128,7 @@ class ManagerService:
             received_date=work_order.received_date,
             planned_pickup_date=work_order.planned_pickup_date,
             total_area_m2=work_order.total_area_m2,
+            is_incomplete_on_arrival=work_order.is_incomplete_on_arrival,
             profiles_quantity=work_order.profiles_quantity,
             profiles_to_count=work_order.profiles_to_count,
             accessories_quantity=work_order.accessories_quantity,

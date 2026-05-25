@@ -4,6 +4,7 @@ from app.shared.exceptions import InvalidStatusTransitionError
 
 ALLOWED_TRANSITIONS = {
     WorkOrderStatus.ENTERED: {WorkOrderStatus.ASSIGNED},
+    WorkOrderStatus.INCOMPLETE: set(),
     WorkOrderStatus.ASSIGNED: {WorkOrderStatus.IN_PROGRESS},
     WorkOrderStatus.IN_PROGRESS: {WorkOrderStatus.FINISHED},
     WorkOrderStatus.FINISHED: set(),
