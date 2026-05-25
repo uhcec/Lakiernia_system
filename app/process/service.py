@@ -17,15 +17,32 @@ class ProcessService:
         self.repository = repository
 
     @staticmethod
-    def get_stage_sequence(coating_type: CoatingType) -> list[ProcessStage]:
+    def get_stage_sequence_for_configuration(
+        coating_type: CoatingType,
+        production_type: ProductionType | None,
+    ) -> list[ProcessStage]:
+        stages = [ProcessStage.SURFACE_PREPARATION]
+        if production_type != ProductionType.MANUAL:
+            stages.append(ProcessStage.HANGING)
+        stages.append(ProcessStage.PRODUCTION)
+        stages.append(ProcessStage.PACKING)
+        if coating_type == CoatingType.DECORAL:
+            stages.append(ProcessStage.DECORAL_PRODUCTION)
+        return stages
+
+    def get_stage_sequence_for_work_order(self, work_order: WorkOrder) -> list[ProcessStage]:
+        return self.get_stage_sequence_for_configuration(work_order.coating_type, work_order.production_type)
+
+    @staticmethod
+    def get_configured_stage_states_sequence(coating_type: CoatingType) -> list[ProcessStage]:
         stages = [
             ProcessStage.SURFACE_PREPARATION,
             ProcessStage.HANGING,
             ProcessStage.PRODUCTION,
+            ProcessStage.PACKING,
         ]
         if coating_type == CoatingType.DECORAL:
             stages.append(ProcessStage.DECORAL_PRODUCTION)
-        stages.append(ProcessStage.PACKING)
         return stages
 
     def initialize_stage_states(self, work_order: WorkOrder) -> None:
@@ -35,7 +52,7 @@ class ProcessService:
                 stage=stage,
                 status=StageStatus.NOT_STARTED,
             )
-            for stage in self.get_stage_sequence(work_order.coating_type)
+            for stage in self.get_configured_stage_states_sequence(work_order.coating_type)
         ]
         self.repository.add_stage_states(stage_states)
 
@@ -102,6 +119,31 @@ class ProcessService:
 
         self.transition_stage(work_order_id, stage, StageStatus.DONE)
         work_order = self.get_work_order_process(work_order_id)
+
+        if stage == ProcessStage.HANGING and work_order.production_type == ProductionType.AUTOMATIC:
+            production_state = self._get_stage_state(work_order, ProcessStage.PRODUCTION)
+            if production_state.status == StageStatus.NOT_STARTED:
+                production_state.status = StageStatus.IN_PROGRESS
+                production_state.updated_at = datetime.now(UTC)
+                try:
+                    self.repository.commit()
+                except Exception:
+                    self.repository.rollback()
+                    raise
+                work_order = self.get_work_order_process(work_order_id)
+
+        if stage == ProcessStage.DECORAL_PRODUCTION:
+            active_quantity = work_order.current_active_quantity
+            if active_quantity > 0:
+                work_order.completed_quantity += active_quantity
+                work_order.current_active_batch_id = None
+                try:
+                    self.repository.commit()
+                except Exception:
+                    self.repository.rollback()
+                    raise
+                work_order = self.get_work_order_process(work_order_id)
+
         return self._to_stage_work_order_read(work_order, stage)
 
     def reopen_stage(self, work_order_id: int, stage: ProcessStage) -> ProcessStageWorkOrderRead:
@@ -152,9 +194,9 @@ class ProcessService:
         if ok_quantity < 0 or correction_quantity < 0:
             raise InvalidProcessStageTransitionError("Packing quantities cannot be negative.")
 
-        work_order.completed_quantity += ok_quantity
-
         if correction_quantity > 0:
+            if work_order.coating_type == CoatingType.RAL:
+                work_order.completed_quantity += ok_quantity
             correction_batch = WorkOrderQuantityBatch(
                 work_order_id=work_order.id,
                 quantity=correction_quantity,
@@ -167,7 +209,9 @@ class ProcessService:
         else:
             packing_state.status = StageStatus.DONE
             packing_state.updated_at = datetime.now(UTC)
-            work_order.current_active_batch_id = None
+            if work_order.coating_type == CoatingType.RAL:
+                work_order.completed_quantity += ok_quantity
+                work_order.current_active_batch_id = None
 
         try:
             self.repository.commit()
@@ -176,7 +220,12 @@ class ProcessService:
             raise
 
         refreshed_work_order = self.get_work_order_process(work_order_id)
-        return_stage = self.get_correction_return_stage(refreshed_work_order) if correction_quantity > 0 else ProcessStage.PACKING
+        if correction_quantity > 0:
+            return_stage = self.get_correction_return_stage(refreshed_work_order)
+        elif refreshed_work_order.coating_type == CoatingType.DECORAL:
+            return_stage = ProcessStage.DECORAL_PRODUCTION
+        else:
+            return_stage = ProcessStage.PACKING
         return self._to_stage_work_order_read(refreshed_work_order, return_stage)
 
     def list_visible_work_orders(
@@ -202,7 +251,7 @@ class ProcessService:
         if not self._is_planned(work_order):
             return False
 
-        stage_sequence = self.get_stage_sequence(work_order.coating_type)
+        stage_sequence = self.get_stage_sequence_for_work_order(work_order)
         if stage not in stage_sequence:
             return False
 
@@ -234,7 +283,7 @@ class ProcessService:
         if not self._is_planned(work_order):
             return ProcessDisplayStatus.TO_BE_PLANNED
 
-        stage_sequence = self.get_stage_sequence(work_order.coating_type)
+        stage_sequence = self.get_stage_sequence_for_work_order(work_order)
         for stage in stage_sequence:
             stage_state = self._get_stage_state(work_order, stage)
             if stage_state.status != StageStatus.DONE:
@@ -273,6 +322,12 @@ class ProcessService:
         stage_state: WorkOrderStageState,
         target_status: StageStatus,
     ) -> None:
+        stage_sequence = self.get_stage_sequence_for_work_order(work_order)
+        if stage_state.stage not in stage_sequence:
+            raise InvalidProcessStageTransitionError(
+                f"Stage {stage_state.stage.value} is not part of the workflow for work order {work_order.id}."
+            )
+
         allowed_transitions = {
             StageStatus.NOT_STARTED: {StageStatus.IN_PROGRESS},
             StageStatus.IN_PROGRESS: {StageStatus.DONE, StageStatus.NOT_STARTED},
@@ -285,7 +340,6 @@ class ProcessService:
             )
 
         if target_status in {StageStatus.IN_PROGRESS, StageStatus.DONE}:
-            stage_sequence = self.get_stage_sequence(work_order.coating_type)
             previous_stage = self._get_previous_stage(stage_sequence, stage_state.stage)
             if previous_stage is not None:
                 previous_state = self._get_stage_state(work_order, previous_stage)
@@ -295,13 +349,13 @@ class ProcessService:
                     )
 
     def get_correction_return_stage(self, work_order: WorkOrder) -> ProcessStage:
-        stage_sequence = self.get_stage_sequence(work_order.coating_type)
+        stage_sequence = self.get_stage_sequence_for_work_order(work_order)
         if self.DEFAULT_CORRECTION_RETURN_STAGE in stage_sequence:
             return self.DEFAULT_CORRECTION_RETURN_STAGE
         return stage_sequence[0]
 
     def _reset_stage_states_for_active_batch(self, work_order: WorkOrder, return_stage: ProcessStage) -> None:
-        stage_sequence = self.get_stage_sequence(work_order.coating_type)
+        stage_sequence = self.get_stage_sequence_for_work_order(work_order)
         return_stage_index = stage_sequence.index(return_stage)
         current_timestamp = datetime.now(UTC)
 

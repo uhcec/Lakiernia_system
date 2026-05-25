@@ -5,6 +5,7 @@ export function AutomaticProductionPage() {
     <StageWorkOrdersPage
       stage="PRODUCTION"
       productionType="AUTOMATIC"
+      allowManualStart={false}
       title="Produkcja automat"
       emptyMessage="Brak zleceń do produkcji automat"
     />

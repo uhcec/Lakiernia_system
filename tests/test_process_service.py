@@ -29,15 +29,20 @@ def build_services(
 
 
 def advance_to_production(process_service: ProcessService, work_order_id: int) -> None:
+    work_order = process_service.get_work_order_process(work_order_id)
     process_service.transition_stage(work_order_id, ProcessStage.SURFACE_PREPARATION, StageStatus.IN_PROGRESS)
     process_service.transition_stage(work_order_id, ProcessStage.SURFACE_PREPARATION, StageStatus.DONE)
-    process_service.transition_stage(work_order_id, ProcessStage.HANGING, StageStatus.IN_PROGRESS)
-    process_service.transition_stage(work_order_id, ProcessStage.HANGING, StageStatus.DONE)
+    if work_order.production_type != ProductionType.MANUAL:
+        process_service.transition_stage(work_order_id, ProcessStage.HANGING, StageStatus.IN_PROGRESS)
+        process_service.transition_stage(work_order_id, ProcessStage.HANGING, StageStatus.DONE)
 
 
 def advance_to_packing(process_service: ProcessService, work_order_id: int) -> None:
     advance_to_production(process_service, work_order_id)
-    process_service.transition_stage(work_order_id, ProcessStage.PRODUCTION, StageStatus.IN_PROGRESS)
+    work_order = process_service.get_work_order_process(work_order_id)
+    production_state = next(stage for stage in work_order.stage_states if stage.stage == ProcessStage.PRODUCTION)
+    if production_state.status == StageStatus.NOT_STARTED:
+        process_service.transition_stage(work_order_id, ProcessStage.PRODUCTION, StageStatus.IN_PROGRESS)
     process_service.transition_stage(work_order_id, ProcessStage.PRODUCTION, StageStatus.DONE)
     process_service.transition_stage(work_order_id, ProcessStage.PACKING, StageStatus.IN_PROGRESS)
 
@@ -81,7 +86,7 @@ def test_stage_transitions_forward(db_session: Session) -> None:
     work_order = process_repository.get_work_order_with_stage_states(created.id)
 
     assert work_order is not None
-    assert process_service.is_visible_in_stage(work_order, ProcessStage.HANGING)
+    assert process_service.is_visible_in_stage(work_order, ProcessStage.PRODUCTION, ProductionType.MANUAL)
 
 
 def test_stage_transitions_backward(db_session: Session) -> None:
@@ -149,6 +154,137 @@ def test_production_type_affects_visibility_logic(db_session: Session) -> None:
     assert [work_order.id for work_order in automatic_visible] == [automatic_order.id]
 
 
+def test_manual_path_skips_hanging_stage_visibility(db_session: Session) -> None:
+    work_order_service, process_service, manager_service, _, process_repository = build_services(db_session)
+
+    manual_order = create_ral_work_order(work_order_service, "Manual skip hanging")
+    manager_service.assign_plan(
+        manual_order.id,
+        WorkOrderPlanAssignRequest(production_type=ProductionType.MANUAL, queue_position=1),
+    )
+    process_service.transition_stage(manual_order.id, ProcessStage.SURFACE_PREPARATION, StageStatus.IN_PROGRESS)
+    process_service.transition_stage(manual_order.id, ProcessStage.SURFACE_PREPARATION, StageStatus.DONE)
+    work_order = process_repository.get_work_order_with_stage_states(manual_order.id)
+
+    assert work_order is not None
+    assert process_service.is_visible_in_stage(work_order, ProcessStage.HANGING) is False
+    assert process_service.is_visible_in_stage(work_order, ProcessStage.PRODUCTION, ProductionType.MANUAL) is True
+
+
+def test_automatic_path_requires_hanging_before_production(db_session: Session) -> None:
+    work_order_service, process_service, manager_service, _, process_repository = build_services(db_session)
+
+    automatic_order = create_ral_work_order(work_order_service, "Automatic requires hanging")
+    manager_service.assign_plan(
+        automatic_order.id,
+        WorkOrderPlanAssignRequest(production_type=ProductionType.AUTOMATIC, queue_position=1),
+    )
+    process_service.transition_stage(automatic_order.id, ProcessStage.SURFACE_PREPARATION, StageStatus.IN_PROGRESS)
+    process_service.transition_stage(automatic_order.id, ProcessStage.SURFACE_PREPARATION, StageStatus.DONE)
+    work_order = process_repository.get_work_order_with_stage_states(automatic_order.id)
+
+    assert work_order is not None
+    assert process_service.is_visible_in_stage(work_order, ProcessStage.HANGING) is True
+    assert process_service.is_visible_in_stage(work_order, ProcessStage.PRODUCTION, ProductionType.AUTOMATIC) is False
+
+
+def test_automatic_hanging_finish_starts_production_automatically(db_session: Session) -> None:
+    work_order_service, process_service, manager_service, _, process_repository = build_services(db_session)
+
+    automatic_order = create_ral_work_order(work_order_service, "Automatic auto start")
+    manager_service.assign_plan(
+        automatic_order.id,
+        WorkOrderPlanAssignRequest(production_type=ProductionType.AUTOMATIC, queue_position=1),
+    )
+    process_service.transition_stage(automatic_order.id, ProcessStage.SURFACE_PREPARATION, StageStatus.IN_PROGRESS)
+    process_service.transition_stage(automatic_order.id, ProcessStage.SURFACE_PREPARATION, StageStatus.DONE)
+    process_service.transition_stage(automatic_order.id, ProcessStage.HANGING, StageStatus.IN_PROGRESS)
+    process_service.finish_stage(automatic_order.id, ProcessStage.HANGING)
+    work_order = process_repository.get_work_order_with_stage_states(automatic_order.id)
+
+    assert work_order is not None
+    production_state = next(stage for stage in work_order.stage_states if stage.stage == ProcessStage.PRODUCTION)
+    assert production_state.status == StageStatus.IN_PROGRESS
+
+
+def test_decoral_path_goes_after_packing_for_manual_orders(db_session: Session) -> None:
+    work_order_service, process_service, manager_service, _, process_repository = build_services(db_session)
+
+    created = work_order_service.create_work_order(
+        WorkOrderCreate(title="Decoral manual path", coating_type=CoatingType.DECORAL, total_quantity=100)
+    )
+    manager_service.assign_plan(
+        created.id,
+        WorkOrderPlanAssignRequest(production_type=ProductionType.MANUAL, queue_position=1),
+    )
+    process_service.transition_stage(created.id, ProcessStage.SURFACE_PREPARATION, StageStatus.IN_PROGRESS)
+    process_service.transition_stage(created.id, ProcessStage.SURFACE_PREPARATION, StageStatus.DONE)
+    process_service.transition_stage(created.id, ProcessStage.PRODUCTION, StageStatus.IN_PROGRESS)
+    process_service.transition_stage(created.id, ProcessStage.PRODUCTION, StageStatus.DONE)
+    process_service.transition_stage(created.id, ProcessStage.PACKING, StageStatus.IN_PROGRESS)
+
+    response = process_service.complete_packing(created.id, ok_quantity=100, correction_quantity=0)
+    work_order = process_repository.get_work_order_with_stage_states(created.id)
+
+    assert response.stage_status.stage == ProcessStage.DECORAL_PRODUCTION
+    assert work_order is not None
+    assert work_order.completed_quantity == 0
+    assert work_order.current_active_quantity == 100
+    assert process_service.get_display_status(work_order).value == "DECORAL_PRODUCTION"
+
+
+def test_decoral_production_finishes_order(db_session: Session) -> None:
+    work_order_service, process_service, manager_service, _, process_repository = build_services(db_session)
+
+    created = work_order_service.create_work_order(
+        WorkOrderCreate(title="Decoral finish", coating_type=CoatingType.DECORAL, total_quantity=100)
+    )
+    manager_service.assign_plan(
+        created.id,
+        WorkOrderPlanAssignRequest(production_type=ProductionType.MANUAL, queue_position=1),
+    )
+    process_service.transition_stage(created.id, ProcessStage.SURFACE_PREPARATION, StageStatus.IN_PROGRESS)
+    process_service.transition_stage(created.id, ProcessStage.SURFACE_PREPARATION, StageStatus.DONE)
+    process_service.transition_stage(created.id, ProcessStage.PRODUCTION, StageStatus.IN_PROGRESS)
+    process_service.transition_stage(created.id, ProcessStage.PRODUCTION, StageStatus.DONE)
+    process_service.transition_stage(created.id, ProcessStage.PACKING, StageStatus.IN_PROGRESS)
+    process_service.complete_packing(created.id, ok_quantity=100, correction_quantity=0)
+    process_service.transition_stage(created.id, ProcessStage.DECORAL_PRODUCTION, StageStatus.IN_PROGRESS)
+    process_service.finish_stage(created.id, ProcessStage.DECORAL_PRODUCTION)
+    work_order = process_repository.get_work_order_with_stage_states(created.id)
+
+    assert work_order is not None
+    assert work_order.completed_quantity == 100
+    assert work_order.current_active_quantity == 0
+    assert process_service.get_display_status(work_order).value == "READY"
+
+
+def test_corrections_return_to_correct_production_type(db_session: Session) -> None:
+    work_order_service, process_service, manager_service, _, process_repository = build_services(db_session)
+
+    manual_order = create_ral_work_order(work_order_service, "Manual correction")
+    automatic_order = create_ral_work_order(work_order_service, "Automatic correction")
+    manager_service.assign_plan(
+        manual_order.id,
+        WorkOrderPlanAssignRequest(production_type=ProductionType.MANUAL, queue_position=1),
+    )
+    manager_service.assign_plan(
+        automatic_order.id,
+        WorkOrderPlanAssignRequest(production_type=ProductionType.AUTOMATIC, queue_position=2),
+    )
+    advance_to_packing(process_service, manual_order.id)
+    advance_to_packing(process_service, automatic_order.id)
+    process_service.complete_packing(manual_order.id, ok_quantity=90, correction_quantity=10)
+    process_service.complete_packing(automatic_order.id, ok_quantity=90, correction_quantity=10)
+    manual_work_order = process_repository.get_work_order_with_stage_states(manual_order.id)
+    automatic_work_order = process_repository.get_work_order_with_stage_states(automatic_order.id)
+
+    assert manual_work_order is not None
+    assert automatic_work_order is not None
+    assert process_service.is_visible_in_stage(manual_work_order, ProcessStage.PRODUCTION, ProductionType.MANUAL) is True
+    assert process_service.is_visible_in_stage(automatic_work_order, ProcessStage.PRODUCTION, ProductionType.AUTOMATIC) is True
+
+
 def test_queue_position_exists_and_is_sortable(db_session: Session) -> None:
     work_order_service, process_service, manager_service, _, _ = build_services(db_session)
 
@@ -213,7 +349,7 @@ def test_complete_packing_splits_ok_and_correction_quantities(db_session: Sessio
 
     stage_states = {stage_state.stage: stage_state.status for stage_state in work_order.stage_states}
     assert stage_states[ProcessStage.SURFACE_PREPARATION] == StageStatus.DONE
-    assert stage_states[ProcessStage.HANGING] == StageStatus.DONE
+    assert stage_states[ProcessStage.HANGING] == StageStatus.NOT_STARTED
     assert stage_states[ProcessStage.PRODUCTION] == StageStatus.NOT_STARTED
     assert stage_states[ProcessStage.PACKING] == StageStatus.NOT_STARTED
 

@@ -9,6 +9,7 @@ interface StageWorkOrdersPageProps {
   title: string;
   emptyMessage: string;
   productionType?: ProductionTypeValue;
+  allowManualStart?: boolean;
 }
 
 function getActionLabel(status: StageStatusValue): string {
@@ -33,7 +34,7 @@ function getStageAction(status: StageStatusValue): "start" | "finish" | "reopen"
   }
 }
 
-export function StageWorkOrdersPage({ stage, title, emptyMessage, productionType }: StageWorkOrdersPageProps) {
+export function StageWorkOrdersPage({ stage, title, emptyMessage, productionType, allowManualStart = true }: StageWorkOrdersPageProps) {
   const [workOrders, setWorkOrders] = useState<StageWorkOrder[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -75,6 +76,19 @@ export function StageWorkOrdersPage({ stage, title, emptyMessage, productionType
     }
   }
 
+  function canTriggerAction(workOrder: StageWorkOrder): boolean {
+    if (
+      stage === "PRODUCTION" &&
+      productionType === "AUTOMATIC" &&
+      workOrder.stage_status.status.value === "NOT_STARTED" &&
+      !allowManualStart
+    ) {
+      return false;
+    }
+
+    return true;
+  }
+
   function renderWorkOrdersTable(items: StageWorkOrder[]) {
     return (
       <div className="overflow-hidden rounded-3xl border border-line bg-white shadow-panel">
@@ -96,6 +110,7 @@ export function StageWorkOrdersPage({ stage, title, emptyMessage, productionType
               {items.map((workOrder) => {
                 const status = workOrder.stage_status.status.value;
                 const isSubmitting = activeWorkOrderId === workOrder.id;
+                const showActionButton = canTriggerAction(workOrder);
 
                 return (
                   <tr key={workOrder.id} className="border-t border-line/80 text-ink">
@@ -111,14 +126,20 @@ export function StageWorkOrdersPage({ stage, title, emptyMessage, productionType
                       </span>
                     </td>
                     <td className="px-5 py-4 text-right">
-                      <button
-                        type="button"
-                        disabled={isSubmitting}
-                        onClick={() => void handleAction(workOrder)}
-                        className="inline-flex items-center justify-center rounded-full border border-line bg-white px-4 py-2 text-sm font-medium text-steel transition hover:border-accent hover:text-accent disabled:cursor-not-allowed disabled:border-line disabled:text-slate-400"
-                      >
-                        {isSubmitting ? "Zapisywanie..." : getActionLabel(status)}
-                      </button>
+                      {showActionButton ? (
+                        <button
+                          type="button"
+                          disabled={isSubmitting}
+                          onClick={() => void handleAction(workOrder)}
+                          className="inline-flex items-center justify-center rounded-full border border-line bg-white px-4 py-2 text-sm font-medium text-steel transition hover:border-accent hover:text-accent disabled:cursor-not-allowed disabled:border-line disabled:text-slate-400"
+                        >
+                          {isSubmitting ? "Zapisywanie..." : getActionLabel(status)}
+                        </button>
+                      ) : (
+                        <span className="inline-flex rounded-full bg-mist px-3 py-1 text-xs font-semibold text-steel">
+                          Start po zawieszaniu
+                        </span>
+                      )}
                     </td>
                   </tr>
                 );

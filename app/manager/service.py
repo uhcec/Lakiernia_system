@@ -125,9 +125,12 @@ class ManagerService:
     def _get_ordered_stage_states(self, work_order: WorkOrder):
         stage_order = {
             stage: index
-            for index, stage in enumerate(self.process_service.get_stage_sequence(work_order.coating_type))
+            for index, stage in enumerate(self.process_service.get_stage_sequence_for_work_order(work_order))
         }
-        return sorted(work_order.stage_states, key=lambda stage_state: stage_order[stage_state.stage])
+        return sorted(
+            [stage_state for stage_state in work_order.stage_states if stage_state.stage in stage_order],
+            key=lambda stage_state: stage_order[stage_state.stage],
+        )
 
     @staticmethod
     def _get_ordered_batches(work_order: WorkOrder):
