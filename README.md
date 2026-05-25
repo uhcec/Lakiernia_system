@@ -71,6 +71,26 @@ python -m alembic upgrade head
 python -m alembic check
 ```
 
+Reset and seed the local dev database:
+
+```bash
+python scripts/reset_and_seed_dev_db.py
+```
+
+What it does:
+
+- runs `alembic upgrade head`
+- deletes application data only from the local SQLite `local.db`
+- keeps tables and migrations intact
+- recreates attachment storage files for local testing
+- seeds representative work orders for office intake, planning, process stages, corrections, packing, checkpoints, queue reordering, and attachments
+
+Safety guardrails:
+
+- runs only when `APP_ENV=development`
+- runs only against local SQLite `local.db`
+- does not create a backup
+
 4. Repair and upgrade the local development database:
 
 ```bash

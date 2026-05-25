@@ -25,6 +25,8 @@ function statusClasses(statusValue: WorkOrder["process_status"]["value"]): strin
       return "bg-violet-100 text-violet-800";
     case "PACKING":
       return "bg-lime-100 text-lime-800";
+    case "WAITING_FOR_CORRECTIONS":
+      return "bg-amber-200 text-amber-900";
     case "READY":
       return "bg-emerald-100 text-emerald-700";
   }
@@ -45,6 +47,16 @@ export function WorkOrdersTable({ workOrders }: WorkOrdersTableProps) {
     return (
       <div className="space-y-2">
         <p className="text-sm text-ink">{`${totalQuantity} szt. / gotowe ${completedQuantity} / aktywne ${activeQuantity}`}</p>
+        {workOrder.process_status.value === "WAITING_FOR_CORRECTIONS" ? (
+          <div className="flex flex-wrap gap-2">
+            <span className="inline-flex rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-900">
+              OK czeka: {workOrder.waiting_ok_quantity}
+            </span>
+            <span className="inline-flex rounded-full bg-rose-100 px-3 py-1 text-xs font-semibold text-rose-700">
+              Poprawki: {workOrder.pending_correction_quantity}
+            </span>
+          </div>
+        ) : null}
         {activeQuantity > 0 ? (
           <span className="inline-flex rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800">
             Aktywne: {activeQuantity}

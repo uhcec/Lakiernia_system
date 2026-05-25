@@ -205,6 +205,10 @@ class ProcessService:
                     raise
                 work_order = self.get_work_order_process(work_order_id)
 
+                merged_parent = self._merge_completed_correction_into_parent_if_ready(work_order)
+                if merged_parent is not None:
+                    work_order = self.get_work_order_process(work_order_id)
+
         return self._to_stage_work_order_read(work_order, stage)
 
     def reopen_stage(self, work_order_id: int, stage: ProcessStage) -> ProcessStageWorkOrderRead:
@@ -323,6 +327,9 @@ class ProcessService:
             raise
 
         refreshed_work_order = self.get_work_order_process(work_order_id)
+        merged_parent = self._merge_completed_correction_into_parent_if_ready(refreshed_work_order)
+        if merged_parent is not None:
+            refreshed_work_order = self.get_work_order_process(work_order_id)
         if refreshed_work_order.coating_type == CoatingType.DECORAL:
             return_stage = ProcessStage.DECORAL_PRODUCTION
         else:
@@ -398,6 +405,12 @@ class ProcessService:
         if work_order.status == WorkOrderStatus.INCOMPLETE:
             return ProcessDisplayStatus.INCOMPLETE
 
+        if self._has_open_corrections(work_order):
+            return ProcessDisplayStatus.WAITING_FOR_CORRECTIONS
+
+        if self._is_complete_for_display(work_order):
+            return ProcessDisplayStatus.READY
+
         if not self._is_planned(work_order):
             return ProcessDisplayStatus.TO_BE_PLANNED
 
@@ -416,6 +429,26 @@ class ProcessService:
                 return self._get_display_status_for_stage(work_order, stage)
 
         return ProcessDisplayStatus.READY
+
+    def get_waiting_ok_quantity(self, work_order: WorkOrder) -> int:
+        if not self._has_open_corrections(work_order):
+            return 0
+
+        pending_correction_quantity = self.get_pending_correction_quantity(work_order)
+        return max(0, work_order.total_quantity - work_order.completed_quantity - pending_correction_quantity)
+
+    def get_pending_correction_quantity(self, work_order: WorkOrder) -> int:
+        pending_quantity = 0
+        for correction_order in work_order.correction_orders:
+            if self._is_complete_for_display(correction_order):
+                continue
+            pending_quantity += max(0, correction_order.total_quantity - correction_order.completed_quantity)
+        return pending_quantity
+
+    def get_total_progress_quantity(self, work_order: WorkOrder) -> int:
+        progress_quantity = work_order.completed_quantity + self.get_waiting_ok_quantity(work_order)
+        progress_quantity += sum(correction_order.completed_quantity for correction_order in work_order.correction_orders)
+        return min(work_order.total_quantity, progress_quantity)
 
     def get_display_status_label(self, work_order: WorkOrder) -> str:
         return self.get_display_status(work_order).polish_label
@@ -767,8 +800,9 @@ class ProcessService:
         batch.is_partial = False
 
         created_batches: list[WorkOrderQuantityBatch] = []
-        work_order.total_quantity = max(0, work_order.total_quantity - planned_quantity + ok_quantity)
-        if work_order.coating_type == CoatingType.DECORAL and ok_quantity > 0:
+        if correction_quantity > 0:
+            self._create_correction_work_order(work_order, correction_quantity)
+        elif work_order.coating_type == CoatingType.DECORAL and ok_quantity > 0:
             ok_batch = WorkOrderQuantityBatch(
                 work_order_id=work_order.id,
                 quantity=ok_quantity,
@@ -784,13 +818,13 @@ class ProcessService:
         elif ok_quantity > 0:
             work_order.completed_quantity += ok_quantity
 
-        if correction_quantity > 0:
-            self._create_correction_work_order(work_order, correction_quantity)
-
         self._sync_legacy_current_active_batch(work_order)
         self._commit_process_changes()
 
         refreshed_work_order = self.get_work_order_process(work_order.id)
+        merged_parent = self._merge_completed_correction_into_parent_if_ready(refreshed_work_order)
+        if merged_parent is not None:
+            refreshed_work_order = self.get_work_order_process(work_order.id)
         if created_batches:
             preferred_batch = created_batches[-1]
             refreshed_batch = self._get_batch(refreshed_work_order, preferred_batch.id)
@@ -811,7 +845,8 @@ class ProcessService:
         ok_quantity: int,
         correction_quantity: int,
     ) -> tuple[ProcessStage, WorkOrderQuantityBatch | None]:
-        work_order.total_quantity = max(0, work_order.total_quantity - planned_quantity + ok_quantity)
+        _ = planned_quantity
+        _ = ok_quantity
         self._create_correction_work_order(work_order, correction_quantity)
 
         packing_state.status = StageStatus.DONE
@@ -824,31 +859,8 @@ class ProcessService:
             production_state.status = StageStatus.DONE
             production_state.updated_at = datetime.now(UTC)
 
-        if work_order.coating_type == CoatingType.RAL:
-            work_order.completed_quantity += ok_quantity
-            work_order.current_active_batch_id = None
-            return ProcessStage.PACKING, None
-
-        decoral_state = self._get_stage_state(work_order, ProcessStage.DECORAL_PRODUCTION)
-        if ok_quantity == 0:
-            decoral_state.status = StageStatus.DONE
-            decoral_state.updated_at = datetime.now(UTC)
-            work_order.current_active_batch_id = None
-            return ProcessStage.PACKING, None
-
-        ok_batch = WorkOrderQuantityBatch(
-            work_order_id=work_order.id,
-            quantity=ok_quantity,
-            type=QuantityBatchType.MAIN,
-            parent_batch_id=active_batch.id,
-            is_active=True,
-            current_stage=ProcessStage.DECORAL_PRODUCTION,
-            current_stage_status=StageStatus.NOT_STARTED,
-            is_partial=True,
-        )
-        self.repository.add_quantity_batch(ok_batch)
-        work_order.current_active_batch_id = ok_batch.id
-        return ProcessStage.DECORAL_PRODUCTION, ok_batch
+        work_order.current_active_batch_id = None
+        return ProcessStage.PACKING, None
 
     def _create_correction_work_order(self, parent_work_order: WorkOrder, correction_quantity: int) -> WorkOrder:
         correction_order = WorkOrder(
@@ -914,6 +926,48 @@ class ProcessService:
         except Exception:
             self.repository.rollback()
             raise
+
+    def _merge_completed_correction_into_parent_if_ready(self, work_order: WorkOrder) -> WorkOrder | None:
+        if not work_order.is_correction or work_order.parent_order_id is None:
+            return None
+
+        if not self._is_complete_for_display(work_order):
+            return None
+
+        merged_parent: WorkOrder | None = None
+        parent_order_id = work_order.parent_order_id
+        while parent_order_id is not None:
+            parent_work_order = self.repository.get_work_order_with_stage_states(parent_order_id)
+            if parent_work_order is None or self._has_open_corrections(parent_work_order):
+                break
+
+            parent_work_order.completed_quantity = parent_work_order.total_quantity
+            parent_work_order.current_active_batch_id = None
+            self._mark_all_stage_states_done(parent_work_order)
+            merged_parent = parent_work_order
+            parent_order_id = parent_work_order.parent_order_id if parent_work_order.is_correction else None
+
+        if merged_parent is None:
+            return None
+
+        self._commit_process_changes()
+        return merged_parent
+
+    def _mark_all_stage_states_done(self, work_order: WorkOrder) -> None:
+        current_timestamp = datetime.now(UTC)
+        for stage_state in work_order.stage_states:
+            stage_state.status = StageStatus.DONE
+            stage_state.updated_at = current_timestamp
+
+    def _has_open_corrections(self, work_order: WorkOrder) -> bool:
+        return any(not self._is_complete_for_display(correction_order) for correction_order in work_order.correction_orders)
+
+    def _is_complete_for_display(self, work_order: WorkOrder) -> bool:
+        return (
+            work_order.completed_quantity >= work_order.total_quantity
+            and work_order.current_active_quantity == 0
+            and not any(not self._is_complete_for_display(correction_order) for correction_order in work_order.correction_orders)
+        )
 
     def _store_stage_start_data(
         self,

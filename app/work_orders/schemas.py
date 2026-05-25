@@ -100,6 +100,10 @@ class WorkOrderRelationSummaryRead(BaseModel):
     ral_code: str
     total_area_m2: float | None
     total_quantity: int
+    completed_quantity: int
+    current_active_quantity: int
+    is_correction: bool
+    process_status: ProcessStatusView
 
 
 def _validate_counting_rule(field_name: str, quantity: int | None, to_count: bool) -> None:
@@ -169,6 +173,9 @@ class WorkOrderRead(BaseModel):
     total_quantity: int
     completed_quantity: int
     current_active_quantity: int
+    waiting_ok_quantity: int
+    pending_correction_quantity: int
+    total_progress_quantity: int
     is_correction: bool
     parent_order: WorkOrderRelationSummaryRead | None = None
     correction_orders: list[WorkOrderRelationSummaryRead] = Field(default_factory=list)
@@ -221,6 +228,12 @@ def build_quantity_batch_type_view(batch_type: QuantityBatchType) -> QuantityBat
 
 
 def build_work_order_relation_summary(work_order: "WorkOrder") -> WorkOrderRelationSummaryRead:
+    process_status = ProcessDisplayStatus.READY
+    if work_order.is_incomplete_on_arrival:
+        process_status = ProcessDisplayStatus.INCOMPLETE
+    elif work_order.production_type is None or work_order.queue_position is None:
+        process_status = ProcessDisplayStatus.TO_BE_PLANNED
+
     return WorkOrderRelationSummaryRead(
         id=work_order.id,
         order_number=work_order.order_number,
@@ -229,6 +242,10 @@ def build_work_order_relation_summary(work_order: "WorkOrder") -> WorkOrderRelat
         ral_code=work_order.ral_code,
         total_area_m2=work_order.total_area_m2,
         total_quantity=work_order.total_quantity,
+        completed_quantity=work_order.completed_quantity,
+        current_active_quantity=work_order.current_active_quantity,
+        is_correction=work_order.is_correction,
+        process_status=build_process_status_view(process_status),
     )
 
 

@@ -34,6 +34,7 @@ PROCESS_DISPLAY_STATUS_LABELS_PL = {
     "PRODUCTION_AUTOMATIC": "Produkcja automat",
     "DECORAL_PRODUCTION": "Produkcja Decoral",
     "PACKING": "Pakowanie",
+    "WAITING_FOR_CORRECTIONS": "Czeka na poprawki",
     "READY": "Gotowe",
 }
 
@@ -70,6 +71,7 @@ class ProcessDisplayStatus(StrEnum):
     PRODUCTION_AUTOMATIC = "PRODUCTION_AUTOMATIC"
     DECORAL_PRODUCTION = "DECORAL_PRODUCTION"
     PACKING = "PACKING"
+    WAITING_FOR_CORRECTIONS = "WAITING_FOR_CORRECTIONS"
     READY = "READY"
 
     @property

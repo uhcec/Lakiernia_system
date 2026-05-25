@@ -120,6 +120,10 @@ class ManagerService:
         return work_order.production_type is not None and work_order.queue_position is not None
 
     def _to_read_model(self, work_order: WorkOrder) -> WorkOrderRead:
+        waiting_ok_quantity = self.process_service.get_waiting_ok_quantity(work_order)
+        pending_correction_quantity = self.process_service.get_pending_correction_quantity(work_order)
+        total_progress_quantity = self.process_service.get_total_progress_quantity(work_order)
+
         return WorkOrderRead(
             id=work_order.id,
             order_number=work_order.order_number,
@@ -127,10 +131,17 @@ class ManagerService:
             total_quantity=work_order.total_quantity,
             completed_quantity=work_order.completed_quantity,
             current_active_quantity=work_order.current_active_quantity,
+            waiting_ok_quantity=waiting_ok_quantity,
+            pending_correction_quantity=pending_correction_quantity,
+            total_progress_quantity=total_progress_quantity,
             is_correction=work_order.is_correction,
-            parent_order=(build_work_order_relation_summary(work_order.parent_order) if work_order.parent_order is not None else None),
+            parent_order=(
+                self._build_relation_summary(work_order.parent_order)
+                if work_order.parent_order is not None
+                else None
+            ),
             correction_orders=[
-                build_work_order_relation_summary(correction_order)
+                self._build_relation_summary(correction_order)
                 for correction_order in self._get_ordered_correction_orders(work_order)
             ],
             description=work_order.description,
@@ -202,3 +213,8 @@ class ManagerService:
     @staticmethod
     def _get_ordered_correction_orders(work_order: WorkOrder) -> list[WorkOrder]:
         return sorted(work_order.correction_orders, key=lambda correction_order: (correction_order.created_at, correction_order.id))
+
+    def _build_relation_summary(self, work_order: WorkOrder):
+        summary = build_work_order_relation_summary(work_order)
+        summary.process_status = build_process_status_view(self.process_service.get_display_status(work_order))
+        return summary

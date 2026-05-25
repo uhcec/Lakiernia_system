@@ -12,6 +12,31 @@ import {
 import type { WorkOrder, WorkOrderAttachment } from "../types/workOrders";
 import { formatWorkOrderPrimaryInfo } from "../utils/workOrderDisplay";
 
+function processStatusClasses(statusValue: WorkOrder["process_status"]["value"]): string {
+  switch (statusValue) {
+    case "TO_BE_PLANNED":
+      return "bg-slate-100 text-slate-700";
+    case "INCOMPLETE":
+      return "bg-rose-100 text-rose-700";
+    case "SURFACE_PREPARATION":
+      return "bg-amber-100 text-amber-800";
+    case "HANGING":
+      return "bg-sky-100 text-sky-700";
+    case "PRODUCTION_MANUAL":
+      return "bg-orange-100 text-orange-800";
+    case "PRODUCTION_AUTOMATIC":
+      return "bg-cyan-100 text-cyan-800";
+    case "DECORAL_PRODUCTION":
+      return "bg-violet-100 text-violet-800";
+    case "PACKING":
+      return "bg-lime-100 text-lime-800";
+    case "WAITING_FOR_CORRECTIONS":
+      return "bg-amber-200 text-amber-900";
+    case "READY":
+      return "bg-emerald-100 text-emerald-700";
+  }
+}
+
 function formatDate(value: string | null): string {
   if (!value) {
     return "-";
@@ -346,9 +371,12 @@ export function WorkOrderDetailPage() {
                           <Link
                             key={correctionOrder.id}
                             to={`/zlecenia/${correctionOrder.id}`}
-                            className="font-semibold text-accent hover:underline"
+                            className="rounded-2xl border border-line/80 bg-white px-4 py-3 font-semibold text-accent hover:underline"
                           >
-                            {formatWorkOrderPrimaryInfo(correctionOrder)} · {correctionOrder.total_quantity} szt.
+                            <div>{formatWorkOrderPrimaryInfo(correctionOrder)} · {correctionOrder.total_quantity} szt.</div>
+                            <div className="mt-1 text-sm font-medium text-steel">
+                              Status: {correctionOrder.process_status.label} · Postęp: {correctionOrder.completed_quantity}/{correctionOrder.total_quantity}
+                            </div>
                           </Link>
                         ))}
                       </div>
@@ -377,9 +405,48 @@ export function WorkOrderDetailPage() {
 
               <section className="rounded-[2rem] border border-white/70 bg-white/80 p-6 shadow-panel backdrop-blur sm:p-8">
                 <h3 className="text-2xl font-semibold text-ink">Status procesu</h3>
-                <div className="mt-6 inline-flex rounded-full bg-mist px-4 py-2 text-sm font-semibold text-ink">
+                <div className={["mt-6 inline-flex rounded-full px-4 py-2 text-sm font-semibold", processStatusClasses(workOrder.process_status.value)].join(" ")}>
                   {workOrder.process_status.label}
                 </div>
+                <div className="mt-6 grid gap-3 sm:grid-cols-3">
+                  <div className="rounded-3xl border border-line/80 bg-white p-4">
+                    <p className="text-xs font-semibold uppercase tracking-[0.14em] text-steel">Łączny postęp</p>
+                    <p className="mt-2 text-2xl font-semibold text-ink">
+                      {workOrder.total_progress_quantity} / {workOrder.total_quantity}
+                    </p>
+                  </div>
+                  <div className="rounded-3xl border border-line/80 bg-white p-4">
+                    <p className="text-xs font-semibold uppercase tracking-[0.14em] text-steel">OK czeka</p>
+                    <p className="mt-2 text-2xl font-semibold text-ink">{workOrder.waiting_ok_quantity}</p>
+                  </div>
+                  <div className="rounded-3xl border border-line/80 bg-white p-4">
+                    <p className="text-xs font-semibold uppercase tracking-[0.14em] text-steel">Poprawki otwarte</p>
+                    <p className="mt-2 text-2xl font-semibold text-ink">{workOrder.pending_correction_quantity}</p>
+                  </div>
+                </div>
+                {workOrder.correction_orders.length > 0 ? (
+                  <div className="mt-6 space-y-3 rounded-3xl border border-line/80 bg-white p-5">
+                    <p className="text-sm font-semibold uppercase tracking-[0.14em] text-steel">Statusy zleceń poprawek</p>
+                    {workOrder.correction_orders.map((correctionOrder) => (
+                      <Link
+                        key={correctionOrder.id}
+                        to={`/zlecenia/${correctionOrder.id}`}
+                        className="flex flex-col gap-3 rounded-2xl border border-line/80 bg-mist/40 px-4 py-3 transition hover:border-accent/40"
+                      >
+                        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                          <span className="font-semibold text-ink">{correctionOrder.order_number}</span>
+                          <span className={["inline-flex w-fit rounded-full px-3 py-1 text-xs font-semibold", processStatusClasses(correctionOrder.process_status.value)].join(" ")}>
+                            {correctionOrder.process_status.label}
+                          </span>
+                        </div>
+                        <p className="text-sm text-steel">{formatWorkOrderPrimaryInfo(correctionOrder)}</p>
+                        <p className="text-sm text-steel">
+                          Postęp: {correctionOrder.completed_quantity}/{correctionOrder.total_quantity} · Aktywne: {correctionOrder.current_active_quantity}
+                        </p>
+                      </Link>
+                    ))}
+                  </div>
+                ) : null}
                 {workOrder.process_status.value === "INCOMPLETE" ? (
                   <button
                     type="button"

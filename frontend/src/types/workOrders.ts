@@ -11,6 +11,7 @@ export type ProcessStatusValue =
   | "PRODUCTION_AUTOMATIC"
   | "DECORAL_PRODUCTION"
   | "PACKING"
+  | "WAITING_FOR_CORRECTIONS"
   | "READY";
 export type ProcessStageValue =
   | "SURFACE_PREPARATION"
@@ -81,6 +82,10 @@ export interface WorkOrderRelationSummary {
   ral_code: string;
   total_area_m2: number | null;
   total_quantity: number;
+  completed_quantity: number;
+  current_active_quantity: number;
+  is_correction: boolean;
+  process_status: ProcessStatus;
 }
 
 export interface WorkOrder {
@@ -90,6 +95,9 @@ export interface WorkOrder {
   total_quantity: number;
   completed_quantity: number;
   current_active_quantity: number;
+  waiting_ok_quantity: number;
+  pending_correction_quantity: number;
+  total_progress_quantity: number;
   is_correction: boolean;
   parent_order: WorkOrderRelationSummary | null;
   correction_orders: WorkOrderRelationSummary[];

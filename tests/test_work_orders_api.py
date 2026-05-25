@@ -381,9 +381,13 @@ def test_list_work_orders_includes_quantity_progress_fields(test_client: TestCli
     correction_item = next(item for item in response.json()["items"] if item["is_correction"] is True)
 
     assert response.status_code == 200
-    assert original_item["total_quantity"] == 98
-    assert original_item["completed_quantity"] == 98
+    assert original_item["total_quantity"] == 100
+    assert original_item["completed_quantity"] == 0
     assert original_item["current_active_quantity"] == 0
+    assert original_item["waiting_ok_quantity"] == 98
+    assert original_item["pending_correction_quantity"] == 2
+    assert original_item["total_progress_quantity"] == 98
+    assert original_item["process_status"] == {"value": "WAITING_FOR_CORRECTIONS", "label": "Czeka na poprawki"}
     assert correction_item["total_quantity"] == 2
     assert correction_item["parent_order"]["id"] == created["id"]
 

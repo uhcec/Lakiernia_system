@@ -94,10 +94,11 @@ def create_planned_work_order(
     queue_position: int,
     production_type: str = "MANUAL",
     coating_type: str = "RAL",
+    total_quantity: int = 100,
 ) -> dict:
     created = test_client.post(
         "/work-orders",
-        json=build_create_payload(title=title, coating_type=coating_type, total_quantity=100),
+        json=build_create_payload(title=title, coating_type=coating_type, total_quantity=total_quantity),
     ).json()
     test_client.post(
         f"/manager/work-orders/{created['id']}/plan",
@@ -353,7 +354,7 @@ def test_finish_stage_updates_status(test_client: TestClient) -> None:
     }
 
 
-def test_packing_complete_splits_quantities_and_returns_to_production(test_client: TestClient) -> None:
+def test_packing_complete_splits_quantities_and_marks_parent_waiting_for_corrections(test_client: TestClient) -> None:
     created = create_planned_work_order(test_client, title="Packing split", queue_position=1)
     advance_to_packing(test_client, created["id"])
 
@@ -367,11 +368,16 @@ def test_packing_complete_splits_quantities_and_returns_to_production(test_clien
         "stage": "PACKING",
         "status": {"value": "DONE", "label": "Zakończone"},
     }
-    assert detail.json()["total_quantity"] == 90
-    assert detail.json()["completed_quantity"] == 90
+    assert detail.json()["total_quantity"] == 100
+    assert detail.json()["completed_quantity"] == 0
     assert detail.json()["current_active_quantity"] == 0
+    assert detail.json()["waiting_ok_quantity"] == 90
+    assert detail.json()["pending_correction_quantity"] == 10
+    assert detail.json()["total_progress_quantity"] == 90
+    assert detail.json()["process_status"] == {"value": "WAITING_FOR_CORRECTIONS", "label": "Czeka na poprawki"}
     assert correction_order["total_quantity"] == 10
     assert correction_order["parent_order"]["id"] == created["id"]
+    assert correction_order["process_status"] == {"value": "TO_BE_PLANNED", "label": "Do zaplanowania"}
 
 
 def test_decoral_ok_quantity_goes_to_decoral_production_after_packing(test_client: TestClient) -> None:
@@ -483,7 +489,7 @@ def test_correction_order_can_be_planned_after_packing_split(test_client: TestCl
     assert detail.json()["process_status"] == {"value": "SURFACE_PREPARATION", "label": "Przygotowanie"}
 
 
-def test_decoral_automatic_mixed_split_is_visible_in_hanging_and_decoral(test_client: TestClient) -> None:
+def test_decoral_automatic_mixed_split_waits_for_correction_child(test_client: TestClient) -> None:
     created = create_planned_work_order(
         test_client,
         title="Decoral automatic split",
@@ -497,17 +503,58 @@ def test_decoral_automatic_mixed_split_is_visible_in_hanging_and_decoral(test_cl
     hanging_response = test_client.get("/process/stages/HANGING/work-orders")
     decoral_response = test_client.get("/process/stages/DECORAL_PRODUCTION/work-orders")
     unplanned_response = test_client.get("/manager/work-orders/unplanned")
+    detail = test_client.get(f"/work-orders/{created['id']}")
 
     assert response.status_code == 200
-
-    ok_row = next(item for item in decoral_response.json() if item["id"] == created["id"])
     correction_order = next(item for item in unplanned_response.json() if item["parent_order"]["id"] == created["id"])
 
     assert hanging_response.json() == []
-    assert ok_row["batch_quantity"] == 70
-    assert ok_row["batch_type"] == "MAIN"
-    assert ok_row["batch_is_partial"] is True
+    assert decoral_response.json() == []
+    assert detail.json()["process_status"] == {"value": "WAITING_FOR_CORRECTIONS", "label": "Czeka na poprawki"}
+    assert detail.json()["waiting_ok_quantity"] == 70
     assert correction_order["total_quantity"] == 30
+
+
+def test_completed_correction_child_marks_parent_ready_via_api(test_client: TestClient) -> None:
+    created = create_planned_work_order(
+        test_client,
+        title="Correction merge API",
+        queue_position=1,
+        production_type="MANUAL",
+        total_quantity=10,
+    )
+    advance_to_packing(test_client, created["id"])
+
+    split_response = complete_packing_request(test_client, created["id"], counted_quantity=10, ok_quantity=7, correction_quantity=3)
+    assert split_response.status_code == 200
+
+    correction_order = next(item for item in test_client.get("/manager/work-orders/unplanned").json() if item["parent_order"]["id"] == created["id"])
+    plan_response = test_client.post(
+        f"/manager/work-orders/{correction_order['id']}/plan",
+        json={"production_type": "MANUAL", "queue_position": 2},
+    )
+    assert plan_response.status_code == 200
+
+    start_surface_preparation(test_client, correction_order["id"], counted_quantity=3)
+    test_client.post(f"/process/work-orders/{correction_order['id']}/stages/SURFACE_PREPARATION/finish")
+    test_client.post(f"/process/work-orders/{correction_order['id']}/stages/PRODUCTION/start")
+    test_client.post(f"/process/work-orders/{correction_order['id']}/stages/PRODUCTION/finish")
+    test_client.post(f"/process/work-orders/{correction_order['id']}/stages/PACKING/start")
+    child_complete = complete_packing_request(
+        test_client,
+        correction_order["id"],
+        counted_quantity=3,
+        ok_quantity=3,
+        correction_quantity=0,
+    )
+    parent_detail = test_client.get(f"/work-orders/{created['id']}")
+    child_detail = test_client.get(f"/work-orders/{correction_order['id']}")
+
+    assert child_complete.status_code == 200
+    assert parent_detail.json()["process_status"] == {"value": "READY", "label": "Gotowe"}
+    assert parent_detail.json()["completed_quantity"] == 10
+    assert any(item["id"] == correction_order["id"] for item in parent_detail.json()["correction_orders"])
+    assert child_detail.json()["parent_order"]["id"] == created["id"]
 
 
 def test_fully_packed_order_reopen_returns_clear_validation_error(test_client: TestClient) -> None:
@@ -576,8 +623,11 @@ def test_packing_complete_accepts_valid_counted_quantity_split(test_client: Test
         "stage": "PACKING",
         "status": {"value": "DONE", "label": "Zakończone"},
     }
-    assert detail.json()["total_quantity"] == 90
-    assert detail.json()["completed_quantity"] == 90
+    assert detail.json()["total_quantity"] == 100
+    assert detail.json()["completed_quantity"] == 0
+    assert detail.json()["process_status"] == {"value": "WAITING_FOR_CORRECTIONS", "label": "Czeka na poprawki"}
+    assert detail.json()["waiting_ok_quantity"] == 94
+    assert detail.json()["pending_correction_quantity"] == 6
     assert correction_order["total_quantity"] == 6
 
 
