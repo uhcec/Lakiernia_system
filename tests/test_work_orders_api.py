@@ -1,10 +1,28 @@
 from fastapi.testclient import TestClient
 
 
-def create_work_order(test_client: TestClient, **overrides: object):
-    payload = {"title": "Domyślne zlecenie", "coating_type": "RAL", "total_quantity": 100}
+def build_create_payload(**overrides: object) -> dict:
+    payload = {
+        "title": "Domyślne zlecenie",
+        "coating_type": "RAL",
+        "total_quantity": 100,
+        "customer_name": "ACME",
+        "ral_code": "RAL 7016",
+        "paint_producer": "AkzoNobel",
+        "received_date": "2026-05-25",
+        "profiles_to_count": True,
+        "accessories_to_count": True,
+    }
     payload.update(overrides)
-    return test_client.post("/work-orders", json=payload)
+    if payload.get("profiles_quantity") is not None and "profiles_to_count" not in overrides:
+        payload["profiles_to_count"] = False
+    if payload.get("accessories_quantity") is not None and "accessories_to_count" not in overrides:
+        payload["accessories_to_count"] = False
+    return payload
+
+
+def create_work_order(test_client: TestClient, **overrides: object):
+    return test_client.post("/work-orders", json=build_create_payload(**overrides))
 
 
 def finish_ral_work_order(test_client: TestClient, work_order_id: int) -> None:
@@ -21,7 +39,13 @@ def test_create_work_order(test_client: TestClient) -> None:
         coating_type="RAL",
         description="Initial intake",
         customer_name="ACME",
-        due_date="2026-06-15",
+        ral_code="RAL 9005",
+        paint_producer="Tiger",
+        received_date="2026-05-20",
+        planned_pickup_date="2026-06-15",
+        total_area_m2=42.5,
+        profiles_quantity=12,
+        accessories_quantity=8,
         notes="Handle carefully",
         total_quantity=250,
     )
@@ -37,16 +61,58 @@ def test_create_work_order(test_client: TestClient) -> None:
     assert body["current_active_quantity"] == 250
     assert body["description"] == "Initial intake"
     assert body["customer_name"] == "ACME"
+    assert body["ral_code"] == "RAL 9005"
+    assert body["paint_producer"] == "Tiger"
     assert body["coating_type"] == {"value": "RAL", "label": "RAL"}
-    assert body["due_date"] == "2026-06-15"
+    assert body["received_date"] == "2026-05-20"
+    assert body["planned_pickup_date"] == "2026-06-15"
+    assert body["total_area_m2"] == 42.5
+    assert body["profiles_quantity"] == 12
+    assert body["profiles_to_count"] is False
+    assert body["accessories_quantity"] == 8
+    assert body["accessories_to_count"] is False
     assert body["notes"] == "Handle carefully"
     assert body["process_status"] == {"value": "TO_BE_PLANNED", "label": "Do zaplanowania"}
     assert body["created_at"]
     assert body["updated_at"]
 
 
-def test_creating_without_coating_type_fails(test_client: TestClient) -> None:
-    response = test_client.post("/work-orders", json={"title": "Missing coating", "total_quantity": 10})
+def test_create_work_order_with_missing_optional_fields(test_client: TestClient) -> None:
+    response = create_work_order(
+        test_client,
+        title="Optional fields omitted",
+        planned_pickup_date=None,
+        total_area_m2=None,
+    )
+
+    assert response.status_code == 201
+    assert response.json()["planned_pickup_date"] is None
+    assert response.json()["total_area_m2"] is None
+
+
+def test_create_work_order_with_to_count_flags(test_client: TestClient) -> None:
+    response = create_work_order(
+        test_client,
+        title="To count order",
+        profiles_to_count=True,
+        accessories_to_count=True,
+        profiles_quantity=None,
+        accessories_quantity=None,
+    )
+
+    assert response.status_code == 201
+    assert response.json()["profiles_quantity"] is None
+    assert response.json()["profiles_to_count"] is True
+    assert response.json()["accessories_quantity"] is None
+    assert response.json()["accessories_to_count"] is True
+
+
+def test_creating_without_required_fields_fails(test_client: TestClient) -> None:
+    payload = build_create_payload()
+    payload.pop("customer_name")
+    payload.pop("received_date")
+
+    response = test_client.post("/work-orders", json=payload)
 
     assert response.status_code == 422
 
@@ -97,6 +163,8 @@ def test_get_work_order_by_id(test_client: TestClient) -> None:
     assert response.json()["total_quantity"] == 100
     assert response.json()["completed_quantity"] == 0
     assert response.json()["current_active_quantity"] == 100
+    assert response.json()["received_date"] == "2026-05-25"
+    assert response.json()["ral_code"] == "RAL 7016"
     assert response.json()["batches"] == [
         {
             "id": 1,
@@ -218,8 +286,8 @@ def test_status_transition_still_works_after_patch_update(test_client: TestClien
 
 
 def test_list_work_orders(test_client: TestClient) -> None:
-    test_client.post("/work-orders", json={"title": "First", "coating_type": "RAL", "total_quantity": 10})
-    test_client.post("/work-orders", json={"title": "Second", "coating_type": "RAL", "total_quantity": 20})
+    test_client.post("/work-orders", json=build_create_payload(title="First", total_quantity=10))
+    test_client.post("/work-orders", json=build_create_payload(title="Second", total_quantity=20))
 
     response = test_client.get("/work-orders")
 
@@ -256,7 +324,7 @@ def test_list_work_orders_includes_quantity_progress_fields(test_client: TestCli
 
 
 def test_list_work_orders_can_filter_by_status(test_client: TestClient) -> None:
-    test_client.post("/work-orders", json={"title": "Entered order", "coating_type": "RAL", "total_quantity": 15})
+    test_client.post("/work-orders", json=build_create_payload(title="Entered order", total_quantity=15))
 
     response = test_client.get("/work-orders", params={"status": "ENTERED"})
 
@@ -269,17 +337,25 @@ def test_list_work_orders_can_filter_by_status(test_client: TestClient) -> None:
 
 
 def test_missing_title_returns_validation_error(test_client: TestClient) -> None:
-    response = test_client.post("/work-orders", json={"total_quantity": 10})
+    payload = build_create_payload(total_quantity=10)
+    payload.pop("title")
+
+    response = test_client.post("/work-orders", json=payload)
 
     assert response.status_code == 422
 
 
-def test_create_work_order_defaults_total_quantity_to_one_for_compatibility(test_client: TestClient) -> None:
-    response = test_client.post("/work-orders", json={"title": "Legacy payload", "coating_type": "RAL"})
+def test_profiles_and_accessories_require_quantity_or_to_count_flag(test_client: TestClient) -> None:
+    response = test_client.post(
+        "/work-orders",
+        json=build_create_payload(
+            title="Missing count info",
+            profiles_to_count=False,
+            accessories_to_count=False,
+        ),
+    )
 
-    assert response.status_code == 201
-    assert response.json()["total_quantity"] == 1
-    assert response.json()["current_active_quantity"] == 1
+    assert response.status_code == 422
 
 
 def test_entered_to_assigned_transition_succeeds(test_client: TestClient) -> None:

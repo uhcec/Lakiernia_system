@@ -10,7 +10,15 @@ interface FormState {
   coating_type: CoatingTypeValue | "";
   description: string;
   customer_name: string;
-  due_date: string;
+  ral_code: string;
+  paint_producer: string;
+  received_date: string;
+  planned_pickup_date: string;
+  total_area_m2: string;
+  profiles_quantity: string;
+  profiles_to_count: boolean;
+  accessories_quantity: string;
+  accessories_to_count: boolean;
   notes: string;
 }
 
@@ -20,9 +28,43 @@ const initialFormState: FormState = {
   coating_type: "",
   description: "",
   customer_name: "",
-  due_date: "",
+  ral_code: "",
+  paint_producer: "",
+  received_date: "",
+  planned_pickup_date: "",
+  total_area_m2: "",
+  profiles_quantity: "",
+  profiles_to_count: false,
+  accessories_quantity: "",
+  accessories_to_count: false,
   notes: "",
 };
+
+function parseOptionalPositiveInteger(value: string): number | undefined {
+  if (!value.trim()) {
+    return undefined;
+  }
+
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    return Number.NaN;
+  }
+
+  return parsed;
+}
+
+function parseOptionalPositiveNumber(value: string): number | undefined {
+  if (!value.trim()) {
+    return undefined;
+  }
+
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return Number.NaN;
+  }
+
+  return parsed;
+}
 
 export function CreateWorkOrderPage() {
   const navigate = useNavigate();
@@ -35,6 +77,18 @@ export function CreateWorkOrderPage() {
     setFormState((current) => ({ ...current, [fieldName]: value }));
   }
 
+  function updateToggle(
+    fieldName: "profiles_to_count" | "accessories_to_count",
+    quantityField: "profiles_quantity" | "accessories_quantity",
+    checked: boolean,
+  ) {
+    setFormState((current) => ({
+      ...current,
+      [fieldName]: checked,
+      [quantityField]: checked ? "" : current[quantityField],
+    }));
+  }
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
@@ -44,14 +98,63 @@ export function CreateWorkOrderPage() {
       return;
     }
 
+    const trimmedCustomerName = formState.customer_name.trim();
+    if (!trimmedCustomerName) {
+      setValidationError("Klient jest wymagany");
+      return;
+    }
+
+    const trimmedRalCode = formState.ral_code.trim();
+    if (!trimmedRalCode) {
+      setValidationError("Kod RAL jest wymagany");
+      return;
+    }
+
+    const trimmedPaintProducer = formState.paint_producer.trim();
+    if (!trimmedPaintProducer) {
+      setValidationError("Producent farby jest wymagany");
+      return;
+    }
+
     if (!formState.coating_type) {
       setValidationError("Technologia jest wymagana");
+      return;
+    }
+
+    if (!formState.received_date) {
+      setValidationError("Data przyjęcia jest wymagana");
       return;
     }
 
     const totalQuantity = Number(formState.total_quantity);
     if (!Number.isInteger(totalQuantity) || totalQuantity <= 0) {
       setValidationError("Ilość całkowita musi być dodatnią liczbą całkowitą");
+      return;
+    }
+
+    const profilesQuantity = parseOptionalPositiveInteger(formState.profiles_quantity);
+    if (Number.isNaN(profilesQuantity)) {
+      setValidationError("Ilość profili musi być dodatnią liczbą całkowitą");
+      return;
+    }
+    if (profilesQuantity === undefined && !formState.profiles_to_count) {
+      setValidationError("Dla profili podaj ilość albo zaznacz 'Do policzenia na produkcji'");
+      return;
+    }
+
+    const accessoriesQuantity = parseOptionalPositiveInteger(formState.accessories_quantity);
+    if (Number.isNaN(accessoriesQuantity)) {
+      setValidationError("Ilość akcesoriów musi być dodatnią liczbą całkowitą");
+      return;
+    }
+    if (accessoriesQuantity === undefined && !formState.accessories_to_count) {
+      setValidationError("Dla akcesoriów podaj ilość albo zaznacz 'Do policzenia na produkcji'");
+      return;
+    }
+
+    const totalArea = parseOptionalPositiveNumber(formState.total_area_m2);
+    if (Number.isNaN(totalArea)) {
+      setValidationError("Powierzchnia całkowita musi być dodatnią liczbą");
       return;
     }
 
@@ -65,8 +168,16 @@ export function CreateWorkOrderPage() {
         total_quantity: totalQuantity,
         coating_type: formState.coating_type,
         description: formState.description.trim() || undefined,
-        customer_name: formState.customer_name.trim() || undefined,
-        due_date: formState.due_date || undefined,
+        customer_name: trimmedCustomerName,
+        ral_code: trimmedRalCode,
+        paint_producer: trimmedPaintProducer,
+        received_date: formState.received_date,
+        planned_pickup_date: formState.planned_pickup_date || undefined,
+        total_area_m2: totalArea,
+        profiles_quantity: profilesQuantity,
+        profiles_to_count: formState.profiles_to_count,
+        accessories_quantity: accessoriesQuantity,
+        accessories_to_count: formState.accessories_to_count,
         notes: formState.notes.trim() || undefined,
       });
       navigate("/zlecenia");
@@ -85,7 +196,7 @@ export function CreateWorkOrderPage() {
           <div>
             <h2 className="text-3xl font-semibold text-ink sm:text-4xl">Nowe zlecenie</h2>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-steel sm:text-base">
-              Uzupełnij podstawowe dane zlecenia. Numer zlecenia zostanie nadany automatycznie przez system, a przebieg pracy będzie wynikał z etapów procesu.
+              Numer zlecenia nada backend. Uzupełnij dane biurowe potrzebne do poprawnego przyjęcia zlecenia do systemu.
             </p>
           </div>
         </div>
@@ -126,19 +237,6 @@ export function CreateWorkOrderPage() {
             </label>
 
             <label className="flex flex-col gap-2">
-              <span className="text-sm font-medium text-ink">Ilość całkowita</span>
-              <input
-                type="number"
-                min="1"
-                step="1"
-                value={formState.total_quantity}
-                onChange={(event) => updateField("total_quantity", event.target.value)}
-                className="rounded-2xl border border-line bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-accent"
-                placeholder="1"
-              />
-            </label>
-
-            <label className="flex flex-col gap-2">
               <span className="text-sm font-medium text-ink">Technologia</span>
               <select
                 value={formState.coating_type}
@@ -152,14 +250,120 @@ export function CreateWorkOrderPage() {
             </label>
 
             <label className="flex flex-col gap-2">
-              <span className="text-sm font-medium text-ink">Termin</span>
+              <span className="text-sm font-medium text-ink">Kod RAL</span>
+              <input
+                value={formState.ral_code}
+                onChange={(event) => updateField("ral_code", event.target.value)}
+                className="rounded-2xl border border-line bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-accent"
+                placeholder="np. RAL 7016"
+              />
+            </label>
+
+            <label className="flex flex-col gap-2">
+              <span className="text-sm font-medium text-ink">Producent farby</span>
+              <input
+                value={formState.paint_producer}
+                onChange={(event) => updateField("paint_producer", event.target.value)}
+                className="rounded-2xl border border-line bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-accent"
+                placeholder="np. AkzoNobel"
+              />
+            </label>
+
+            <label className="flex flex-col gap-2">
+              <span className="text-sm font-medium text-ink">Data przyjęcia</span>
               <input
                 type="date"
-                value={formState.due_date}
-                onChange={(event) => updateField("due_date", event.target.value)}
+                value={formState.received_date}
+                onChange={(event) => updateField("received_date", event.target.value)}
                 className="rounded-2xl border border-line bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-accent"
               />
             </label>
+
+            <label className="flex flex-col gap-2">
+              <span className="text-sm font-medium text-ink">Planowany odbiór</span>
+              <input
+                type="date"
+                value={formState.planned_pickup_date}
+                onChange={(event) => updateField("planned_pickup_date", event.target.value)}
+                className="rounded-2xl border border-line bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-accent"
+              />
+            </label>
+
+            <label className="flex flex-col gap-2">
+              <span className="text-sm font-medium text-ink">Ilość całkowita</span>
+              <input
+                type="number"
+                min="1"
+                step="1"
+                value={formState.total_quantity}
+                onChange={(event) => updateField("total_quantity", event.target.value)}
+                className="rounded-2xl border border-line bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-accent"
+                placeholder="1"
+              />
+            </label>
+
+            <label className="flex flex-col gap-2">
+              <span className="text-sm font-medium text-ink">Powierzchnia całkowita (m²)</span>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={formState.total_area_m2}
+                onChange={(event) => updateField("total_area_m2", event.target.value)}
+                className="rounded-2xl border border-line bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-accent"
+                placeholder="Opcjonalnie"
+              />
+            </label>
+
+            <div className="space-y-3 rounded-3xl border border-line/80 bg-mist/40 p-4">
+              <div className="flex flex-col gap-2">
+                <span className="text-sm font-medium text-ink">Profile</span>
+                <input
+                  type="number"
+                  min="1"
+                  step="1"
+                  disabled={formState.profiles_to_count}
+                  value={formState.profiles_quantity}
+                  onChange={(event) => updateField("profiles_quantity", event.target.value)}
+                  className="rounded-2xl border border-line bg-white px-4 py-3 text-sm text-ink outline-none transition disabled:bg-slate-100 disabled:text-slate-400 focus:border-accent"
+                  placeholder="Podaj ilość"
+                />
+              </div>
+              <label className="flex items-center gap-3 text-sm text-steel">
+                <input
+                  type="checkbox"
+                  checked={formState.profiles_to_count}
+                  onChange={(event) => updateToggle("profiles_to_count", "profiles_quantity", event.target.checked)}
+                  className="h-4 w-4 rounded border-line text-accent focus:ring-accent"
+                />
+                Do policzenia na produkcji
+              </label>
+            </div>
+
+            <div className="space-y-3 rounded-3xl border border-line/80 bg-mist/40 p-4">
+              <div className="flex flex-col gap-2">
+                <span className="text-sm font-medium text-ink">Akcesoria</span>
+                <input
+                  type="number"
+                  min="1"
+                  step="1"
+                  disabled={formState.accessories_to_count}
+                  value={formState.accessories_quantity}
+                  onChange={(event) => updateField("accessories_quantity", event.target.value)}
+                  className="rounded-2xl border border-line bg-white px-4 py-3 text-sm text-ink outline-none transition disabled:bg-slate-100 disabled:text-slate-400 focus:border-accent"
+                  placeholder="Podaj ilość"
+                />
+              </div>
+              <label className="flex items-center gap-3 text-sm text-steel">
+                <input
+                  type="checkbox"
+                  checked={formState.accessories_to_count}
+                  onChange={(event) => updateToggle("accessories_to_count", "accessories_quantity", event.target.checked)}
+                  className="h-4 w-4 rounded border-line text-accent focus:ring-accent"
+                />
+                Do policzenia na produkcji
+              </label>
+            </div>
 
             <label className="flex flex-col gap-2 md:col-span-2">
               <span className="text-sm font-medium text-ink">Uwagi</span>

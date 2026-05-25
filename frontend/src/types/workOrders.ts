@@ -67,8 +67,9 @@ export interface WorkOrder {
   completed_quantity: number;
   current_active_quantity: number;
   description: string | null;
-  customer_name: string | null;
-  // Legacy backend field kept only for compatibility; active UI uses process_status and stage_states.
+  customer_name: string;
+  ral_code: string;
+  paint_producer: string;
   status: WorkOrderStatus;
   process_status: ProcessStatus;
   coating_type: WorkOrderOption<CoatingTypeValue>;
@@ -76,7 +77,13 @@ export interface WorkOrder {
   queue_position: number | null;
   stage_states: WorkOrderStageState[];
   batches: WorkOrderQuantityBatch[];
-  due_date: string | null;
+  received_date: string;
+  planned_pickup_date: string | null;
+  total_area_m2: number | null;
+  profiles_quantity: number | null;
+  profiles_to_count: boolean;
+  accessories_quantity: number | null;
+  accessories_to_count: boolean;
   notes: string | null;
   created_at: string;
   updated_at: string;
@@ -93,8 +100,16 @@ export interface CreateWorkOrderRequest {
   title: string;
   coating_type: CoatingTypeValue;
   total_quantity?: number;
+  customer_name: string;
+  ral_code: string;
+  paint_producer: string;
+  received_date: string;
+  planned_pickup_date?: string;
+  total_area_m2?: number;
+  profiles_quantity?: number;
+  profiles_to_count: boolean;
+  accessories_quantity?: number;
+  accessories_to_count: boolean;
   description?: string;
-  customer_name?: string;
-  due_date?: string;
   notes?: string;
 }

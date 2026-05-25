@@ -16,6 +16,25 @@ function createApiUrl(pathname: string): string {
   return `${API_BASE_URL.replace(/\/$/, "")}${normalizedPath}`;
 }
 
+async function readErrorMessage(response: Response, fallbackMessage: string): Promise<string> {
+  try {
+    const body = (await response.json()) as { detail?: string | { msg?: string }[] };
+    if (typeof body.detail === "string" && body.detail.trim()) {
+      return body.detail;
+    }
+    if (Array.isArray(body.detail) && body.detail.length > 0) {
+      const firstMessage = body.detail[0]?.msg;
+      if (typeof firstMessage === "string" && firstMessage.trim()) {
+        return firstMessage;
+      }
+    }
+  } catch {
+    return fallbackMessage;
+  }
+
+  return fallbackMessage;
+}
+
 export async function fetchWorkOrders(): Promise<WorkOrdersListResponse> {
   const response = await fetch(createApiUrl("/work-orders"), {
     headers: {
@@ -43,7 +62,7 @@ export async function createWorkOrder(payload: CreateWorkOrderRequest): Promise<
   });
 
   if (!response.ok) {
-    throw new Error("Nie udało się utworzyć zlecenia");
+    throw new Error(await readErrorMessage(response, "Nie udało się utworzyć zlecenia"));
   }
 
   return response.json() as Promise<WorkOrder>;

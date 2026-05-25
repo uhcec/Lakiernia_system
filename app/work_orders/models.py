@@ -1,6 +1,6 @@
 from datetime import UTC, date, datetime
 
-from sqlalchemy import Date, DateTime, Enum, Integer, String, Text
+from sqlalchemy import Boolean, Date, DateTime, Enum, Float, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database.base import Base
@@ -40,12 +40,20 @@ class WorkOrder(Base):
     completed_quantity: Mapped[int] = mapped_column(Integer(), nullable=False, default=0)
     current_active_batch_id: Mapped[int | None] = mapped_column(Integer(), nullable=True)
     description: Mapped[str | None] = mapped_column(Text(), nullable=True)
-    customer_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    customer_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    ral_code: Mapped[str] = mapped_column(String(64), nullable=False)
+    paint_producer: Mapped[str] = mapped_column(String(255), nullable=False)
     status: Mapped[WorkOrderStatus] = mapped_column(work_order_status_enum, default=WorkOrderStatus.ENTERED, nullable=False)
     coating_type: Mapped[CoatingType] = mapped_column(coating_type_enum, default=CoatingType.RAL, nullable=False)
     production_type: Mapped[ProductionType | None] = mapped_column(production_type_enum, nullable=True)
     queue_position: Mapped[int | None] = mapped_column(Integer(), nullable=True, index=True)
-    due_date: Mapped[date | None] = mapped_column(Date(), nullable=True)
+    received_date: Mapped[date] = mapped_column(Date(), nullable=False)
+    planned_pickup_date: Mapped[date | None] = mapped_column(Date(), nullable=True)
+    total_area_m2: Mapped[float | None] = mapped_column(Float(), nullable=True)
+    profiles_quantity: Mapped[int | None] = mapped_column(Integer(), nullable=True)
+    profiles_to_count: Mapped[bool] = mapped_column(Boolean(), nullable=False, default=False)
+    accessories_quantity: Mapped[int | None] = mapped_column(Integer(), nullable=True)
+    accessories_to_count: Mapped[bool] = mapped_column(Boolean(), nullable=False, default=False)
     notes: Mapped[str | None] = mapped_column(Text(), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(

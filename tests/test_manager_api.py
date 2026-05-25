@@ -1,8 +1,22 @@
 from fastapi.testclient import TestClient
 
 
+def build_create_payload(title: str, coating_type: str = "RAL") -> dict:
+    return {
+        "title": title,
+        "coating_type": coating_type,
+        "total_quantity": 100,
+        "customer_name": "ACME",
+        "ral_code": "RAL 7016",
+        "paint_producer": "AkzoNobel",
+        "received_date": "2026-05-25",
+        "profiles_to_count": True,
+        "accessories_to_count": True,
+    }
+
+
 def create_work_order(test_client: TestClient, title: str, coating_type: str = "RAL") -> dict:
-    return test_client.post("/work-orders", json={"title": title, "coating_type": coating_type}).json()
+    return test_client.post("/work-orders", json=build_create_payload(title, coating_type)).json()
 
 
 def test_list_unplanned_work_orders(test_client: TestClient) -> None:

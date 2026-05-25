@@ -1,6 +1,25 @@
 from fastapi.testclient import TestClient
 
 
+def build_create_payload(
+    *,
+    title: str,
+    coating_type: str = "RAL",
+    total_quantity: int = 100,
+) -> dict:
+    return {
+        "title": title,
+        "coating_type": coating_type,
+        "total_quantity": total_quantity,
+        "customer_name": "ACME",
+        "ral_code": "RAL 7016",
+        "paint_producer": "AkzoNobel",
+        "received_date": "2026-05-25",
+        "profiles_to_count": True,
+        "accessories_to_count": True,
+    }
+
+
 def advance_to_hanging(test_client: TestClient, work_order_id: int) -> None:
     test_client.post(f"/process/work-orders/{work_order_id}/stages/SURFACE_PREPARATION/start")
     test_client.post(f"/process/work-orders/{work_order_id}/stages/SURFACE_PREPARATION/finish")
@@ -38,7 +57,7 @@ def create_planned_work_order(
 ) -> dict:
     created = test_client.post(
         "/work-orders",
-        json={"title": title, "coating_type": coating_type, "total_quantity": 100},
+        json=build_create_payload(title=title, coating_type=coating_type, total_quantity=100),
     ).json()
     test_client.post(
         f"/manager/work-orders/{created['id']}/plan",
@@ -52,7 +71,7 @@ def test_list_stage_work_orders_returns_only_visible_planned_orders(test_client:
     completed = create_planned_work_order(test_client, title="Completed", queue_position=1)
     test_client.post(f"/process/work-orders/{completed['id']}/stages/SURFACE_PREPARATION/start")
     test_client.post(f"/process/work-orders/{completed['id']}/stages/SURFACE_PREPARATION/finish")
-    unplanned = test_client.post("/work-orders", json={"title": "Unplanned", "coating_type": "RAL"}).json()
+    unplanned = test_client.post("/work-orders", json=build_create_payload(title="Unplanned")).json()
 
     response = test_client.get("/process/stages/SURFACE_PREPARATION/work-orders")
 

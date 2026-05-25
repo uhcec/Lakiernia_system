@@ -19,6 +19,14 @@ function formatDateTime(value: string): string {
   }).format(new Date(value));
 }
 
+function formatCountOrFlag(quantity: number | null, toCount: boolean): string {
+  if (toCount) {
+    return "Do policzenia na produkcji";
+  }
+
+  return quantity === null ? "-" : String(quantity);
+}
+
 export function WorkOrderDetailPage() {
   const { id } = useParams();
   const [workOrder, setWorkOrder] = useState<WorkOrder | null>(null);
@@ -109,11 +117,19 @@ export function WorkOrderDetailPage() {
                 </div>
                 <div>
                   <dt className="text-sm font-medium text-steel">Firma</dt>
-                  <dd className="mt-1 text-base text-ink">{workOrder.customer_name || "-"}</dd>
+                  <dd className="mt-1 text-base text-ink">{workOrder.customer_name}</dd>
                 </div>
                 <div>
                   <dt className="text-sm font-medium text-steel">Technologia</dt>
                   <dd className="mt-1 text-base text-ink">{workOrder.coating_type.label}</dd>
+                </div>
+                <div>
+                  <dt className="text-sm font-medium text-steel">Kod RAL</dt>
+                  <dd className="mt-1 text-base text-ink">{workOrder.ral_code}</dd>
+                </div>
+                <div>
+                  <dt className="text-sm font-medium text-steel">Producent farby</dt>
+                  <dd className="mt-1 text-base text-ink">{workOrder.paint_producer}</dd>
                 </div>
                 <div>
                   <dt className="text-sm font-medium text-steel">Ilość całkowita</dt>
@@ -124,8 +140,24 @@ export function WorkOrderDetailPage() {
                   <dd className="mt-1 text-base text-ink">{workOrder.current_active_quantity}</dd>
                 </div>
                 <div>
-                  <dt className="text-sm font-medium text-steel">Termin</dt>
-                  <dd className="mt-1 text-base text-ink">{formatDate(workOrder.due_date)}</dd>
+                  <dt className="text-sm font-medium text-steel">Data przyjęcia</dt>
+                  <dd className="mt-1 text-base text-ink">{formatDate(workOrder.received_date)}</dd>
+                </div>
+                <div>
+                  <dt className="text-sm font-medium text-steel">Planowany odbiór</dt>
+                  <dd className="mt-1 text-base text-ink">{formatDate(workOrder.planned_pickup_date)}</dd>
+                </div>
+                <div>
+                  <dt className="text-sm font-medium text-steel">Powierzchnia całkowita (m²)</dt>
+                  <dd className="mt-1 text-base text-ink">{workOrder.total_area_m2 ?? "-"}</dd>
+                </div>
+                <div>
+                  <dt className="text-sm font-medium text-steel">Profile</dt>
+                  <dd className="mt-1 text-base text-ink">{formatCountOrFlag(workOrder.profiles_quantity, workOrder.profiles_to_count)}</dd>
+                </div>
+                <div>
+                  <dt className="text-sm font-medium text-steel">Akcesoria</dt>
+                  <dd className="mt-1 text-base text-ink">{formatCountOrFlag(workOrder.accessories_quantity, workOrder.accessories_to_count)}</dd>
                 </div>
                 <div className="md:col-span-2">
                   <dt className="text-sm font-medium text-steel">Uwagi</dt>

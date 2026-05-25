@@ -88,6 +88,8 @@ class ManagerService:
             current_active_quantity=work_order.current_active_quantity,
             description=work_order.description,
             customer_name=work_order.customer_name,
+            ral_code=work_order.ral_code,
+            paint_producer=work_order.paint_producer,
             status=WorkOrderService.build_status_view(work_order.status),
             process_status=build_process_status_view(self.process_service.get_display_status(work_order)),
             coating_type=build_coating_type_view(work_order.coating_type),
@@ -123,7 +125,13 @@ class ManagerService:
                 )
                 for batch in self._get_ordered_batches(work_order)
             ],
-            due_date=work_order.due_date,
+            received_date=work_order.received_date,
+            planned_pickup_date=work_order.planned_pickup_date,
+            total_area_m2=work_order.total_area_m2,
+            profiles_quantity=work_order.profiles_quantity,
+            profiles_to_count=work_order.profiles_to_count,
+            accessories_quantity=work_order.accessories_quantity,
+            accessories_to_count=work_order.accessories_to_count,
             notes=work_order.notes,
             created_at=work_order.created_at,
             updated_at=work_order.updated_at,

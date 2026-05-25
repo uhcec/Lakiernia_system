@@ -1,6 +1,6 @@
 from datetime import date, datetime
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.process.enums import (
     CoatingType,
@@ -79,16 +79,37 @@ class WorkOrderQuantityBatchRead(BaseModel):
     created_at: datetime
 
 
+def _validate_counting_rule(field_name: str, quantity: int | None, to_count: bool) -> None:
+    if quantity is None and not to_count:
+        raise ValueError(f"{field_name}: podaj ilość albo zaznacz 'Do policzenia na produkcji'.")
+    if quantity is not None and to_count:
+        raise ValueError(f"{field_name}: wybierz ilość albo 'Do policzenia na produkcji', nie oba naraz.")
+
+
 class WorkOrderCreate(BaseModel):
     title: str = Field(min_length=1, max_length=255)
     total_quantity: int = Field(default=1, gt=0)
     description: str | None = None
-    customer_name: str | None = Field(default=None, max_length=255)
+    customer_name: str = Field(min_length=1, max_length=255)
+    ral_code: str = Field(min_length=1, max_length=64)
+    paint_producer: str = Field(min_length=1, max_length=255)
     coating_type: CoatingType
-    due_date: date | None = None
+    received_date: date
+    planned_pickup_date: date | None = None
+    total_area_m2: float | None = Field(default=None, gt=0)
+    profiles_quantity: int | None = Field(default=None, gt=0)
+    profiles_to_count: bool = False
+    accessories_quantity: int | None = Field(default=None, gt=0)
+    accessories_to_count: bool = False
     notes: str | None = None
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    @model_validator(mode="after")
+    def validate_counting_fields(self) -> "WorkOrderCreate":
+        _validate_counting_rule("Profile", self.profiles_quantity, self.profiles_to_count)
+        _validate_counting_rule("Akcesoria", self.accessories_quantity, self.accessories_to_count)
+        return self
 
 
 class WorkOrderStatusTransitionRequest(BaseModel):
@@ -102,10 +123,18 @@ class WorkOrderUpdate(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=255)
     description: str | None = None
     customer_name: str | None = Field(default=None, max_length=255)
-    due_date: date | None = None
+    ral_code: str | None = Field(default=None, min_length=1, max_length=64)
+    paint_producer: str | None = Field(default=None, min_length=1, max_length=255)
+    received_date: date | None = None
+    planned_pickup_date: date | None = None
+    total_area_m2: float | None = Field(default=None, gt=0)
+    profiles_quantity: int | None = Field(default=None, gt=0)
+    profiles_to_count: bool | None = None
+    accessories_quantity: int | None = Field(default=None, gt=0)
+    accessories_to_count: bool | None = None
     notes: str | None = None
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
 
 class WorkOrderRead(BaseModel):
@@ -116,7 +145,9 @@ class WorkOrderRead(BaseModel):
     completed_quantity: int
     current_active_quantity: int
     description: str | None
-    customer_name: str | None
+    customer_name: str
+    ral_code: str
+    paint_producer: str
     status: WorkOrderStatusView = Field(description="Legacy/internal field kept for backward compatibility. Active clients should use process_status and stage_states.")
     process_status: ProcessStatusView
     coating_type: CoatingTypeView
@@ -124,7 +155,13 @@ class WorkOrderRead(BaseModel):
     queue_position: int | None
     stage_states: list[WorkOrderStageStateRead]
     batches: list[WorkOrderQuantityBatchRead]
-    due_date: date | None
+    received_date: date
+    planned_pickup_date: date | None
+    total_area_m2: float | None
+    profiles_quantity: int | None
+    profiles_to_count: bool
+    accessories_quantity: int | None
+    accessories_to_count: bool
     notes: str | None
     created_at: datetime
     updated_at: datetime

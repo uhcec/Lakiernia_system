@@ -13,6 +13,25 @@ from app.work_orders.schemas import WorkOrderCreate
 from app.work_orders.service import WorkOrderService
 
 
+def build_work_order_create(
+    *,
+    title: str,
+    coating_type: CoatingType = CoatingType.RAL,
+    total_quantity: int = 100,
+) -> WorkOrderCreate:
+    return WorkOrderCreate(
+        title=title,
+        coating_type=coating_type,
+        total_quantity=total_quantity,
+        customer_name="ACME",
+        ral_code="RAL 7016",
+        paint_producer="AkzoNobel",
+        received_date="2026-05-25",
+        profiles_to_count=True,
+        accessories_to_count=True,
+    )
+
+
 def build_services(
     db_session: Session,
 ) -> tuple[WorkOrderService, ProcessService, ManagerService, WorkOrderRepository, ProcessRepository]:
@@ -51,7 +70,7 @@ def advance_to_packing(process_service: ProcessService, work_order_id: int) -> N
 
 
 def create_ral_work_order(work_order_service: WorkOrderService, title: str):
-    return work_order_service.create_work_order(WorkOrderCreate(title=title, coating_type=CoatingType.RAL, total_quantity=100))
+    return work_order_service.create_work_order(build_work_order_create(title=title, coating_type=CoatingType.RAL, total_quantity=100))
 
 
 def test_creating_work_order_initializes_stage_states(db_session: Session) -> None:
@@ -113,7 +132,7 @@ def test_decoral_orders_include_decoral_production_stage(db_session: Session) ->
     work_order_service, process_service, _, _, _ = build_services(db_session)
 
     created = work_order_service.create_work_order(
-        WorkOrderCreate(title="Decoral order", coating_type=CoatingType.DECORAL, total_quantity=100)
+        build_work_order_create(title="Decoral order", coating_type=CoatingType.DECORAL, total_quantity=100)
     )
     stage_states = process_service.list_stage_states(created.id)
 
@@ -124,7 +143,7 @@ def test_ral_orders_skip_decoral_production_stage(db_session: Session) -> None:
     work_order_service, process_service, _, _, _ = build_services(db_session)
 
     created = work_order_service.create_work_order(
-        WorkOrderCreate(title="RAL order", coating_type=CoatingType.RAL, total_quantity=100)
+        build_work_order_create(title="RAL order", coating_type=CoatingType.RAL, total_quantity=100)
     )
     stage_states = process_service.list_stage_states(created.id)
 
@@ -231,7 +250,7 @@ def test_decoral_path_goes_after_packing_for_manual_orders(db_session: Session) 
     work_order_service, process_service, manager_service, _, process_repository = build_services(db_session)
 
     created = work_order_service.create_work_order(
-        WorkOrderCreate(title="Decoral manual path", coating_type=CoatingType.DECORAL, total_quantity=100)
+        build_work_order_create(title="Decoral manual path", coating_type=CoatingType.DECORAL, total_quantity=100)
     )
     manager_service.assign_plan(
         created.id,
@@ -257,7 +276,7 @@ def test_decoral_production_finishes_order(db_session: Session) -> None:
     work_order_service, process_service, manager_service, _, process_repository = build_services(db_session)
 
     created = work_order_service.create_work_order(
-        WorkOrderCreate(title="Decoral finish", coating_type=CoatingType.DECORAL, total_quantity=100)
+        build_work_order_create(title="Decoral finish", coating_type=CoatingType.DECORAL, total_quantity=100)
     )
     manager_service.assign_plan(
         created.id,
@@ -326,7 +345,7 @@ def test_decoral_automatic_mixed_split_creates_parallel_batches(db_session: Sess
     work_order_service, process_service, manager_service, _, process_repository = build_services(db_session)
 
     created = work_order_service.create_work_order(
-        WorkOrderCreate(title="Decoral automatic parallel", coating_type=CoatingType.DECORAL, total_quantity=10)
+        build_work_order_create(title="Decoral automatic parallel", coating_type=CoatingType.DECORAL, total_quantity=10)
     )
     manager_service.assign_plan(
         created.id,
