@@ -18,7 +18,11 @@ depends_on = None
 def upgrade() -> None:
     with op.batch_alter_table("work_orders") as batch_op:
         batch_op.add_column(sa.Column("parent_order_id", sa.Integer(), nullable=True))
+
+    with op.batch_alter_table("work_orders") as batch_op:
         batch_op.add_column(sa.Column("is_correction", sa.Boolean(), nullable=False, server_default=sa.false()))
+
+    with op.batch_alter_table("work_orders") as batch_op:
         batch_op.create_foreign_key(
             "fk_work_orders_parent_order_id_work_orders",
             "work_orders",
@@ -26,6 +30,7 @@ def upgrade() -> None:
             ["id"],
             ondelete="SET NULL",
         )
+    with op.batch_alter_table("work_orders") as batch_op:
         batch_op.alter_column("is_correction", existing_type=sa.Boolean(), server_default=None)
 
 

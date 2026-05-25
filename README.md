@@ -51,24 +51,40 @@ Local development database note:
 
 - The default local SQLite database file is `local.db` in the repository root.
 - After reverting domain modules or migrations during development, an existing local database may still contain stale tables that are no longer present in the current source code.
+- Before applying migrations to `local.db`, run the repair script below. It is development-only, only acts on a local SQLite `local.db`, and no-ops on clean databases.
 - Treat the current source code and Alembic history in this repository as the source of truth.
 - If local schema state looks inconsistent, delete `local.db` and recreate it with Alembic instead of generating migrations for stale local tables.
+
+Repair and upgrade the local development database:
+
+```bash
+python scripts/repair_sqlite_migration_0007.py
+python -m alembic upgrade head
+```
 
 Reset the local development database:
 
 ```bash
 Remove-Item .\local.db -ErrorAction SilentlyContinue
+python scripts/repair_sqlite_migration_0007.py
 python -m alembic upgrade head
 python -m alembic check
 ```
 
-4. Start the API server:
+4. Repair and upgrade the local development database:
+
+```bash
+python scripts/repair_sqlite_migration_0007.py
+python -m alembic upgrade head
+```
+
+5. Start the API server:
 
 ```bash
 uvicorn app.main:app --reload
 ```
 
-5. Verify the health endpoint:
+6. Verify the health endpoint:
 
 ```bash
 GET /health
