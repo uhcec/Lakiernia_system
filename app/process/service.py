@@ -9,6 +9,7 @@ from app.process.repository import ProcessRepository
 from app.process.schemas import ProcessStageStatusRead, ProcessStageWorkOrderRead, StageStatusView
 from app.shared.enums import QueueNamespace, WorkOrderStatus
 from app.shared.exceptions import InvalidProcessStageTransitionError, ResourceNotFoundError
+from app.work_orders.number_allocator import WorkOrderNumberAllocator
 from app.work_orders.models import WorkOrder
 from app.work_orders.schemas import build_coating_type_view, build_production_type_view, build_queue_namespace_view
 
@@ -22,6 +23,7 @@ class ProcessService:
 
     def __init__(self, repository: ProcessRepository) -> None:
         self.repository = repository
+        self.number_allocator = WorkOrderNumberAllocator(repository.session)
 
     @staticmethod
     def get_stage_sequence_for_configuration(
@@ -926,7 +928,7 @@ class ProcessService:
 
     def _create_correction_work_order(self, parent_work_order: WorkOrder, correction_quantity: int) -> WorkOrder:
         correction_order = WorkOrder(
-            order_number=self._generate_work_order_number(),
+            order_number=self.number_allocator.allocate(),
             title=parent_work_order.title,
             total_quantity=correction_quantity,
             completed_quantity=0,
@@ -963,12 +965,6 @@ class ProcessService:
 
         return_stage = self.get_correction_return_stage(work_order)
         self._reset_stage_states_for_active_batch(work_order, return_stage)
-
-    def _generate_work_order_number(self) -> str:
-        year = datetime.now(UTC).year
-        latest_order_number = self.repository.get_latest_order_number_for_year(year)
-        next_sequence = 1 if latest_order_number is None else int(latest_order_number.rsplit("-", 1)[-1]) + 1
-        return f"WO-{year}-{next_sequence:04d}"
 
     @staticmethod
     def _uses_batch_tracking(work_order: WorkOrder) -> bool:

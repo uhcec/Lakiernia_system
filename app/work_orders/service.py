@@ -11,6 +11,7 @@ from app.process.service import ProcessService
 from app.shared.enums import WorkOrderStatus, get_work_order_status_label
 from app.shared.exceptions import InvalidAttachmentError, InvalidStatusTransitionError, ResourceNotFoundError
 from app.work_orders.models import WorkOrder, WorkOrderAttachment
+from app.work_orders.number_allocator import WorkOrderNumberAllocator
 from app.work_orders.repository import WorkOrderRepository
 from app.work_orders.schemas import (
     WorkOrderAttachmentRead,
@@ -41,6 +42,7 @@ class WorkOrderService:
     def __init__(self, repository: WorkOrderRepository) -> None:
         self.repository = repository
         self.process_service = ProcessService(ProcessRepository(repository.session))
+        self.number_allocator = WorkOrderNumberAllocator(repository.session)
 
     @staticmethod
     def get_status_options() -> list[WorkOrderStatusOption]:
@@ -66,7 +68,7 @@ class WorkOrderService:
 
     def create_work_order(self, payload: WorkOrderCreate) -> WorkOrderRead:
         initial_status = WorkOrderStatus.INCOMPLETE if payload.is_incomplete_on_arrival else WorkOrderStatus.ENTERED
-        order_number = self._generate_order_number()
+        order_number = self.number_allocator.allocate()
 
         work_order = WorkOrder(
             order_number=order_number,
@@ -267,12 +269,6 @@ class WorkOrderService:
         parent_directory = file_path.parent
         if parent_directory.exists() and not any(parent_directory.iterdir()):
             parent_directory.rmdir()
-
-    def _generate_order_number(self) -> str:
-        year = datetime.now(UTC).year
-        latest_order_number = self.repository.get_latest_order_number_for_year(year)
-        next_sequence = 1 if latest_order_number is None else int(latest_order_number.rsplit("-", 1)[-1]) + 1
-        return f"WO-{year}-{next_sequence:04d}"
 
     def _get_existing_work_order(self, work_order_id: int) -> WorkOrder:
         work_order = self.repository.get_by_id(work_order_id)

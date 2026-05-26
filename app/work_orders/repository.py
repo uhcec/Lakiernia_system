@@ -50,16 +50,6 @@ class WorkOrderRepository:
         statement = select(func.count()).select_from(WorkOrder)
         return self.session.scalar(statement) or 0
 
-    def get_latest_order_number_for_year(self, year: int) -> str | None:
-        prefix = f"WO-{year}-"
-        statement = (
-            select(WorkOrder.order_number)
-            .where(WorkOrder.order_number.like(f"{prefix}%"))
-            .order_by(WorkOrder.order_number.desc())
-            .limit(1)
-        )
-        return self.session.scalar(statement)
-
     def get_next_queue_position(self) -> int:
         statement = select(func.max(WorkOrder.queue_position))
         current_max = self.session.scalar(statement)
