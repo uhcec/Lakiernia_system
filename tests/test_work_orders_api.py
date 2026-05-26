@@ -318,6 +318,36 @@ def test_attempting_to_update_order_number_fails_validation(test_client: TestCli
     assert response.status_code == 422
 
 
+def test_patch_cannot_clear_incomplete_arrival_flag(test_client: TestClient) -> None:
+    created = create_work_order(test_client, title="Forbidden incomplete patch", is_incomplete_on_arrival=True).json()
+
+    response = test_client.patch(
+        f"/work-orders/{created['id']}",
+        json={"is_incomplete_on_arrival": False},
+    )
+    detail_response = test_client.get(f"/work-orders/{created['id']}")
+
+    assert response.status_code == 422
+    assert detail_response.status_code == 200
+    assert detail_response.json()["is_incomplete_on_arrival"] is True
+    assert detail_response.json()["status"] == {"value": "INCOMPLETE", "label": "Nie kompletne"}
+
+
+def test_patch_cannot_set_incomplete_arrival_flag_on_complete_order(test_client: TestClient) -> None:
+    created = create_work_order(test_client, title="Forbidden incomplete set", is_incomplete_on_arrival=False).json()
+
+    response = test_client.patch(
+        f"/work-orders/{created['id']}",
+        json={"is_incomplete_on_arrival": True},
+    )
+    detail_response = test_client.get(f"/work-orders/{created['id']}")
+
+    assert response.status_code == 422
+    assert detail_response.status_code == 200
+    assert detail_response.json()["is_incomplete_on_arrival"] is False
+    assert detail_response.json()["process_status"] == {"value": "TO_BE_PLANNED", "label": "Do zaplanowania"}
+
+
 def test_update_response_includes_polish_status_label(test_client: TestClient) -> None:
     created = create_work_order(test_client, title="Polish status after update", coating_type="RAL").json()
 
@@ -342,8 +372,8 @@ def test_status_transition_still_works_after_patch_update(test_client: TestClien
         json={"target_status": "ASSIGNED"},
     )
 
-    assert response.status_code == 200
-    assert response.json()["status"] == {"value": "ASSIGNED", "label": "Przypisane"}
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Work order status is derived from process status and cannot be changed manually."
 
 
 def test_list_work_orders(test_client: TestClient) -> None:
@@ -388,21 +418,29 @@ def test_list_work_orders_includes_quantity_progress_fields(test_client: TestCli
     assert original_item["pending_correction_quantity"] == 2
     assert original_item["total_progress_quantity"] == 98
     assert original_item["process_status"] == {"value": "WAITING_FOR_CORRECTIONS", "label": "Czeka na poprawki"}
+    assert original_item["status"] == {"value": "IN_PROGRESS", "label": "W trakcie"}
     assert correction_item["total_quantity"] == 2
+    assert correction_item["status"] == {"value": "ENTERED", "label": "Wprowadzone"}
     assert correction_item["parent_order"]["id"] == created["id"]
 
 
-def test_list_work_orders_can_filter_by_status(test_client: TestClient) -> None:
-    test_client.post("/work-orders", json=build_create_payload(title="Entered order", total_quantity=15))
+def test_list_work_orders_can_filter_by_process_status(test_client: TestClient) -> None:
+    entered = test_client.post("/work-orders", json=build_create_payload(title="Entered order", total_quantity=15)).json()
+    incomplete = test_client.post(
+        "/work-orders",
+        json=build_create_payload(title="Incomplete order", total_quantity=20, is_incomplete_on_arrival=True),
+    ).json()
 
-    response = test_client.get("/work-orders", params={"status": "ENTERED"})
+    response = test_client.get("/work-orders", params={"process_status": "TO_BE_PLANNED"})
 
     body = response.json()
 
     assert response.status_code == 200
     assert body["total"] == 1
     assert len(body["items"]) == 1
+    assert body["items"][0]["id"] == entered["id"]
     assert body["items"][0]["status"] == {"value": "ENTERED", "label": "Wprowadzone"}
+    assert incomplete["id"] not in [item["id"] for item in body["items"]]
 
 
 def test_profiles_and_accessories_require_quantity_or_to_count_flag(test_client: TestClient) -> None:
@@ -418,105 +456,8 @@ def test_profiles_and_accessories_require_quantity_or_to_count_flag(test_client:
     assert response.status_code == 422
 
 
-def test_entered_to_assigned_transition_succeeds(test_client: TestClient) -> None:
-    created = create_work_order(test_client, title="Transition 1", coating_type="RAL").json()
-
-    response = test_client.post(
-        f"/work-orders/{created['id']}/status-transitions",
-        json={"target_status": "ASSIGNED"},
-    )
-
-    assert response.status_code == 200
-    assert response.json()["status"] == {"value": "ASSIGNED", "label": "Przypisane"}
-
-
-def test_assigned_to_in_progress_transition_succeeds(test_client: TestClient) -> None:
-    created = create_work_order(test_client, title="Transition 2", coating_type="RAL").json()
-    test_client.post(
-        f"/work-orders/{created['id']}/status-transitions",
-        json={"target_status": "ASSIGNED"},
-    )
-
-    response = test_client.post(
-        f"/work-orders/{created['id']}/status-transitions",
-        json={"target_status": "IN_PROGRESS"},
-    )
-
-    assert response.status_code == 200
-    assert response.json()["status"] == {"value": "IN_PROGRESS", "label": "W trakcie"}
-
-
-def test_in_progress_to_finished_transition_succeeds(test_client: TestClient) -> None:
-    created = create_work_order(test_client, title="Transition 3", coating_type="RAL").json()
-    test_client.post(
-        f"/work-orders/{created['id']}/status-transitions",
-        json={"target_status": "ASSIGNED"},
-    )
-    test_client.post(
-        f"/work-orders/{created['id']}/status-transitions",
-        json={"target_status": "IN_PROGRESS"},
-    )
-
-    response = test_client.post(
-        f"/work-orders/{created['id']}/status-transitions",
-        json={"target_status": "FINISHED", "comment": "Completed"},
-    )
-
-    assert response.status_code == 200
-    assert response.json()["status"] == {"value": "FINISHED", "label": "Skończone"}
-
-
-def test_entered_to_in_progress_transition_fails(test_client: TestClient) -> None:
-    created = create_work_order(test_client, title="Invalid 1", coating_type="RAL").json()
-
-    response = test_client.post(
-        f"/work-orders/{created['id']}/status-transitions",
-        json={"target_status": "IN_PROGRESS"},
-    )
-
-    assert response.status_code == 409
-
-
-def test_entered_to_finished_transition_fails(test_client: TestClient) -> None:
-    created = create_work_order(test_client, title="Invalid 2", coating_type="RAL").json()
-
-    response = test_client.post(
-        f"/work-orders/{created['id']}/status-transitions",
-        json={"target_status": "FINISHED"},
-    )
-
-    assert response.status_code == 409
-
-
-def test_assigned_to_finished_transition_fails(test_client: TestClient) -> None:
-    created = create_work_order(test_client, title="Invalid 3", coating_type="RAL").json()
-    test_client.post(
-        f"/work-orders/{created['id']}/status-transitions",
-        json={"target_status": "ASSIGNED"},
-    )
-
-    response = test_client.post(
-        f"/work-orders/{created['id']}/status-transitions",
-        json={"target_status": "FINISHED"},
-    )
-
-    assert response.status_code == 409
-
-
-def test_finished_to_assigned_transition_fails(test_client: TestClient) -> None:
-    created = create_work_order(test_client, title="Invalid 4", coating_type="RAL").json()
-    test_client.post(
-        f"/work-orders/{created['id']}/status-transitions",
-        json={"target_status": "ASSIGNED"},
-    )
-    test_client.post(
-        f"/work-orders/{created['id']}/status-transitions",
-        json={"target_status": "IN_PROGRESS"},
-    )
-    test_client.post(
-        f"/work-orders/{created['id']}/status-transitions",
-        json={"target_status": "FINISHED"},
-    )
+def test_manual_status_transition_is_rejected(test_client: TestClient) -> None:
+    created = create_work_order(test_client, title="Transition rejected", coating_type="RAL").json()
 
     response = test_client.post(
         f"/work-orders/{created['id']}/status-transitions",
@@ -524,6 +465,7 @@ def test_finished_to_assigned_transition_fails(test_client: TestClient) -> None:
     )
 
     assert response.status_code == 409
+    assert response.json()["detail"] == "Work order status is derived from process status and cannot be changed manually."
 
 
 def test_missing_work_order_transition_returns_404(test_client: TestClient) -> None:
@@ -535,16 +477,30 @@ def test_missing_work_order_transition_returns_404(test_client: TestClient) -> N
     assert response.status_code == 404
 
 
-def test_transition_response_includes_polish_status_label(test_client: TestClient) -> None:
-    created = create_work_order(test_client, title="Polish label", coating_type="RAL").json()
-
-    response = test_client.post(
-        f"/work-orders/{created['id']}/status-transitions",
-        json={"target_status": "ASSIGNED"},
+def test_status_is_derived_from_process_status_for_active_order(test_client: TestClient) -> None:
+    created = create_work_order(test_client, title="Derived active status", coating_type="RAL").json()
+    test_client.post(
+        f"/manager/work-orders/{created['id']}/plan",
+        json={"production_type": "MANUAL", "queue_position": 1},
     )
+    start_surface_preparation(test_client, created["id"])
+
+    response = test_client.get(f"/work-orders/{created['id']}")
 
     assert response.status_code == 200
-    assert response.json()["status"]["label"] == "Przypisane"
+    assert response.json()["process_status"] == {"value": "SURFACE_PREPARATION", "label": "Przygotowanie"}
+    assert response.json()["status"] == {"value": "IN_PROGRESS", "label": "W trakcie"}
+
+
+def test_status_is_derived_from_process_status_for_ready_order(test_client: TestClient) -> None:
+    created = create_work_order(test_client, title="Derived ready status", coating_type="RAL").json()
+    finish_ral_work_order(test_client, created["id"])
+
+    response = test_client.get(f"/work-orders/{created['id']}")
+
+    assert response.status_code == 200
+    assert response.json()["process_status"] == {"value": "READY", "label": "Gotowe"}
+    assert response.json()["status"] == {"value": "FINISHED", "label": "Skończone"}
 
 
 def test_incomplete_order_can_be_marked_complete_arrival(test_client: TestClient) -> None:
@@ -588,6 +544,8 @@ def test_mark_complete_arrival_updates_detail_and_list_process_status(test_clien
 
     assert detail_response.status_code == 200
     assert detail_response.json()["process_status"] == {"value": "TO_BE_PLANNED", "label": "Do zaplanowania"}
+    assert detail_response.json()["status"] == {"value": "ENTERED", "label": "Wprowadzone"}
+    assert detail_response.json()["is_incomplete_on_arrival"] is False
     assert list_response.status_code == 200
     assert list_response.json()["items"][0]["process_status"] == {"value": "TO_BE_PLANNED", "label": "Do zaplanowania"}
 

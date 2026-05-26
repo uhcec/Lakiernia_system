@@ -4,7 +4,6 @@ from datetime import date
 from sqlalchemy import Select, func, select
 from sqlalchemy.orm import Session, selectinload
 
-from app.shared.enums import WorkOrderStatus
 from app.work_orders.models import WorkOrder, WorkOrderAttachment
 
 
@@ -32,7 +31,7 @@ class WorkOrderRepository:
         )
         return self.session.scalar(statement)
 
-    def list(self, *, limit: int, offset: int, status: WorkOrderStatus | None = None) -> Sequence[WorkOrder]:
+    def list(self, *, limit: int, offset: int) -> Sequence[WorkOrder]:
         statement: Select[tuple[WorkOrder]] = (
             select(WorkOrder)
             .options(
@@ -44,15 +43,11 @@ class WorkOrderRepository:
             )
             .order_by(WorkOrder.queue_position.asc(), WorkOrder.id.asc())
         )
-        if status is not None:
-            statement = statement.where(WorkOrder.status == status)
         statement = statement.offset(offset).limit(limit)
         return self.session.scalars(statement).all()
 
-    def count(self, *, status: WorkOrderStatus | None = None) -> int:
+    def count(self) -> int:
         statement = select(func.count()).select_from(WorkOrder)
-        if status is not None:
-            statement = statement.where(WorkOrder.status == status)
         return self.session.scalar(statement) or 0
 
     def get_latest_order_number_for_year(self, year: int) -> str | None:

@@ -31,6 +31,7 @@ work_order_stage_states_table = sa.table(
 work_order_quantity_batches_table = sa.table(
     "work_order_quantity_batches",
     sa.column("id", sa.Integer()),
+    sa.column("work_order_id", sa.Integer()),
     sa.column("is_active", sa.Boolean()),
     sa.column("current_stage", sa.String()),
     sa.column("current_stage_status", sa.String()),
@@ -120,6 +121,7 @@ def upgrade() -> None:
         )
         connection.execute(
             work_order_quantity_batches_table.update()
+            .where(work_order_quantity_batches_table.c.work_order_id == work_order_id)
             .where(work_order_quantity_batches_table.c.id != current_active_batch_id)
             .values(is_active=False)
         )

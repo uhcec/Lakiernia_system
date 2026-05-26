@@ -37,6 +37,7 @@ class SeededScenario:
     order_number: str
     purpose: str
     page: str
+    details: str
 
 
 def main() -> int:
@@ -123,7 +124,13 @@ def seed_all_use_cases(session: Session) -> list[SeededScenario]:
         notes="A. Kompletne zlecenie biurowe gotowe do planowania.",
     )
     scenarios.append(
-        scenario("A", office_order.order_number, "Normal office order, complete, status Do zaplanowania", "Office intake / Manager panel")
+        scenario(
+            "A",
+            office_order.order_number,
+            "Normal office order, complete, status Do zaplanowania",
+            "Office intake / Manager panel",
+            office_order.notes or "",
+        )
     )
 
     incomplete_hidden = create_work_order(
@@ -139,7 +146,13 @@ def seed_all_use_cases(session: Session) -> list[SeededScenario]:
         notes="B. Niekompletne na przyjeciu, ukryte z planowania.",
     )
     scenarios.append(
-        scenario("B", incomplete_hidden.order_number, "Incomplete order, status Nie kompletne, hidden from planning", "Office intake / Manager panel")
+        scenario(
+            "B",
+            incomplete_hidden.order_number,
+            "Incomplete order, status Nie kompletne, hidden from planning",
+            "Office intake / Manager panel",
+            incomplete_hidden.notes or "",
+        )
     )
 
     incomplete_ready = create_work_order(
@@ -155,7 +168,13 @@ def seed_all_use_cases(session: Session) -> list[SeededScenario]:
         notes="C. Uzyj akcji 'Oznacz jako kompletne'.",
     )
     scenarios.append(
-        scenario("C", incomplete_ready.order_number, "Incomplete order ready for 'Oznacz jako kompletne'", "Office intake / Work order details")
+        scenario(
+            "C",
+            incomplete_ready.order_number,
+            "Incomplete order ready for 'Oznacz jako kompletne'",
+            "Office intake / Work order details",
+            incomplete_ready.notes or "",
+        )
     )
 
     manual_ral_surface = create_work_order(
@@ -172,7 +191,13 @@ def seed_all_use_cases(session: Session) -> list[SeededScenario]:
     assign_plan(manager_service, manual_ral_surface.id, ProductionType.MANUAL, queue_position)
     queue_position += 10
     scenarios.append(
-        scenario("D", manual_ral_surface.order_number, "Manual RAL planned and ready for surface preparation", "Surface preparation")
+        scenario(
+            "D",
+            manual_ral_surface.order_number,
+            "Manual RAL planned and ready for surface preparation",
+            "Surface preparation",
+            manual_ral_surface.notes or "",
+        )
     )
 
     auto_ral_surface = create_work_order(
@@ -189,7 +214,13 @@ def seed_all_use_cases(session: Session) -> list[SeededScenario]:
     assign_plan(manager_service, auto_ral_surface.id, ProductionType.AUTOMATIC, queue_position)
     queue_position += 10
     scenarios.append(
-        scenario("E", auto_ral_surface.order_number, "Automatic RAL ready for surface preparation", "Surface preparation")
+        scenario(
+            "E",
+            auto_ral_surface.order_number,
+            "Automatic RAL ready for surface preparation",
+            "Surface preparation",
+            auto_ral_surface.notes or "",
+        )
     )
 
     auto_ral_hanging_packing = create_work_order(
@@ -209,7 +240,13 @@ def seed_all_use_cases(session: Session) -> list[SeededScenario]:
     finish_surface_preparation(process_service, auto_ral_hanging_packing.id)
     process_service.start_stage(auto_ral_hanging_packing.id, ProcessStage.HANGING)
     scenarios.append(
-        scenario("E", auto_ral_hanging_packing.order_number, "Automatic RAL visible for hanging, automatic production preview, and packing", "Hanging / Automatic production / Packing")
+        scenario(
+            "E",
+            auto_ral_hanging_packing.order_number,
+            "Automatic RAL visible for hanging, automatic production preview, and packing",
+            "Hanging / Automatic production / Packing",
+            auto_ral_hanging_packing.notes or "",
+        )
     )
 
     decoral_manual = create_work_order(
@@ -228,7 +265,13 @@ def seed_all_use_cases(session: Session) -> list[SeededScenario]:
     advance_to_packing(process_service, decoral_manual.id, counted_quantity=9)
     process_service.complete_packing(decoral_manual.id, counted_quantity=9, ok_quantity=9, correction_quantity=0)
     scenarios.append(
-        scenario("F", decoral_manual.order_number, "Decoral manual flow ready for decoral stage", "Decoral production")
+        scenario(
+            "F",
+            decoral_manual.order_number,
+            "Decoral manual flow ready for decoral stage",
+            "Decoral production",
+            decoral_manual.notes or "",
+        )
     )
 
     decoral_automatic = create_work_order(
@@ -249,7 +292,13 @@ def seed_all_use_cases(session: Session) -> list[SeededScenario]:
     process_service.start_stage(decoral_automatic.id, ProcessStage.HANGING)
     process_service.complete_packing(decoral_automatic.id, counted_quantity=11, ok_quantity=11, correction_quantity=0)
     scenarios.append(
-        scenario("G", decoral_automatic.order_number, "Decoral automatic flow ready for automatic plus decoral behavior", "Automatic production / Packing / Decoral production")
+        scenario(
+            "G",
+            decoral_automatic.order_number,
+            "Decoral automatic flow ready for automatic plus decoral behavior",
+            "Automatic production / Packing / Decoral production",
+            decoral_automatic.notes or "",
+        )
     )
 
     packing_split = create_work_order(
@@ -267,7 +316,13 @@ def seed_all_use_cases(session: Session) -> list[SeededScenario]:
     queue_position += 10
     advance_to_packing(process_service, packing_split.id, counted_quantity=10)
     scenarios.append(
-        scenario("H", packing_split.order_number, "Packing split example ready for counted 10, OK 7, corrections 3", "Packing")
+        scenario(
+            "H",
+            packing_split.order_number,
+            "Packing split example ready for counted 10, OK 7, corrections 3",
+            "Packing",
+            packing_split.notes or "",
+        )
     )
 
     correction_parent = create_work_order(
@@ -289,10 +344,22 @@ def seed_all_use_cases(session: Session) -> list[SeededScenario]:
     assign_plan(manager_service, correction_child.id, ProductionType.MANUAL, queue_position)
     queue_position += 10
     scenarios.append(
-        scenario("I", correction_parent.order_number, "Parent order that generated a child correction order", "Packing / Work order details")
+        scenario(
+            "I",
+            correction_parent.order_number,
+            "Parent order that generated a child correction order",
+            "Packing / Work order details",
+            correction_parent.notes or "",
+        )
     )
     scenarios.append(
-        scenario("I", correction_child.order_number, "Child correction order planned and visible in manager planning", "Manager panel")
+        scenario(
+            "I",
+            correction_child.order_number,
+            "Child correction order planned and visible in manager planning",
+            "Manager panel",
+            correction_child.notes or "",
+        )
     )
 
     attachment_order = create_work_order(
@@ -308,7 +375,13 @@ def seed_all_use_cases(session: Session) -> list[SeededScenario]:
     )
     create_attachment(work_order_repository, attachment_order.id)
     scenarios.append(
-        scenario("J", attachment_order.order_number, "Order with example PDF attachment metadata and file", "Work order attachments")
+        scenario(
+            "J",
+            attachment_order.order_number,
+            "Order with example PDF attachment metadata and file",
+            "Work order attachments",
+            attachment_order.notes or "",
+        )
     )
 
     checkpoint_surface_equal = create_work_order(
@@ -326,7 +399,13 @@ def seed_all_use_cases(session: Session) -> list[SeededScenario]:
     queue_position += 10
     start_surface_preparation(process_service, checkpoint_surface_equal.id, counted_quantity=8)
     scenarios.append(
-        scenario("K", checkpoint_surface_equal.order_number, "Surface preparation counted_quantity equal to plan", "Surface preparation")
+        scenario(
+            "K",
+            checkpoint_surface_equal.order_number,
+            "Surface preparation counted_quantity equal to plan",
+            "Surface preparation",
+            checkpoint_surface_equal.notes or "",
+        )
     )
 
     checkpoint_surface_diff = create_work_order(
@@ -344,7 +423,13 @@ def seed_all_use_cases(session: Session) -> list[SeededScenario]:
     queue_position += 10
     start_surface_preparation(process_service, checkpoint_surface_diff.id, counted_quantity=6)
     scenarios.append(
-        scenario("K", checkpoint_surface_diff.order_number, "Surface preparation counted_quantity different from plan", "Surface preparation")
+        scenario(
+            "K",
+            checkpoint_surface_diff.order_number,
+            "Surface preparation counted_quantity different from plan",
+            "Surface preparation",
+            checkpoint_surface_diff.notes or "",
+        )
     )
 
     checkpoint_packing_diff = create_work_order(
@@ -363,7 +448,13 @@ def seed_all_use_cases(session: Session) -> list[SeededScenario]:
     advance_to_packing(process_service, checkpoint_packing_diff.id, counted_quantity=10)
     set_stage_counted_quantity(session, checkpoint_packing_diff.id, ProcessStage.PACKING, counted_quantity=12)
     scenarios.append(
-        scenario("K", checkpoint_packing_diff.order_number, "Packing counted_quantity different from planned quantity", "Packing")
+        scenario(
+            "K",
+            checkpoint_packing_diff.order_number,
+            "Packing counted_quantity different from planned quantity",
+            "Packing",
+            checkpoint_packing_diff.notes or "",
+        )
     )
 
     for index in range(1, 4):
@@ -381,8 +472,268 @@ def seed_all_use_cases(session: Session) -> list[SeededScenario]:
         assign_plan(manager_service, queue_demo.id, ProductionType.MANUAL, queue_position)
         queue_position += 10
         scenarios.append(
-            scenario("L", queue_demo.order_number, f"Manager queue example #{index} for drag and drop", "Manager panel queue")
+            scenario(
+                "L",
+                queue_demo.order_number,
+                f"Manager queue example #{index} for drag and drop",
+                "Manager panel queue",
+                queue_demo.notes or "",
+            )
         )
+
+    multi_round_parent = create_work_order(
+        work_order_service,
+        title="Wieloetapowa poprawka - rodzic",
+        coating_type=CoatingType.RAL,
+        total_quantity=10,
+        customer_name="Multi Round",
+        ral_code="RAL 1013",
+        profiles_quantity=10,
+        accessories_quantity=1,
+        notes=(
+            "M1. Screen: Szczegoly zlecenia / Pakowanie. Click: otworz rodzica i przejdz do historii poprawek. "
+            "Expect: rodzic ma 7 OK, czeka na ostatnia poprawke 1 szt. przez lancuch poprawek."
+        ),
+    )
+    assign_plan(manager_service, multi_round_parent.id, ProductionType.MANUAL, queue_position)
+    queue_position += 10
+    advance_to_packing(process_service, multi_round_parent.id, counted_quantity=10)
+    process_service.complete_packing(multi_round_parent.id, counted_quantity=10, ok_quantity=7, correction_quantity=3)
+
+    multi_round_first_child = get_latest_correction_child(work_order_repository, multi_round_parent.id)
+    multi_round_first_child.notes = (
+        "M2. Screen: Szczegoly zlecenia dziecka. Click: sprawdz, ze to dziecko ma juz wynik 2 OK / 1 poprawka. "
+        "Expect: status dalej Czeka na poprawki, a ostatnie dziecko 1 szt. jest jeszcze nieplanowane."
+    )
+    work_order_repository.commit()
+    assign_plan(manager_service, multi_round_first_child.id, ProductionType.MANUAL, queue_position)
+    queue_position += 10
+    advance_to_packing(process_service, multi_round_first_child.id, counted_quantity=3)
+    process_service.complete_packing(multi_round_first_child.id, counted_quantity=3, ok_quantity=2, correction_quantity=1)
+
+    multi_round_last_child = get_latest_correction_child(work_order_repository, multi_round_first_child.id)
+    multi_round_last_child.notes = (
+        "M3. Screen: Panel managera / niezaplanowane. Click: zaplanuj te ostatnia poprawke, wykonaj pelna sciezke manualna i zakoncz pakowanie 1/0. "
+        "Expect: to zlecenie, jego rodzic i oryginalny rodzic przejda na Gotowe 10/10."
+    )
+    work_order_repository.commit()
+    scenarios.append(
+        scenario(
+            "M",
+            multi_round_parent.order_number,
+            "Manual multi-round correction parent waiting for the last correction link",
+            "Work order details / Packing",
+            multi_round_parent.notes or "",
+        )
+    )
+    scenarios.append(
+        scenario(
+            "M",
+            multi_round_first_child.order_number,
+            "Intermediate correction order already split into 2 OK and 1 more correction",
+            "Work order details",
+            multi_round_first_child.notes or "",
+        )
+    )
+    scenarios.append(
+        scenario(
+            "M",
+            multi_round_last_child.order_number,
+            "Final unplanned correction order that closes the whole chain",
+            "Manager panel",
+            multi_round_last_child.notes or "",
+        )
+    )
+
+    automatic_parent = create_work_order(
+        work_order_service,
+        title="Automat + poprawka - rodzic",
+        coating_type=CoatingType.RAL,
+        total_quantity=10,
+        customer_name="Automatic Correction",
+        ral_code="RAL 6029",
+        profiles_quantity=10,
+        accessories_quantity=1,
+        notes=(
+            "N1. Screen: Szczegoly zlecenia / Pakowanie. Click: sprawdz rodzica po rozdziale 8 OK / 2 poprawka. "
+            "Expect: rodzic ma status Czeka na poprawki i czeka na dziecko automatyczne."
+        ),
+    )
+    assign_plan(manager_service, automatic_parent.id, ProductionType.AUTOMATIC, queue_position)
+    queue_position += 10
+    advance_to_packing(process_service, automatic_parent.id, counted_quantity=10)
+    process_service.complete_packing(automatic_parent.id, counted_quantity=10, ok_quantity=8, correction_quantity=2)
+
+    automatic_child = get_latest_correction_child(work_order_repository, automatic_parent.id)
+    automatic_child.notes = (
+        "N2. Screen: Pakowanie. Click: zakoncz pakowanie automatycznej poprawki counted 2, OK 2, correction 0. "
+        "Expect: dziecko i rodzic przejda na Gotowe 10/10 bez recznej zmiany statusu."
+    )
+    work_order_repository.commit()
+    assign_plan(manager_service, automatic_child.id, ProductionType.AUTOMATIC, queue_position)
+    queue_position += 10
+    advance_to_packing(process_service, automatic_child.id, counted_quantity=2)
+    scenarios.append(
+        scenario(
+            "N",
+            automatic_parent.order_number,
+            "Automatic parent waiting for a correction child to merge back",
+            "Work order details / Packing",
+            automatic_parent.notes or "",
+        )
+    )
+    scenarios.append(
+        scenario(
+            "N",
+            automatic_child.order_number,
+            "Automatic correction child already positioned in packing for final completion",
+            "Packing",
+            automatic_child.notes or "",
+        )
+    )
+
+    occupied_queue_first = create_work_order(
+        work_order_service,
+        title="Konflikt kolejki - zajeta pozycja",
+        coating_type=CoatingType.RAL,
+        total_quantity=7,
+        customer_name="Queue Conflict",
+        ral_code="RAL 7031",
+        profiles_quantity=7,
+        accessories_quantity=1,
+        notes=(
+            f"O1. Screen: Panel managera / API docs. Click: uzyj tej pozycji {queue_position} przy planowaniu innego zlecenia "
+            f"albo przy zmianie pozycji drugiego zlecenia. Expect: backend zwroci 409 Queue position {queue_position} is already taken."
+        ),
+    )
+    assign_plan(manager_service, occupied_queue_first.id, ProductionType.MANUAL, queue_position)
+    queue_conflict_taken = queue_position
+    queue_position += 10
+    occupied_queue_second = create_work_order(
+        work_order_service,
+        title="Konflikt kolejki - ruch na zajeta pozycje",
+        coating_type=CoatingType.RAL,
+        total_quantity=8,
+        customer_name="Queue Conflict",
+        ral_code="RAL 7032",
+        profiles_quantity=8,
+        accessories_quantity=1,
+        notes=(
+            f"O2. Screen: Panel managera / API docs. Click: sprobuj zmienic queue_position tego zlecenia na zajeta pozycje {queue_conflict_taken}. "
+            f"Expect: backend zwroci 409 Queue position {queue_conflict_taken} is already taken."
+        ),
+    )
+    assign_plan(manager_service, occupied_queue_second.id, ProductionType.MANUAL, queue_position)
+    queue_position += 10
+    queue_conflict_candidate = create_work_order(
+        work_order_service,
+        title="Konflikt kolejki - kandydat do bledu",
+        coating_type=CoatingType.RAL,
+        total_quantity=9,
+        customer_name="Queue Conflict",
+        ral_code="RAL 7033",
+        profiles_quantity=9,
+        accessories_quantity=1,
+        notes=(
+            f"O3. Screen: Panel managera / API docs. Click: zaplanuj to zlecenie na zajeta pozycje {queue_conflict_taken}. "
+            f"Expect: backend zwroci 409 Queue position {queue_conflict_taken} is already taken."
+        ),
+    )
+    scenarios.append(
+        scenario(
+            "O",
+            occupied_queue_first.order_number,
+            "Occupied queue position anchor for conflict testing",
+            "Manager panel / API docs",
+            occupied_queue_first.notes or "",
+        )
+    )
+    scenarios.append(
+        scenario(
+            "O",
+            occupied_queue_second.order_number,
+            "Planned order that should fail when moved into an occupied slot",
+            "Manager panel / API docs",
+            occupied_queue_second.notes or "",
+        )
+    )
+    scenarios.append(
+        scenario(
+            "O",
+            queue_conflict_candidate.order_number,
+            "Unplanned order that should fail when planned into an occupied slot",
+            "Manager panel / API docs",
+            queue_conflict_candidate.notes or "",
+        )
+    )
+
+    history_parent = create_work_order(
+        work_order_service,
+        title="Historia poprawek - zakonczony lancuch",
+        coating_type=CoatingType.RAL,
+        total_quantity=10,
+        customer_name="History Chain",
+        ral_code="RAL 9018",
+        profiles_quantity=10,
+        accessories_quantity=1,
+        notes=(
+            "P1. Screen: Szczegoly zlecenia. Click: otworz rodzica i przejdz po relacjach rodzic-dziecko. "
+            "Expect: caly lancuch poprawek jest zakonczony, a rodzic ma Gotowe 10/10."
+        ),
+    )
+    assign_plan(manager_service, history_parent.id, ProductionType.MANUAL, queue_position)
+    queue_position += 10
+    advance_to_packing(process_service, history_parent.id, counted_quantity=10)
+    process_service.complete_packing(history_parent.id, counted_quantity=10, ok_quantity=7, correction_quantity=3)
+
+    history_first_child = get_latest_correction_child(work_order_repository, history_parent.id)
+    history_first_child.notes = (
+        "P2. Screen: Szczegoly pierwszej poprawki. Click: sprawdz relacje z rodzicem i kolejnym dzieckiem. "
+        "Expect: pierwsza poprawka jest tez zakonczona i zachowuje historie laczenia."
+    )
+    work_order_repository.commit()
+    assign_plan(manager_service, history_first_child.id, ProductionType.MANUAL, queue_position)
+    queue_position += 10
+    advance_to_packing(process_service, history_first_child.id, counted_quantity=3)
+    process_service.complete_packing(history_first_child.id, counted_quantity=3, ok_quantity=2, correction_quantity=1)
+
+    history_second_child = get_latest_correction_child(work_order_repository, history_first_child.id)
+    history_second_child.notes = (
+        "P3. Screen: Szczegoly drugiej poprawki. Click: sprawdz, ze to ostatnie ogniwo zostalo zakonczone 1/0. "
+        "Expect: wszystkie trzy zlecenia sa Gotowe, a historia korekt zostaje zachowana."
+    )
+    work_order_repository.commit()
+    assign_plan(manager_service, history_second_child.id, ProductionType.MANUAL, queue_position)
+    queue_position += 10
+    advance_to_packing(process_service, history_second_child.id, counted_quantity=1)
+    process_service.complete_packing(history_second_child.id, counted_quantity=1, ok_quantity=1, correction_quantity=0)
+    scenarios.append(
+        scenario(
+            "P",
+            history_parent.order_number,
+            "Completed parent with a preserved multi-step correction history chain",
+            "Work order details",
+            history_parent.notes or "",
+        )
+    )
+    scenarios.append(
+        scenario(
+            "P",
+            history_first_child.order_number,
+            "Completed first correction with its own correction history",
+            "Work order details",
+            history_first_child.notes or "",
+        )
+    )
+    scenarios.append(
+        scenario(
+            "P",
+            history_second_child.order_number,
+            "Completed final correction closing the history chain",
+            "Work order details",
+            history_second_child.notes or "",
+        )
+    )
 
     return scenarios
 
@@ -511,15 +862,17 @@ def set_stage_counted_quantity(
     session.commit()
 
 
-def scenario(code: str, order_number: str, purpose: str, page: str) -> SeededScenario:
-    return SeededScenario(code=code, order_number=order_number, purpose=purpose, page=page)
+def scenario(code: str, order_number: str, purpose: str, page: str, details: str) -> SeededScenario:
+    return SeededScenario(code=code, order_number=order_number, purpose=purpose, page=page, details=details)
 
 
 def print_seed_report(scenarios: list[SeededScenario]) -> None:
     print("Seeded local dev database.")
     print("Created order numbers and use cases:")
     for item in scenarios:
-        print(f"- [{item.code}] {item.order_number}: {item.purpose} | Test page/use case: {item.page}")
+        print(f"- [{item.code}] {item.order_number}: {item.purpose}")
+        print(f"  Screen: {item.page}")
+        print(f"  Action / Expectation: {item.details}")
 
 
 if __name__ == "__main__":

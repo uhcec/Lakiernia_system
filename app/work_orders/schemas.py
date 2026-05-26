@@ -156,7 +156,6 @@ class WorkOrderUpdate(BaseModel):
     received_date: date | None = None
     planned_pickup_date: date | None = None
     total_area_m2: float | None = Field(default=None, gt=0)
-    is_incomplete_on_arrival: bool | None = None
     profiles_quantity: int | None = Field(default=None, gt=0)
     profiles_to_count: bool | None = None
     accessories_quantity: int | None = Field(default=None, gt=0)
@@ -183,7 +182,7 @@ class WorkOrderRead(BaseModel):
     customer_name: str
     ral_code: str
     paint_producer: str
-    status: WorkOrderStatusView = Field(description="Legacy/internal field kept for backward compatibility. Active clients should use process_status and stage_states.")
+    status: WorkOrderStatusView = Field(description="Derived compatibility field. Lifecycle truth comes from process_status and stage_states.")
     process_status: ProcessStatusView
     coating_type: CoatingTypeView
     production_type: ProductionTypeView | None

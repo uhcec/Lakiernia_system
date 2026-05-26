@@ -7,7 +7,8 @@ from app.manager.service import ManagerService
 from app.process.enums import CoatingType, ProcessStage, ProductionType, QuantityBatchType, StageStatus
 from app.process.repository import ProcessRepository
 from app.process.service import ProcessService
-from app.shared.exceptions import InvalidProcessStageTransitionError
+from app.shared.enums import WorkOrderStatus
+from app.shared.exceptions import InvalidManagerPlanningError, InvalidProcessStageTransitionError
 from app.work_orders.repository import WorkOrderRepository
 from app.work_orders.schemas import WorkOrderCreate
 from app.work_orders.service import WorkOrderService
@@ -608,6 +609,52 @@ def test_completed_ral_correction_child_merges_back_into_parent(db_session: Sess
     assert completed_correction.parent_order_id == created.id
 
 
+def test_multi_round_ral_correction_chain_merges_back_into_original_parent(db_session: Session) -> None:
+    work_order_service, process_service, manager_service, work_order_repository, process_repository = build_services(db_session)
+
+    created = work_order_service.create_work_order(
+        build_work_order_create(title="RAL multi-round correction merge", coating_type=CoatingType.RAL, total_quantity=10)
+    )
+    manager_service.assign_plan(
+        created.id,
+        WorkOrderPlanAssignRequest(production_type=ProductionType.MANUAL, queue_position=1),
+    )
+    advance_to_packing(process_service, created.id)
+    complete_packing(process_service, created.id, ok_quantity=7, correction_quantity=3)
+
+    first_correction = next(work_order for work_order in work_order_repository.list(limit=20, offset=0) if work_order.parent_order_id == created.id)
+    manager_service.assign_plan(
+        first_correction.id,
+        WorkOrderPlanAssignRequest(production_type=ProductionType.MANUAL, queue_position=2),
+    )
+    advance_to_packing(process_service, first_correction.id)
+    complete_packing(process_service, first_correction.id, ok_quantity=2, correction_quantity=1)
+
+    second_correction = next(
+        work_order for work_order in work_order_repository.list(limit=20, offset=0) if work_order.parent_order_id == first_correction.id
+    )
+    manager_service.assign_plan(
+        second_correction.id,
+        WorkOrderPlanAssignRequest(production_type=ProductionType.MANUAL, queue_position=3),
+    )
+    advance_to_packing(process_service, second_correction.id)
+    complete_packing(process_service, second_correction.id, ok_quantity=1, correction_quantity=0)
+
+    parent_work_order = process_repository.get_work_order_with_stage_states(created.id)
+    completed_first_correction = process_repository.get_work_order_with_stage_states(first_correction.id)
+    completed_second_correction = process_repository.get_work_order_with_stage_states(second_correction.id)
+
+    assert parent_work_order is not None
+    assert completed_first_correction is not None
+    assert completed_second_correction is not None
+    assert parent_work_order.completed_quantity == 10
+    assert process_service.get_display_status(parent_work_order).value == "READY"
+    assert completed_first_correction.completed_quantity == 3
+    assert process_service.get_display_status(completed_first_correction).value == "READY"
+    assert completed_second_correction.completed_quantity == 1
+    assert process_service.get_display_status(completed_second_correction).value == "READY"
+
+
 def test_completed_decoral_correction_child_merges_back_into_parent(db_session: Session) -> None:
     work_order_service, process_service, manager_service, work_order_repository, process_repository = build_services(db_session)
 
@@ -684,3 +731,118 @@ def test_original_order_cannot_continue_workflow_after_correction_split(db_sessi
         process_service.reopen_stage(created.id, ProcessStage.PRODUCTION)
 
     assert str(exc_info.value) == "Cannot reopen process stages because the work order has no active quantity remaining."
+
+
+def test_incomplete_quantity_never_displays_as_ready(db_session: Session) -> None:
+    work_order_service, process_service, manager_service, _, process_repository = build_services(db_session)
+
+    created = create_ral_work_order(work_order_service, "Legacy incomplete quantity")
+    manager_service.assign_plan(
+        created.id,
+        WorkOrderPlanAssignRequest(production_type=ProductionType.MANUAL, queue_position=1),
+    )
+    work_order = process_repository.get_work_order_with_stage_states(created.id)
+
+    assert work_order is not None
+
+    work_order.completed_quantity = 96
+    work_order.current_active_batch_id = None
+    for batch in work_order.quantity_batches:
+        batch.is_active = False
+
+    process_repository.commit()
+
+    refreshed = process_repository.get_work_order_with_stage_states(created.id)
+
+    assert refreshed is not None
+    assert process_service.get_display_status(refreshed).value != "READY"
+
+
+def test_read_model_status_is_derived_even_if_stored_status_drifts(db_session: Session) -> None:
+    work_order_service, _, _, work_order_repository, _ = build_services(db_session)
+
+    created = create_ral_work_order(work_order_service, "Status drift ignored")
+    stored = work_order_repository.get_by_id(created.id)
+
+    assert stored is not None
+
+    stored.status = WorkOrderStatus.FINISHED
+    work_order_repository.commit()
+
+    refreshed = work_order_service.get_work_order(created.id)
+
+    assert refreshed.process_status.value == "TO_BE_PLANNED"
+    assert refreshed.status.value == WorkOrderStatus.ENTERED
+
+
+def test_incomplete_marker_does_not_leak_into_manager_or_stage_views(db_session: Session) -> None:
+    work_order_service, process_service, manager_service, work_order_repository, _ = build_services(db_session)
+
+    visible_order = create_ral_work_order(work_order_service, "Visible planned manager")
+    hidden_order = work_order_service.create_work_order(
+        build_work_order_create(title="Hidden incomplete manager", coating_type=CoatingType.RAL, total_quantity=100).model_copy(
+            update={"is_incomplete_on_arrival": True}
+        )
+    )
+
+    manager_service.assign_plan(
+        visible_order.id,
+        WorkOrderPlanAssignRequest(production_type=ProductionType.MANUAL, queue_position=1),
+    )
+
+    stored = work_order_repository.get_by_id(hidden_order.id)
+    assert stored is not None
+    stored.production_type = ProductionType.MANUAL
+    stored.queue_position = 2
+    work_order_repository.commit()
+
+    planned_ids = [item.id for item in manager_service.list_planned_work_orders()]
+    stage_ids = [item.id for item in process_service.list_stage_work_orders(ProcessStage.SURFACE_PREPARATION)]
+
+    assert visible_order.id in planned_ids
+    assert hidden_order.id not in planned_ids
+    assert hidden_order.id not in stage_ids
+
+
+def test_inconsistent_incomplete_row_cannot_be_planned(db_session: Session) -> None:
+    work_order_service, _, manager_service, work_order_repository, _ = build_services(db_session)
+
+    created = work_order_service.create_work_order(
+        build_work_order_create(title="Inconsistent incomplete planning")
+    )
+    stored = work_order_repository.get_by_id(created.id)
+
+    assert stored is not None
+
+    stored.status = WorkOrderStatus.INCOMPLETE
+    stored.is_incomplete_on_arrival = False
+    work_order_repository.commit()
+
+    with pytest.raises(InvalidManagerPlanningError) as exc_info:
+        manager_service.assign_plan(
+            created.id,
+            WorkOrderPlanAssignRequest(production_type=ProductionType.MANUAL, queue_position=1),
+        )
+
+    assert str(exc_info.value) == "Cannot plan incomplete order. Mark as complete first."
+
+
+def test_inconsistent_incomplete_row_does_not_appear_in_stage_queues(db_session: Session) -> None:
+    work_order_service, process_service, manager_service, work_order_repository, _ = build_services(db_session)
+
+    created = create_ral_work_order(work_order_service, "Inconsistent incomplete stage")
+    manager_service.assign_plan(
+        created.id,
+        WorkOrderPlanAssignRequest(production_type=ProductionType.MANUAL, queue_position=1),
+    )
+    stored = work_order_repository.get_by_id(created.id)
+
+    assert stored is not None
+
+    stored.status = WorkOrderStatus.INCOMPLETE
+    stored.is_incomplete_on_arrival = False
+    work_order_repository.commit()
+
+    visible_ids = [item.id for item in process_service.list_stage_work_orders(ProcessStage.SURFACE_PREPARATION)]
+
+    assert created.id not in visible_ids

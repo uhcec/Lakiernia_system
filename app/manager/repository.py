@@ -40,6 +40,22 @@ class ManagerRepository:
         )
         return self.session.scalars(statement).all()
 
+    def get_planned_by_queue_position(
+        self,
+        queue_position: int,
+        *,
+        exclude_work_order_id: int | None = None,
+    ) -> WorkOrder | None:
+        statement = select(WorkOrder).where(
+            WorkOrder.production_type.is_not(None),
+            WorkOrder.queue_position == queue_position,
+            WorkOrder.is_incomplete_on_arrival.is_(False),
+            WorkOrder.status != WorkOrderStatus.INCOMPLETE,
+        )
+        if exclude_work_order_id is not None:
+            statement = statement.where(WorkOrder.id != exclude_work_order_id)
+        return self.session.scalar(statement)
+
     def list_unplanned_work_orders(self) -> Sequence[WorkOrder]:
         statement = (
             select(WorkOrder)
@@ -52,6 +68,7 @@ class ManagerRepository:
             .where(
                 WorkOrder.production_type.is_(None),
                 WorkOrder.queue_position.is_(None),
+                WorkOrder.is_incomplete_on_arrival.is_(False),
                 WorkOrder.status != WorkOrderStatus.INCOMPLETE,
             )
             .order_by(WorkOrder.id.asc())
@@ -67,7 +84,12 @@ class ManagerRepository:
                 selectinload(WorkOrder.parent_order),
                 selectinload(WorkOrder.correction_orders),
             )
-            .where(WorkOrder.production_type.is_not(None), WorkOrder.queue_position.is_not(None))
+            .where(
+                WorkOrder.production_type.is_not(None),
+                WorkOrder.queue_position.is_not(None),
+                WorkOrder.is_incomplete_on_arrival.is_(False),
+                WorkOrder.status != WorkOrderStatus.INCOMPLETE,
+            )
             .order_by(WorkOrder.queue_position.asc(), WorkOrder.id.asc())
         )
         return self.session.scalars(statement).all()

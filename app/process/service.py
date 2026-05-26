@@ -280,9 +280,14 @@ class ProcessService:
         if ok_quantity < 0 or correction_quantity < 0:
             raise InvalidProcessStageTransitionError("Packing quantities cannot be negative.")
 
+        planned_quantity = active_batch.quantity
+        if counted_quantity != planned_quantity:
+            raise InvalidProcessStageTransitionError(
+                "Policzona ilość różni się od planowanej. Wyjaśnij brakujące sztuki."
+            )
+
         packing_state.counted_quantity = counted_quantity
         packing_state.updated_at = datetime.now(UTC)
-        planned_quantity = active_batch.quantity
 
         production_state = self._get_stage_state(work_order, ProcessStage.PRODUCTION)
         if work_order.production_type == ProductionType.AUTOMATIC and hanging_state.status == StageStatus.IN_PROGRESS:
@@ -356,7 +361,7 @@ class ProcessService:
         production_type: ProductionType | None = None,
         include_done: bool = False,
     ) -> bool:
-        if work_order.is_incomplete_on_arrival:
+        if self._has_incomplete_marker(work_order):
             return False
 
         if not self._is_planned(work_order):
@@ -402,7 +407,7 @@ class ProcessService:
         return work_order.production_type is not None and work_order.queue_position is not None
 
     def get_display_status(self, work_order: WorkOrder) -> ProcessDisplayStatus:
-        if work_order.status == WorkOrderStatus.INCOMPLETE:
+        if self._has_incomplete_marker(work_order):
             return ProcessDisplayStatus.INCOMPLETE
 
         if self._has_open_corrections(work_order):
@@ -478,7 +483,7 @@ class ProcessService:
     def _get_display_status_for_tracked_batches(self, work_order: WorkOrder) -> ProcessDisplayStatus:
         active_batches = [batch for batch in work_order.active_batches if batch.current_stage is not None]
         if not active_batches:
-            return ProcessDisplayStatus.READY if work_order.completed_quantity >= work_order.total_quantity else ProcessDisplayStatus.PACKING
+            return ProcessDisplayStatus.READY if work_order.completed_quantity == work_order.total_quantity else ProcessDisplayStatus.PACKING
 
         if any(batch.current_stage == ProcessStage.HANGING for batch in active_batches):
             return ProcessDisplayStatus.HANGING
@@ -789,10 +794,15 @@ class ProcessService:
         if ok_quantity + correction_quantity != counted_quantity:
             raise InvalidProcessStageTransitionError("Packing quantities must add up to the counted quantity.")
 
+        planned_quantity = batch.quantity
+        if counted_quantity != planned_quantity:
+            raise InvalidProcessStageTransitionError(
+                "Policzona ilość różni się od planowanej. Wyjaśnij brakujące sztuki."
+            )
+
         packing_state = self._get_stage_state(work_order, ProcessStage.PACKING)
         packing_state.counted_quantity = counted_quantity
         packing_state.updated_at = datetime.now(UTC)
-        planned_quantity = batch.quantity
 
         batch.is_active = False
         batch.current_stage = ProcessStage.PACKING
@@ -962,9 +972,13 @@ class ProcessService:
     def _has_open_corrections(self, work_order: WorkOrder) -> bool:
         return any(not self._is_complete_for_display(correction_order) for correction_order in work_order.correction_orders)
 
+    @staticmethod
+    def _has_incomplete_marker(work_order: WorkOrder) -> bool:
+        return work_order.is_incomplete_on_arrival or work_order.status == WorkOrderStatus.INCOMPLETE
+
     def _is_complete_for_display(self, work_order: WorkOrder) -> bool:
         return (
-            work_order.completed_quantity >= work_order.total_quantity
+            work_order.completed_quantity == work_order.total_quantity
             and work_order.current_active_quantity == 0
             and not any(not self._is_complete_for_display(correction_order) for correction_order in work_order.correction_orders)
         )

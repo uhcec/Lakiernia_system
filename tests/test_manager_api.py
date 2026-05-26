@@ -150,6 +150,24 @@ def test_cannot_assign_plan_twice(test_client: TestClient) -> None:
     assert second_response.status_code == 409
 
 
+def test_cannot_plan_order_into_occupied_queue_position(test_client: TestClient) -> None:
+    first = create_work_order(test_client, "Queue occupied 1")
+    second = create_work_order(test_client, "Queue occupied 2")
+
+    first_response = test_client.post(
+        f"/manager/work-orders/{first['id']}/plan",
+        json={"production_type": "MANUAL", "queue_position": 4},
+    )
+    second_response = test_client.post(
+        f"/manager/work-orders/{second['id']}/plan",
+        json={"production_type": "AUTOMATIC", "queue_position": 4},
+    )
+
+    assert first_response.status_code == 200
+    assert second_response.status_code == 409
+    assert second_response.json()["detail"] == "Queue position 4 is already taken."
+
+
 def test_update_queue_position_for_planned_order(test_client: TestClient) -> None:
     created = create_work_order(test_client, "Move in queue")
 
@@ -165,6 +183,28 @@ def test_update_queue_position_for_planned_order(test_client: TestClient) -> Non
 
     assert response.status_code == 200
     assert response.json()["queue_position"] == 2
+
+
+def test_cannot_update_queue_position_to_occupied_position(test_client: TestClient) -> None:
+    first = create_work_order(test_client, "Queue move occupied 1")
+    second = create_work_order(test_client, "Queue move occupied 2")
+
+    test_client.post(
+        f"/manager/work-orders/{first['id']}/plan",
+        json={"production_type": "MANUAL", "queue_position": 2},
+    )
+    test_client.post(
+        f"/manager/work-orders/{second['id']}/plan",
+        json={"production_type": "MANUAL", "queue_position": 5},
+    )
+
+    response = test_client.patch(
+        f"/manager/work-orders/{second['id']}/queue-position",
+        json={"queue_position": 2},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Queue position 2 is already taken."
 
 
 def test_bulk_reorder_updates_queue_positions(test_client: TestClient) -> None:
@@ -199,6 +239,41 @@ def test_bulk_reorder_updates_queue_positions(test_client: TestClient) -> None:
         (third["id"], 1),
         (first["id"], 2),
         (second["id"], 3),
+    ]
+
+
+def test_drag_drop_reorder_still_works(test_client: TestClient) -> None:
+    first = create_work_order(test_client, "Drag queue 1")
+    second = create_work_order(test_client, "Drag queue 2")
+    third = create_work_order(test_client, "Drag queue 3")
+
+    test_client.post(
+        f"/manager/work-orders/{first['id']}/plan",
+        json={"production_type": "MANUAL", "queue_position": 1},
+    )
+    test_client.post(
+        f"/manager/work-orders/{second['id']}/plan",
+        json={"production_type": "MANUAL", "queue_position": 2},
+    )
+    test_client.post(
+        f"/manager/work-orders/{third['id']}/plan",
+        json={"production_type": "MANUAL", "queue_position": 3},
+    )
+
+    response = test_client.post(
+        "/manager/queue/reorder",
+        json=[
+            {"work_order_id": second["id"], "queue_position": 1},
+            {"work_order_id": first["id"], "queue_position": 2},
+            {"work_order_id": third["id"], "queue_position": 3},
+        ],
+    )
+
+    assert response.status_code == 200
+    assert [(item["id"], item["queue_position"]) for item in response.json()] == [
+        (second["id"], 1),
+        (first["id"], 2),
+        (third["id"], 3),
     ]
 
 

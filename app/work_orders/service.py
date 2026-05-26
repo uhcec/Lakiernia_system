@@ -5,6 +5,7 @@ from uuid import uuid4
 from fastapi import UploadFile
 
 from app.core.config import get_settings, get_work_order_attachments_path
+from app.process.enums import ProcessDisplayStatus
 from app.process.repository import ProcessRepository
 from app.process.service import ProcessService
 from app.shared.enums import WorkOrderStatus, get_work_order_status_label
@@ -19,7 +20,6 @@ from app.work_orders.schemas import (
     WorkOrderRelationSummaryRead,
     WorkOrderRead,
     WorkOrderStageStateRead,
-    WorkOrderStatusTransitionRequest,
     WorkOrderStatusOption,
     WorkOrderStatusView,
     WorkOrderUpdate,
@@ -32,7 +32,6 @@ from app.work_orders.schemas import (
     build_work_order_relation_summary,
     build_production_type_view,
 )
-from app.work_orders.workflow import validate_transition
 
 
 class WorkOrderService:
@@ -50,7 +49,18 @@ class WorkOrderService:
         ]
 
     @staticmethod
-    def build_status_view(status: WorkOrderStatus) -> WorkOrderStatusView:
+    def derive_status(process_status: ProcessDisplayStatus) -> WorkOrderStatus:
+        if process_status == ProcessDisplayStatus.INCOMPLETE:
+            return WorkOrderStatus.INCOMPLETE
+        if process_status == ProcessDisplayStatus.TO_BE_PLANNED:
+            return WorkOrderStatus.ENTERED
+        if process_status == ProcessDisplayStatus.READY:
+            return WorkOrderStatus.FINISHED
+        return WorkOrderStatus.IN_PROGRESS
+
+    @classmethod
+    def build_status_view(cls, process_status: ProcessDisplayStatus) -> WorkOrderStatusView:
+        status = cls.derive_status(process_status)
         return WorkOrderStatusView(value=status, label=get_work_order_status_label(status))
 
     def create_work_order(self, payload: WorkOrderCreate) -> WorkOrderRead:
@@ -114,10 +124,17 @@ class WorkOrderService:
         *,
         limit: int,
         offset: int,
-        status: WorkOrderStatus | None = None,
+        process_status: ProcessDisplayStatus | None = None,
     ) -> WorkOrderListResponse:
-        items = self.repository.list(limit=limit, offset=offset, status=status)
-        total = self.repository.count(status=status)
+        if process_status is None:
+            items = self.repository.list(limit=limit, offset=offset)
+            total = self.repository.count()
+        else:
+            all_items = self.repository.list(limit=self.repository.count(), offset=0)
+            filtered_items = [item for item in all_items if self.process_service.get_display_status(item) == process_status]
+            total = len(filtered_items)
+            items = filtered_items[offset : offset + limit]
+
         return WorkOrderListResponse(
             items=[self._to_read_model(item) for item in items],
             total=total,
@@ -125,44 +142,16 @@ class WorkOrderService:
             offset=offset,
         )
 
-    def transition_work_order_status(
-        self,
-        work_order_id: int,
-        target_status: WorkOrderStatus,
-        comment: str | None = None,
-    ) -> WorkOrderRead:
-        work_order = self._get_existing_work_order(work_order_id)
-
-        validate_transition(work_order.status, target_status)
-
-        work_order.status = target_status
-
-        # TODO: Persist transition comments when audit/history storage is introduced.
-        _ = comment
-
-        try:
-            self.repository.commit()
-        except Exception:
-            self.repository.rollback()
-            raise
-
-        return self._to_read_model(work_order)
-
-    def transition_work_order_status_from_request(
-        self,
-        work_order_id: int,
-        payload: WorkOrderStatusTransitionRequest,
-    ) -> WorkOrderRead:
-        return self.transition_work_order_status(
-            work_order_id=work_order_id,
-            target_status=payload.target_status,
-            comment=payload.comment,
+    def reject_manual_status_transition(self, work_order_id: int) -> WorkOrderRead:
+        self._get_existing_work_order(work_order_id)
+        raise InvalidStatusTransitionError(
+            "Work order status is derived from process status and cannot be changed manually."
         )
 
     def mark_complete_arrival(self, work_order_id: int) -> WorkOrderRead:
         work_order = self._get_existing_work_order(work_order_id)
 
-        if work_order.status != WorkOrderStatus.INCOMPLETE:
+        if not self._has_incomplete_marker(work_order):
             raise InvalidStatusTransitionError(
                 f"Work order {work_order_id} is not marked as incomplete on arrival."
             )
@@ -178,6 +167,10 @@ class WorkOrderService:
             raise
 
         return self._to_read_model(work_order)
+
+    @staticmethod
+    def _has_incomplete_marker(work_order: WorkOrder) -> bool:
+        return work_order.is_incomplete_on_arrival or work_order.status == WorkOrderStatus.INCOMPLETE
 
     async def upload_attachment(
         self,
@@ -304,6 +297,7 @@ class WorkOrderService:
         waiting_ok_quantity = self.process_service.get_waiting_ok_quantity(work_order)
         pending_correction_quantity = self.process_service.get_pending_correction_quantity(work_order)
         total_progress_quantity = self.process_service.get_total_progress_quantity(work_order)
+        process_status = self.process_service.get_display_status(work_order)
 
         return WorkOrderRead(
             id=work_order.id,
@@ -329,8 +323,8 @@ class WorkOrderService:
             customer_name=work_order.customer_name,
             ral_code=work_order.ral_code,
             paint_producer=work_order.paint_producer,
-            status=self.build_status_view(work_order.status),
-            process_status=build_process_status_view(self.process_service.get_display_status(work_order)),
+            status=self.build_status_view(process_status),
+            process_status=build_process_status_view(process_status),
             coating_type=build_coating_type_view(work_order.coating_type),
             production_type=(
                 build_production_type_view(work_order.production_type)

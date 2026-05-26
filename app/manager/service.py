@@ -4,6 +4,7 @@ from app.process.repository import ProcessRepository
 from app.process.service import ProcessService
 from app.manager.repository import ManagerRepository
 from app.manager.schemas import WorkOrderPlanAssignRequest, WorkOrderQueuePositionUpdateRequest, WorkOrderQueueReorderRequest
+from app.shared.enums import WorkOrderStatus
 from app.shared.exceptions import InvalidManagerPlanningError, ResourceNotFoundError
 from app.work_orders.models import WorkOrder
 from app.work_orders.schemas import WorkOrderRead
@@ -37,8 +38,9 @@ class ManagerService:
         work_order = self._get_existing_work_order(work_order_id)
         if self._is_planned(work_order):
             raise InvalidManagerPlanningError(f"Work order {work_order_id} is already planned.")
-        if work_order.is_incomplete_on_arrival:
+        if self._has_incomplete_marker(work_order):
             raise InvalidManagerPlanningError("Cannot plan incomplete order. Mark as complete first.")
+        self._ensure_queue_position_available(payload.queue_position)
 
         work_order.production_type = payload.production_type
         work_order.queue_position = payload.queue_position
@@ -60,6 +62,7 @@ class ManagerService:
         work_order = self._get_existing_work_order(work_order_id)
         if not self._is_planned(work_order):
             raise InvalidManagerPlanningError(f"Work order {work_order_id} must be planned before updating queue position.")
+        self._ensure_queue_position_available(payload.queue_position, exclude_work_order_id=work_order_id)
 
         work_order.queue_position = payload.queue_position
         work_order.updated_at = datetime.now(UTC)
@@ -115,9 +118,21 @@ class ManagerService:
             raise ResourceNotFoundError(f"Work order {work_order_id} not found.")
         return work_order
 
+    def _ensure_queue_position_available(self, queue_position: int, exclude_work_order_id: int | None = None) -> None:
+        existing_work_order = self.repository.get_planned_by_queue_position(
+            queue_position,
+            exclude_work_order_id=exclude_work_order_id,
+        )
+        if existing_work_order is not None:
+            raise InvalidManagerPlanningError(f"Queue position {queue_position} is already taken.")
+
     @staticmethod
     def _is_planned(work_order: WorkOrder) -> bool:
         return work_order.production_type is not None and work_order.queue_position is not None
+
+    @staticmethod
+    def _has_incomplete_marker(work_order: WorkOrder) -> bool:
+        return work_order.is_incomplete_on_arrival or work_order.status == WorkOrderStatus.INCOMPLETE
 
     def _to_read_model(self, work_order: WorkOrder) -> WorkOrderRead:
         waiting_ok_quantity = self.process_service.get_waiting_ok_quantity(work_order)
@@ -148,7 +163,7 @@ class ManagerService:
             customer_name=work_order.customer_name,
             ral_code=work_order.ral_code,
             paint_producer=work_order.paint_producer,
-            status=WorkOrderService.build_status_view(work_order.status),
+            status=WorkOrderService.build_status_view(self.process_service.get_display_status(work_order)),
             process_status=build_process_status_view(self.process_service.get_display_status(work_order)),
             coating_type=build_coating_type_view(work_order.coating_type),
             production_type=(

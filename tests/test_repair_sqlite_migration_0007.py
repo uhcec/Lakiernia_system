@@ -58,6 +58,53 @@ def test_upgrade_head_succeeds_after_repair(tmp_path: Path):
     assert "is_correction" in columns
 
 
+def test_upgrade_0003_keeps_active_batches_scoped_per_work_order(tmp_path: Path):
+    db_path = tmp_path / "local.db"
+    _upgrade_database(db_path, "20260524_0002")
+    _insert_legacy_work_order_with_batch(
+        db_path,
+        work_order_id=1,
+        batch_id=1,
+        order_number="WO-LEGACY-1",
+        total_quantity=10,
+        stage_statuses={
+            "SURFACE_PREPARATION": "IN_PROGRESS",
+            "HANGING": "NOT_STARTED",
+            "PRODUCTION": "NOT_STARTED",
+            "PACKING": "NOT_STARTED",
+        },
+    )
+    _insert_legacy_work_order_with_batch(
+        db_path,
+        work_order_id=2,
+        batch_id=2,
+        order_number="WO-LEGACY-2",
+        total_quantity=20,
+        stage_statuses={
+            "SURFACE_PREPARATION": "DONE",
+            "HANGING": "DONE",
+            "PRODUCTION": "IN_PROGRESS",
+            "PACKING": "NOT_STARTED",
+        },
+    )
+
+    _upgrade_database(db_path, "20260525_0003")
+
+    with sqlite3.connect(db_path) as connection:
+        rows = connection.execute(
+            """
+            SELECT work_order_id, id, is_active, current_stage, current_stage_status, is_partial
+            FROM work_order_quantity_batches
+            ORDER BY work_order_id, id
+            """
+        ).fetchall()
+
+    assert rows == [
+        (1, 1, 1, "SURFACE_PREPARATION", "IN_PROGRESS", 0),
+        (2, 2, 1, "PRODUCTION", "IN_PROGRESS", 0),
+    ]
+
+
 def _apply_partial_0007_columns(db_path: Path) -> None:
     with sqlite3.connect(db_path) as connection:
         connection.execute("ALTER TABLE work_orders ADD COLUMN parent_order_id INTEGER")
@@ -131,6 +178,92 @@ def _insert_work_order(db_path: Path, order_number: str) -> None:
                 0,
             ),
         )
+        connection.commit()
+
+
+def _insert_legacy_work_order_with_batch(
+    db_path: Path,
+    *,
+    work_order_id: int,
+    batch_id: int,
+    order_number: str,
+    total_quantity: int,
+    stage_statuses: dict[str, str],
+) -> None:
+    timestamp = "2026-05-25T00:00:00+00:00"
+
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            """
+            INSERT INTO work_orders (
+                id,
+                order_number,
+                title,
+                description,
+                customer_name,
+                status,
+                coating_type,
+                production_type,
+                queue_position,
+                due_date,
+                notes,
+                created_at,
+                updated_at,
+                total_quantity,
+                completed_quantity,
+                current_active_batch_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                work_order_id,
+                order_number,
+                order_number,
+                None,
+                "Customer",
+                "ENTERED",
+                "RAL",
+                "MANUAL",
+                work_order_id,
+                None,
+                None,
+                timestamp,
+                timestamp,
+                total_quantity,
+                0,
+                batch_id,
+            ),
+        )
+        connection.execute(
+            """
+            INSERT INTO work_order_quantity_batches (
+                id,
+                work_order_id,
+                quantity,
+                type,
+                parent_batch_id,
+                created_at
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (batch_id, work_order_id, total_quantity, "MAIN", None, timestamp),
+        )
+
+        stage_id = work_order_id * 10
+        for stage, status in stage_statuses.items():
+            stage_id += 1
+            connection.execute(
+                """
+                INSERT INTO work_order_stage_states (
+                    id,
+                    work_order_id,
+                    stage,
+                    status,
+                    created_at,
+                    updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (stage_id, work_order_id, stage, status, timestamp, timestamp),
+            )
+
         connection.commit()
 
 

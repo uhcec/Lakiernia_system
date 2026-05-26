@@ -5,14 +5,13 @@ from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from app.database.session import get_db_session
-from app.shared.enums import WorkOrderStatus
+from app.process.enums import ProcessDisplayStatus
 from app.work_orders.repository import WorkOrderRepository
 from app.work_orders.schemas import (
 	WorkOrderCreate,
 	WorkOrderAttachmentRead,
 	WorkOrderListResponse,
 	WorkOrderRead,
-	WorkOrderStatusTransitionRequest,
 	WorkOrderUpdate,
 )
 from app.work_orders.service import WorkOrderService
@@ -55,18 +54,17 @@ def list_work_orders(
 	service: Annotated[WorkOrderService, Depends(get_work_order_service)],
 	limit: Annotated[int, Query(ge=1, le=100)] = 50,
 	offset: Annotated[int, Query(ge=0)] = 0,
-	status: WorkOrderStatus | None = None,
+	process_status: Annotated[ProcessDisplayStatus | None, Query()] = None,
 ) -> WorkOrderListResponse:
-	return service.list_work_orders(limit=limit, offset=offset, status=status)
+	return service.list_work_orders(limit=limit, offset=offset, process_status=process_status)
 
 
 @router.post("/{work_order_id}/status-transitions", response_model=WorkOrderRead)
 def transition_work_order_status(
 	work_order_id: int,
-	payload: WorkOrderStatusTransitionRequest,
 	service: Annotated[WorkOrderService, Depends(get_work_order_service)],
 ) -> WorkOrderRead:
-	return service.transition_work_order_status_from_request(work_order_id, payload)
+	return service.reject_manual_status_transition(work_order_id)
 
 
 @router.post("/{work_order_id}/mark-complete-arrival", response_model=WorkOrderRead)
