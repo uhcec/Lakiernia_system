@@ -1,7 +1,16 @@
 import { Link, useNavigate } from "react-router-dom";
 
 import type { WorkOrder } from "../types/workOrders";
-import { formatWorkOrderPrimaryInfo } from "../utils/workOrderDisplay";
+import {
+  formatWorkOrderPrimaryInfo,
+  getWorkOrderActiveCorrectionsText,
+  getWorkOrderAttentionBadges,
+  getWorkOrderBadgeStack,
+  getWorkOrderCorrectionContextText,
+  getWorkOrderProgressText,
+  getWorkOrderStatusSummary,
+  type DisplayBadge,
+} from "../utils/workOrderDisplay";
 
 interface WorkOrdersTableProps {
   workOrders: WorkOrder[];
@@ -32,6 +41,23 @@ function statusClasses(statusValue: WorkOrder["process_status"]["value"]): strin
   }
 }
 
+function badgeClasses(tone: DisplayBadge["tone"]): string {
+  switch (tone) {
+    case "info":
+      return "bg-sky-100 text-sky-800";
+    case "warning":
+      return "bg-amber-100 text-amber-800";
+    case "success":
+      return "bg-emerald-100 text-emerald-700";
+    case "accent":
+      return "bg-violet-100 text-violet-800";
+    case "danger":
+      return "bg-rose-100 text-rose-700";
+    case "neutral":
+      return "bg-slate-100 text-slate-700";
+  }
+}
+
 export function WorkOrdersTable({ workOrders }: WorkOrdersTableProps) {
   const navigate = useNavigate();
 
@@ -46,16 +72,12 @@ export function WorkOrdersTable({ workOrders }: WorkOrdersTableProps) {
 
     return (
       <div className="space-y-2">
-        <p className="text-sm text-ink">{`${totalQuantity} szt. / gotowe ${completedQuantity} / aktywne ${activeQuantity}`}</p>
-        {workOrder.process_status.value === "WAITING_FOR_CORRECTIONS" ? (
-          <div className="flex flex-wrap gap-2">
-            <span className="inline-flex rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-900">
-              OK czeka: {workOrder.waiting_ok_quantity}
-            </span>
-            <span className="inline-flex rounded-full bg-rose-100 px-3 py-1 text-xs font-semibold text-rose-700">
-              Poprawki: {workOrder.pending_correction_quantity}
-            </span>
-          </div>
+        <p className="text-sm font-semibold text-ink">{getWorkOrderProgressText(workOrder)}</p>
+        <p className="text-xs text-steel">Gotowe: {completedQuantity} szt. · Aktywne: {activeQuantity} szt.</p>
+        {getWorkOrderActiveCorrectionsText(workOrder) ? (
+          <span className="inline-flex rounded-full bg-rose-100 px-3 py-1 text-xs font-semibold text-rose-700">
+            {getWorkOrderActiveCorrectionsText(workOrder)}
+          </span>
         ) : null}
         {activeQuantity > 0 ? (
           <span className="inline-flex rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800">
@@ -90,19 +112,47 @@ export function WorkOrdersTable({ workOrders }: WorkOrdersTableProps) {
             {workOrders.map((workOrder) => (
               <tr
                 key={workOrder.id}
-                className="cursor-pointer border-t border-line/80 text-ink transition hover:bg-mist/60"
+                className={[
+                  "cursor-pointer border-t border-line/80 text-ink transition hover:bg-mist/60",
+                  workOrder.is_correction ? "bg-amber-50/40" : "",
+                  getWorkOrderAttentionBadges(workOrder).length > 0 ? "ring-1 ring-inset ring-amber-200" : "",
+                ].join(" ")}
                 onClick={() => navigate(`/zlecenia/${workOrder.id}`)}
               >
-                <td className="px-5 py-4 font-semibold">{workOrder.order_number}</td>
-                <td className="px-5 py-4 text-steel">{formatWorkOrderPrimaryInfo(workOrder)}</td>
+                <td className="px-5 py-4 font-semibold">
+                  <div className="space-y-2">
+                    <div>{workOrder.order_number}</div>
+                    <div className="flex flex-wrap gap-2">
+                      {[...getWorkOrderBadgeStack(workOrder), ...getWorkOrderAttentionBadges(workOrder)].map((badge) => (
+                        <span
+                          key={`${workOrder.id}-${badge.label}`}
+                          className={["inline-flex rounded-full px-3 py-1 text-[11px] font-semibold", badgeClasses(badge.tone)].join(" ")}
+                        >
+                          {badge.label}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                </td>
+                <td className="px-5 py-4 text-steel">
+                  <div className="space-y-1">
+                    <p>{formatWorkOrderPrimaryInfo(workOrder)}</p>
+                    {getWorkOrderCorrectionContextText(workOrder) ? (
+                      <p className="text-amber-700">{getWorkOrderCorrectionContextText(workOrder)}</p>
+                    ) : null}
+                  </div>
+                </td>
                 <td className="px-5 py-4 text-steel">{workOrder.coating_type.label}</td>
                 <td className="px-5 py-4 text-steel">{workOrder.production_type?.label ?? "—"}</td>
                 <td className="px-5 py-4 text-steel">{workOrder.queue_position ?? "—"}</td>
                 <td className="px-5 py-4 text-steel">{renderQuantitySummary(workOrder)}</td>
                 <td className="px-5 py-4">
-                  <span className={["inline-flex rounded-full px-3 py-1 text-xs font-semibold", statusClasses(workOrder.process_status.value)].join(" ")}>
-                    {workOrder.process_status.label}
-                  </span>
+                  <div className="space-y-2">
+                    <span className={["inline-flex rounded-full px-3 py-1 text-xs font-semibold", statusClasses(workOrder.process_status.value)].join(" ")}>
+                      {workOrder.process_status.label}
+                    </span>
+                    <p className="text-sm font-semibold text-ink">{getWorkOrderStatusSummary(workOrder)}</p>
+                  </div>
                 </td>
                 <td className="px-5 py-4 text-right">
                   <Link

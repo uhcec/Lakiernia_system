@@ -1,4 +1,6 @@
 from fastapi.testclient import TestClient
+import pytest
+from sqlalchemy.exc import IntegrityError
 
 
 def build_create_payload(title: str, coating_type: str = "RAL", **overrides: object) -> dict:
@@ -19,6 +21,22 @@ def build_create_payload(title: str, coating_type: str = "RAL", **overrides: obj
 
 def create_work_order(test_client: TestClient, title: str, coating_type: str = "RAL", **overrides: object) -> dict:
     return test_client.post("/work-orders", json=build_create_payload(title, coating_type, **overrides)).json()
+
+
+def get_queue_revision(test_client: TestClient) -> str:
+    planned = test_client.get("/manager/work-orders")
+    assert planned.status_code == 200
+    return max(item["updated_at"] for item in planned.json())
+
+
+def post_queue_reorder(test_client: TestClient, items: list[dict], queue_revision: str):
+    return test_client.post(
+        "/manager/queue/reorder",
+        json={
+            "queue_revision": queue_revision,
+            "items": items,
+        },
+    )
 
 
 def test_list_unplanned_work_orders(test_client: TestClient) -> None:
@@ -227,12 +245,14 @@ def test_reorder_accepts_mixed_normal_and_correction_orders(test_client: TestCli
         json={"production_type": "MANUAL", "queue_position": 3},
     )
 
-    response = test_client.post(
-        "/manager/queue/reorder",
-        json=[
-            {"work_order_id": main_order["id"], "queue_position": 2},
+    response = post_queue_reorder(
+        test_client,
+        [
             {"work_order_id": correction_order["id"], "queue_position": 1},
+            {"work_order_id": main_order["id"], "queue_position": 2},
+            {"work_order_id": correction_parent["id"], "queue_position": 3},
         ],
+        get_queue_revision(test_client),
     )
 
     assert correction_plan_response.status_code == 200
@@ -344,13 +364,14 @@ def test_bulk_reorder_updates_queue_positions(test_client: TestClient) -> None:
         json={"production_type": "AUTOMATIC", "queue_position": 3},
     )
 
-    response = test_client.post(
-        "/manager/queue/reorder",
-        json=[
+    response = post_queue_reorder(
+        test_client,
+        [
             {"work_order_id": third["id"], "queue_position": 1},
             {"work_order_id": first["id"], "queue_position": 2},
             {"work_order_id": second["id"], "queue_position": 3},
         ],
+        get_queue_revision(test_client),
     )
 
     assert response.status_code == 200
@@ -379,13 +400,14 @@ def test_drag_drop_reorder_still_works(test_client: TestClient) -> None:
         json={"production_type": "MANUAL", "queue_position": 3},
     )
 
-    response = test_client.post(
-        "/manager/queue/reorder",
-        json=[
+    response = post_queue_reorder(
+        test_client,
+        [
             {"work_order_id": second["id"], "queue_position": 1},
             {"work_order_id": first["id"], "queue_position": 2},
             {"work_order_id": third["id"], "queue_position": 3},
         ],
+        get_queue_revision(test_client),
     )
 
     assert response.status_code == 200
@@ -396,6 +418,112 @@ def test_drag_drop_reorder_still_works(test_client: TestClient) -> None:
     ]
 
 
+def test_reorder_mixed_normal_and_correction_orders_preserves_global_queue_positions(test_client: TestClient) -> None:
+    main_order = create_work_order(test_client, "Global queue main")
+    ready_order = create_work_order(test_client, "Global queue ready")
+    correction_parent = create_work_order(test_client, "Global queue correction")
+
+    test_client.post(
+        f"/manager/work-orders/{main_order['id']}/plan",
+        json={"production_type": "MANUAL", "queue_position": 1},
+    )
+    test_client.post(
+        f"/manager/work-orders/{ready_order['id']}/plan",
+        json={"production_type": "MANUAL", "queue_position": 2},
+    )
+    test_client.post(
+        f"/manager/work-orders/{correction_parent['id']}/plan",
+        json={"production_type": "MANUAL", "queue_position": 4},
+    )
+
+    test_client.post(
+        f"/process/work-orders/{ready_order['id']}/stages/SURFACE_PREPARATION/start",
+        json={"counted_quantity": 100},
+    )
+    test_client.post(f"/process/work-orders/{ready_order['id']}/stages/SURFACE_PREPARATION/finish")
+    test_client.post(f"/process/work-orders/{ready_order['id']}/stages/PRODUCTION/start")
+    test_client.post(f"/process/work-orders/{ready_order['id']}/stages/PRODUCTION/finish")
+    test_client.post(f"/process/work-orders/{ready_order['id']}/stages/PACKING/start")
+    test_client.post(
+        f"/process/work-orders/{ready_order['id']}/packing/complete",
+        json={"counted_quantity": 100, "ok_quantity": 100, "correction_quantity": 0},
+    )
+
+    test_client.post(
+        f"/process/work-orders/{correction_parent['id']}/stages/SURFACE_PREPARATION/start",
+        json={"counted_quantity": 100},
+    )
+    test_client.post(f"/process/work-orders/{correction_parent['id']}/stages/SURFACE_PREPARATION/finish")
+    test_client.post(f"/process/work-orders/{correction_parent['id']}/stages/PRODUCTION/start")
+    test_client.post(f"/process/work-orders/{correction_parent['id']}/stages/PRODUCTION/finish")
+    test_client.post(f"/process/work-orders/{correction_parent['id']}/stages/PACKING/start")
+    test_client.post(
+        f"/process/work-orders/{correction_parent['id']}/packing/complete",
+        json={"counted_quantity": 100, "ok_quantity": 95, "correction_quantity": 5},
+    )
+
+    correction_order = next(
+        item
+        for item in test_client.get("/manager/work-orders/unplanned").json()
+        if item["parent_order"]["id"] == correction_parent["id"]
+    )
+    correction_plan_response = test_client.post(
+        f"/manager/work-orders/{correction_order['id']}/plan",
+        json={"production_type": "MANUAL", "queue_position": 3},
+    )
+
+    response = post_queue_reorder(
+        test_client,
+        [
+            {"work_order_id": correction_order["id"], "queue_position": 1},
+            {"work_order_id": main_order["id"], "queue_position": 2},
+            {"work_order_id": correction_parent["id"], "queue_position": 3},
+        ],
+        get_queue_revision(test_client),
+    )
+
+    assert correction_plan_response.status_code == 200
+    assert response.status_code == 200
+    assert [(item["id"], item["queue_position"]) for item in response.json()] == [
+        (correction_order["id"], 1),
+        (main_order["id"], 2),
+        (correction_parent["id"], 3),
+        (ready_order["id"], 4),
+    ]
+    assert len({item["queue_position"] for item in response.json()}) == len(response.json())
+
+
+def test_bulk_reorder_rejects_positions_taken_by_unmentioned_planned_orders(test_client: TestClient) -> None:
+    first = create_work_order(test_client, "Partial reorder 1")
+    second = create_work_order(test_client, "Partial reorder 2")
+    third = create_work_order(test_client, "Partial reorder 3")
+
+    test_client.post(
+        f"/manager/work-orders/{first['id']}/plan",
+        json={"production_type": "MANUAL", "queue_position": 1},
+    )
+    test_client.post(
+        f"/manager/work-orders/{second['id']}/plan",
+        json={"production_type": "MANUAL", "queue_position": 2},
+    )
+    test_client.post(
+        f"/manager/work-orders/{third['id']}/plan",
+        json={"production_type": "MANUAL", "queue_position": 3},
+    )
+
+    response = post_queue_reorder(
+        test_client,
+        [
+            {"work_order_id": first["id"], "queue_position": 3},
+            {"work_order_id": second["id"], "queue_position": 1},
+        ],
+        get_queue_revision(test_client),
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Queue reorder payload must include all active planned work orders."
+
+
 def test_bulk_reorder_rejects_invalid_ids(test_client: TestClient) -> None:
     created = create_work_order(test_client, "Bulk queue invalid")
     test_client.post(
@@ -403,12 +531,13 @@ def test_bulk_reorder_rejects_invalid_ids(test_client: TestClient) -> None:
         json={"production_type": "MANUAL", "queue_position": 1},
     )
 
-    response = test_client.post(
-        "/manager/queue/reorder",
-        json=[
+    response = post_queue_reorder(
+        test_client,
+        [
             {"work_order_id": created["id"], "queue_position": 1},
             {"work_order_id": 9999, "queue_position": 2},
         ],
+        get_queue_revision(test_client),
     )
 
     assert response.status_code == 404
@@ -427,3 +556,124 @@ def test_marking_incomplete_order_complete_adds_it_to_unplanned_list(test_client
     assert complete_response.status_code == 200
     assert after_response.status_code == 200
     assert incomplete["id"] in [item["id"] for item in after_response.json()]
+
+
+def test_queue_position_integrity_error_returns_controlled_409(monkeypatch: pytest.MonkeyPatch, test_client: TestClient) -> None:
+    from app.manager.repository import ManagerRepository
+
+    created = create_work_order(test_client, "Integrity collision")
+    original_commit = ManagerRepository.commit
+
+    def raise_integrity_error(self):
+        raise IntegrityError("", {}, Exception("unique queue collision"))
+
+    monkeypatch.setattr(ManagerRepository, "commit", raise_integrity_error)
+
+    response = test_client.post(
+        f"/manager/work-orders/{created['id']}/plan",
+        json={"production_type": "MANUAL", "queue_position": 1},
+    )
+
+    monkeypatch.setattr(ManagerRepository, "commit", original_commit)
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Queue position 1 is already taken."
+
+
+def test_stale_reorder_snapshot_is_rejected(test_client: TestClient) -> None:
+    first = create_work_order(test_client, "Stale queue 1")
+    second = create_work_order(test_client, "Stale queue 2")
+    third = create_work_order(test_client, "Stale queue 3")
+
+    test_client.post(f"/manager/work-orders/{first['id']}/plan", json={"production_type": "MANUAL", "queue_position": 1})
+    test_client.post(f"/manager/work-orders/{second['id']}/plan", json={"production_type": "MANUAL", "queue_position": 2})
+    test_client.post(f"/manager/work-orders/{third['id']}/plan", json={"production_type": "MANUAL", "queue_position": 3})
+
+    stale_revision = get_queue_revision(test_client)
+    move_response = test_client.patch(
+        f"/manager/work-orders/{third['id']}/queue-position",
+        json={"queue_position": 4},
+    )
+    assert move_response.status_code == 200
+
+    response = post_queue_reorder(
+        test_client,
+        [
+            {"work_order_id": third["id"], "queue_position": 1},
+            {"work_order_id": first["id"], "queue_position": 2},
+            {"work_order_id": second["id"], "queue_position": 3},
+        ],
+        stale_revision,
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Queue reorder payload is stale. Refresh the manager queue and try again."
+
+
+def test_fresh_reorder_snapshot_is_accepted(test_client: TestClient) -> None:
+    first = create_work_order(test_client, "Fresh queue 1")
+    second = create_work_order(test_client, "Fresh queue 2")
+    third = create_work_order(test_client, "Fresh queue 3")
+
+    test_client.post(f"/manager/work-orders/{first['id']}/plan", json={"production_type": "MANUAL", "queue_position": 1})
+    test_client.post(f"/manager/work-orders/{second['id']}/plan", json={"production_type": "MANUAL", "queue_position": 2})
+    test_client.post(f"/manager/work-orders/{third['id']}/plan", json={"production_type": "MANUAL", "queue_position": 3})
+
+    response = post_queue_reorder(
+        test_client,
+        [
+            {"work_order_id": third["id"], "queue_position": 1},
+            {"work_order_id": first["id"], "queue_position": 2},
+            {"work_order_id": second["id"], "queue_position": 3},
+        ],
+        get_queue_revision(test_client),
+    )
+
+    assert response.status_code == 200
+    assert [(item["id"], item["queue_position"]) for item in response.json()] == [
+        (third["id"], 1),
+        (first["id"], 2),
+        (second["id"], 3),
+    ]
+
+
+def test_two_manager_overwrite_is_prevented_by_queue_revision(test_client: TestClient) -> None:
+    first = create_work_order(test_client, "Manager overwrite 1")
+    second = create_work_order(test_client, "Manager overwrite 2")
+    third = create_work_order(test_client, "Manager overwrite 3")
+
+    test_client.post(f"/manager/work-orders/{first['id']}/plan", json={"production_type": "MANUAL", "queue_position": 1})
+    test_client.post(f"/manager/work-orders/{second['id']}/plan", json={"production_type": "MANUAL", "queue_position": 2})
+    test_client.post(f"/manager/work-orders/{third['id']}/plan", json={"production_type": "MANUAL", "queue_position": 3})
+
+    manager_a_revision = get_queue_revision(test_client)
+    manager_b_revision = get_queue_revision(test_client)
+
+    first_reorder = post_queue_reorder(
+        test_client,
+        [
+            {"work_order_id": third["id"], "queue_position": 1},
+            {"work_order_id": first["id"], "queue_position": 2},
+            {"work_order_id": second["id"], "queue_position": 3},
+        ],
+        manager_a_revision,
+    )
+    second_reorder = post_queue_reorder(
+        test_client,
+        [
+            {"work_order_id": second["id"], "queue_position": 1},
+            {"work_order_id": third["id"], "queue_position": 2},
+            {"work_order_id": first["id"], "queue_position": 3},
+        ],
+        manager_b_revision,
+    )
+    final_queue = test_client.get("/manager/work-orders")
+
+    assert first_reorder.status_code == 200
+    assert second_reorder.status_code == 409
+    assert second_reorder.json()["detail"] == "Queue reorder payload is stale. Refresh the manager queue and try again."
+    assert [(item["id"], item["queue_position"]) for item in final_queue.json()] == [
+        (third["id"], 1),
+        (first["id"], 2),
+        (second["id"], 3),
+    ]

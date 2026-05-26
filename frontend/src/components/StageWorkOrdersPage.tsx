@@ -1,11 +1,17 @@
 import { useEffect, useState } from "react";
 
 import { fetchStageWorkOrders, transitionStage } from "../api/processApi";
+import { fetchWorkOrder } from "../api/workOrdersApi";
 import type { ProcessStageValue, StageWorkOrder, StageStatusValue } from "../types/process";
 import type { ProductionTypeValue } from "../types/workOrders";
-import { formatWorkOrderPrimaryInfo } from "../utils/workOrderDisplay";
+import { formatWorkOrderPrimaryInfo, getStageWorkOrderBadgeStack, getStageWorkOrderProgressText, type DisplayBadge } from "../utils/workOrderDisplay";
 
 type QueueFilter = "ALL" | "NORMAL" | "CORRECTIONS";
+
+interface CorrectionContext {
+  parentOrderNumber: string | null;
+  parentTotalQuantity: number | null;
+}
 
 interface StageWorkOrdersPageProps {
   stage: ProcessStageValue;
@@ -49,6 +55,43 @@ function getBatchTypeLabel(batchType: StageWorkOrder["batch_type"]): string {
   return "-";
 }
 
+function buildCorrectionReference(workOrder: StageWorkOrder, context: CorrectionContext | undefined): string {
+  if (!workOrder.is_correction) {
+    return "";
+  }
+  if (context?.parentOrderNumber) {
+    return `Poprawka do ${context.parentOrderNumber}`;
+  }
+  return "Poprawka do zlecenia nadrzędnego";
+}
+
+function buildCorrectionQuantityContext(workOrder: StageWorkOrder, context: CorrectionContext | undefined): string {
+  if (!workOrder.is_correction) {
+    return "";
+  }
+  if (typeof context?.parentTotalQuantity === "number") {
+    return `${workOrder.total_quantity} szt. poprawki z ${context.parentTotalQuantity}`;
+  }
+  return `${workOrder.total_quantity} szt. poprawki`;
+}
+
+function badgeClasses(tone: DisplayBadge["tone"]): string {
+  switch (tone) {
+    case "info":
+      return "bg-sky-100 text-sky-800";
+    case "warning":
+      return "bg-amber-100 text-amber-800";
+    case "success":
+      return "bg-emerald-100 text-emerald-700";
+    case "accent":
+      return "bg-violet-100 text-violet-800";
+    case "danger":
+      return "bg-rose-100 text-rose-700";
+    case "neutral":
+      return "bg-slate-100 text-slate-700";
+  }
+}
+
 export function StageWorkOrdersPage({
   stage,
   title,
@@ -65,6 +108,7 @@ export function StageWorkOrdersPage({
   const [activeWorkOrderId, setActiveWorkOrderId] = useState<number | null>(null);
   const [showCompleted, setShowCompleted] = useState(false);
   const [countedQuantities, setCountedQuantities] = useState<Record<number, string>>({});
+  const [correctionContextByOrderId, setCorrectionContextByOrderId] = useState<Record<number, CorrectionContext>>({});
 
   const isSurfacePreparationStage = stage === "SURFACE_PREPARATION";
 
@@ -87,6 +131,30 @@ export function StageWorkOrdersPage({
     try {
       const items = await fetchStageWorkOrders(stage, productionType);
       setWorkOrders(items);
+      const correctionIds = [...new Set(items.filter((item) => item.is_correction).map((item) => item.id))];
+      if (correctionIds.length > 0) {
+        const correctionDetails = await Promise.all(
+          correctionIds.map(async (workOrderId) => {
+            const detail = await fetchWorkOrder(workOrderId);
+            return {
+              workOrderId,
+              parentOrderNumber: detail.parent_order?.order_number ?? null,
+              parentTotalQuantity: detail.parent_order?.total_quantity ?? null,
+            };
+          }),
+        );
+        setCorrectionContextByOrderId(
+          correctionDetails.reduce<Record<number, CorrectionContext>>((acc, item) => {
+            acc[item.workOrderId] = {
+              parentOrderNumber: item.parentOrderNumber,
+              parentTotalQuantity: item.parentTotalQuantity,
+            };
+            return acc;
+          }, {}),
+        );
+      } else {
+        setCorrectionContextByOrderId({});
+      }
       if (stage === "SURFACE_PREPARATION") {
         setCountedQuantities((current) => {
           const next: Record<number, string> = {};
@@ -240,12 +308,50 @@ export function StageWorkOrdersPage({
                       ? parsedCountedQuantity - workOrder.planned_quantity
                       : null
                     : workOrder.quantity_difference;
+                const correctionContext = correctionContextByOrderId[workOrder.id];
 
                 return (
-                  <tr key={rowKey} className="border-t border-line/80 text-ink">
+                  <tr
+                    key={rowKey}
+                    className={[
+                      "border-t border-line/80 text-ink",
+                      workOrder.is_correction ? "bg-amber-50/50" : "",
+                    ].join(" ")}
+                  >
                     <td className="px-5 py-4 font-semibold">{workOrder.queue_position ?? "-"}</td>
-                    <td className="px-5 py-4 font-semibold">{workOrder.order_number}</td>
-                    <td className="px-5 py-4 text-steel">{formatWorkOrderPrimaryInfo(workOrder)}</td>
+                    <td className="px-5 py-4 font-semibold">
+                      <div className="space-y-1">
+                        <div>{workOrder.order_number}</div>
+                        {workOrder.is_correction ? (
+                          <span className="inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-amber-800">
+                            POPRAWKA
+                          </span>
+                        ) : null}
+                      </div>
+                    </td>
+                    <td className="px-5 py-4 text-steel">
+                      <div className="space-y-1">
+                        <p>{formatWorkOrderPrimaryInfo(workOrder)}</p>
+                        <div className="flex flex-wrap gap-2">
+                          {getStageWorkOrderBadgeStack(workOrder).map((badge) => (
+                            <span
+                              key={`${workOrder.id}-${badge.label}`}
+                              className={["inline-flex rounded-full px-2 py-1 text-[11px] font-semibold", badgeClasses(badge.tone)].join(" ")}
+                            >
+                              {badge.label}
+                            </span>
+                          ))}
+                        </div>
+                        <p className="text-sm font-semibold text-ink">{title}</p>
+                        <p className="text-sm text-steel">Postęp partii: {getStageWorkOrderProgressText(workOrder)}</p>
+                        {workOrder.is_correction ? (
+                          <>
+                            <p className="font-medium text-amber-800">{buildCorrectionReference(workOrder, correctionContext)}</p>
+                            <p className="text-amber-700">{buildCorrectionQuantityContext(workOrder, correctionContext)}</p>
+                          </>
+                        ) : null}
+                      </div>
+                    </td>
                     <td className="px-5 py-4 text-steel">
                       <div className="flex flex-wrap gap-2">
                         <span>{getBatchTypeLabel(workOrder.batch_type)}</span>
@@ -345,7 +451,7 @@ export function StageWorkOrdersPage({
                   queueFilter === "ALL" ? "bg-white text-ink shadow-sm" : "text-steel hover:text-accent",
                 ].join(" ")}
               >
-                All
+                Wszystkie
               </button>
               <button
                 type="button"
@@ -355,7 +461,7 @@ export function StageWorkOrdersPage({
                   queueFilter === "NORMAL" ? "bg-white text-ink shadow-sm" : "text-steel hover:text-accent",
                 ].join(" ")}
               >
-                Normal
+                Zwykłe
               </button>
               <button
                 type="button"
@@ -365,7 +471,7 @@ export function StageWorkOrdersPage({
                   queueFilter === "CORRECTIONS" ? "bg-white text-ink shadow-sm" : "text-steel hover:text-accent",
                 ].join(" ")}
               >
-                Corrections
+                Poprawki
               </button>
             </div>
           </div>

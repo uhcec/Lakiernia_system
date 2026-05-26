@@ -5,7 +5,11 @@ from sqlalchemy.orm import Session
 
 from app.database.session import get_db_session
 from app.manager.repository import ManagerRepository
-from app.manager.schemas import WorkOrderPlanAssignRequest, WorkOrderQueuePositionUpdateRequest, WorkOrderQueueReorderRequest
+from app.manager.schemas import (
+    WorkOrderPlanAssignRequest,
+    WorkOrderQueuePositionUpdateRequest,
+    WorkOrderQueueReorderBatchRequest,
+)
 from app.manager.service import ManagerService
 from app.work_orders.schemas import WorkOrderRead
 
@@ -51,7 +55,7 @@ def update_queue_position(
 
 @router.post("/queue/reorder", response_model=list[WorkOrderRead])
 def reorder_queue(
-    payload: list[WorkOrderQueueReorderRequest],
+    payload: WorkOrderQueueReorderBatchRequest,
     service: Annotated[ManagerService, Depends(get_manager_service)],
 ) -> list[WorkOrderRead]:
     return service.reorder_queue(payload)

@@ -8,8 +8,8 @@ export function AutomaticProductionPage() {
       allowManualStart={false}
       readOnly
       readOnlyLabel="Podgląd automatu"
-      title="Produkcja automat"
-      emptyMessage="Brak zleceń do produkcji automat"
+      title="Produkcja: Automat"
+      emptyMessage="Brak zleceń dla automatu"
     />
   );
 }

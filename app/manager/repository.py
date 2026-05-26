@@ -1,6 +1,6 @@
 from collections.abc import Sequence
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.shared.enums import WorkOrderStatus
@@ -93,6 +93,15 @@ class ManagerRepository:
             .order_by(WorkOrder.queue_position.asc(), WorkOrder.id.asc())
         )
         return self.session.scalars(statement).all()
+
+    def get_planned_queue_revision(self):
+        statement = select(func.max(WorkOrder.updated_at)).where(
+            WorkOrder.production_type.is_not(None),
+            WorkOrder.queue_position.is_not(None),
+            WorkOrder.is_incomplete_on_arrival.is_(False),
+            WorkOrder.status != WorkOrderStatus.INCOMPLETE,
+        )
+        return self.session.scalar(statement)
 
     def commit(self) -> None:
         self.session.commit()

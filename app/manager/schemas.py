@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.process.enums import ProductionType
@@ -19,5 +21,12 @@ class WorkOrderQueuePositionUpdateRequest(BaseModel):
 class WorkOrderQueueReorderRequest(BaseModel):
     work_order_id: int = Field(ge=1)
     queue_position: int = Field(ge=1)
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class WorkOrderQueueReorderBatchRequest(BaseModel):
+    queue_revision: datetime
+    items: list[WorkOrderQueueReorderRequest]
 
     model_config = ConfigDict(extra="forbid")

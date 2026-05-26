@@ -10,7 +10,16 @@ import {
   uploadWorkOrderAttachment,
 } from "../api/workOrdersApi";
 import type { WorkOrder, WorkOrderAttachment } from "../types/workOrders";
-import { formatWorkOrderPrimaryInfo } from "../utils/workOrderDisplay";
+import {
+  formatWorkOrderPrimaryInfo,
+  getWorkOrderActiveCorrectionsText,
+  getWorkOrderAttentionBadges,
+  getWorkOrderBadgeStack,
+  getWorkOrderCorrectionContextText,
+  getWorkOrderProgressText,
+  getWorkOrderStatusSummary,
+  type DisplayBadge,
+} from "../utils/workOrderDisplay";
 
 function processStatusClasses(statusValue: WorkOrder["process_status"]["value"]): string {
   switch (statusValue) {
@@ -70,6 +79,23 @@ function formatFileSize(fileSize: number): string {
   }
 
   return `${(fileSize / (1024 * 1024)).toFixed(2)} MB`;
+}
+
+function badgeClasses(tone: DisplayBadge["tone"]): string {
+  switch (tone) {
+    case "info":
+      return "bg-sky-100 text-sky-800";
+    case "warning":
+      return "bg-amber-100 text-amber-800";
+    case "success":
+      return "bg-emerald-100 text-emerald-700";
+    case "accent":
+      return "bg-violet-100 text-violet-800";
+    case "danger":
+      return "bg-rose-100 text-rose-700";
+    case "neutral":
+      return "bg-slate-100 text-slate-700";
+  }
 }
 
 export function WorkOrderDetailPage() {
@@ -258,6 +284,28 @@ export function WorkOrderDetailPage() {
               <p className="mt-2 max-w-3xl text-sm leading-6 text-steel sm:text-base">
                 Podgląd danych biurowych, planowania i aktualnych etapów procesu bez możliwości edycji.
               </p>
+              {workOrder ? (
+                <div className="mt-4 space-y-3">
+                  <div className="flex flex-wrap gap-2">
+                    {[...getWorkOrderBadgeStack(workOrder), ...getWorkOrderAttentionBadges(workOrder)].map((badge) => (
+                      <span
+                        key={`hero-${badge.label}`}
+                        className={["inline-flex rounded-full px-3 py-1 text-xs font-semibold", badgeClasses(badge.tone)].join(" ")}
+                      >
+                        {badge.label}
+                      </span>
+                    ))}
+                  </div>
+                  <p className="text-lg font-semibold text-ink">{getWorkOrderStatusSummary(workOrder)}</p>
+                  <div className="flex flex-wrap gap-3 text-sm text-steel">
+                    <span>Postęp: {getWorkOrderProgressText(workOrder)}</span>
+                    {getWorkOrderActiveCorrectionsText(workOrder) ? <span>{getWorkOrderActiveCorrectionsText(workOrder)}</span> : null}
+                  </div>
+                  {getWorkOrderCorrectionContextText(workOrder) ? (
+                    <p className="text-sm text-amber-700">{getWorkOrderCorrectionContextText(workOrder)}</p>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
           </div>
           <Link
@@ -291,11 +339,14 @@ export function WorkOrderDetailPage() {
                   <dt className="text-sm font-medium text-steel">Dane główne</dt>
                   <dd className="mt-1 flex flex-wrap items-center gap-2 text-base font-semibold text-ink">
                     <span>{formatWorkOrderPrimaryInfo(workOrder)}</span>
-                    {workOrder.is_correction ? (
-                      <span className="inline-flex rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800">
-                        Poprawka
+                    {getWorkOrderBadgeStack(workOrder).map((badge) => (
+                      <span
+                        key={`details-${badge.label}`}
+                        className={["inline-flex rounded-full px-3 py-1 text-xs font-semibold", badgeClasses(badge.tone)].join(" ")}
+                      >
+                        {badge.label}
                       </span>
-                    ) : null}
+                    ))}
                   </dd>
                 </div>
                 <div>
@@ -323,6 +374,14 @@ export function WorkOrderDetailPage() {
                   <dd className="mt-1 text-base text-ink">{workOrder.current_active_quantity}</dd>
                 </div>
                 <div>
+                  <dt className="text-sm font-medium text-steel">Podsumowanie stanu</dt>
+                  <dd className="mt-1 text-base font-semibold text-ink">{getWorkOrderStatusSummary(workOrder)}</dd>
+                </div>
+                <div>
+                  <dt className="text-sm font-medium text-steel">Postęp</dt>
+                  <dd className="mt-1 text-base text-ink">{getWorkOrderProgressText(workOrder)}</dd>
+                </div>
+                <div>
                   <dt className="text-sm font-medium text-steel">Data przyjęcia</dt>
                   <dd className="mt-1 text-base text-ink">{formatDate(workOrder.received_date)}</dd>
                 </div>
@@ -336,7 +395,7 @@ export function WorkOrderDetailPage() {
                 </div>
                 <div>
                   <dt className="text-sm font-medium text-steel">Kompletność przy przyjęciu</dt>
-                  <dd className="mt-1 text-base text-ink">{workOrder.is_incomplete_on_arrival ? "Nie kompletne" : "Kompletne"}</dd>
+                  <dd className="mt-1 text-base text-ink">{workOrder.is_incomplete_on_arrival ? "Niekompletne" : "Kompletne"}</dd>
                 </div>
                 <div>
                   <dt className="text-sm font-medium text-steel">Profile</dt>
@@ -408,19 +467,23 @@ export function WorkOrderDetailPage() {
                 <div className={["mt-6 inline-flex rounded-full px-4 py-2 text-sm font-semibold", processStatusClasses(workOrder.process_status.value)].join(" ")}>
                   {workOrder.process_status.label}
                 </div>
+                <p className="mt-4 text-lg font-semibold text-ink">{getWorkOrderStatusSummary(workOrder)}</p>
+                {getWorkOrderActiveCorrectionsText(workOrder) ? (
+                  <p className="mt-2 text-sm text-rose-700">{getWorkOrderActiveCorrectionsText(workOrder)}</p>
+                ) : null}
                 <div className="mt-6 grid gap-3 sm:grid-cols-3">
                   <div className="rounded-3xl border border-line/80 bg-white p-4">
                     <p className="text-xs font-semibold uppercase tracking-[0.14em] text-steel">Łączny postęp</p>
                     <p className="mt-2 text-2xl font-semibold text-ink">
-                      {workOrder.total_progress_quantity} / {workOrder.total_quantity}
+                      {getWorkOrderProgressText(workOrder)}
                     </p>
                   </div>
                   <div className="rounded-3xl border border-line/80 bg-white p-4">
-                    <p className="text-xs font-semibold uppercase tracking-[0.14em] text-steel">OK czeka</p>
+                    <p className="text-xs font-semibold uppercase tracking-[0.14em] text-steel">OK w oczekiwaniu</p>
                     <p className="mt-2 text-2xl font-semibold text-ink">{workOrder.waiting_ok_quantity}</p>
                   </div>
                   <div className="rounded-3xl border border-line/80 bg-white p-4">
-                    <p className="text-xs font-semibold uppercase tracking-[0.14em] text-steel">Poprawki otwarte</p>
+                    <p className="text-xs font-semibold uppercase tracking-[0.14em] text-steel">Poprawki w toku</p>
                     <p className="mt-2 text-2xl font-semibold text-ink">{workOrder.pending_correction_quantity}</p>
                   </div>
                 </div>

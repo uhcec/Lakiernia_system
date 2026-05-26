@@ -1,5 +1,7 @@
 from collections.abc import Sequence
+from contextlib import contextmanager
 from datetime import UTC, datetime
+from threading import RLock
 
 from app.process.enums import CoatingType, ProcessDisplayStatus, ProcessStage, ProductionType, QuantityBatchType, StageStatus
 from app.process.models import WorkOrderQuantityBatch, WorkOrderStageState
@@ -9,6 +11,10 @@ from app.shared.enums import QueueNamespace, WorkOrderStatus
 from app.shared.exceptions import InvalidProcessStageTransitionError, ResourceNotFoundError
 from app.work_orders.models import WorkOrder
 from app.work_orders.schemas import build_coating_type_view, build_production_type_view, build_queue_namespace_view
+
+
+_PROCESS_MUTATION_LOCKS: dict[int, RLock] = {}
+_PROCESS_MUTATION_LOCKS_GUARD = RLock()
 
 
 class ProcessService:
@@ -170,51 +176,61 @@ class ProcessService:
         return self._to_stage_work_order_read(work_order, stage)
 
     def finish_stage(self, work_order_id: int, stage: ProcessStage, batch_id: int | None = None) -> ProcessStageWorkOrderRead:
-        work_order = self.get_work_order_process(work_order_id)
-        target_batch = self._resolve_batch_for_stage(work_order, stage, batch_id)
-        if target_batch is not None:
-            return self._finish_tracked_batch_stage(work_order, target_batch, stage)
+        with self._serialize_process_mutation(work_order_id):
+            work_order = self.get_work_order_process(work_order_id)
+            target_batch = self._resolve_batch_for_stage(work_order, stage, batch_id)
+            if target_batch is not None:
+                return self._finish_tracked_batch_stage(work_order, target_batch, stage)
 
-        if self._is_automatic_production_preview_stage(work_order, stage):
-            raise InvalidProcessStageTransitionError(
-                "Automatic production is preview-only. Start the process from HANGING and finish it from PACKING."
-            )
+            if self._is_automatic_production_preview_stage(work_order, stage):
+                raise InvalidProcessStageTransitionError(
+                    "Automatic production is preview-only. Start the process from HANGING and finish it from PACKING."
+                )
 
-        if stage == ProcessStage.PACKING:
-            return self.complete_packing(
-                work_order_id,
-                counted_quantity=work_order.current_active_quantity,
-                ok_quantity=work_order.current_active_quantity,
-                correction_quantity=0,
-            )
+            stage_state = self._get_stage_state(work_order, stage)
+            if stage_state.status == StageStatus.DONE:
+                return self._to_stage_work_order_read(work_order, stage)
 
-        self.transition_stage(work_order_id, stage, StageStatus.DONE)
-        work_order = self.get_work_order_process(work_order_id)
+            if stage == ProcessStage.PACKING:
+                return self.complete_packing(
+                    work_order_id,
+                    counted_quantity=work_order.current_active_quantity,
+                    ok_quantity=work_order.current_active_quantity,
+                    correction_quantity=0,
+                )
 
-        if stage == ProcessStage.DECORAL_PRODUCTION:
-            active_quantity = work_order.current_active_quantity
-            if active_quantity > 0:
-                work_order.completed_quantity += active_quantity
-                active_batch = work_order.active_batch
-                if active_batch is not None:
-                    active_batch.is_active = False
-                work_order.current_active_batch_id = None
-                try:
-                    self.repository.commit()
-                except Exception:
-                    self.repository.rollback()
-                    raise
-                work_order = self.get_work_order_process(work_order_id)
+            self.transition_stage(work_order_id, stage, StageStatus.DONE)
+            work_order = self.get_work_order_process(work_order_id)
 
-                finalized_work_order = self._finalize_completion_chain_if_ready(work_order)
-                if finalized_work_order is not None:
+            if stage == ProcessStage.DECORAL_PRODUCTION:
+                active_quantity = work_order.current_active_quantity
+                if active_quantity > 0:
+                    work_order.completed_quantity += active_quantity
+                    active_batch = work_order.active_batch
+                    if active_batch is not None:
+                        active_batch.is_active = False
+                    work_order.current_active_batch_id = None
+                    try:
+                        self.repository.commit()
+                    except Exception:
+                        self.repository.rollback()
+                        raise
                     work_order = self.get_work_order_process(work_order_id)
 
-        return self._to_stage_work_order_read(work_order, stage)
+                    finalized_work_order = self._finalize_completion_chain_if_ready(work_order)
+                    if finalized_work_order is not None:
+                        work_order = self.get_work_order_process(work_order_id)
 
-    def reopen_stage(self, work_order_id: int, stage: ProcessStage) -> ProcessStageWorkOrderRead:
+            return self._to_stage_work_order_read(work_order, stage)
+
+    def reopen_stage(
+        self,
+        work_order_id: int,
+        stage: ProcessStage,
+        batch_id: int | None = None,
+    ) -> ProcessStageWorkOrderRead:
         work_order = self.get_work_order_process(work_order_id)
-        target_batch = self._resolve_batch_for_stage(work_order, stage, None)
+        target_batch = self._resolve_batch_for_stage(work_order, stage, batch_id)
         if target_batch is not None:
             return self._reopen_tracked_batch_stage(work_order, target_batch, stage)
 
@@ -252,95 +268,95 @@ class ProcessService:
         correction_quantity: int,
         batch_id: int | None = None,
     ) -> ProcessStageWorkOrderRead:
-        work_order = self.get_work_order_process(work_order_id)
-        target_batch = self._resolve_batch_for_stage(work_order, ProcessStage.PACKING, batch_id)
-        if target_batch is not None:
-            return self._complete_tracked_batch_packing(
-                work_order,
-                target_batch,
-                counted_quantity=counted_quantity,
-                ok_quantity=ok_quantity,
-                correction_quantity=correction_quantity,
-            )
+        with self._serialize_process_mutation(work_order_id):
+            work_order = self.get_work_order_process(work_order_id)
+            target_batch = self._resolve_batch_for_stage(work_order, ProcessStage.PACKING, batch_id)
+            if target_batch is not None:
+                return self._complete_tracked_batch_packing(
+                    work_order,
+                    target_batch,
+                    counted_quantity=counted_quantity,
+                    ok_quantity=ok_quantity,
+                    correction_quantity=correction_quantity,
+                )
 
-        packing_state = self._get_stage_state(work_order, ProcessStage.PACKING)
-        hanging_state = self._get_stage_state(work_order, ProcessStage.HANGING)
+            packing_state = self._get_stage_state(work_order, ProcessStage.PACKING)
+            hanging_state = self._get_stage_state(work_order, ProcessStage.HANGING)
 
-        if packing_state.status != StageStatus.IN_PROGRESS:
-            raise InvalidProcessStageTransitionError("Packing can be completed only from IN_PROGRESS state.")
+            if packing_state.status == StageStatus.DONE:
+                return self._to_idempotent_packing_response(work_order)
 
-        active_batch = work_order.active_batch
-        if active_batch is None:
-            raise InvalidProcessStageTransitionError("No active quantity batch available for packing.")
+            if packing_state.status != StageStatus.IN_PROGRESS:
+                raise InvalidProcessStageTransitionError("Packing can be completed only from IN_PROGRESS state.")
 
-        if ok_quantity + correction_quantity != counted_quantity:
-            raise InvalidProcessStageTransitionError(
-                "Packing quantities must add up to the counted quantity."
-            )
+            active_batch = work_order.active_batch
+            if active_batch is None:
+                raise InvalidProcessStageTransitionError("No active quantity batch available for packing.")
 
-        if ok_quantity < 0 or correction_quantity < 0:
-            raise InvalidProcessStageTransitionError("Packing quantities cannot be negative.")
+            if ok_quantity + correction_quantity != counted_quantity:
+                raise InvalidProcessStageTransitionError(
+                    "Packing quantities must add up to the counted quantity."
+                )
 
-        planned_quantity = active_batch.quantity
-        if counted_quantity != planned_quantity:
-            raise InvalidProcessStageTransitionError(
-                "Policzona ilość różni się od planowanej. Wyjaśnij brakujące sztuki."
-            )
+            if ok_quantity < 0 or correction_quantity < 0:
+                raise InvalidProcessStageTransitionError("Packing quantities cannot be negative.")
 
-        packing_state.counted_quantity = counted_quantity
-        packing_state.updated_at = datetime.now(UTC)
+            planned_quantity = active_batch.quantity
+            if counted_quantity != planned_quantity:
+                raise InvalidProcessStageTransitionError(
+                    "Policzona ilość różni się od planowanej. Wyjaśnij brakujące sztuki."
+                )
 
-        production_state = self._get_stage_state(work_order, ProcessStage.PRODUCTION)
-        if work_order.production_type == ProductionType.AUTOMATIC and hanging_state.status == StageStatus.IN_PROGRESS:
-            hanging_state.status = StageStatus.DONE
-            hanging_state.updated_at = datetime.now(UTC)
-
-        if correction_quantity > 0:
-            response_stage, response_batch = self._complete_packing_with_correction_order(
-                work_order,
-                active_batch,
-                packing_state,
-                production_state,
-                planned_quantity=planned_quantity,
-                ok_quantity=ok_quantity,
-                correction_quantity=correction_quantity,
-            )
-            self._commit_process_changes()
-            refreshed_work_order = self.get_work_order_process(work_order_id)
-            if response_batch is not None:
-                refreshed_batch = self._get_batch(refreshed_work_order, response_batch.id)
-                return self._to_stage_work_order_read(refreshed_work_order, response_stage, batch=refreshed_batch)
-            return self._to_stage_work_order_read(refreshed_work_order, response_stage)
-        else:
-            packing_state.status = StageStatus.DONE
+            packing_state.counted_quantity = counted_quantity
             packing_state.updated_at = datetime.now(UTC)
-            if work_order.coating_type == CoatingType.RAL:
-                work_order.completed_quantity += ok_quantity
-                work_order.current_active_batch_id = None
-                active_batch.is_active = False
 
-        if work_order.production_type == ProductionType.AUTOMATIC:
-            production_state.status = StageStatus.DONE
-            production_state.updated_at = datetime.now(UTC)
+            production_state = self._get_stage_state(work_order, ProcessStage.PRODUCTION)
+            if work_order.production_type == ProductionType.AUTOMATIC and hanging_state.status == StageStatus.IN_PROGRESS:
+                hanging_state.status = StageStatus.DONE
+                hanging_state.updated_at = datetime.now(UTC)
 
-        if work_order.coating_type == CoatingType.DECORAL and correction_quantity == 0:
-            active_batch.is_active = True
+            if correction_quantity > 0:
+                response_stage, response_batch = self._complete_packing_with_correction_order(
+                    work_order,
+                    active_batch,
+                    packing_state,
+                    production_state,
+                    planned_quantity=planned_quantity,
+                    ok_quantity=ok_quantity,
+                    correction_quantity=correction_quantity,
+                )
+                self._commit_process_changes()
+                refreshed_work_order = self.get_work_order_process(work_order_id)
+                if response_batch is not None:
+                    refreshed_batch = self._get_batch(refreshed_work_order, response_batch.id)
+                    return self._to_stage_work_order_read(refreshed_work_order, response_stage, batch=refreshed_batch)
+                return self._to_stage_work_order_read(refreshed_work_order, response_stage)
+            else:
+                packing_state.status = StageStatus.DONE
+                packing_state.updated_at = datetime.now(UTC)
+                if work_order.coating_type == CoatingType.RAL:
+                    work_order.completed_quantity += ok_quantity
+                    work_order.current_active_batch_id = None
+                    active_batch.is_active = False
 
-        try:
-            self.repository.commit()
-        except Exception:
-            self.repository.rollback()
-            raise
+            if work_order.production_type == ProductionType.AUTOMATIC:
+                production_state.status = StageStatus.DONE
+                production_state.updated_at = datetime.now(UTC)
 
-        refreshed_work_order = self.get_work_order_process(work_order_id)
-        finalized_work_order = self._finalize_completion_chain_if_ready(refreshed_work_order)
-        if finalized_work_order is not None:
+            if work_order.coating_type == CoatingType.DECORAL and correction_quantity == 0:
+                active_batch.is_active = True
+
+            try:
+                self.repository.commit()
+            except Exception:
+                self.repository.rollback()
+                raise
+
             refreshed_work_order = self.get_work_order_process(work_order_id)
-        if refreshed_work_order.coating_type == CoatingType.DECORAL:
-            return_stage = ProcessStage.DECORAL_PRODUCTION
-        else:
-            return_stage = ProcessStage.PACKING
-        return self._to_stage_work_order_read(refreshed_work_order, return_stage)
+            finalized_work_order = self._finalize_completion_chain_if_ready(refreshed_work_order)
+            if finalized_work_order is not None:
+                refreshed_work_order = self.get_work_order_process(work_order_id)
+            return self._to_idempotent_packing_response(refreshed_work_order)
 
     def list_visible_work_orders(
         self,
@@ -722,6 +738,9 @@ class ProcessService:
             raise InvalidProcessStageTransitionError(
                 "Automatic production is preview-only. Start the process from HANGING and finish it from PACKING."
             )
+        if self._has_tracked_batch_already_finished_stage(work_order, batch, stage):
+            response_stage = batch.current_stage or stage
+            return self._to_stage_work_order_read(work_order, response_stage, batch=batch)
         if batch.current_stage != stage or batch.current_stage_status != StageStatus.IN_PROGRESS:
             raise InvalidProcessStageTransitionError(
                 f"Cannot transition stage {stage.value} from {batch.current_stage_status.value if batch.current_stage_status else 'UNKNOWN'} to DONE."
@@ -772,7 +791,10 @@ class ProcessService:
                 f"Cannot reopen stage {stage.value} from {batch.current_stage_status.value if batch.current_stage_status else 'UNKNOWN'}."
             )
 
-        batch.current_stage_status = StageStatus.IN_PROGRESS if batch.current_stage_status == StageStatus.DONE else StageStatus.NOT_STARTED
+        if batch.current_stage_status == StageStatus.DONE:
+            raise InvalidProcessStageTransitionError("Finished tracked batches cannot be reopened.")
+
+        batch.current_stage_status = StageStatus.NOT_STARTED
         batch.is_active = True
         self._sync_legacy_current_active_batch(work_order)
         self._commit_process_changes()
@@ -789,6 +811,9 @@ class ProcessService:
         ok_quantity: int,
         correction_quantity: int,
     ) -> ProcessStageWorkOrderRead:
+        if batch.current_stage == ProcessStage.PACKING and batch.current_stage_status == StageStatus.DONE:
+            return self._to_stage_work_order_read(work_order, ProcessStage.PACKING, batch=batch)
+
         is_automatic_hanging_in_progress = (
             work_order.production_type == ProductionType.AUTOMATIC
             and batch.current_stage == ProcessStage.HANGING
@@ -1124,3 +1149,43 @@ class ProcessService:
                 status=stage_status,
             ),
         )
+
+    @staticmethod
+    def _get_process_mutation_lock(work_order_id: int) -> RLock:
+        with _PROCESS_MUTATION_LOCKS_GUARD:
+            lock = _PROCESS_MUTATION_LOCKS.get(work_order_id)
+            if lock is None:
+                lock = RLock()
+                _PROCESS_MUTATION_LOCKS[work_order_id] = lock
+            return lock
+
+    @contextmanager
+    def _serialize_process_mutation(self, work_order_id: int):
+        lock = self._get_process_mutation_lock(work_order_id)
+        lock.acquire()
+        try:
+            yield
+        finally:
+            lock.release()
+
+    def _to_idempotent_packing_response(self, work_order: WorkOrder) -> ProcessStageWorkOrderRead:
+        return_stage = ProcessStage.DECORAL_PRODUCTION if work_order.coating_type == CoatingType.DECORAL else ProcessStage.PACKING
+        return self._to_stage_work_order_read(work_order, return_stage)
+
+    def _has_tracked_batch_already_finished_stage(
+        self,
+        work_order: WorkOrder,
+        batch: WorkOrderQuantityBatch,
+        stage: ProcessStage,
+    ) -> bool:
+        if batch.current_stage == stage and batch.current_stage_status == StageStatus.DONE:
+            return True
+
+        if batch.current_stage is None:
+            return False
+
+        stage_sequence = self.get_actionable_stage_sequence_for_work_order(work_order)
+        if stage not in stage_sequence or batch.current_stage not in stage_sequence:
+            return False
+
+        return stage_sequence.index(batch.current_stage) > stage_sequence.index(stage)

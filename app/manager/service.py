@@ -1,9 +1,19 @@
 from datetime import UTC, datetime
 
+from threading import RLock
+
+from sqlalchemy.exc import IntegrityError
+
+from app.process.enums import ProcessDisplayStatus
 from app.process.repository import ProcessRepository
 from app.process.service import ProcessService
 from app.manager.repository import ManagerRepository
-from app.manager.schemas import WorkOrderPlanAssignRequest, WorkOrderQueuePositionUpdateRequest, WorkOrderQueueReorderRequest
+from app.manager.schemas import (
+    WorkOrderPlanAssignRequest,
+    WorkOrderQueuePositionUpdateRequest,
+    WorkOrderQueueReorderBatchRequest,
+    WorkOrderQueueReorderRequest,
+)
 from app.shared.enums import WorkOrderStatus
 from app.shared.exceptions import InvalidManagerPlanningError, ResourceNotFoundError
 from app.work_orders.models import WorkOrder
@@ -24,6 +34,9 @@ from app.work_orders.schemas import (
 from app.work_orders.service import WorkOrderService
 
 
+_QUEUE_MUTATION_LOCK = RLock()
+
+
 class ManagerService:
     def __init__(self, repository: ManagerRepository) -> None:
         self.repository = repository
@@ -36,86 +49,129 @@ class ManagerService:
         return [self._to_read_model(work_order) for work_order in self.repository.list_planned_work_orders()]
 
     def assign_plan(self, work_order_id: int, payload: WorkOrderPlanAssignRequest) -> WorkOrderRead:
-        work_order = self._get_existing_work_order(work_order_id)
-        if self._is_planned(work_order):
-            raise InvalidManagerPlanningError(f"Work order {work_order_id} is already planned.")
-        if self._has_incomplete_marker(work_order):
-            raise InvalidManagerPlanningError("Cannot plan incomplete order. Mark as complete first.")
-        self._ensure_queue_position_available(payload.queue_position)
+        with _QUEUE_MUTATION_LOCK:
+            work_order = self._get_existing_work_order(work_order_id)
+            if self._is_planned(work_order):
+                raise InvalidManagerPlanningError(f"Work order {work_order_id} is already planned.")
+            if self._has_incomplete_marker(work_order):
+                raise InvalidManagerPlanningError("Cannot plan incomplete order. Mark as complete first.")
+            self._ensure_queue_position_available(payload.queue_position)
 
-        work_order.production_type = payload.production_type
-        work_order.queue_position = payload.queue_position
-        work_order.updated_at = datetime.now(UTC)
-        self.process_service.prepare_correction_work_order_for_planning(work_order)
+            work_order.production_type = payload.production_type
+            work_order.queue_position = payload.queue_position
+            work_order.updated_at = datetime.now(UTC)
+            self.process_service.prepare_correction_work_order_for_planning(work_order)
 
-        try:
-            self.repository.commit()
-        except Exception:
-            self.repository.rollback()
-            raise
+            try:
+                self.repository.commit()
+            except IntegrityError as exc:
+                self.repository.rollback()
+                raise InvalidManagerPlanningError(
+                    f"Queue position {payload.queue_position} is already taken."
+                ) from exc
+            except Exception:
+                self.repository.rollback()
+                raise
 
-        return self._to_read_model(work_order)
+            return self._to_read_model(work_order)
 
     def update_queue_position(
         self,
         work_order_id: int,
         payload: WorkOrderQueuePositionUpdateRequest,
     ) -> WorkOrderRead:
-        work_order = self._get_existing_work_order(work_order_id)
-        if not self._is_planned(work_order):
-            raise InvalidManagerPlanningError(f"Work order {work_order_id} must be planned before updating queue position.")
-        self._ensure_queue_position_available(
-            payload.queue_position,
-            exclude_work_order_id=work_order_id,
-        )
+        with _QUEUE_MUTATION_LOCK:
+            work_order = self._get_existing_work_order(work_order_id)
+            if not self._is_planned(work_order):
+                raise InvalidManagerPlanningError(f"Work order {work_order_id} must be planned before updating queue position.")
+            self._ensure_queue_position_available(
+                payload.queue_position,
+                exclude_work_order_id=work_order_id,
+            )
 
-        work_order.queue_position = payload.queue_position
-        work_order.updated_at = datetime.now(UTC)
+            work_order.queue_position = payload.queue_position
+            work_order.updated_at = datetime.now(UTC)
 
-        try:
-            self.repository.commit()
-        except Exception:
-            self.repository.rollback()
-            raise
+            try:
+                self.repository.commit()
+            except IntegrityError as exc:
+                self.repository.rollback()
+                raise InvalidManagerPlanningError(
+                    f"Queue position {payload.queue_position} is already taken."
+                ) from exc
+            except Exception:
+                self.repository.rollback()
+                raise
 
-        return self._to_read_model(work_order)
+            return self._to_read_model(work_order)
 
-    def reorder_queue(self, payload: list[WorkOrderQueueReorderRequest]) -> list[WorkOrderRead]:
-        if not payload:
+    def reorder_queue(self, payload: WorkOrderQueueReorderBatchRequest) -> list[WorkOrderRead]:
+        items = payload.items
+        if not items:
             return self.list_planned_work_orders()
 
-        work_order_ids = [item.work_order_id for item in payload]
-        queue_positions = [item.queue_position for item in payload]
+        with _QUEUE_MUTATION_LOCK:
+            current_revision = self.repository.get_planned_queue_revision()
+            if current_revision is not None and payload.queue_revision != current_revision:
+                raise InvalidManagerPlanningError("Queue reorder payload is stale. Refresh the manager queue and try again.")
 
-        if len(set(work_order_ids)) != len(work_order_ids):
-            raise InvalidManagerPlanningError("Queue reorder payload cannot contain duplicate work order IDs.")
-        if len(set(queue_positions)) != len(queue_positions):
-            raise InvalidManagerPlanningError("Queue reorder payload cannot contain duplicate queue positions.")
+            work_order_ids = [item.work_order_id for item in items]
+            queue_positions = [item.queue_position for item in items]
 
-        existing_work_orders = {work_order.id: work_order for work_order in self.repository.list_by_ids(work_order_ids)}
-        missing_ids = [work_order_id for work_order_id in work_order_ids if work_order_id not in existing_work_orders]
-        if missing_ids:
-            missing_id = missing_ids[0]
-            raise ResourceNotFoundError(f"Work order {missing_id} not found.")
+            if len(set(work_order_ids)) != len(work_order_ids):
+                raise InvalidManagerPlanningError("Queue reorder payload cannot contain duplicate work order IDs.")
+            if len(set(queue_positions)) != len(queue_positions):
+                raise InvalidManagerPlanningError("Queue reorder payload cannot contain duplicate queue positions.")
 
-        now = datetime.now(UTC)
-        for item in payload:
-            work_order = existing_work_orders[item.work_order_id]
-            if not self._is_planned(work_order):
-                raise InvalidManagerPlanningError(
-                    f"Work order {item.work_order_id} must be planned before reordering the queue."
-                )
+            existing_work_orders = {work_order.id: work_order for work_order in self.repository.list_by_ids(work_order_ids)}
+            missing_ids = [work_order_id for work_order_id in work_order_ids if work_order_id not in existing_work_orders]
+            if missing_ids:
+                missing_id = missing_ids[0]
+                raise ResourceNotFoundError(f"Work order {missing_id} not found.")
 
-            work_order.queue_position = item.queue_position
-            work_order.updated_at = now
+            planned_work_orders = list(self.repository.list_planned_work_orders())
+            omitted_work_orders = [work_order for work_order in planned_work_orders if work_order.id not in existing_work_orders]
+            omitted_active_work_orders = [
+                work_order
+                for work_order in omitted_work_orders
+                if self.process_service.get_display_status(work_order) != ProcessDisplayStatus.READY
+            ]
+            if omitted_active_work_orders:
+                raise InvalidManagerPlanningError("Queue reorder payload must include all active planned work orders.")
 
-        try:
-            self.repository.commit()
-        except Exception:
-            self.repository.rollback()
-            raise
+            omitted_completed_work_orders = [
+                work_order
+                for work_order in omitted_work_orders
+                if self.process_service.get_display_status(work_order) == ProcessDisplayStatus.READY
+            ]
 
-        return self.list_planned_work_orders()
+            now = datetime.now(UTC)
+            for item in items:
+                work_order = existing_work_orders[item.work_order_id]
+                if not self._is_planned(work_order):
+                    raise InvalidManagerPlanningError(
+                        f"Work order {item.work_order_id} must be planned before reordering the queue."
+                    )
+
+                work_order.queue_position = item.queue_position
+                work_order.updated_at = now
+
+            next_queue_position = max(queue_positions, default=0) + 1
+            for work_order in omitted_completed_work_orders:
+                work_order.queue_position = next_queue_position
+                work_order.updated_at = now
+                next_queue_position += 1
+
+            try:
+                self.repository.commit()
+            except IntegrityError as exc:
+                self.repository.rollback()
+                raise InvalidManagerPlanningError("Queue reorder conflicts with current queue state.") from exc
+            except Exception:
+                self.repository.rollback()
+                raise
+
+            return self.list_planned_work_orders()
 
     def _get_existing_work_order(self, work_order_id: int) -> WorkOrder:
         work_order = self.repository.get_by_id(work_order_id)

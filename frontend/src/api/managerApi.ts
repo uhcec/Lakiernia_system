@@ -1,5 +1,14 @@
-import type { AssignWorkOrderPlanRequest, ReorderQueueItemRequest, UpdateQueuePositionRequest } from "../types/manager";
+import type { AssignWorkOrderPlanRequest, ReorderQueueRequest, UpdateQueuePositionRequest } from "../types/manager";
 import type { WorkOrder } from "../types/workOrders";
+
+const STALE_QUEUE_REVISION_DETAIL = "Queue reorder payload is stale. Refresh the manager queue and try again.";
+
+export class StaleQueueRevisionError extends Error {
+  constructor() {
+    super("Kolejka została zmieniona przez innego użytkownika. Odświeżono listę do aktualnego stanu.");
+    this.name = "StaleQueueRevisionError";
+  }
+}
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL?.trim();
 
@@ -92,7 +101,7 @@ export async function updateWorkOrderQueuePosition(
 }
 
 export async function reorderWorkOrderQueue(
-  payload: ReorderQueueItemRequest[],
+  payload: ReorderQueueRequest,
 ): Promise<WorkOrder[]> {
   const response = await fetch(createApiUrl("/manager/queue/reorder"), {
     method: "POST",
@@ -104,7 +113,13 @@ export async function reorderWorkOrderQueue(
   });
 
   if (!response.ok) {
-    throw new Error(await readErrorMessage(response, "Nie udało się zapisać kolejności"));
+    const detail = await readErrorMessage(response, "Nie udało się zapisać kolejności");
+
+    if (response.status === 409 && detail === STALE_QUEUE_REVISION_DETAIL) {
+      throw new StaleQueueRevisionError();
+    }
+
+    throw new Error(detail);
   }
 
   return response.json() as Promise<WorkOrder[]>;

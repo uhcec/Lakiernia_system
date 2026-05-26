@@ -13,7 +13,7 @@ export function AppLayout() {
     }
 
     if (pathname.startsWith("/produkcja-automat")) {
-      return "Produkcja automat";
+      return "Produkcja: Automat";
     }
 
     if (pathname.startsWith("/produkcja-decoral")) {
@@ -116,7 +116,7 @@ export function AppLayout() {
                 ].join(" ")
               }
             >
-              Produkcja automat
+              Produkcja: Automat
             </NavLink>
             <NavLink
               to="/produkcja-decoral"

@@ -1,13 +1,28 @@
-import { DragEvent, FormEvent, useEffect, useState } from "react";
+import { DragEvent, FormEvent, useEffect, useRef, useState } from "react";
 
 import {
   assignWorkOrderPlan,
   fetchPlannedWorkOrders,
   fetchUnplannedWorkOrders,
   reorderWorkOrderQueue,
+  StaleQueueRevisionError,
 } from "../api/managerApi";
 import type { ProductionTypeValue, WorkOrder } from "../types/workOrders";
-import { formatWorkOrderPrimaryInfo } from "../utils/workOrderDisplay";
+import {
+  assignSequentialQueuePositions,
+  buildQueueReorderRequest,
+  getQueueRevisionFromPlannedOrders,
+  moveWorkOrderWithinQueueSlots,
+} from "../utils/queueReorder";
+import {
+  formatWorkOrderPrimaryInfo,
+  getWorkOrderActiveCorrectionsText,
+  getWorkOrderAttentionBadges,
+  getWorkOrderBadgeStack,
+  getWorkOrderProgressText,
+  getWorkOrderStatusSummary,
+  type DisplayBadge,
+} from "../utils/workOrderDisplay";
 
 interface PlanDraft {
   productionType: ProductionTypeValue;
@@ -15,6 +30,12 @@ interface PlanDraft {
 }
 
 type QueueFilter = "ALL" | "NORMAL" | "CORRECTIONS";
+
+interface AuthoritativeQueueSnapshot {
+  active: WorkOrder[];
+  completed: WorkOrder[];
+  queueRevision: string | null;
+}
 
 const productionTypeOptions: Array<{ value: ProductionTypeValue; label: string }> = [
   { value: "MANUAL", label: "Ręczna" },
@@ -50,25 +71,24 @@ function splitPlannedWorkOrders(workOrders: WorkOrder[]) {
   };
 }
 
-function assignQueuePositions(workOrders: WorkOrder[], startPosition = 1): WorkOrder[] {
-  return workOrders.map((workOrder, index) => ({
-    ...workOrder,
-    queue_position: startPosition + index,
+function summarizeQueueOrders(workOrders: WorkOrder[]) {
+  return workOrders.map((workOrder) => ({
+    id: workOrder.id,
+    order_number: workOrder.order_number,
+    queue_position: workOrder.queue_position,
+    is_correction: workOrder.is_correction,
+    process_status: workOrder.process_status.value,
   }));
 }
 
-function moveWorkOrder(workOrders: WorkOrder[], draggedWorkOrderId: number, targetWorkOrderId: number): WorkOrder[] {
-  const draggedIndex = workOrders.findIndex((workOrder) => workOrder.id === draggedWorkOrderId);
-  const targetIndex = workOrders.findIndex((workOrder) => workOrder.id === targetWorkOrderId);
-
-  if (draggedIndex === -1 || targetIndex === -1 || draggedIndex === targetIndex) {
-    return workOrders;
+function logQueueDebug(label: string, payload: unknown) {
+  if (!import.meta.env.DEV) {
+    return;
   }
 
-  const nextWorkOrders = [...workOrders];
-  const [draggedWorkOrder] = nextWorkOrders.splice(draggedIndex, 1);
-  nextWorkOrders.splice(targetIndex, 0, draggedWorkOrder);
-  return assignQueuePositions(nextWorkOrders);
+  console.groupCollapsed(`[queue-debug] ${label}`);
+  console.log(payload);
+  console.groupEnd();
 }
 
 function filterQueueByType(workOrders: WorkOrder[], queueFilter: QueueFilter): WorkOrder[] {
@@ -79,6 +99,48 @@ function filterQueueByType(workOrders: WorkOrder[], queueFilter: QueueFilter): W
     return workOrders.filter((workOrder) => workOrder.is_correction);
   }
   return workOrders;
+}
+
+function buildCorrectionReference(workOrder: WorkOrder): string {
+  if (!workOrder.is_correction) {
+    return "";
+  }
+
+  if (workOrder.parent_order?.order_number) {
+    return `Poprawka do ${workOrder.parent_order.order_number}`;
+  }
+
+  return "Poprawka do zlecenia nadrzędnego";
+}
+
+function buildCorrectionQuantityContext(workOrder: WorkOrder): string {
+  if (!workOrder.is_correction) {
+    return "";
+  }
+
+  const parentQuantity = workOrder.parent_order?.total_quantity;
+  if (typeof parentQuantity === "number") {
+    return `${workOrder.total_quantity} szt. poprawki z ${parentQuantity}`;
+  }
+
+  return `${workOrder.total_quantity} szt. poprawki`;
+}
+
+function badgeClasses(tone: DisplayBadge["tone"]): string {
+  switch (tone) {
+    case "info":
+      return "bg-sky-100 text-sky-800";
+    case "warning":
+      return "bg-amber-100 text-amber-800";
+    case "success":
+      return "bg-emerald-100 text-emerald-700";
+    case "accent":
+      return "bg-violet-100 text-violet-800";
+    case "danger":
+      return "bg-rose-100 text-rose-700";
+    case "neutral":
+      return "bg-slate-100 text-slate-700";
+  }
 }
 
 export function ManagerPanelPage() {
@@ -95,6 +157,8 @@ export function ManagerPanelPage() {
   const [hasPendingQueueChanges, setHasPendingQueueChanges] = useState(false);
   const [draggedWorkOrderId, setDraggedWorkOrderId] = useState<number | null>(null);
   const [showCompleted, setShowCompleted] = useState(false);
+  const [queueRevision, setQueueRevision] = useState<string | null>(null);
+  const authoritativeQueueRef = useRef<AuthoritativeQueueSnapshot | null>(null);
 
   const filteredUnplannedWorkOrders = filterQueueByType(unplannedWorkOrders, queueFilter);
   const filteredActivePlannedWorkOrders = filterQueueByType(activePlannedWorkOrders, queueFilter);
@@ -108,11 +172,28 @@ export function ManagerPanelPage() {
     try {
       const [unplanned, planned] = await Promise.all([fetchUnplannedWorkOrders(), fetchPlannedWorkOrders()]);
       const splitPlanned = splitPlannedWorkOrders(planned);
+      const normalizedActivePlanned = assignSequentialQueuePositions(splitPlanned.active);
+      const normalizedCompletedPlanned = assignSequentialQueuePositions(
+        splitPlanned.completed,
+        normalizedActivePlanned.length + 1,
+      );
+      const nextQueueRevision = getQueueRevisionFromPlannedOrders(planned);
+
+      logQueueDebug("planned orders loaded from API", summarizeQueueOrders(planned));
+      logQueueDebug("normalized active queue", summarizeQueueOrders(normalizedActivePlanned));
+      logQueueDebug("normalized completed queue", summarizeQueueOrders(normalizedCompletedPlanned));
+
       setUnplannedWorkOrders(unplanned);
-      setActivePlannedWorkOrders(assignQueuePositions(splitPlanned.active));
-      setCompletedPlannedWorkOrders(splitPlanned.completed);
+      setActivePlannedWorkOrders(normalizedActivePlanned);
+      setCompletedPlannedWorkOrders(normalizedCompletedPlanned);
+      setQueueRevision(nextQueueRevision);
       setPlanDrafts(createPlanDrafts(unplanned));
       setHasPendingQueueChanges(false);
+      authoritativeQueueRef.current = {
+        active: normalizedActivePlanned,
+        completed: normalizedCompletedPlanned,
+        queueRevision: nextQueueRevision,
+      };
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "Nie udało się pobrać panelu kierownika");
     } finally {
@@ -123,6 +204,14 @@ export function ManagerPanelPage() {
   useEffect(() => {
     void loadManagerData();
   }, []);
+
+  useEffect(() => {
+    logQueueDebug("visible filtered list", {
+      filter: queueFilter,
+      active: summarizeQueueOrders(filteredActivePlannedWorkOrders),
+      completed: summarizeQueueOrders(filteredCompletedPlannedWorkOrders),
+    });
+  }, [queueFilter, filteredActivePlannedWorkOrders, filteredCompletedPlannedWorkOrders]);
 
   function updatePlanDraft(workOrderId: number, patch: Partial<PlanDraft>) {
     setPlanDrafts((current) => ({
@@ -166,26 +255,43 @@ export function ManagerPanelPage() {
   }
 
   async function saveQueueOrder(workOrders: WorkOrder[]) {
-    const payload = [
-      ...workOrders.map((workOrder, index) => ({
-        work_order_id: workOrder.id,
-        queue_position: index + 1,
-      })),
-      ...completedPlannedWorkOrders.map((workOrder, index) => ({
-        work_order_id: workOrder.id,
-        queue_position: workOrders.length + index + 1,
-      })),
-    ];
+    if (!queueRevision) {
+      setHasPendingQueueChanges(true);
+      setErrorMessage("Nie udało się odczytać wersji kolejki. Odśwież panel kierownika i spróbuj ponownie.");
+      return;
+    }
+
+    const payload = buildQueueReorderRequest(workOrders, queueRevision);
+
+    logQueueDebug("payload sent to /manager/queue/reorder", payload);
 
     setIsSavingQueueOrder(true);
     setErrorMessage(null);
     setSuccessMessage(null);
 
     try {
-      await reorderWorkOrderQueue(payload);
+      const response = await reorderWorkOrderQueue(payload);
+      logQueueDebug("backend response from /manager/queue/reorder", summarizeQueueOrders(response));
       await loadManagerData();
       setSuccessMessage("Kolejność została zaktualizowana");
     } catch (error) {
+      logQueueDebug("backend error from /manager/queue/reorder", error instanceof Error ? error.message : error);
+
+      if (error instanceof StaleQueueRevisionError) {
+        const authoritativeQueue = authoritativeQueueRef.current;
+
+        if (authoritativeQueue) {
+          setActivePlannedWorkOrders(authoritativeQueue.active);
+          setCompletedPlannedWorkOrders(authoritativeQueue.completed);
+          setQueueRevision(authoritativeQueue.queueRevision);
+        }
+
+        setHasPendingQueueChanges(false);
+        await loadManagerData();
+        setErrorMessage(error.message);
+        return;
+      }
+
       setHasPendingQueueChanges(true);
       setErrorMessage(error instanceof Error ? error.message : "Nie udało się zmienić kolejności");
     } finally {
@@ -227,7 +333,8 @@ export function ManagerPanelPage() {
       return;
     }
 
-    const reorderedWorkOrders = moveWorkOrder(activePlannedWorkOrders, draggedWorkOrderId, targetWorkOrderId);
+    const reorderedWorkOrders = moveWorkOrderWithinQueueSlots(activePlannedWorkOrders, draggedWorkOrderId, targetWorkOrderId);
+    logQueueDebug("drag result order", summarizeQueueOrders(reorderedWorkOrders));
     setDraggedWorkOrderId(null);
 
     if (reorderedWorkOrders === activePlannedWorkOrders) {
@@ -255,7 +362,11 @@ export function ManagerPanelPage() {
               onDragEnd={handleQueueDragEnd}
               className={[
                 "flex cursor-grab flex-col gap-4 rounded-3xl border bg-white p-5 transition sm:flex-row sm:items-center sm:justify-between",
-                isDragged ? "border-accent/60 bg-mist/60 opacity-70" : "border-line/80",
+                workOrder.is_correction
+                  ? "border-amber-300 bg-amber-50/60"
+                  : isDragged
+                    ? "border-accent/60 bg-mist/60 opacity-70"
+                    : "border-line/80",
               ].join(" ")}
             >
               <div className="flex items-start gap-4">
@@ -265,11 +376,39 @@ export function ManagerPanelPage() {
                 <div className="space-y-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <p className="text-xs font-semibold uppercase tracking-[0.14em] text-accent">{workOrder.order_number}</p>
+                    {workOrder.is_correction ? (
+                      <span className="inline-flex rounded-full bg-amber-100 px-2 py-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-amber-800">
+                        POPRAWKA
+                      </span>
+                    ) : null}
                     <span className="inline-flex rounded-full bg-white px-2 py-1 text-[11px] font-semibold text-steel shadow-sm">
-                      {isAllQueueFilter ? "Przeciągnij, aby zmienić kolejność" : "Zmień filtr na All, aby zmieniać kolejność"}
+                      {isAllQueueFilter
+                        ? "Przeciągnij, aby zmienić kolejność"
+                        : "Przełącz na Wszystkie, aby zmieniać kolejność"}
                     </span>
                   </div>
                   <h4 className="text-lg font-semibold text-ink">{formatWorkOrderPrimaryInfo(workOrder)}</h4>
+                  <div className="flex flex-wrap gap-2">
+                    {[...getWorkOrderBadgeStack(workOrder), ...getWorkOrderAttentionBadges(workOrder)].map((badge) => (
+                      <span
+                        key={`${workOrder.id}-${badge.label}`}
+                        className={["inline-flex rounded-full px-2 py-1 text-[11px] font-semibold", badgeClasses(badge.tone)].join(" ")}
+                      >
+                        {badge.label}
+                      </span>
+                    ))}
+                  </div>
+                  <p className="text-sm font-semibold text-ink">{getWorkOrderStatusSummary(workOrder)}</p>
+                  <p className="text-sm text-steel">Postęp: {getWorkOrderProgressText(workOrder)}</p>
+                  {workOrder.is_correction ? (
+                    <div className="space-y-1 text-sm">
+                      <p className="font-medium text-amber-800">{buildCorrectionReference(workOrder)}</p>
+                      <p className="text-amber-700">{buildCorrectionQuantityContext(workOrder)}</p>
+                    </div>
+                  ) : null}
+                  {getWorkOrderActiveCorrectionsText(workOrder) ? (
+                    <p className="text-sm text-rose-700">{getWorkOrderActiveCorrectionsText(workOrder)}</p>
+                  ) : null}
                 </div>
               </div>
 
@@ -277,6 +416,11 @@ export function ManagerPanelPage() {
                 <span className="inline-flex rounded-full bg-mist px-3 py-1 font-medium text-ink">
                   {getProductionTypeLabel(workOrder.production_type?.value)}
                 </span>
+                {workOrder.is_correction ? (
+                  <span className="inline-flex rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800">
+                    POPRAWKA
+                  </span>
+                ) : null}
                 <span className="font-mono text-base text-accent">::</span>
               </div>
             </article>
@@ -296,6 +440,8 @@ export function ManagerPanelPage() {
                 <th className="px-5 py-4 font-semibold">Pozycja</th>
                 <th className="px-5 py-4 font-semibold">Numer</th>
                 <th className="px-5 py-4 font-semibold">Dane główne</th>
+                <th className="px-5 py-4 font-semibold">Typ zlecenia</th>
+                <th className="px-5 py-4 font-semibold">Kontekst poprawki</th>
                 <th className="px-5 py-4 font-semibold">Typ produkcji</th>
               </tr>
             </thead>
@@ -305,6 +451,18 @@ export function ManagerPanelPage() {
                     <td className="px-5 py-4 font-semibold">{workOrder.queue_position ?? "-"}</td>
                     <td className="px-5 py-4 font-semibold">{workOrder.order_number}</td>
                     <td className="px-5 py-4 text-steel">{formatWorkOrderPrimaryInfo(workOrder)}</td>
+                    <td className="px-5 py-4">
+                      {workOrder.is_correction ? (
+                        <span className="inline-flex rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800">
+                          POPRAWKA
+                        </span>
+                      ) : (
+                        <span className="inline-flex rounded-full bg-mist px-3 py-1 text-xs font-semibold text-ink">Zwykłe</span>
+                      )}
+                    </td>
+                    <td className="px-5 py-4 text-steel">
+                      {workOrder.is_correction ? `${buildCorrectionReference(workOrder)} · ${buildCorrectionQuantityContext(workOrder)}` : "-"}
+                    </td>
                     <td className="px-5 py-4 text-steel">{getProductionTypeLabel(workOrder.production_type?.value)}</td>
                   </tr>
               ))}
@@ -337,7 +495,7 @@ export function ManagerPanelPage() {
                   queueFilter === "ALL" ? "bg-white text-ink shadow-sm" : "text-steel hover:text-accent",
                 ].join(" ")}
               >
-                All
+                Wszystkie
               </button>
               <button
                 type="button"
@@ -347,7 +505,7 @@ export function ManagerPanelPage() {
                   queueFilter === "NORMAL" ? "bg-white text-ink shadow-sm" : "text-steel hover:text-accent",
                 ].join(" ")}
               >
-                Normal
+                Zwykłe
               </button>
               <button
                 type="button"
@@ -357,7 +515,7 @@ export function ManagerPanelPage() {
                   queueFilter === "CORRECTIONS" ? "bg-white text-ink shadow-sm" : "text-steel hover:text-accent",
                 ].join(" ")}
               >
-                Corrections
+                Poprawki
               </button>
             </div>
           </div>
@@ -412,6 +570,30 @@ export function ManagerPanelPage() {
                       <div>
                         <p className="text-xs font-semibold uppercase tracking-[0.14em] text-accent">{workOrder.order_number}</p>
                         <h4 className="mt-2 text-lg font-semibold text-ink">{formatWorkOrderPrimaryInfo(workOrder)}</h4>
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {[...getWorkOrderBadgeStack(workOrder), ...getWorkOrderAttentionBadges(workOrder)].map((badge) => (
+                            <span
+                              key={`${workOrder.id}-${badge.label}`}
+                              className={["inline-flex rounded-full px-2 py-1 text-[11px] font-semibold", badgeClasses(badge.tone)].join(" ")}
+                            >
+                              {badge.label}
+                            </span>
+                          ))}
+                        </div>
+                        <p className="mt-2 text-sm font-semibold text-ink">{getWorkOrderStatusSummary(workOrder)}</p>
+                        <p className="text-sm text-steel">Postęp: {getWorkOrderProgressText(workOrder)}</p>
+                        {workOrder.is_correction ? (
+                          <div className="mt-2 space-y-1 text-sm">
+                            <span className="inline-flex rounded-full bg-amber-100 px-2 py-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-amber-800">
+                              POPRAWKA
+                            </span>
+                            <p className="font-medium text-amber-800">{buildCorrectionReference(workOrder)}</p>
+                            <p className="text-amber-700">{buildCorrectionQuantityContext(workOrder)}</p>
+                          </div>
+                        ) : null}
+                        {getWorkOrderActiveCorrectionsText(workOrder) ? (
+                          <p className="mt-2 text-sm text-rose-700">{getWorkOrderActiveCorrectionsText(workOrder)}</p>
+                        ) : null}
                       </div>
 
                       <div className="grid gap-4 md:grid-cols-[1fr_160px]">
@@ -492,7 +674,7 @@ export function ManagerPanelPage() {
                 </div>
                 {!isAllQueueFilter ? (
                   <div className="rounded-3xl border border-dashed border-line bg-mist px-6 py-6 text-center text-sm text-steel">
-                    Reorder działa dla pełnej kolejki. Przełącz filtr na All, aby zmienić kolejność.
+                    Zmiana kolejności działa dla pełnej kolejki. Przełącz filtr na Wszystkie, aby zmienić kolejność.
                   </div>
                 ) : null}
                 {filteredActivePlannedWorkOrders.length === 0 ? (

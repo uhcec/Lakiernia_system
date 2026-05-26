@@ -223,6 +223,7 @@ def test_automatic_hanging_start_makes_order_visible_in_packing(test_client: Tes
     assert automatic["id"] in [item["id"] for item in production_response.json()]
 
 
+# docs/WORKFLOW.md scenario S02 (RAL + AUTOMATIC + none)
 def test_automatic_packing_can_complete_after_hanging_start(test_client: TestClient) -> None:
     automatic = create_planned_work_order(test_client, title="Automatic pack after hanging start", queue_position=1, production_type="AUTOMATIC")
     advance_to_hanging(test_client, automatic["id"])
@@ -721,6 +722,7 @@ def test_multi_round_correction_chain_marks_original_parent_ready_via_api(test_c
     assert second_child_detail.json()["completed_quantity"] == 1
 
 
+# docs/WORKFLOW.md scenario S06 (RAL + AUTOMATIC + correction after packing)
 def test_automatic_correction_child_can_complete_and_merge_parent_via_api(test_client: TestClient) -> None:
     created = create_planned_work_order(
         test_client,
@@ -790,6 +792,206 @@ def test_original_order_cannot_reopen_production_after_correction_split(test_cli
 
     assert response.status_code == 409
     assert response.json()["detail"] == "Cannot reopen process stages because the work order has no active quantity remaining."
+
+
+def test_duplicate_packing_completion_returns_controlled_success_without_second_child(test_client: TestClient) -> None:
+    created = create_planned_work_order(test_client, title="API duplicate packing completion", queue_position=1)
+    advance_to_packing(test_client, created["id"])
+
+    first_response = complete_packing_request(
+        test_client,
+        created["id"],
+        counted_quantity=100,
+        ok_quantity=90,
+        correction_quantity=10,
+    )
+    second_response = complete_packing_request(
+        test_client,
+        created["id"],
+        counted_quantity=100,
+        ok_quantity=90,
+        correction_quantity=10,
+    )
+    detail = test_client.get(f"/work-orders/{created['id']}")
+    correction_orders = [
+        item
+        for item in test_client.get("/manager/work-orders/unplanned").json()
+        if item["parent_order"]["id"] == created["id"]
+    ]
+
+    assert first_response.status_code == 200
+    assert second_response.status_code == 200
+    assert detail.json()["completed_quantity"] == 0
+    assert detail.json()["current_active_quantity"] == 0
+    assert len(correction_orders) == 1
+
+
+def test_duplicate_decoral_stage_finish_returns_controlled_success_without_double_counting(test_client: TestClient) -> None:
+    created = create_planned_work_order(
+        test_client,
+        title="API duplicate decoral finish",
+        queue_position=1,
+        production_type="MANUAL",
+        coating_type="DECORAL",
+        total_quantity=10,
+    )
+    advance_to_packing(test_client, created["id"])
+    complete_packing_request(
+        test_client,
+        created["id"],
+        counted_quantity=10,
+        ok_quantity=10,
+        correction_quantity=0,
+    )
+
+    start_response = test_client.post(f"/process/work-orders/{created['id']}/stages/DECORAL_PRODUCTION/start")
+    first_response = test_client.post(f"/process/work-orders/{created['id']}/stages/DECORAL_PRODUCTION/finish")
+    second_response = test_client.post(f"/process/work-orders/{created['id']}/stages/DECORAL_PRODUCTION/finish")
+    detail = test_client.get(f"/work-orders/{created['id']}")
+
+    assert start_response.status_code == 200
+    assert first_response.status_code == 200
+    assert second_response.status_code == 200
+    assert detail.json()["completed_quantity"] == 10
+    assert detail.json()["current_active_quantity"] == 0
+    assert detail.json()["process_status"] == {"value": "READY", "label": "Gotowe"}
+
+
+def test_reopen_finished_decoral_tracked_batch_returns_409_and_leaves_quantities_unchanged(test_client: TestClient) -> None:
+    created = create_planned_work_order(
+        test_client,
+        title="API reject reopen finished decoral batch",
+        queue_position=1,
+        production_type="MANUAL",
+        coating_type="DECORAL",
+        total_quantity=10,
+    )
+    advance_to_packing(test_client, created["id"])
+    split_response = complete_packing_request(
+        test_client,
+        created["id"],
+        counted_quantity=10,
+        ok_quantity=7,
+        correction_quantity=3,
+    )
+
+    assert split_response.status_code == 200
+
+    batch_id = split_response.json()["batch_id"]
+    test_client.post(f"/process/work-orders/{created['id']}/batches/{batch_id}/stages/DECORAL_PRODUCTION/start")
+    test_client.post(f"/process/work-orders/{created['id']}/batches/{batch_id}/stages/DECORAL_PRODUCTION/finish")
+
+    before_parent = test_client.get(f"/work-orders/{created['id']}").json()
+    correction_order = next(
+        item
+        for item in test_client.get("/manager/work-orders/unplanned").json()
+        if item["parent_order"]["id"] == created["id"]
+    )
+
+    response = test_client.post(
+        f"/process/work-orders/{created['id']}/batches/{batch_id}/stages/DECORAL_PRODUCTION/reopen"
+    )
+
+    after_parent = test_client.get(f"/work-orders/{created['id']}").json()
+    after_correction = test_client.get(f"/work-orders/{correction_order['id']}").json()
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Finished tracked batches cannot be reopened."
+    assert after_parent["completed_quantity"] == before_parent["completed_quantity"] == 7
+    assert after_parent["current_active_quantity"] == before_parent["current_active_quantity"] == 0
+    assert after_parent["process_status"] == before_parent["process_status"]
+    assert after_correction["parent_order"]["id"] == created["id"]
+
+
+def test_reopen_finished_correction_child_tracked_batch_returns_409_and_parent_ready_unchanged(test_client: TestClient) -> None:
+    created = create_planned_work_order(
+        test_client,
+        title="API reject reopen finished correction child batch",
+        queue_position=1,
+        production_type="MANUAL",
+        coating_type="DECORAL",
+        total_quantity=10,
+    )
+    advance_to_packing(test_client, created["id"])
+    root_split = complete_packing_request(
+        test_client,
+        created["id"],
+        counted_quantity=10,
+        ok_quantity=7,
+        correction_quantity=3,
+    )
+    assert root_split.status_code == 200
+
+    first_correction = next(
+        item
+        for item in test_client.get("/manager/work-orders/unplanned").json()
+        if item["parent_order"]["id"] == created["id"]
+    )
+    plan_first = test_client.post(
+        f"/manager/work-orders/{first_correction['id']}/plan",
+        json={"production_type": "MANUAL", "queue_position": 2},
+    )
+    assert plan_first.status_code == 200
+
+    root_batch_id = root_split.json()["batch_id"]
+    test_client.post(f"/process/work-orders/{created['id']}/batches/{root_batch_id}/stages/DECORAL_PRODUCTION/start")
+    test_client.post(f"/process/work-orders/{created['id']}/batches/{root_batch_id}/stages/DECORAL_PRODUCTION/finish")
+
+    advance_to_packing(test_client, first_correction["id"])
+    child_split = complete_packing_request(
+        test_client,
+        first_correction["id"],
+        counted_quantity=3,
+        ok_quantity=2,
+        correction_quantity=1,
+    )
+    assert child_split.status_code == 200
+
+    second_correction = next(
+        item
+        for item in test_client.get("/manager/work-orders/unplanned").json()
+        if item["parent_order"]["id"] == first_correction["id"]
+    )
+    plan_second = test_client.post(
+        f"/manager/work-orders/{second_correction['id']}/plan",
+        json={"production_type": "MANUAL", "queue_position": 3},
+    )
+    assert plan_second.status_code == 200
+
+    child_batch_id = child_split.json()["batch_id"]
+    test_client.post(f"/process/work-orders/{first_correction['id']}/batches/{child_batch_id}/stages/DECORAL_PRODUCTION/start")
+    test_client.post(f"/process/work-orders/{first_correction['id']}/batches/{child_batch_id}/stages/DECORAL_PRODUCTION/finish")
+
+    advance_to_packing(test_client, second_correction["id"])
+    leaf_complete = complete_packing_request(
+        test_client,
+        second_correction["id"],
+        counted_quantity=1,
+        ok_quantity=1,
+        correction_quantity=0,
+    )
+    assert leaf_complete.status_code == 200
+    test_client.post(f"/process/work-orders/{second_correction['id']}/stages/DECORAL_PRODUCTION/start")
+    test_client.post(f"/process/work-orders/{second_correction['id']}/stages/DECORAL_PRODUCTION/finish")
+
+    before_parent = test_client.get(f"/work-orders/{created['id']}").json()
+    before_child = test_client.get(f"/work-orders/{first_correction['id']}").json()
+
+    response = test_client.post(
+        f"/process/work-orders/{first_correction['id']}/batches/{child_batch_id}/stages/DECORAL_PRODUCTION/reopen"
+    )
+
+    after_parent = test_client.get(f"/work-orders/{created['id']}").json()
+    after_child = test_client.get(f"/work-orders/{first_correction['id']}").json()
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Finished tracked batches cannot be reopened."
+    assert before_parent["process_status"] == {"value": "READY", "label": "Gotowe"}
+    assert after_parent["process_status"] == before_parent["process_status"]
+    assert after_parent["completed_quantity"] == before_parent["completed_quantity"] == 10
+    assert after_parent["current_active_quantity"] == before_parent["current_active_quantity"] == 0
+    assert after_child["completed_quantity"] == before_child["completed_quantity"]
+    assert after_child["current_active_quantity"] == before_child["current_active_quantity"]
 
 
 def test_packing_complete_rejects_invalid_quantity_sum(test_client: TestClient) -> None:

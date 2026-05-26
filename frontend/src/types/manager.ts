@@ -13,3 +13,8 @@ export interface ReorderQueueItemRequest {
   work_order_id: number;
   queue_position: number;
 }
+
+export interface ReorderQueueRequest {
+  queue_revision: string;
+  items: ReorderQueueItemRequest[];
+}
