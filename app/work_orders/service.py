@@ -30,6 +30,7 @@ from app.work_orders.schemas import (
     build_stage_status_info_view,
     build_quantity_batch_type_view,
     build_work_order_relation_summary,
+    build_queue_namespace_view,
     build_production_type_view,
 )
 
@@ -331,6 +332,7 @@ class WorkOrderService:
                 if work_order.production_type is not None
                 else None
             ),
+            queue_namespace=build_queue_namespace_view(work_order.queue_namespace),
             queue_position=work_order.queue_position,
             stage_states=[
                 WorkOrderStageStateRead(

@@ -17,6 +17,7 @@ from app.process.enums import (
     get_stage_status_label,
 )
 from app.shared.enums import WorkOrderStatus
+from app.shared.enums import QueueNamespace, get_queue_namespace_label
 
 
 class WorkOrderStatusOption(BaseModel):
@@ -53,6 +54,11 @@ class ProcessStageView(BaseModel):
 
 class StageStatusInfoView(BaseModel):
     value: StageStatus
+    label: str
+
+
+class QueueNamespaceView(BaseModel):
+    value: QueueNamespace
     label: str
 
 
@@ -186,6 +192,7 @@ class WorkOrderRead(BaseModel):
     process_status: ProcessStatusView
     coating_type: CoatingTypeView
     production_type: ProductionTypeView | None
+    queue_namespace: QueueNamespaceView
     queue_position: int | None
     stage_states: list[WorkOrderStageStateRead]
     batches: list[WorkOrderQuantityBatchRead]
@@ -208,6 +215,10 @@ def build_coating_type_view(coating_type: CoatingType) -> CoatingTypeView:
 
 def build_production_type_view(production_type: ProductionType) -> ProductionTypeView:
     return ProductionTypeView(value=production_type, label=get_production_type_label(production_type))
+
+
+def build_queue_namespace_view(queue_namespace: QueueNamespace) -> QueueNamespaceView:
+    return QueueNamespaceView(value=queue_namespace, label=get_queue_namespace_label(queue_namespace))
 
 
 def build_process_status_view(process_status: ProcessDisplayStatus) -> ProcessStatusView:

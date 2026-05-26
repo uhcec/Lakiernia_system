@@ -2,6 +2,7 @@ export type WorkOrderStatusValue = "ENTERED" | "INCOMPLETE" | "ASSIGNED" | "IN_P
 export type ProductionTypeValue = "MANUAL" | "AUTOMATIC";
 export type CoatingTypeValue = "RAL" | "DECORAL";
 export type QuantityBatchTypeValue = "MAIN" | "CORRECTION";
+export type QueueNamespaceValue = "MAIN" | "CORRECTIONS";
 export type ProcessStatusValue =
   | "TO_BE_PLANNED"
   | "INCOMPLETE"
@@ -109,6 +110,7 @@ export interface WorkOrder {
   process_status: ProcessStatus;
   coating_type: WorkOrderOption<CoatingTypeValue>;
   production_type: WorkOrderOption<ProductionTypeValue> | null;
+  queue_namespace: WorkOrderOption<QueueNamespaceValue>;
   queue_position: number | null;
   stage_states: WorkOrderStageState[];
   batches: WorkOrderQuantityBatch[];

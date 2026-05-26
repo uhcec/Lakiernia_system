@@ -14,6 +14,8 @@ interface PlanDraft {
   queuePosition: string;
 }
 
+type QueueFilter = "ALL" | "NORMAL" | "CORRECTIONS";
+
 const productionTypeOptions: Array<{ value: ProductionTypeValue; label: string }> = [
   { value: "MANUAL", label: "Ręczna" },
   { value: "AUTOMATIC", label: "Automat" },
@@ -69,7 +71,18 @@ function moveWorkOrder(workOrders: WorkOrder[], draggedWorkOrderId: number, targ
   return assignQueuePositions(nextWorkOrders);
 }
 
+function filterQueueByType(workOrders: WorkOrder[], queueFilter: QueueFilter): WorkOrder[] {
+  if (queueFilter === "NORMAL") {
+    return workOrders.filter((workOrder) => !workOrder.is_correction);
+  }
+  if (queueFilter === "CORRECTIONS") {
+    return workOrders.filter((workOrder) => workOrder.is_correction);
+  }
+  return workOrders;
+}
+
 export function ManagerPanelPage() {
+  const [queueFilter, setQueueFilter] = useState<QueueFilter>("ALL");
   const [unplannedWorkOrders, setUnplannedWorkOrders] = useState<WorkOrder[]>([]);
   const [activePlannedWorkOrders, setActivePlannedWorkOrders] = useState<WorkOrder[]>([]);
   const [completedPlannedWorkOrders, setCompletedPlannedWorkOrders] = useState<WorkOrder[]>([]);
@@ -82,6 +95,11 @@ export function ManagerPanelPage() {
   const [hasPendingQueueChanges, setHasPendingQueueChanges] = useState(false);
   const [draggedWorkOrderId, setDraggedWorkOrderId] = useState<number | null>(null);
   const [showCompleted, setShowCompleted] = useState(false);
+
+  const filteredUnplannedWorkOrders = filterQueueByType(unplannedWorkOrders, queueFilter);
+  const filteredActivePlannedWorkOrders = filterQueueByType(activePlannedWorkOrders, queueFilter);
+  const filteredCompletedPlannedWorkOrders = filterQueueByType(completedPlannedWorkOrders, queueFilter);
+  const isAllQueueFilter = queueFilter === "ALL";
 
   async function loadManagerData() {
     setIsLoading(true);
@@ -184,6 +202,9 @@ export function ManagerPanelPage() {
   }
 
   function handleQueueDragStart(workOrderId: number) {
+    if (!isAllQueueFilter) {
+      return;
+    }
     setDraggedWorkOrderId(workOrderId);
     setSuccessMessage(null);
   }
@@ -199,6 +220,9 @@ export function ManagerPanelPage() {
 
   function handleQueueDrop(event: DragEvent<HTMLElement>, targetWorkOrderId: number) {
     event.preventDefault();
+    if (!isAllQueueFilter) {
+      return;
+    }
     if (draggedWorkOrderId === null) {
       return;
     }
@@ -224,7 +248,7 @@ export function ManagerPanelPage() {
           return (
             <article
               key={workOrder.id}
-              draggable={!isSavingQueueOrder}
+              draggable={!isSavingQueueOrder && isAllQueueFilter}
               onDragStart={() => handleQueueDragStart(workOrder.id)}
               onDragOver={handleQueueDragOver}
               onDrop={(event) => handleQueueDrop(event, workOrder.id)}
@@ -242,7 +266,7 @@ export function ManagerPanelPage() {
                   <div className="flex flex-wrap items-center gap-2">
                     <p className="text-xs font-semibold uppercase tracking-[0.14em] text-accent">{workOrder.order_number}</p>
                     <span className="inline-flex rounded-full bg-white px-2 py-1 text-[11px] font-semibold text-steel shadow-sm">
-                      Przeciągnij, aby zmienić kolejność
+                      {isAllQueueFilter ? "Przeciągnij, aby zmienić kolejność" : "Zmień filtr na All, aby zmieniać kolejność"}
                     </span>
                   </div>
                   <h4 className="text-lg font-semibold text-ink">{formatWorkOrderPrimaryInfo(workOrder)}</h4>
@@ -304,11 +328,43 @@ export function ManagerPanelPage() {
                 widoków etapów produkcyjnych.
               </p>
             </div>
+            <div className="mt-3 inline-flex rounded-full border border-line bg-mist p-1">
+              <button
+                type="button"
+                onClick={() => setQueueFilter("ALL")}
+                className={[
+                  "rounded-full px-4 py-2 text-sm font-medium transition",
+                  queueFilter === "ALL" ? "bg-white text-ink shadow-sm" : "text-steel hover:text-accent",
+                ].join(" ")}
+              >
+                All
+              </button>
+              <button
+                type="button"
+                onClick={() => setQueueFilter("NORMAL")}
+                className={[
+                  "rounded-full px-4 py-2 text-sm font-medium transition",
+                  queueFilter === "NORMAL" ? "bg-white text-ink shadow-sm" : "text-steel hover:text-accent",
+                ].join(" ")}
+              >
+                Normal
+              </button>
+              <button
+                type="button"
+                onClick={() => setQueueFilter("CORRECTIONS")}
+                className={[
+                  "rounded-full px-4 py-2 text-sm font-medium transition",
+                  queueFilter === "CORRECTIONS" ? "bg-white text-ink shadow-sm" : "text-steel hover:text-accent",
+                ].join(" ")}
+              >
+                Corrections
+              </button>
+            </div>
           </div>
           <div className="rounded-2xl border border-line bg-mist px-4 py-3 text-sm text-steel">
-            Do zaplanowania: <span className="font-semibold text-ink">{unplannedWorkOrders.length}</span>
+            Do zaplanowania: <span className="font-semibold text-ink">{filteredUnplannedWorkOrders.length}</span>
             <span className="mx-2 text-line">|</span>
-            Zaplanowane: <span className="font-semibold text-ink">{activePlannedWorkOrders.length + completedPlannedWorkOrders.length}</span>
+            Zaplanowane: <span className="font-semibold text-ink">{filteredActivePlannedWorkOrders.length + filteredCompletedPlannedWorkOrders.length}</span>
           </div>
         </div>
       </section>
@@ -336,13 +392,13 @@ export function ManagerPanelPage() {
             <div className="rounded-3xl border border-dashed border-line bg-mist px-6 py-12 text-center text-base text-steel">
               Ładowanie...
             </div>
-          ) : unplannedWorkOrders.length === 0 ? (
+          ) : filteredUnplannedWorkOrders.length === 0 ? (
             <div className="rounded-3xl border border-dashed border-line bg-mist px-6 py-12 text-center text-base text-steel">
               Wszystkie zlecenia są już zaplanowane
             </div>
           ) : (
             <div className="space-y-4">
-              {unplannedWorkOrders.map((workOrder) => {
+              {filteredUnplannedWorkOrders.map((workOrder) => {
                 const draft = planDrafts[workOrder.id] ?? { productionType: "MANUAL" as const, queuePosition: "1" };
                 const isSubmitting = planningWorkOrderId === workOrder.id;
 
@@ -413,7 +469,7 @@ export function ManagerPanelPage() {
             <div className="rounded-3xl border border-dashed border-line bg-mist px-6 py-12 text-center text-base text-steel">
               Ładowanie...
             </div>
-          ) : activePlannedWorkOrders.length + completedPlannedWorkOrders.length === 0 ? (
+          ) : filteredActivePlannedWorkOrders.length + filteredCompletedPlannedWorkOrders.length === 0 ? (
             <div className="rounded-3xl border border-dashed border-line bg-mist px-6 py-12 text-center text-base text-steel">
               Brak zaplanowanych zleceń
             </div>
@@ -427,23 +483,28 @@ export function ManagerPanelPage() {
                   </div>
                   <button
                     type="button"
-                    disabled={isSavingQueueOrder || activePlannedWorkOrders.length < 2}
+                    disabled={isSavingQueueOrder || activePlannedWorkOrders.length < 2 || !isAllQueueFilter}
                     onClick={() => void handleSaveQueueOrder()}
                     className="inline-flex items-center justify-center rounded-full border border-line bg-white px-4 py-2 text-sm font-medium text-steel transition hover:border-accent hover:text-accent disabled:cursor-not-allowed disabled:border-line disabled:text-slate-400"
                   >
                     {isSavingQueueOrder ? "Zapisywanie..." : hasPendingQueueChanges ? "Zapisz kolejność" : "Kolejność zapisana"}
                   </button>
                 </div>
-                {activePlannedWorkOrders.length === 0 ? (
+                {!isAllQueueFilter ? (
+                  <div className="rounded-3xl border border-dashed border-line bg-mist px-6 py-6 text-center text-sm text-steel">
+                    Reorder działa dla pełnej kolejki. Przełącz filtr na All, aby zmienić kolejność.
+                  </div>
+                ) : null}
+                {filteredActivePlannedWorkOrders.length === 0 ? (
                   <div className="rounded-3xl border border-dashed border-line bg-mist px-6 py-12 text-center text-base text-steel">
                     Brak aktywnych zaplanowanych zleceń
                   </div>
                 ) : (
-                  renderActiveQueue(activePlannedWorkOrders)
+                  renderActiveQueue(filteredActivePlannedWorkOrders)
                 )}
               </div>
 
-              {completedPlannedWorkOrders.length > 0 ? (
+              {filteredCompletedPlannedWorkOrders.length > 0 ? (
                 <div className="space-y-4 rounded-3xl border border-line/80 bg-mist/50 p-5">
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <div>
@@ -459,7 +520,7 @@ export function ManagerPanelPage() {
                     </button>
                   </div>
 
-                  {showCompleted ? renderCompletedWorkOrdersTable(completedPlannedWorkOrders) : null}
+                  {showCompleted ? renderCompletedWorkOrdersTable(filteredCompletedPlannedWorkOrders) : null}
                 </div>
               ) : null}
             </div>

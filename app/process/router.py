@@ -8,6 +8,7 @@ from app.process.enums import ProcessStage, ProductionType
 from app.process.repository import ProcessRepository
 from app.process.schemas import PackingCompleteRequest, ProcessStageWorkOrderRead, StageStartRequest
 from app.process.service import ProcessService
+from app.shared.enums import QueueNamespace
 
 router = APIRouter(prefix="/process", tags=["process"])
 
@@ -22,8 +23,9 @@ def list_stage_work_orders(
     stage: ProcessStage,
     service: Annotated[ProcessService, Depends(get_process_service)],
     production_type: Annotated[ProductionType | None, Query()] = None,
+    queue_namespace: Annotated[QueueNamespace | None, Query()] = None,
 ) -> list[ProcessStageWorkOrderRead]:
-    return service.list_stage_work_orders(stage, production_type)
+    return service.list_stage_work_orders(stage, production_type, queue_namespace)
 
 
 @router.post("/work-orders/{work_order_id}/stages/{stage}/start", response_model=ProcessStageWorkOrderRead)

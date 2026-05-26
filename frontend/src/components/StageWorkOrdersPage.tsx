@@ -5,6 +5,8 @@ import type { ProcessStageValue, StageWorkOrder, StageStatusValue } from "../typ
 import type { ProductionTypeValue } from "../types/workOrders";
 import { formatWorkOrderPrimaryInfo } from "../utils/workOrderDisplay";
 
+type QueueFilter = "ALL" | "NORMAL" | "CORRECTIONS";
+
 interface StageWorkOrdersPageProps {
   stage: ProcessStageValue;
   title: string;
@@ -58,6 +60,7 @@ export function StageWorkOrdersPage({
 }: StageWorkOrdersPageProps) {
   const [workOrders, setWorkOrders] = useState<StageWorkOrder[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [queueFilter, setQueueFilter] = useState<QueueFilter>("ALL");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [activeWorkOrderId, setActiveWorkOrderId] = useState<number | null>(null);
   const [showCompleted, setShowCompleted] = useState(false);
@@ -65,8 +68,17 @@ export function StageWorkOrdersPage({
 
   const isSurfacePreparationStage = stage === "SURFACE_PREPARATION";
 
-  const activeWorkOrders = workOrders.filter((workOrder) => workOrder.stage_status.status.value !== "DONE");
-  const completedWorkOrders = workOrders.filter((workOrder) => workOrder.stage_status.status.value === "DONE");
+  const filteredWorkOrders = workOrders.filter((workOrder) => {
+    if (queueFilter === "NORMAL") {
+      return !workOrder.is_correction;
+    }
+    if (queueFilter === "CORRECTIONS") {
+      return workOrder.is_correction;
+    }
+    return true;
+  });
+  const activeWorkOrders = filteredWorkOrders.filter((workOrder) => workOrder.stage_status.status.value !== "DONE");
+  const completedWorkOrders = filteredWorkOrders.filter((workOrder) => workOrder.stage_status.status.value === "DONE");
 
   async function loadWorkOrders() {
     setIsLoading(true);
@@ -324,6 +336,38 @@ export function StageWorkOrdersPage({
                 ? "Widok podglądowy dla automatu. Malowanie uruchamia Zawieszanie, a wynik zapisuje Pakowanie."
                 : "Lista zaplanowanych zleceń gotowych do rozpoczęcia, kontynuacji albo cofnięcia na wybranym etapie."}
             </p>
+            <div className="mt-3 inline-flex rounded-full border border-line bg-mist p-1">
+              <button
+                type="button"
+                onClick={() => setQueueFilter("ALL")}
+                className={[
+                  "rounded-full px-4 py-2 text-sm font-medium transition",
+                  queueFilter === "ALL" ? "bg-white text-ink shadow-sm" : "text-steel hover:text-accent",
+                ].join(" ")}
+              >
+                All
+              </button>
+              <button
+                type="button"
+                onClick={() => setQueueFilter("NORMAL")}
+                className={[
+                  "rounded-full px-4 py-2 text-sm font-medium transition",
+                  queueFilter === "NORMAL" ? "bg-white text-ink shadow-sm" : "text-steel hover:text-accent",
+                ].join(" ")}
+              >
+                Normal
+              </button>
+              <button
+                type="button"
+                onClick={() => setQueueFilter("CORRECTIONS")}
+                className={[
+                  "rounded-full px-4 py-2 text-sm font-medium transition",
+                  queueFilter === "CORRECTIONS" ? "bg-white text-ink shadow-sm" : "text-steel hover:text-accent",
+                ].join(" ")}
+              >
+                Corrections
+              </button>
+            </div>
           </div>
         </div>
       </section>

@@ -91,7 +91,9 @@ export async function updateWorkOrderQueuePosition(
   return response.json() as Promise<WorkOrder>;
 }
 
-export async function reorderWorkOrderQueue(payload: ReorderQueueItemRequest[]): Promise<WorkOrder[]> {
+export async function reorderWorkOrderQueue(
+  payload: ReorderQueueItemRequest[],
+): Promise<WorkOrder[]> {
   const response = await fetch(createApiUrl("/manager/queue/reorder"), {
     method: "POST",
     headers: {

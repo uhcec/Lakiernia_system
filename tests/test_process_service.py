@@ -7,7 +7,7 @@ from app.manager.service import ManagerService
 from app.process.enums import CoatingType, ProcessStage, ProductionType, QuantityBatchType, StageStatus
 from app.process.repository import ProcessRepository
 from app.process.service import ProcessService
-from app.shared.enums import WorkOrderStatus
+from app.shared.enums import QueueNamespace, WorkOrderStatus
 from app.shared.exceptions import InvalidManagerPlanningError, InvalidProcessStageTransitionError
 from app.work_orders.repository import WorkOrderRepository
 from app.work_orders.schemas import WorkOrderCreate
@@ -50,6 +50,11 @@ def build_services(
 
 def advance_to_production(process_service: ProcessService, work_order_id: int) -> None:
     work_order = process_service.get_work_order_process(work_order_id)
+    if work_order.is_correction:
+        if work_order.production_type != ProductionType.MANUAL:
+            process_service.transition_stage(work_order_id, ProcessStage.HANGING, StageStatus.IN_PROGRESS)
+        return
+
     process_service.transition_stage(work_order_id, ProcessStage.SURFACE_PREPARATION, StageStatus.IN_PROGRESS)
     process_service.transition_stage(work_order_id, ProcessStage.SURFACE_PREPARATION, StageStatus.DONE)
     if work_order.production_type != ProductionType.MANUAL:
@@ -365,6 +370,7 @@ def test_corrections_create_new_unplanned_orders(db_session: Session) -> None:
     assert process_service.is_visible_in_stage(automatic_work_order, ProcessStage.PRODUCTION, ProductionType.AUTOMATIC) is False
     assert len(correction_orders) == 2
     assert {correction_order.parent_order_id for correction_order in correction_orders} == {manual_order.id, automatic_order.id}
+    assert all(correction_order.queue_namespace == QueueNamespace.CORRECTIONS for correction_order in correction_orders)
     assert all(correction_order.production_type is None for correction_order in correction_orders)
     assert all(correction_order.queue_position is None for correction_order in correction_orders)
 
@@ -390,14 +396,122 @@ def test_decoral_automatic_mixed_split_waits_for_correction_child(db_session: Se
 
     assert work_order is not None
     active_batches = [batch for batch in work_order.quantity_batches if batch.is_active]
-    assert len(active_batches) == 0
+    assert len(active_batches) == 1
+    assert active_batches[0].current_stage == ProcessStage.DECORAL_PRODUCTION
+    assert active_batches[0].quantity == 7
     assert hanging_rows == []
-    assert decoral_rows == []
-    assert process_service.get_display_status(work_order).value == "WAITING_FOR_CORRECTIONS"
+    assert [item.id for item in decoral_rows] == [created.id]
+    assert process_service.get_display_status(work_order).value == "DECORAL_PRODUCTION"
     assert process_service.get_waiting_ok_quantity(work_order) == 7
     assert len(correction_orders) == 1
     assert correction_orders[0].parent_order_id == created.id
     assert correction_orders[0].total_quantity == 3
+
+
+def test_decoral_split_moves_ok_quantity_to_decoral_and_child_to_painting_flow(db_session: Session) -> None:
+    work_order_service, process_service, manager_service, work_order_repository, process_repository = build_services(db_session)
+
+    created = work_order_service.create_work_order(
+        build_work_order_create(title="Decoral split route", coating_type=CoatingType.DECORAL, total_quantity=10)
+    )
+    manager_service.assign_plan(
+        created.id,
+        WorkOrderPlanAssignRequest(production_type=ProductionType.MANUAL, queue_position=1),
+    )
+    advance_to_packing(process_service, created.id)
+
+    response = complete_packing(process_service, created.id, ok_quantity=7, correction_quantity=3)
+
+    parent = process_repository.get_work_order_with_stage_states(created.id)
+    correction_order = next(work_order for work_order in work_order_repository.list(limit=20, offset=0) if work_order.is_correction)
+
+    assert parent is not None
+    assert response.stage_status.stage == ProcessStage.DECORAL_PRODUCTION
+    assert response.batch_id is not None
+    assert process_service.get_display_status(parent).value == "DECORAL_PRODUCTION"
+    assert [item.id for item in process_service.list_stage_work_orders(ProcessStage.DECORAL_PRODUCTION)] == [created.id]
+
+    manager_service.assign_plan(
+        correction_order.id,
+        WorkOrderPlanAssignRequest(production_type=ProductionType.MANUAL, queue_position=2),
+    )
+    planned_correction = process_repository.get_work_order_with_stage_states(correction_order.id)
+
+    assert planned_correction is not None
+    assert process_service.get_display_status(planned_correction).value == "PRODUCTION_MANUAL"
+    stage_states = {stage_state.stage: stage_state.status for stage_state in planned_correction.stage_states}
+    assert stage_states[ProcessStage.SURFACE_PREPARATION] == StageStatus.DONE
+    assert stage_states[ProcessStage.PRODUCTION] == StageStatus.NOT_STARTED
+
+
+def test_decoral_parent_stays_not_ready_when_ok_decoral_finishes_but_correction_is_open(db_session: Session) -> None:
+    work_order_service, process_service, manager_service, work_order_repository, process_repository = build_services(db_session)
+
+    created = work_order_service.create_work_order(
+        build_work_order_create(title="Decoral parent waits", coating_type=CoatingType.DECORAL, total_quantity=10)
+    )
+    manager_service.assign_plan(
+        created.id,
+        WorkOrderPlanAssignRequest(production_type=ProductionType.MANUAL, queue_position=1),
+    )
+    advance_to_packing(process_service, created.id)
+
+    response = complete_packing(process_service, created.id, ok_quantity=7, correction_quantity=3)
+    correction_order = next(work_order for work_order in work_order_repository.list(limit=20, offset=0) if work_order.is_correction)
+    manager_service.assign_plan(
+        correction_order.id,
+        WorkOrderPlanAssignRequest(production_type=ProductionType.MANUAL, queue_position=2),
+    )
+
+    process_service.start_stage(created.id, ProcessStage.DECORAL_PRODUCTION, batch_id=response.batch_id)
+    process_service.finish_stage(created.id, ProcessStage.DECORAL_PRODUCTION, batch_id=response.batch_id)
+
+    parent = process_repository.get_work_order_with_stage_states(created.id)
+
+    assert parent is not None
+    assert parent.completed_quantity == 7
+    assert process_service.get_display_status(parent).value == "WAITING_FOR_CORRECTIONS"
+
+
+def test_decoral_parent_becomes_ready_after_ok_decoral_and_correction_merge(db_session: Session) -> None:
+    work_order_service, process_service, manager_service, work_order_repository, process_repository = build_services(db_session)
+
+    created = work_order_service.create_work_order(
+        build_work_order_create(title="Decoral split merge", coating_type=CoatingType.DECORAL, total_quantity=10)
+    )
+    manager_service.assign_plan(
+        created.id,
+        WorkOrderPlanAssignRequest(production_type=ProductionType.MANUAL, queue_position=1),
+    )
+    advance_to_packing(process_service, created.id)
+
+    response = complete_packing(process_service, created.id, ok_quantity=7, correction_quantity=3)
+    correction_order = next(work_order for work_order in work_order_repository.list(limit=20, offset=0) if work_order.is_correction)
+    manager_service.assign_plan(
+        correction_order.id,
+        WorkOrderPlanAssignRequest(production_type=ProductionType.MANUAL, queue_position=2),
+    )
+
+    process_service.start_stage(created.id, ProcessStage.DECORAL_PRODUCTION, batch_id=response.batch_id)
+    process_service.finish_stage(created.id, ProcessStage.DECORAL_PRODUCTION, batch_id=response.batch_id)
+
+    process_service.start_stage(correction_order.id, ProcessStage.PRODUCTION)
+    process_service.finish_stage(correction_order.id, ProcessStage.PRODUCTION)
+    process_service.start_stage(correction_order.id, ProcessStage.PACKING)
+    process_service.complete_packing(
+        correction_order.id,
+        counted_quantity=3,
+        ok_quantity=3,
+        correction_quantity=0,
+    )
+    process_service.start_stage(correction_order.id, ProcessStage.DECORAL_PRODUCTION)
+    process_service.finish_stage(correction_order.id, ProcessStage.DECORAL_PRODUCTION)
+
+    parent = process_repository.get_work_order_with_stage_states(created.id)
+
+    assert parent is not None
+    assert parent.completed_quantity == 10
+    assert process_service.get_display_status(parent).value == "READY"
 
 
 def test_queue_position_exists_and_is_sortable(db_session: Session) -> None:
@@ -672,14 +786,21 @@ def test_completed_decoral_correction_child_merges_back_into_parent(db_session: 
     correction_order = next(work_order for work_order in work_order_repository.list(limit=20, offset=0) if work_order.is_correction)
 
     assert parent_work_order is not None
-    assert process_service.get_display_status(parent_work_order).value == "WAITING_FOR_CORRECTIONS"
-    assert process_service.list_stage_work_orders(ProcessStage.DECORAL_PRODUCTION) == []
+    assert process_service.get_display_status(parent_work_order).value == "DECORAL_PRODUCTION"
+    assert [item.id for item in process_service.list_stage_work_orders(ProcessStage.DECORAL_PRODUCTION)] == [created.id]
 
     manager_service.assign_plan(
         correction_order.id,
         WorkOrderPlanAssignRequest(production_type=ProductionType.MANUAL, queue_position=2),
     )
-    advance_to_packing(process_service, correction_order.id)
+    decoral_batch = next(
+        item.batch_id for item in process_service.list_stage_work_orders(ProcessStage.DECORAL_PRODUCTION) if item.id == created.id
+    )
+    process_service.start_stage(created.id, ProcessStage.DECORAL_PRODUCTION, batch_id=decoral_batch)
+    process_service.finish_stage(created.id, ProcessStage.DECORAL_PRODUCTION, batch_id=decoral_batch)
+    process_service.start_stage(correction_order.id, ProcessStage.PRODUCTION)
+    process_service.finish_stage(correction_order.id, ProcessStage.PRODUCTION)
+    process_service.start_stage(correction_order.id, ProcessStage.PACKING)
     complete_packing(process_service, correction_order.id, ok_quantity=3, correction_quantity=0)
     process_service.start_stage(correction_order.id, ProcessStage.DECORAL_PRODUCTION)
     process_service.finish_stage(correction_order.id, ProcessStage.DECORAL_PRODUCTION)

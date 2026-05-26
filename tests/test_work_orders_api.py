@@ -571,7 +571,11 @@ def test_work_order_detail_returns_parent_and_correction_orders(test_client: Tes
         test_client.post(f"/process/work-orders/{created['id']}/stages/{stage}/finish")
     test_client.post(f"/process/work-orders/{created['id']}/stages/PACKING/start")
     complete_packing_request(test_client, created["id"], counted_quantity=100, ok_quantity=90, correction_quantity=10)
-    correction_order = next(item for item in test_client.get("/manager/work-orders/unplanned").json() if item["parent_order"]["id"] == created["id"])
+    correction_order = next(
+        item
+        for item in test_client.get("/manager/work-orders/unplanned").json()
+        if item["parent_order"]["id"] == created["id"]
+    )
 
     response = test_client.get(f"/work-orders/{created['id']}")
     correction_response = test_client.get(f"/work-orders/{correction_order['id']}")

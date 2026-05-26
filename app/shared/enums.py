@@ -9,6 +9,11 @@ WORK_ORDER_STATUS_LABELS_PL = {
     "FINISHED": "Skończone",
 }
 
+QUEUE_NAMESPACE_LABELS_PL = {
+    "MAIN": "Main",
+    "CORRECTIONS": "Corrections",
+}
+
 
 class WorkOrderStatus(StrEnum):
     ENTERED = "ENTERED"
@@ -22,5 +27,18 @@ class WorkOrderStatus(StrEnum):
         return WORK_ORDER_STATUS_LABELS_PL[self.value]
 
 
+class QueueNamespace(StrEnum):
+    MAIN = "MAIN"
+    CORRECTIONS = "CORRECTIONS"
+
+    @property
+    def polish_label(self) -> str:
+        return QUEUE_NAMESPACE_LABELS_PL[self.value]
+
+
 def get_work_order_status_label(status: WorkOrderStatus) -> str:
     return WORK_ORDER_STATUS_LABELS_PL[status.value]
+
+
+def get_queue_namespace_label(queue_namespace: QueueNamespace) -> str:
+    return QUEUE_NAMESPACE_LABELS_PL[queue_namespace.value]

@@ -4,6 +4,8 @@ import { completePacking, fetchStageWorkOrders, transitionStage } from "../api/p
 import type { StageWorkOrder, StageStatusValue } from "../types/process";
 import { formatWorkOrderPrimaryInfo } from "../utils/workOrderDisplay";
 
+type QueueFilter = "ALL" | "NORMAL" | "CORRECTIONS";
+
 interface PackingDraft {
   countedQuantity: string;
   okQuantity: string;
@@ -35,6 +37,7 @@ function formatDifference(difference: number): string {
 
 export function PackingWorkOrdersPage() {
   const [workOrders, setWorkOrders] = useState<StageWorkOrder[]>([]);
+  const [queueFilter, setQueueFilter] = useState<QueueFilter>("ALL");
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [activeWorkOrderId, setActiveWorkOrderId] = useState<number | null>(null);
@@ -45,8 +48,18 @@ export function PackingWorkOrdersPage() {
     return workOrder.batch_id ?? workOrder.id;
   }
 
-  const activeWorkOrders = workOrders.filter((workOrder) => workOrder.stage_status.status.value !== "DONE");
-  const completedWorkOrders = workOrders.filter((workOrder) => workOrder.stage_status.status.value === "DONE");
+  const filteredWorkOrders = workOrders.filter((workOrder) => {
+    if (queueFilter === "NORMAL") {
+      return !workOrder.is_correction;
+    }
+    if (queueFilter === "CORRECTIONS") {
+      return workOrder.is_correction;
+    }
+    return true;
+  });
+
+  const activeWorkOrders = filteredWorkOrders.filter((workOrder) => workOrder.stage_status.status.value !== "DONE");
+  const completedWorkOrders = filteredWorkOrders.filter((workOrder) => workOrder.stage_status.status.value === "DONE");
 
   async function loadWorkOrders() {
     setIsLoading(true);
@@ -306,6 +319,38 @@ export function PackingWorkOrdersPage() {
             <p className="mt-2 max-w-3xl text-sm leading-6 text-steel sm:text-base">
               Najpierw potwierdź policzoną ilość, potem rozdziel ją na OK i poprawki. Korekta wraca do produkcji jako nowa aktywna partia.
             </p>
+            <div className="mt-3 inline-flex rounded-full border border-line bg-mist p-1">
+              <button
+                type="button"
+                onClick={() => setQueueFilter("ALL")}
+                className={[
+                  "rounded-full px-4 py-2 text-sm font-medium transition",
+                  queueFilter === "ALL" ? "bg-white text-ink shadow-sm" : "text-steel hover:text-accent",
+                ].join(" ")}
+              >
+                All
+              </button>
+              <button
+                type="button"
+                onClick={() => setQueueFilter("NORMAL")}
+                className={[
+                  "rounded-full px-4 py-2 text-sm font-medium transition",
+                  queueFilter === "NORMAL" ? "bg-white text-ink shadow-sm" : "text-steel hover:text-accent",
+                ].join(" ")}
+              >
+                Normal
+              </button>
+              <button
+                type="button"
+                onClick={() => setQueueFilter("CORRECTIONS")}
+                className={[
+                  "rounded-full px-4 py-2 text-sm font-medium transition",
+                  queueFilter === "CORRECTIONS" ? "bg-white text-ink shadow-sm" : "text-steel hover:text-accent",
+                ].join(" ")}
+              >
+                Corrections
+              </button>
+            </div>
           </div>
         </div>
       </section>

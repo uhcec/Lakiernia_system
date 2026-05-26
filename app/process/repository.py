@@ -5,6 +5,7 @@ from sqlalchemy import Select, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.process.enums import ProcessStage, ProductionType
+from app.shared.enums import QueueNamespace
 from app.process.models import WorkOrderStageState
 from app.work_orders.models import WorkOrder
 
@@ -42,6 +43,7 @@ class ProcessRepository:
         self,
         stage: ProcessStage,
         production_type: ProductionType | None = None,
+        queue_namespace: QueueNamespace | None = None,
     ) -> Sequence[WorkOrder]:
         statement = (
             select(WorkOrder)
@@ -59,6 +61,8 @@ class ProcessRepository:
 
         if production_type is not None:
             statement = statement.where(WorkOrder.production_type == production_type)
+        if queue_namespace is not None:
+            statement = statement.where(WorkOrder.queue_namespace == queue_namespace)
 
         return self.session.scalars(statement).unique().all()
 

@@ -356,8 +356,8 @@ def seed_all_use_cases(session: Session) -> list[SeededScenario]:
         scenario(
             "I",
             correction_child.order_number,
-            "Child correction order planned and visible in manager planning",
-            "Manager panel",
+            "Child correction order planned in shared manager queue",
+            "Manager panel (Corrections filter)",
             correction_child.notes or "",
         )
     )
@@ -539,8 +539,8 @@ def seed_all_use_cases(session: Session) -> list[SeededScenario]:
         scenario(
             "M",
             multi_round_last_child.order_number,
-            "Final unplanned correction order that closes the whole chain",
-            "Manager panel",
+            "Final unplanned correction order in shared queue",
+            "Manager panel (Corrections filter)",
             multi_round_last_child.notes or "",
         )
     )

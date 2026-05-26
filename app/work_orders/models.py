@@ -5,7 +5,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database.base import Base
 from app.process.enums import CoatingType, ProductionType
-from app.shared.enums import WorkOrderStatus
+from app.shared.enums import QueueNamespace, WorkOrderStatus
 
 
 work_order_status_enum = Enum(
@@ -29,6 +29,13 @@ production_type_enum = Enum(
     values_callable=lambda production_types: [production_type.value for production_type in production_types],
 )
 
+queue_namespace_enum = Enum(
+    QueueNamespace,
+    name="queue_namespace",
+    native_enum=False,
+    values_callable=lambda namespaces: [namespace.value for namespace in namespaces],
+)
+
 
 class WorkOrder(Base):
     __tablename__ = "work_orders"
@@ -48,6 +55,7 @@ class WorkOrder(Base):
     status: Mapped[WorkOrderStatus] = mapped_column(work_order_status_enum, default=WorkOrderStatus.ENTERED, nullable=False)
     coating_type: Mapped[CoatingType] = mapped_column(coating_type_enum, default=CoatingType.RAL, nullable=False)
     production_type: Mapped[ProductionType | None] = mapped_column(production_type_enum, nullable=True)
+    queue_namespace: Mapped[QueueNamespace] = mapped_column(queue_namespace_enum, nullable=False, default=QueueNamespace.MAIN)
     queue_position: Mapped[int | None] = mapped_column(Integer(), nullable=True, index=True)
     received_date: Mapped[date] = mapped_column(Date(), nullable=False)
     planned_pickup_date: Mapped[date | None] = mapped_column(Date(), nullable=True)

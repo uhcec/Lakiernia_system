@@ -13,6 +13,7 @@ from app.work_orders.schemas import (
     WorkOrderRelationSummaryRead,
     WorkOrderStageStateRead,
     build_coating_type_view,
+    build_queue_namespace_view,
     build_process_stage_view,
     build_process_status_view,
     build_production_type_view,
@@ -45,6 +46,7 @@ class ManagerService:
         work_order.production_type = payload.production_type
         work_order.queue_position = payload.queue_position
         work_order.updated_at = datetime.now(UTC)
+        self.process_service.prepare_correction_work_order_for_planning(work_order)
 
         try:
             self.repository.commit()
@@ -62,7 +64,10 @@ class ManagerService:
         work_order = self._get_existing_work_order(work_order_id)
         if not self._is_planned(work_order):
             raise InvalidManagerPlanningError(f"Work order {work_order_id} must be planned before updating queue position.")
-        self._ensure_queue_position_available(payload.queue_position, exclude_work_order_id=work_order_id)
+        self._ensure_queue_position_available(
+            payload.queue_position,
+            exclude_work_order_id=work_order_id,
+        )
 
         work_order.queue_position = payload.queue_position
         work_order.updated_at = datetime.now(UTC)
@@ -118,7 +123,12 @@ class ManagerService:
             raise ResourceNotFoundError(f"Work order {work_order_id} not found.")
         return work_order
 
-    def _ensure_queue_position_available(self, queue_position: int, exclude_work_order_id: int | None = None) -> None:
+    def _ensure_queue_position_available(
+        self,
+        queue_position: int,
+        *,
+        exclude_work_order_id: int | None = None,
+    ) -> None:
         existing_work_order = self.repository.get_planned_by_queue_position(
             queue_position,
             exclude_work_order_id=exclude_work_order_id,
@@ -171,6 +181,7 @@ class ManagerService:
                 if work_order.production_type is not None
                 else None
             ),
+            queue_namespace=build_queue_namespace_view(work_order.queue_namespace),
             queue_position=work_order.queue_position,
             stage_states=[
                 WorkOrderStageStateRead(

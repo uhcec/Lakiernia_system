@@ -61,6 +61,12 @@ def complete_packing_request(
 
 
 def advance_to_hanging(test_client: TestClient, work_order_id: int) -> None:
+    detail = test_client.get(f"/work-orders/{work_order_id}").json()
+    if detail["is_correction"]:
+        if detail["production_type"]["value"] == "AUTOMATIC":
+            test_client.post(f"/process/work-orders/{work_order_id}/stages/HANGING/start")
+        return
+
     start_surface_preparation(test_client, work_order_id)
     test_client.post(f"/process/work-orders/{work_order_id}/stages/SURFACE_PREPARATION/finish")
 
@@ -76,7 +82,13 @@ def advance_to_packing(test_client: TestClient, work_order_id: int) -> None:
     advance_to_production(test_client, work_order_id)
     detail = test_client.get(f"/work-orders/{work_order_id}").json()
     if detail["production_type"]["value"] == "MANUAL":
-        production_stage = test_client.get("/process/stages/PRODUCTION/work-orders", params={"production_type": detail["production_type"]["value"]}).json()
+        production_stage = test_client.get(
+            "/process/stages/PRODUCTION/work-orders",
+            params={
+                "production_type": detail["production_type"]["value"],
+                "queue_namespace": detail["queue_namespace"]["value"],
+            },
+        ).json()
         production_status = next(item for item in production_stage if item["id"] == work_order_id)["stage_status"]["status"]["value"]
         if production_status == "NOT_STARTED":
             test_client.post(f"/process/work-orders/{work_order_id}/stages/PRODUCTION/start")
@@ -477,7 +489,11 @@ def test_correction_order_can_be_planned_after_packing_split(test_client: TestCl
     split_response = complete_packing_request(test_client, created["id"], counted_quantity=100, ok_quantity=95, correction_quantity=5)
     assert split_response.status_code == 200
 
-    correction_order = next(item for item in test_client.get("/manager/work-orders/unplanned").json() if item["parent_order"]["id"] == created["id"])
+    correction_order = next(
+        item
+        for item in test_client.get("/manager/work-orders/unplanned").json()
+        if item["parent_order"]["id"] == created["id"]
+    )
     plan_response = test_client.post(
         f"/manager/work-orders/{correction_order['id']}/plan",
         json={"production_type": "MANUAL", "queue_position": 3},
@@ -486,7 +502,36 @@ def test_correction_order_can_be_planned_after_packing_split(test_client: TestCl
 
     assert plan_response.status_code == 200
     assert detail.json()["total_quantity"] == 5
-    assert detail.json()["process_status"] == {"value": "SURFACE_PREPARATION", "label": "Przygotowanie"}
+    assert detail.json()["process_status"] == {"value": "PRODUCTION_MANUAL", "label": "Produkcja ręczna"}
+
+
+def test_stage_list_can_filter_by_queue_namespace(test_client: TestClient) -> None:
+    main = create_planned_work_order(test_client, title="Main production list", queue_position=1, production_type="MANUAL")
+    advance_to_hanging(test_client, main["id"])
+
+    parent = create_planned_work_order(test_client, title="Correction source", queue_position=2, production_type="MANUAL")
+    advance_to_packing(test_client, parent["id"])
+    complete_packing_request(test_client, parent["id"], counted_quantity=100, ok_quantity=95, correction_quantity=5)
+    correction_order = next(
+        item
+        for item in test_client.get("/manager/work-orders/unplanned").json()
+        if item["parent_order"]["id"] == parent["id"]
+    )
+    test_client.post(
+        f"/manager/work-orders/{correction_order['id']}/plan",
+        json={"production_type": "MANUAL", "queue_position": 3},
+    )
+
+    main_response = test_client.get("/process/stages/PRODUCTION/work-orders", params={"production_type": "MANUAL"})
+    corrections_response = test_client.get(
+        "/process/stages/PRODUCTION/work-orders",
+        params={"production_type": "MANUAL", "queue_namespace": "CORRECTIONS"},
+    )
+
+    assert main_response.status_code == 200
+    assert corrections_response.status_code == 200
+    assert [item["id"] for item in main_response.json()] == [main["id"], correction_order["id"]]
+    assert [item["id"] for item in corrections_response.json()] == [correction_order["id"]]
 
 
 def test_decoral_automatic_mixed_split_waits_for_correction_child(test_client: TestClient) -> None:
@@ -509,10 +554,53 @@ def test_decoral_automatic_mixed_split_waits_for_correction_child(test_client: T
     correction_order = next(item for item in unplanned_response.json() if item["parent_order"]["id"] == created["id"])
 
     assert hanging_response.json() == []
-    assert decoral_response.json() == []
-    assert detail.json()["process_status"] == {"value": "WAITING_FOR_CORRECTIONS", "label": "Czeka na poprawki"}
+    assert [item["id"] for item in decoral_response.json()] == [created["id"]]
+    assert decoral_response.json()[0]["batch_quantity"] == 70
+    assert detail.json()["process_status"] == {"value": "DECORAL_PRODUCTION", "label": "Produkcja Decoral"}
     assert detail.json()["waiting_ok_quantity"] == 70
     assert correction_order["total_quantity"] == 30
+
+
+def test_decoral_correction_child_plans_back_to_painting_flow_via_api(test_client: TestClient) -> None:
+    created = create_planned_work_order(
+        test_client,
+        title="Decoral correction return",
+        queue_position=1,
+        production_type="MANUAL",
+        coating_type="DECORAL",
+        total_quantity=10,
+    )
+    advance_to_packing(test_client, created["id"])
+
+    split_response = complete_packing_request(
+        test_client,
+        created["id"],
+        counted_quantity=10,
+        ok_quantity=7,
+        correction_quantity=3,
+    )
+    parent_detail = test_client.get(f"/work-orders/{created['id']}")
+    correction_order = next(
+        item
+        for item in test_client.get("/manager/work-orders/unplanned").json()
+        if item["parent_order"]["id"] == created["id"]
+    )
+
+    assert split_response.status_code == 200
+    assert split_response.json()["stage_status"] == {
+        "stage": "DECORAL_PRODUCTION",
+        "status": {"value": "NOT_STARTED", "label": "Nie rozpoczęte"},
+    }
+    assert parent_detail.json()["process_status"] == {"value": "DECORAL_PRODUCTION", "label": "Produkcja Decoral"}
+
+    plan_response = test_client.post(
+        f"/manager/work-orders/{correction_order['id']}/plan",
+        json={"production_type": "MANUAL", "queue_position": 2},
+    )
+    correction_detail = test_client.get(f"/work-orders/{correction_order['id']}")
+
+    assert plan_response.status_code == 200
+    assert correction_detail.json()["process_status"] == {"value": "PRODUCTION_MANUAL", "label": "Produkcja ręczna"}
 
 
 def test_completed_correction_child_marks_parent_ready_via_api(test_client: TestClient) -> None:
@@ -528,15 +616,17 @@ def test_completed_correction_child_marks_parent_ready_via_api(test_client: Test
     split_response = complete_packing_request(test_client, created["id"], counted_quantity=10, ok_quantity=7, correction_quantity=3)
     assert split_response.status_code == 200
 
-    correction_order = next(item for item in test_client.get("/manager/work-orders/unplanned").json() if item["parent_order"]["id"] == created["id"])
+    correction_order = next(
+        item
+        for item in test_client.get("/manager/work-orders/unplanned").json()
+        if item["parent_order"]["id"] == created["id"]
+    )
     plan_response = test_client.post(
         f"/manager/work-orders/{correction_order['id']}/plan",
         json={"production_type": "MANUAL", "queue_position": 2},
     )
     assert plan_response.status_code == 200
 
-    start_surface_preparation(test_client, correction_order["id"], counted_quantity=3)
-    test_client.post(f"/process/work-orders/{correction_order['id']}/stages/SURFACE_PREPARATION/finish")
     test_client.post(f"/process/work-orders/{correction_order['id']}/stages/PRODUCTION/start")
     test_client.post(f"/process/work-orders/{correction_order['id']}/stages/PRODUCTION/finish")
     test_client.post(f"/process/work-orders/{correction_order['id']}/stages/PACKING/start")
@@ -577,7 +667,9 @@ def test_multi_round_correction_chain_marks_original_parent_ready_via_api(test_c
     assert first_split.status_code == 200
 
     first_correction = next(
-        item for item in test_client.get("/manager/work-orders/unplanned").json() if item["parent_order"]["id"] == created["id"]
+        item
+        for item in test_client.get("/manager/work-orders/unplanned").json()
+        if item["parent_order"]["id"] == created["id"]
     )
     first_plan = test_client.post(
         f"/manager/work-orders/{first_correction['id']}/plan",
@@ -649,7 +741,9 @@ def test_automatic_correction_child_can_complete_and_merge_parent_via_api(test_c
     assert split_response.status_code == 200
 
     correction_order = next(
-        item for item in test_client.get("/manager/work-orders/unplanned").json() if item["parent_order"]["id"] == created["id"]
+        item
+        for item in test_client.get("/manager/work-orders/unplanned").json()
+        if item["parent_order"]["id"] == created["id"]
     )
     plan_response = test_client.post(
         f"/manager/work-orders/{correction_order['id']}/plan",
@@ -758,7 +852,11 @@ def test_packing_complete_accepts_valid_quantity_split_without_phantom_ok(test_c
 
     response = complete_packing_request(test_client, created["id"], counted_quantity=100, ok_quantity=90, correction_quantity=10)
     detail = test_client.get(f"/work-orders/{created['id']}")
-    correction_order = next(item for item in test_client.get("/manager/work-orders/unplanned").json() if item["parent_order"]["id"] == created["id"])
+    correction_order = next(
+        item
+        for item in test_client.get("/manager/work-orders/unplanned").json()
+        if item["parent_order"]["id"] == created["id"]
+    )
 
     assert response.status_code == 200
     assert response.json()["stage_status"] == {

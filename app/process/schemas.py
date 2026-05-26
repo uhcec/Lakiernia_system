@@ -1,7 +1,7 @@
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.process.enums import ProcessStage, QuantityBatchType, StageStatus
-from app.work_orders.schemas import CoatingTypeView, ProductionTypeView
+from app.work_orders.schemas import CoatingTypeView, ProductionTypeView, QueueNamespaceView
 
 
 class StageStatusView(BaseModel):
@@ -17,6 +17,7 @@ class ProcessStageStatusRead(BaseModel):
 class ProcessStageWorkOrderRead(BaseModel):
     id: int
     batch_id: int | None = None
+    is_correction: bool
     order_number: str
     title: str
     ral_code: str
@@ -29,6 +30,7 @@ class ProcessStageWorkOrderRead(BaseModel):
     quantity_difference: int | None = None
     customer_name: str | None
     queue_position: int | None
+    queue_namespace: QueueNamespaceView
     production_type: ProductionTypeView | None
     coating_type: CoatingTypeView
     batch_type: QuantityBatchType | None = None
