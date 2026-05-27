@@ -1,14 +1,6 @@
+import { createApiError } from "./apiError";
 import type { AssignWorkOrderPlanRequest, ReorderQueueRequest, UpdateQueuePositionRequest } from "../types/manager";
 import type { WorkOrder } from "../types/workOrders";
-
-const STALE_QUEUE_REVISION_DETAIL = "Queue reorder payload is stale. Refresh the manager queue and try again.";
-
-export class StaleQueueRevisionError extends Error {
-  constructor() {
-    super("Kolejka została zmieniona przez innego użytkownika. Odświeżono listę do aktualnego stanu.");
-    this.name = "StaleQueueRevisionError";
-  }
-}
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL?.trim();
 
@@ -26,15 +18,6 @@ function createApiUrl(pathname: string): string {
   return `${API_BASE_URL.replace(/\/$/, "")}${normalizedPath}`;
 }
 
-async function readErrorMessage(response: Response, fallbackMessage: string): Promise<string> {
-  try {
-    const body = (await response.json()) as { detail?: string };
-    return typeof body.detail === "string" && body.detail.trim() ? body.detail : fallbackMessage;
-  } catch {
-    return fallbackMessage;
-  }
-}
-
 export async function fetchUnplannedWorkOrders(): Promise<WorkOrder[]> {
   const response = await fetch(createApiUrl("/manager/work-orders/unplanned"), {
     headers: {
@@ -43,7 +26,7 @@ export async function fetchUnplannedWorkOrders(): Promise<WorkOrder[]> {
   });
 
   if (!response.ok) {
-    throw new Error(await readErrorMessage(response, "Nie udało się pobrać zleceń do zaplanowania"));
+    throw await createApiError(response, "Nie udało się pobrać zleceń do zaplanowania");
   }
 
   return response.json() as Promise<WorkOrder[]>;
@@ -57,7 +40,7 @@ export async function fetchPlannedWorkOrders(): Promise<WorkOrder[]> {
   });
 
   if (!response.ok) {
-    throw new Error(await readErrorMessage(response, "Nie udało się pobrać zaplanowanych zleceń"));
+    throw await createApiError(response, "Nie udało się pobrać zaplanowanych zleceń");
   }
 
   return response.json() as Promise<WorkOrder[]>;
@@ -74,7 +57,7 @@ export async function assignWorkOrderPlan(workOrderId: number, payload: AssignWo
   });
 
   if (!response.ok) {
-    throw new Error(await readErrorMessage(response, "Nie udało się zaplanować zlecenia"));
+    throw await createApiError(response, "Nie udało się zaplanować zlecenia");
   }
 
   return response.json() as Promise<WorkOrder>;
@@ -94,7 +77,7 @@ export async function updateWorkOrderQueuePosition(
   });
 
   if (!response.ok) {
-    throw new Error(await readErrorMessage(response, "Nie udało się zmienić kolejności"));
+    throw await createApiError(response, "Nie udało się zmienić kolejności");
   }
 
   return response.json() as Promise<WorkOrder>;
@@ -113,13 +96,7 @@ export async function reorderWorkOrderQueue(
   });
 
   if (!response.ok) {
-    const detail = await readErrorMessage(response, "Nie udało się zapisać kolejności");
-
-    if (response.status === 409 && detail === STALE_QUEUE_REVISION_DETAIL) {
-      throw new StaleQueueRevisionError();
-    }
-
-    throw new Error(detail);
+    throw await createApiError(response, "Nie udało się zapisać kolejności");
   }
 
   return response.json() as Promise<WorkOrder[]>;

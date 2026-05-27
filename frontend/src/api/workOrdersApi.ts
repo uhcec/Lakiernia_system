@@ -1,3 +1,4 @@
+import { createApiError } from "./apiError";
 import type { CreateWorkOrderRequest, WorkOrder, WorkOrderAttachment, WorkOrdersListResponse } from "../types/workOrders";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL?.trim();
@@ -16,25 +17,6 @@ export function createApiUrl(pathname: string): string {
   return `${API_BASE_URL.replace(/\/$/, "")}${normalizedPath}`;
 }
 
-async function readErrorMessage(response: Response, fallbackMessage: string): Promise<string> {
-  try {
-    const body = (await response.json()) as { detail?: string | { msg?: string }[] };
-    if (typeof body.detail === "string" && body.detail.trim()) {
-      return body.detail;
-    }
-    if (Array.isArray(body.detail) && body.detail.length > 0) {
-      const firstMessage = body.detail[0]?.msg;
-      if (typeof firstMessage === "string" && firstMessage.trim()) {
-        return firstMessage;
-      }
-    }
-  } catch {
-    return fallbackMessage;
-  }
-
-  return fallbackMessage;
-}
-
 export async function fetchWorkOrders(): Promise<WorkOrdersListResponse> {
   const response = await fetch(createApiUrl("/work-orders"), {
     headers: {
@@ -43,7 +25,7 @@ export async function fetchWorkOrders(): Promise<WorkOrdersListResponse> {
   });
 
   if (!response.ok) {
-    throw new Error("Nie udało się pobrać zleceń");
+    throw await createApiError(response, "Nie udało się pobrać zleceń");
   }
 
   return response.json() as Promise<WorkOrdersListResponse>;
@@ -62,7 +44,7 @@ export async function createWorkOrder(payload: CreateWorkOrderRequest): Promise<
   });
 
   if (!response.ok) {
-    throw new Error(await readErrorMessage(response, "Nie udało się utworzyć zlecenia"));
+    throw await createApiError(response, "Nie udało się utworzyć zlecenia");
   }
 
   return response.json() as Promise<WorkOrder>;
@@ -78,7 +60,7 @@ export async function fetchWorkOrder(workOrderId: number): Promise<WorkOrder> {
   });
 
   if (!response.ok) {
-    throw new Error("Nie udało się pobrać zlecenia");
+    throw await createApiError(response, "Nie udało się pobrać zlecenia");
   }
 
   return response.json() as Promise<WorkOrder>;
@@ -95,7 +77,7 @@ export async function markWorkOrderCompleteArrival(workOrderId: number): Promise
   });
 
   if (!response.ok) {
-    throw new Error(await readErrorMessage(response, "Nie udało się oznaczyć zlecenia jako kompletne"));
+    throw await createApiError(response, "Nie udało się oznaczyć zlecenia jako kompletne");
   }
 
   return response.json() as Promise<WorkOrder>;
@@ -109,7 +91,7 @@ export async function fetchWorkOrderAttachments(workOrderId: number): Promise<Wo
   });
 
   if (!response.ok) {
-    throw new Error(await readErrorMessage(response, "Nie udało się pobrać załączników"));
+    throw await createApiError(response, "Nie udało się pobrać załączników");
   }
 
   return response.json() as Promise<WorkOrderAttachment[]>;
@@ -137,7 +119,7 @@ export async function uploadWorkOrderAttachment(
   });
 
   if (!response.ok) {
-    throw new Error(await readErrorMessage(response, "Nie udało się przesłać załącznika"));
+    throw await createApiError(response, "Nie udało się przesłać załącznika");
   }
 
   return response.json() as Promise<WorkOrderAttachment>;
@@ -152,7 +134,7 @@ export async function deleteWorkOrderAttachment(workOrderId: number, attachmentI
   });
 
   if (!response.ok) {
-    throw new Error(await readErrorMessage(response, "Nie udało się usunąć załącznika"));
+    throw await createApiError(response, "Nie udało się usunąć załącznika");
   }
 }
 

@@ -3,13 +3,14 @@ from pathlib import Path
 from uuid import uuid4
 
 from fastapi import UploadFile
+from pydantic import ValidationError
 
 from app.core.config import get_settings, get_work_order_attachments_path
 from app.process.enums import ProcessDisplayStatus
 from app.process.repository import ProcessRepository
 from app.process.service import ProcessService
 from app.shared.enums import WorkOrderStatus, get_work_order_status_label
-from app.shared.exceptions import InvalidAttachmentError, InvalidStatusTransitionError, ResourceNotFoundError
+from app.shared.exceptions import InvalidAttachmentError, InvalidStatusTransitionError, InvalidWorkOrderDataError, ResourceNotFoundError
 from app.work_orders.models import WorkOrder, WorkOrderAttachment
 from app.work_orders.number_allocator import WorkOrderNumberAllocator
 from app.work_orders.repository import WorkOrderRepository
@@ -38,6 +39,7 @@ from app.work_orders.schemas import (
 
 class WorkOrderService:
     ALLOWED_ATTACHMENT_CONTENT_TYPES = {"application/pdf"}
+    PDF_MAGIC_BYTES = b"%PDF-"
 
     def __init__(self, repository: WorkOrderRepository) -> None:
         self.repository = repository
@@ -108,9 +110,11 @@ class WorkOrderService:
 
     def update_work_order(self, work_order_id: int, payload: WorkOrderUpdate) -> WorkOrderRead:
         work_order = self._get_existing_work_order(work_order_id)
+        updates = payload.model_dump(exclude_unset=True)
+        validated_payload = self._validate_work_order_state(work_order, updates)
 
-        for field_name, field_value in payload.model_dump(exclude_unset=True).items():
-            setattr(work_order, field_name, field_value)
+        for field_name in updates:
+            setattr(work_order, field_name, getattr(validated_payload, field_name))
 
         work_order.updated_at = datetime.now(UTC)
 
@@ -121,6 +125,34 @@ class WorkOrderService:
             raise
 
         return self._to_read_model(work_order)
+
+    def _validate_work_order_state(self, work_order: WorkOrder, overrides: dict[str, object] | None = None) -> WorkOrderCreate:
+        merged_payload = {
+            "title": work_order.title,
+            "total_quantity": work_order.total_quantity,
+            "description": work_order.description,
+            "customer_name": work_order.customer_name,
+            "ral_code": work_order.ral_code,
+            "paint_producer": work_order.paint_producer,
+            "coating_type": work_order.coating_type,
+            "received_date": work_order.received_date,
+            "planned_pickup_date": work_order.planned_pickup_date,
+            "total_area_m2": work_order.total_area_m2,
+            "is_incomplete_on_arrival": work_order.is_incomplete_on_arrival,
+            "profiles_quantity": work_order.profiles_quantity,
+            "profiles_to_count": work_order.profiles_to_count,
+            "accessories_quantity": work_order.accessories_quantity,
+            "accessories_to_count": work_order.accessories_to_count,
+            "notes": work_order.notes,
+        }
+        if overrides:
+            merged_payload.update(overrides)
+
+        try:
+            return WorkOrderCreate.model_validate(merged_payload)
+        except ValidationError as exc:
+            first_error = exc.errors()[0]
+            raise InvalidWorkOrderDataError(str(first_error.get("msg", "Nieprawidłowe dane zlecenia."))) from exc
 
     def list_work_orders(
         self,
@@ -158,6 +190,8 @@ class WorkOrderService:
             raise InvalidStatusTransitionError(
                 f"Work order {work_order_id} is not marked as incomplete on arrival."
             )
+
+        self._validate_work_order_state(work_order, {"is_incomplete_on_arrival": False})
 
         work_order.is_incomplete_on_arrival = False
         work_order.status = WorkOrderStatus.ENTERED
@@ -202,6 +236,15 @@ class WorkOrderService:
         file_size = 0
         try:
             with destination_path.open("wb") as output_file:
+                header = await file.read(len(self.PDF_MAGIC_BYTES))
+                if not header:
+                    raise InvalidAttachmentError("Nie można przesłać pustego pliku PDF.")
+                if header != self.PDF_MAGIC_BYTES:
+                    raise InvalidAttachmentError("Przesłany plik nie jest prawidłowym PDF.")
+
+                file_size += len(header)
+                output_file.write(header)
+
                 while chunk := await file.read(1024 * 1024):
                     file_size += len(chunk)
                     if file_size > settings.work_order_attachment_max_size_bytes:
@@ -210,9 +253,6 @@ class WorkOrderService:
                             status_code=413,
                         )
                     output_file.write(chunk)
-
-            if file_size == 0:
-                raise InvalidAttachmentError("Nie można przesłać pustego pliku PDF.")
 
             attachment = WorkOrderAttachment(
                 work_order_id=work_order.id,

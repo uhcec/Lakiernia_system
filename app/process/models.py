@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Integer, UniqueConstraint
+from sqlalchemy import Boolean, CheckConstraint, DateTime, Enum, ForeignKey, Integer, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database.base import Base
@@ -33,7 +33,10 @@ quantity_batch_type_enum = Enum(
 
 class WorkOrderStageState(Base):
     __tablename__ = "work_order_stage_states"
-    __table_args__ = (UniqueConstraint("work_order_id", "stage"),)
+    __table_args__ = (
+        UniqueConstraint("work_order_id", "stage"),
+        CheckConstraint("counted_quantity IS NULL OR counted_quantity > 0", name="counted_quantity_positive_if_present"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     work_order_id: Mapped[int] = mapped_column(ForeignKey("work_orders.id", ondelete="CASCADE"), nullable=False)
@@ -53,6 +56,13 @@ class WorkOrderStageState(Base):
 
 class WorkOrderQuantityBatch(Base):
     __tablename__ = "work_order_quantity_batches"
+    __table_args__ = (
+        CheckConstraint("quantity > 0", name="quantity_positive"),
+        CheckConstraint(
+            "(current_stage IS NULL AND current_stage_status IS NULL) OR (current_stage IS NOT NULL AND current_stage_status IS NOT NULL)",
+            name="current_stage_and_status_nullness_match",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     work_order_id: Mapped[int] = mapped_column(ForeignKey("work_orders.id", ondelete="CASCADE"), nullable=False)

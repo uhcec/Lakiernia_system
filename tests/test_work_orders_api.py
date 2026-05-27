@@ -1,3 +1,4 @@
+import pytest
 from fastapi.testclient import TestClient
 
 
@@ -23,6 +24,28 @@ def build_create_payload(**overrides: object) -> dict:
 
 def create_work_order(test_client: TestClient, **overrides: object):
     return test_client.post("/work-orders", json=build_create_payload(**overrides))
+
+
+def assert_work_order_fields_unchanged(
+    test_client: TestClient,
+    work_order_id: int,
+    *,
+    profiles_quantity: int | None,
+    profiles_to_count: bool,
+    accessories_quantity: int | None,
+    accessories_to_count: bool,
+    customer_name: str,
+    notes: str | None,
+) -> None:
+    detail_response = test_client.get(f"/work-orders/{work_order_id}")
+
+    assert detail_response.status_code == 200
+    assert detail_response.json()["profiles_quantity"] == profiles_quantity
+    assert detail_response.json()["profiles_to_count"] is profiles_to_count
+    assert detail_response.json()["accessories_quantity"] == accessories_quantity
+    assert detail_response.json()["accessories_to_count"] is accessories_to_count
+    assert detail_response.json()["customer_name"] == customer_name
+    assert detail_response.json()["notes"] == notes
 
 
 def start_surface_preparation(test_client: TestClient, work_order_id: int, counted_quantity: int | None = None) -> None:
@@ -288,6 +311,117 @@ def test_partial_update_does_not_erase_unspecified_fields(test_client: TestClien
     assert body["description"] == "Original description"
     assert body["customer_name"] == "Original customer"
     assert body["notes"] == "Only notes changed"
+
+
+@pytest.mark.parametrize(
+    ("create_overrides", "patch_payload"),
+    [
+        ({"profiles_to_count": True, "profiles_quantity": None}, {"profiles_to_count": False}),
+        ({"profiles_to_count": False, "profiles_quantity": 5}, {"profiles_quantity": None}),
+        ({"profiles_to_count": False, "profiles_quantity": 5}, {"profiles_to_count": True}),
+        ({"profiles_to_count": True, "profiles_quantity": None}, {"profiles_quantity": 5}),
+        ({"accessories_to_count": True, "accessories_quantity": None}, {"accessories_to_count": False}),
+        ({"accessories_to_count": False, "accessories_quantity": 7}, {"accessories_quantity": None}),
+        ({"accessories_to_count": False, "accessories_quantity": 7}, {"accessories_to_count": True}),
+        ({"accessories_to_count": True, "accessories_quantity": None}, {"accessories_quantity": 7}),
+    ],
+)
+def test_patch_rejects_invalid_merged_counting_state(
+    test_client: TestClient,
+    create_overrides: dict[str, object],
+    patch_payload: dict[str, object],
+) -> None:
+    created = create_work_order(test_client, title="Invalid merged patch", **create_overrides).json()
+
+    response = test_client.patch(f"/work-orders/{created['id']}", json=patch_payload)
+
+    assert response.status_code == 422
+    assert_work_order_fields_unchanged(
+        test_client,
+        created["id"],
+        profiles_quantity=created["profiles_quantity"],
+        profiles_to_count=created["profiles_to_count"],
+        accessories_quantity=created["accessories_quantity"],
+        accessories_to_count=created["accessories_to_count"],
+        customer_name=created["customer_name"],
+        notes=created["notes"],
+    )
+
+
+def test_patch_rejects_blank_customer_name_after_stripping(test_client: TestClient) -> None:
+    created = create_work_order(test_client, title="Blank customer patch", customer_name="Original customer").json()
+
+    response = test_client.patch(
+        f"/work-orders/{created['id']}",
+        json={"customer_name": "   "},
+    )
+
+    assert response.status_code == 422
+    assert_work_order_fields_unchanged(
+        test_client,
+        created["id"],
+        profiles_quantity=created["profiles_quantity"],
+        profiles_to_count=created["profiles_to_count"],
+        accessories_quantity=created["accessories_quantity"],
+        accessories_to_count=created["accessories_to_count"],
+        customer_name=created["customer_name"],
+        notes=created["notes"],
+    )
+
+
+def test_valid_partial_patch_preserves_counting_consistency(test_client: TestClient) -> None:
+    created = create_work_order(
+        test_client,
+        title="Valid partial patch",
+        profiles_quantity=5,
+        profiles_to_count=False,
+        accessories_quantity=None,
+        accessories_to_count=True,
+        customer_name="Original customer",
+    ).json()
+
+    response = test_client.patch(
+        f"/work-orders/{created['id']}",
+        json={"notes": "Updated note", "customer_name": "Updated customer"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["notes"] == "Updated note"
+    assert response.json()["customer_name"] == "Updated customer"
+    assert response.json()["profiles_quantity"] == 5
+    assert response.json()["profiles_to_count"] is False
+    assert response.json()["accessories_quantity"] is None
+    assert response.json()["accessories_to_count"] is True
+
+
+def test_rejected_patch_leaves_previous_values_unchanged(test_client: TestClient) -> None:
+    created = create_work_order(
+        test_client,
+        title="Rejected patch rollback",
+        profiles_quantity=5,
+        profiles_to_count=False,
+        accessories_quantity=7,
+        accessories_to_count=False,
+        customer_name="Stable customer",
+        notes="Stable note",
+    ).json()
+
+    response = test_client.patch(
+        f"/work-orders/{created['id']}",
+        json={"profiles_to_count": True, "notes": "Should not persist"},
+    )
+
+    assert response.status_code == 422
+    assert_work_order_fields_unchanged(
+        test_client,
+        created["id"],
+        profiles_quantity=5,
+        profiles_to_count=False,
+        accessories_quantity=7,
+        accessories_to_count=False,
+        customer_name="Stable customer",
+        notes="Stable note",
+    )
 
 
 def test_update_missing_work_order_returns_404(test_client: TestClient) -> None:

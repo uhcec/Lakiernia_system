@@ -1,0 +1,138 @@
+from datetime import date
+
+import pytest
+from sqlalchemy.orm import Session
+
+from app.process.enums import CoatingType
+from app.shared.enums import WorkOrderStatus
+from app.shared.exceptions import InvalidWorkOrderDataError
+from app.work_orders.repository import WorkOrderRepository
+from app.work_orders.schemas import WorkOrderCreate
+from app.work_orders.service import WorkOrderService
+
+
+def build_incomplete_work_order_payload(**overrides: object) -> WorkOrderCreate:
+    payload = {
+        "title": "Niekompletne zlecenie",
+        "coating_type": CoatingType.RAL,
+        "total_quantity": 100,
+        "customer_name": "ACME",
+        "ral_code": "RAL 7016",
+        "paint_producer": "AkzoNobel",
+        "received_date": date(2026, 5, 25),
+        "is_incomplete_on_arrival": True,
+        "profiles_to_count": True,
+        "accessories_to_count": True,
+    }
+    payload.update(overrides)
+    return WorkOrderCreate.model_validate(payload)
+
+
+def build_work_order_service(db_session: Session) -> tuple[WorkOrderService, WorkOrderRepository]:
+    repository = WorkOrderRepository(db_session)
+    return WorkOrderService(repository), repository
+
+
+def test_mark_complete_arrival_rejects_invalid_profiles_state(db_session: Session) -> None:
+    service, repository = build_work_order_service(db_session)
+    created = service.create_work_order(
+        build_incomplete_work_order_payload(profiles_quantity=5, profiles_to_count=False),
+    )
+    work_order = repository.get_by_id(created.id)
+    assert work_order is not None
+    work_order.profiles_quantity = None
+    work_order.profiles_to_count = False
+    db_session.commit()
+
+    with pytest.raises(InvalidWorkOrderDataError, match="Profile"):
+        service.mark_complete_arrival(created.id)
+
+    db_session.refresh(work_order)
+    assert work_order.is_incomplete_on_arrival is True
+    assert work_order.status == WorkOrderStatus.INCOMPLETE
+    assert work_order.profiles_quantity is None
+    assert work_order.profiles_to_count is False
+
+
+def test_mark_complete_arrival_rejects_invalid_accessories_state(db_session: Session) -> None:
+    service, repository = build_work_order_service(db_session)
+    created = service.create_work_order(
+        build_incomplete_work_order_payload(accessories_quantity=7, accessories_to_count=False),
+    )
+    work_order = repository.get_by_id(created.id)
+    assert work_order is not None
+    work_order.accessories_quantity = None
+    work_order.accessories_to_count = False
+    db_session.commit()
+
+    with pytest.raises(InvalidWorkOrderDataError, match="Akcesoria"):
+        service.mark_complete_arrival(created.id)
+
+    db_session.refresh(work_order)
+    assert work_order.is_incomplete_on_arrival is True
+    assert work_order.status == WorkOrderStatus.INCOMPLETE
+    assert work_order.accessories_quantity is None
+    assert work_order.accessories_to_count is False
+
+
+def test_mark_complete_arrival_rejects_blank_customer_name_when_persisted_state_is_corrupted(db_session: Session) -> None:
+    service, repository = build_work_order_service(db_session)
+    created = service.create_work_order(build_incomplete_work_order_payload(customer_name="Poprawny klient"))
+    work_order = repository.get_by_id(created.id)
+    assert work_order is not None
+    work_order.customer_name = "   "
+    db_session.commit()
+
+    with pytest.raises(InvalidWorkOrderDataError, match="at least 1 character"):
+        service.mark_complete_arrival(created.id)
+
+    db_session.refresh(work_order)
+    assert work_order.is_incomplete_on_arrival is True
+    assert work_order.status == WorkOrderStatus.INCOMPLETE
+    assert work_order.customer_name == "   "
+
+
+def test_valid_incomplete_order_can_still_be_marked_complete_arrival(db_session: Session) -> None:
+    service, repository = build_work_order_service(db_session)
+    created = service.create_work_order(build_incomplete_work_order_payload())
+
+    completed = service.mark_complete_arrival(created.id)
+    persisted = repository.get_by_id(created.id)
+
+    assert completed.is_incomplete_on_arrival is False
+    assert completed.status.value == WorkOrderStatus.ENTERED
+    assert persisted is not None
+    assert persisted.is_incomplete_on_arrival is False
+    assert persisted.status == WorkOrderStatus.ENTERED
+
+
+def test_rejected_mark_complete_arrival_leaves_order_state_unchanged(db_session: Session) -> None:
+    service, repository = build_work_order_service(db_session)
+    created = service.create_work_order(
+        build_incomplete_work_order_payload(
+            customer_name="Stały klient",
+            profiles_quantity=5,
+            profiles_to_count=False,
+            accessories_quantity=7,
+            accessories_to_count=False,
+        )
+    )
+    work_order = repository.get_by_id(created.id)
+    assert work_order is not None
+    work_order.customer_name = "   "
+    work_order.accessories_quantity = None
+    db_session.commit()
+    unchanged_updated_at = work_order.updated_at
+
+    with pytest.raises(InvalidWorkOrderDataError):
+        service.mark_complete_arrival(created.id)
+
+    db_session.refresh(work_order)
+    assert work_order.is_incomplete_on_arrival is True
+    assert work_order.status == WorkOrderStatus.INCOMPLETE
+    assert work_order.customer_name == "   "
+    assert work_order.profiles_quantity == 5
+    assert work_order.profiles_to_count is False
+    assert work_order.accessories_quantity is None
+    assert work_order.accessories_to_count is False
+    assert work_order.updated_at == unchanged_updated_at

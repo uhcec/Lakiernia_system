@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 
+import { getMutationErrorMessage } from "../utils/mutationError";
 import { completePacking, fetchStageWorkOrders, transitionStage } from "../api/processApi";
-import { fetchWorkOrder } from "../api/workOrdersApi";
 import type { StageWorkOrder, StageStatusValue } from "../types/process";
+import { loadCorrectionContexts, type CorrectionContext } from "../utils/correctionContext";
 import { formatWorkOrderPrimaryInfo, getStageWorkOrderBadgeStack, getStageWorkOrderProgressText, type DisplayBadge } from "../utils/workOrderDisplay";
 
 type QueueFilter = "ALL" | "NORMAL" | "CORRECTIONS";
@@ -11,11 +12,6 @@ interface PackingDraft {
   countedQuantity: string;
   okQuantity: string;
   correctionQuantity: string;
-}
-
-interface CorrectionContext {
-  parentOrderNumber: string | null;
-  parentTotalQuantity: number | null;
 }
 
 function getActionLabel(status: StageStatusValue): string {
@@ -83,6 +79,7 @@ export function PackingWorkOrdersPage() {
   const [queueFilter, setQueueFilter] = useState<QueueFilter>("ALL");
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [warningMessage, setWarningMessage] = useState<string | null>(null);
   const [activeWorkOrderId, setActiveWorkOrderId] = useState<number | null>(null);
   const [showCompleted, setShowCompleted] = useState(false);
   const [drafts, setDrafts] = useState<Record<number, PackingDraft>>({});
@@ -105,54 +102,39 @@ export function PackingWorkOrdersPage() {
   const activeWorkOrders = filteredWorkOrders.filter((workOrder) => workOrder.stage_status.status.value !== "DONE");
   const completedWorkOrders = filteredWorkOrders.filter((workOrder) => workOrder.stage_status.status.value === "DONE");
 
-  async function loadWorkOrders() {
+  async function loadWorkOrders(options?: { preserveErrorMessage?: boolean }): Promise<boolean> {
     setIsLoading(true);
-    setErrorMessage(null);
+    if (!options?.preserveErrorMessage) {
+      setErrorMessage(null);
+    }
+    setWarningMessage(null);
 
     try {
       const items = await fetchStageWorkOrders("PACKING");
       setWorkOrders(items);
-      const correctionIds = [...new Set(items.filter((item) => item.is_correction).map((item) => item.id))];
-      if (correctionIds.length > 0) {
-        const correctionDetails = await Promise.all(
-          correctionIds.map(async (workOrderId) => {
-            const detail = await fetchWorkOrder(workOrderId);
-            return {
-              workOrderId,
-              parentOrderNumber: detail.parent_order?.order_number ?? null,
-              parentTotalQuantity: detail.parent_order?.total_quantity ?? null,
-            };
-          }),
-        );
-        setCorrectionContextByOrderId(
-          correctionDetails.reduce<Record<number, CorrectionContext>>((acc, item) => {
-            acc[item.workOrderId] = {
-              parentOrderNumber: item.parentOrderNumber,
-              parentTotalQuantity: item.parentTotalQuantity,
-            };
-            return acc;
-          }, {}),
-        );
-      } else {
-        setCorrectionContextByOrderId({});
+      const correctionContexts = await loadCorrectionContexts(items);
+      setCorrectionContextByOrderId(correctionContexts.contexts);
+
+      if (correctionContexts.failedCount > 0) {
+        setWarningMessage("Nie udało się pobrać pełnego kontekstu dla części poprawek. Lista pozostaje dostępna.");
       }
-      setDrafts((current) => {
-        const nextDrafts = { ...current };
+
+      setDrafts(() => {
+        const nextDrafts: Record<number, PackingDraft> = {};
         for (const item of items) {
           const draftKey = getDraftKey(item);
-          const existingDraft = nextDrafts[draftKey];
-          if (!existingDraft) {
-            nextDrafts[draftKey] = {
-              countedQuantity: item.counted_quantity?.toString() ?? "",
-              okQuantity: String(item.counted_quantity ?? item.current_active_quantity),
-              correctionQuantity: "0",
-            };
-          }
+          nextDrafts[draftKey] = {
+            countedQuantity: item.counted_quantity?.toString() ?? "",
+            okQuantity: String(item.counted_quantity ?? item.current_active_quantity),
+            correctionQuantity: "0",
+          };
         }
         return nextDrafts;
       });
+      return true;
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "Nie udało się pobrać zleceń do pakowania");
+      return false;
     } finally {
       setIsLoading(false);
     }
@@ -185,7 +167,15 @@ export function PackingWorkOrdersPage() {
       }
       await loadWorkOrders();
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "Nie udało się zmienić statusu pakowania");
+      const message = getMutationErrorMessage(
+        error,
+        "Nie udało się zmienić statusu pakowania. Widok został odświeżony do aktualnego stanu backendu.",
+      );
+      const reloaded = await loadWorkOrders({ preserveErrorMessage: true });
+
+      if (reloaded) {
+        setErrorMessage(message);
+      }
     } finally {
       setActiveWorkOrderId(null);
     }
@@ -230,7 +220,15 @@ export function PackingWorkOrdersPage() {
       );
       await loadWorkOrders();
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "Nie udało się zatwierdzić pakowania");
+      const message = getMutationErrorMessage(
+        error,
+        "Nie udało się zatwierdzić pakowania. Widok został odświeżony do aktualnego stanu backendu.",
+      );
+      const reloaded = await loadWorkOrders({ preserveErrorMessage: true });
+
+      if (reloaded) {
+        setErrorMessage(message);
+      }
     } finally {
       setActiveWorkOrderId(null);
     }
@@ -463,6 +461,10 @@ export function PackingWorkOrdersPage() {
 
       {errorMessage ? (
         <section className="rounded-2xl border border-rose-200 bg-rose-50 px-5 py-4 text-sm text-rose-700">{errorMessage}</section>
+      ) : null}
+
+      {warningMessage ? (
+        <section className="rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-800">{warningMessage}</section>
       ) : null}
 
       <section className="rounded-[2rem] border border-white/70 bg-white/80 p-6 shadow-panel backdrop-blur sm:p-8">

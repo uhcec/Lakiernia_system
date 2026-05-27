@@ -1,6 +1,6 @@
 from datetime import UTC, date, datetime
 
-from sqlalchemy import Boolean, Date, DateTime, Enum, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, CheckConstraint, Date, DateTime, Enum, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database.base import Base
@@ -39,6 +39,26 @@ queue_namespace_enum = Enum(
 
 class WorkOrder(Base):
     __tablename__ = "work_orders"
+    __table_args__ = (
+        CheckConstraint("total_quantity > 0", name="total_quantity_positive"),
+        CheckConstraint("completed_quantity >= 0", name="completed_quantity_non_negative"),
+        CheckConstraint("completed_quantity <= total_quantity", name="completed_quantity_lte_total_quantity"),
+        CheckConstraint("queue_position IS NULL OR queue_position >= 1", name="queue_position_positive_if_present"),
+        CheckConstraint(
+            "(production_type IS NULL AND queue_position IS NULL) OR (production_type IS NOT NULL AND queue_position IS NOT NULL)",
+            name="planned_requires_production_type_and_queue_position",
+        ),
+        CheckConstraint("profiles_quantity IS NULL OR profiles_quantity > 0", name="profiles_quantity_positive_if_present"),
+        CheckConstraint(
+            "accessories_quantity IS NULL OR accessories_quantity > 0",
+            name="accessories_quantity_positive_if_present",
+        ),
+        CheckConstraint("parent_order_id IS NULL OR parent_order_id != id", name="parent_order_cannot_reference_self"),
+        CheckConstraint(
+            "(is_correction = 1 AND queue_namespace = 'CORRECTIONS') OR (is_correction = 0 AND queue_namespace = 'MAIN')",
+            name="correction_namespace_consistent",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     order_number: Mapped[str] = mapped_column(String(32), unique=True, nullable=False)

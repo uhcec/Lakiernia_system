@@ -5,9 +5,10 @@ import {
   fetchPlannedWorkOrders,
   fetchUnplannedWorkOrders,
   reorderWorkOrderQueue,
-  StaleQueueRevisionError,
 } from "../api/managerApi";
 import type { ProductionTypeValue, WorkOrder } from "../types/workOrders";
+import { isApiError } from "../api/apiError";
+import { getMutationErrorMessage } from "../utils/mutationError";
 import {
   assignSequentialQueuePositions,
   buildQueueReorderRequest,
@@ -165,9 +166,23 @@ export function ManagerPanelPage() {
   const filteredCompletedPlannedWorkOrders = filterQueueByType(completedPlannedWorkOrders, queueFilter);
   const isAllQueueFilter = queueFilter === "ALL";
 
-  async function loadManagerData() {
+  function restoreAuthoritativeQueueSnapshot() {
+    const authoritativeQueue = authoritativeQueueRef.current;
+
+    if (!authoritativeQueue) {
+      return;
+    }
+
+    setActivePlannedWorkOrders(authoritativeQueue.active);
+    setCompletedPlannedWorkOrders(authoritativeQueue.completed);
+    setQueueRevision(authoritativeQueue.queueRevision);
+  }
+
+  async function loadManagerData(options?: { preserveErrorMessage?: boolean }): Promise<boolean> {
     setIsLoading(true);
-    setErrorMessage(null);
+    if (!options?.preserveErrorMessage) {
+      setErrorMessage(null);
+    }
 
     try {
       const [unplanned, planned] = await Promise.all([fetchUnplannedWorkOrders(), fetchPlannedWorkOrders()]);
@@ -194,8 +209,10 @@ export function ManagerPanelPage() {
         completed: normalizedCompletedPlanned,
         queueRevision: nextQueueRevision,
       };
+      return true;
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "Nie udało się pobrać panelu kierownika");
+      return false;
     } finally {
       setIsLoading(false);
     }
@@ -248,7 +265,15 @@ export function ManagerPanelPage() {
       await loadManagerData();
       setSuccessMessage("Zlecenie zostało zaplanowane");
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "Nie udało się zaplanować zlecenia");
+      const message = getMutationErrorMessage(
+        error,
+        "Nie udało się zaplanować zlecenia. Panel został odświeżony do aktualnego stanu.",
+      );
+      const reloaded = await loadManagerData({ preserveErrorMessage: true });
+
+      if (reloaded) {
+        setErrorMessage(message);
+      }
     } finally {
       setPlanningWorkOrderId(null);
     }
@@ -277,23 +302,17 @@ export function ManagerPanelPage() {
     } catch (error) {
       logQueueDebug("backend error from /manager/queue/reorder", error instanceof Error ? error.message : error);
 
-      if (error instanceof StaleQueueRevisionError) {
-        const authoritativeQueue = authoritativeQueueRef.current;
+      restoreAuthoritativeQueueSnapshot();
+      setHasPendingQueueChanges(false);
 
-        if (authoritativeQueue) {
-          setActivePlannedWorkOrders(authoritativeQueue.active);
-          setCompletedPlannedWorkOrders(authoritativeQueue.completed);
-          setQueueRevision(authoritativeQueue.queueRevision);
-        }
+      const message = isApiError(error) && error.status === 409
+        ? "Konflikt zapisu kolejki. Odświeżono panel do aktualnego stanu backendu."
+        : getMutationErrorMessage(error, "Nie udało się zapisać kolejności. Odświeżono panel do aktualnego stanu backendu.");
+      const reloaded = await loadManagerData({ preserveErrorMessage: true });
 
-        setHasPendingQueueChanges(false);
-        await loadManagerData();
-        setErrorMessage(error.message);
-        return;
+      if (reloaded) {
+        setErrorMessage(message);
       }
-
-      setHasPendingQueueChanges(true);
-      setErrorMessage(error instanceof Error ? error.message : "Nie udało się zmienić kolejności");
     } finally {
       setIsSavingQueueOrder(false);
     }

@@ -84,6 +84,44 @@ def test_reject_non_pdf_attachment(test_client: TestClient) -> None:
     assert response.json()["detail"] == "Dozwolone są tylko pliki PDF."
 
 
+def test_reject_fake_pdf_with_application_pdf_content_type(test_client: TestClient) -> None:
+    created = create_work_order(test_client)
+
+    response = upload_pdf(
+        test_client,
+        created["id"],
+        filename="fake.pdf",
+        content=b"not-a-real-pdf",
+        content_type="application/pdf",
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Przesłany plik nie jest prawidłowym PDF."
+
+    list_response = test_client.get(f"/work-orders/{created['id']}/attachments")
+    assert list_response.status_code == 200
+    assert list_response.json() == []
+
+
+def test_accept_pdf_with_real_header(test_client: TestClient) -> None:
+    created = create_work_order(test_client)
+
+    response = upload_pdf(
+        test_client,
+        created["id"],
+        filename="real-header.pdf",
+        content=b"%PDF-1.7\n1 0 obj\n<<>>\nendobj\n%%EOF",
+        content_type="application/pdf",
+        attachment_type="SPEC",
+        description="Zweryfikowany PDF",
+    )
+
+    assert response.status_code == 201
+    assert response.json()["original_filename"] == "real-header.pdf"
+    assert response.json()["attachment_type"] == "SPEC"
+    assert response.json()["description"] == "Zweryfikowany PDF"
+
+
 def test_list_attachments(test_client: TestClient) -> None:
     created = create_work_order(test_client)
     first = upload_pdf(test_client, created["id"], filename="a.pdf", attachment_type="A")

@@ -1,3 +1,4 @@
+import { createApiError } from "./apiError";
 import type { ProcessStageValue, StageWorkOrder } from "../types/process";
 import type { ProductionTypeValue } from "../types/workOrders";
 
@@ -15,15 +16,6 @@ function createApiUrl(pathname: string): string {
   }
 
   return `${API_BASE_URL.replace(/\/$/, "")}${normalizedPath}`;
-}
-
-async function readErrorMessage(response: Response, fallbackMessage: string): Promise<string> {
-  try {
-    const body = (await response.json()) as { detail?: string };
-    return typeof body.detail === "string" && body.detail.trim() ? body.detail : fallbackMessage;
-  } catch {
-    return fallbackMessage;
-  }
 }
 
 export async function fetchSurfacePreparationWorkOrders(): Promise<StageWorkOrder[]> {
@@ -47,7 +39,7 @@ export async function fetchStageWorkOrders(
   });
 
   if (!response.ok) {
-    throw new Error(await readErrorMessage(response, "Nie udało się pobrać zleceń"));
+    throw await createApiError(response, "Nie udało się pobrać zleceń");
   }
 
   return response.json() as Promise<StageWorkOrder[]>;
@@ -92,7 +84,7 @@ export async function transitionStage(
   });
 
   if (!response.ok) {
-    throw new Error(await readErrorMessage(response, "Nie udało się zmienić statusu"));
+    throw await createApiError(response, "Nie udało się zmienić statusu");
   }
 
   return response.json() as Promise<StageWorkOrder>;
@@ -117,7 +109,7 @@ export async function completePacking(
   });
 
   if (!response.ok) {
-    throw new Error(await readErrorMessage(response, "Nie udało się zakończyć pakowania"));
+    throw await createApiError(response, "Nie udało się zakończyć pakowania");
   }
 
   return response.json() as Promise<StageWorkOrder>;

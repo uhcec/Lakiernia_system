@@ -1,17 +1,13 @@
 import { useEffect, useState } from "react";
 
+import { getMutationErrorMessage } from "../utils/mutationError";
 import { fetchStageWorkOrders, transitionStage } from "../api/processApi";
-import { fetchWorkOrder } from "../api/workOrdersApi";
 import type { ProcessStageValue, StageWorkOrder, StageStatusValue } from "../types/process";
 import type { ProductionTypeValue } from "../types/workOrders";
+import { loadCorrectionContexts, type CorrectionContext } from "../utils/correctionContext";
 import { formatWorkOrderPrimaryInfo, getStageWorkOrderBadgeStack, getStageWorkOrderProgressText, type DisplayBadge } from "../utils/workOrderDisplay";
 
 type QueueFilter = "ALL" | "NORMAL" | "CORRECTIONS";
-
-interface CorrectionContext {
-  parentOrderNumber: string | null;
-  parentTotalQuantity: number | null;
-}
 
 interface StageWorkOrdersPageProps {
   stage: ProcessStageValue;
@@ -105,6 +101,7 @@ export function StageWorkOrdersPage({
   const [isLoading, setIsLoading] = useState(true);
   const [queueFilter, setQueueFilter] = useState<QueueFilter>("ALL");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [warningMessage, setWarningMessage] = useState<string | null>(null);
   const [activeWorkOrderId, setActiveWorkOrderId] = useState<number | null>(null);
   const [showCompleted, setShowCompleted] = useState(false);
   const [countedQuantities, setCountedQuantities] = useState<Record<number, string>>({});
@@ -124,48 +121,36 @@ export function StageWorkOrdersPage({
   const activeWorkOrders = filteredWorkOrders.filter((workOrder) => workOrder.stage_status.status.value !== "DONE");
   const completedWorkOrders = filteredWorkOrders.filter((workOrder) => workOrder.stage_status.status.value === "DONE");
 
-  async function loadWorkOrders() {
+  async function loadWorkOrders(options?: { preserveErrorMessage?: boolean }): Promise<boolean> {
     setIsLoading(true);
-    setErrorMessage(null);
+    if (!options?.preserveErrorMessage) {
+      setErrorMessage(null);
+    }
+    setWarningMessage(null);
 
     try {
       const items = await fetchStageWorkOrders(stage, productionType);
       setWorkOrders(items);
-      const correctionIds = [...new Set(items.filter((item) => item.is_correction).map((item) => item.id))];
-      if (correctionIds.length > 0) {
-        const correctionDetails = await Promise.all(
-          correctionIds.map(async (workOrderId) => {
-            const detail = await fetchWorkOrder(workOrderId);
-            return {
-              workOrderId,
-              parentOrderNumber: detail.parent_order?.order_number ?? null,
-              parentTotalQuantity: detail.parent_order?.total_quantity ?? null,
-            };
-          }),
-        );
-        setCorrectionContextByOrderId(
-          correctionDetails.reduce<Record<number, CorrectionContext>>((acc, item) => {
-            acc[item.workOrderId] = {
-              parentOrderNumber: item.parentOrderNumber,
-              parentTotalQuantity: item.parentTotalQuantity,
-            };
-            return acc;
-          }, {}),
-        );
-      } else {
-        setCorrectionContextByOrderId({});
+      const correctionContexts = await loadCorrectionContexts(items);
+      setCorrectionContextByOrderId(correctionContexts.contexts);
+
+      if (correctionContexts.failedCount > 0) {
+        setWarningMessage("Nie udało się pobrać pełnego kontekstu dla części poprawek. Lista pozostaje dostępna.");
       }
+
       if (stage === "SURFACE_PREPARATION") {
-        setCountedQuantities((current) => {
+        setCountedQuantities(() => {
           const next: Record<number, string> = {};
           for (const item of items) {
-            next[item.id] = current[item.id] ?? (item.counted_quantity?.toString() ?? "");
+            next[item.id] = item.counted_quantity?.toString() ?? "";
           }
           return next;
         });
       }
+      return true;
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "Nie udało się pobrać zleceń");
+      return false;
     } finally {
       setIsLoading(false);
     }
@@ -214,7 +199,15 @@ export function StageWorkOrdersPage({
       );
       await loadWorkOrders();
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "Nie udało się zmienić statusu");
+      const message = getMutationErrorMessage(
+        error,
+        "Nie udało się zmienić statusu. Widok został odświeżony do aktualnego stanu backendu.",
+      );
+      const reloaded = await loadWorkOrders({ preserveErrorMessage: true });
+
+      if (reloaded) {
+        setErrorMessage(message);
+      }
     } finally {
       setActiveWorkOrderId(null);
     }
@@ -480,6 +473,10 @@ export function StageWorkOrdersPage({
 
       {errorMessage ? (
         <section className="rounded-2xl border border-rose-200 bg-rose-50 px-5 py-4 text-sm text-rose-700">{errorMessage}</section>
+      ) : null}
+
+      {warningMessage ? (
+        <section className="rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-800">{warningMessage}</section>
       ) : null}
 
       <section className="rounded-[2rem] border border-white/70 bg-white/80 p-6 shadow-panel backdrop-blur sm:p-8">

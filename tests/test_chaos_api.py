@@ -1,0 +1,57 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+from tests.chaos.harness import ChaosEnvironment
+from tests.chaos.invariants import assert_global_invariants
+from tests.chaos.scenarios import (
+    scenario_double_click_packing_complete,
+    scenario_invalid_patch_during_planning,
+    scenario_office_edits_order_while_manager_plans_it,
+    scenario_office_mark_complete_while_manager_plans,
+    scenario_packing_creates_correction_while_manager_reorders,
+    scenario_operator_double_finishes_same_stage,
+    scenario_repeated_correction_split_does_not_duplicate_child,
+    scenario_stale_queue_payload_submit,
+    scenario_two_managers_reorder_same_queue,
+)
+
+
+@pytest.fixture
+def chaos_environment(tmp_path: Path) -> ChaosEnvironment:
+    env = ChaosEnvironment(tmp_path / "chaos.sqlite")
+    try:
+        yield env
+    finally:
+        env.close()
+
+
+@pytest.mark.parametrize(
+    ("scenario_name", "scenario_runner"),
+    [
+        ("two_managers_reorder_same_queue", scenario_two_managers_reorder_same_queue),
+        ("stale_queue_payload_submit", scenario_stale_queue_payload_submit),
+        ("operator_double_finishes_same_stage", scenario_operator_double_finishes_same_stage),
+        ("double_click_packing_complete", scenario_double_click_packing_complete),
+        ("packing_creates_correction_while_manager_reorders", scenario_packing_creates_correction_while_manager_reorders),
+        ("repeated_correction_split_does_not_duplicate_child", scenario_repeated_correction_split_does_not_duplicate_child),
+        ("office_edits_order_while_manager_plans_it", scenario_office_edits_order_while_manager_plans_it),
+        ("office_mark_complete_while_manager_plans", scenario_office_mark_complete_while_manager_plans),
+        ("invalid_patch_during_planning", scenario_invalid_patch_during_planning),
+    ],
+)
+def test_chaos_scenarios_preserve_global_invariants(
+    chaos_environment: ChaosEnvironment,
+    scenario_name: str,
+    scenario_runner,
+) -> None:
+    _ = scenario_name
+    responses = scenario_runner(chaos_environment)
+
+    for response in responses:
+        assert response.status_code in {200, 201, 204, 409, 422}
+
+    with chaos_environment.create_session() as session:
+        assert_global_invariants(session, chaos_environment.event_log)
