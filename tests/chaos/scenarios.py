@@ -350,3 +350,77 @@ def scenario_invalid_patch_during_planning(env: ChaosEnvironment):
     assert after_detail["notes"] == before_detail["notes"]
 
     return [future_plan.result(), patch_response]
+
+
+def scenario_parallel_hanging_start(env: ChaosEnvironment):
+    seeder = env.create_actor_client("Seeder-Hanging")
+    first = create_planned_work_order(seeder, "Chaos Hanging First", 1, production_type="AUTOMATIC")
+    second = create_planned_work_order(seeder, "Chaos Hanging Second", 2, production_type="AUTOMATIC")
+
+    for work_order_id in [first["id"], second["id"]]:
+        start_surface_preparation(seeder, work_order_id, 100)
+        seeder.post(f"/process/work-orders/{work_order_id}/stages/SURFACE_PREPARATION/finish")
+
+    operator_a = StageOperatorAgent(env.create_actor_client("HangingAgent-A"))
+    operator_b = StageOperatorAgent(env.create_actor_client("HangingAgent-B"))
+    barrier = Barrier(2)
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        future_a = executor.submit(operator_a.synchronized_start_hanging, barrier, first["id"])
+        future_b = executor.submit(operator_b.synchronized_start_hanging, barrier, second["id"])
+
+    return [future_a.result(), future_b.result()]
+
+
+def scenario_packing_actual_expected_mismatch(env: ChaosEnvironment):
+    seeder = env.create_actor_client("Seeder-ActualMismatch")
+    created = create_planned_work_order(seeder, "Chaos Actual Mismatch", 1)
+
+    start_surface_preparation(seeder, created["id"], 95)
+    seeder.post(f"/process/work-orders/{created['id']}/stages/SURFACE_PREPARATION/finish")
+    seeder.post(f"/process/work-orders/{created['id']}/stages/PRODUCTION/start")
+    seeder.post(f"/process/work-orders/{created['id']}/stages/PRODUCTION/finish")
+    seeder.post(f"/process/work-orders/{created['id']}/stages/PACKING/start")
+
+    packing = PackingAgent(env.create_actor_client("PackingAgent-Mismatch"))
+    stale_response = packing.complete_packing(
+        created["id"],
+        counted_quantity=100,
+        ok_quantity=95,
+        correction_quantity=5,
+    )
+    valid_response = packing.complete_packing(
+        created["id"],
+        counted_quantity=95,
+        ok_quantity=90,
+        correction_quantity=5,
+    )
+
+    return [stale_response, valid_response]
+
+
+def scenario_correction_uses_actual_split(env: ChaosEnvironment):
+    seeder = env.create_actor_client("Seeder-CorrectionActual")
+    created = create_planned_work_order(seeder, "Chaos Correction Actual", 1, production_type="MANUAL")
+
+    start_surface_preparation(seeder, created["id"], 95)
+    seeder.post(f"/process/work-orders/{created['id']}/stages/SURFACE_PREPARATION/finish")
+    seeder.post(f"/process/work-orders/{created['id']}/stages/PRODUCTION/start")
+    seeder.post(f"/process/work-orders/{created['id']}/stages/PRODUCTION/finish")
+    seeder.post(f"/process/work-orders/{created['id']}/stages/PACKING/start")
+
+    packing = PackingAgent(env.create_actor_client("PackingAgent-CorrectionActual"))
+    packing_response = packing.complete_packing(
+        created["id"],
+        counted_quantity=95,
+        ok_quantity=90,
+        correction_quantity=5,
+    )
+
+    children = get_direct_correction_children(seeder, created["id"])
+    assert len(children) == 1
+    assert children[0]["total_quantity"] == 5
+    detail = get_work_order_detail(seeder, created["id"])
+    assert detail["pending_correction_quantity"] == 5
+
+    return [packing_response]

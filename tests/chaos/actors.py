@@ -53,9 +53,16 @@ class StageOperatorAgent:
     def finish_surface_preparation(self, work_order_id: int):
         return self.client.post(f"/process/work-orders/{work_order_id}/stages/SURFACE_PREPARATION/finish")
 
+    def start_hanging(self, work_order_id: int):
+        return self.client.post(f"/process/work-orders/{work_order_id}/stages/HANGING/start")
+
     def synchronized_finish_surface_preparation(self, barrier: Barrier, work_order_id: int):
         barrier.wait()
         return self.finish_surface_preparation(work_order_id)
+
+    def synchronized_start_hanging(self, barrier: Barrier, work_order_id: int):
+        barrier.wait()
+        return self.start_hanging(work_order_id)
 
 
 @dataclass(slots=True)

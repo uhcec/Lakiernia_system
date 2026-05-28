@@ -86,6 +86,7 @@ export interface WorkOrderRelationSummary {
   completed_quantity: number;
   current_active_quantity: number;
   is_correction: boolean;
+  is_historical_correction: boolean;
   process_status: ProcessStatus;
 }
 
@@ -100,6 +101,7 @@ export interface WorkOrder {
   pending_correction_quantity: number;
   total_progress_quantity: number;
   is_correction: boolean;
+  is_historical_correction: boolean;
   parent_order: WorkOrderRelationSummary | null;
   correction_orders: WorkOrderRelationSummary[];
   description: string | null;

@@ -4,7 +4,13 @@ import { getMutationErrorMessage } from "../utils/mutationError";
 import { completePacking, fetchStageWorkOrders, transitionStage } from "../api/processApi";
 import type { StageWorkOrder, StageStatusValue } from "../types/process";
 import { loadCorrectionContexts, type CorrectionContext } from "../utils/correctionContext";
-import { formatWorkOrderPrimaryInfo, getStageWorkOrderBadgeStack, getStageWorkOrderProgressText, type DisplayBadge } from "../utils/workOrderDisplay";
+import {
+  formatWorkOrderPrimaryInfo,
+  getHistoricalStageWorkOrderResultText,
+  getStageWorkOrderBadgeStack,
+  getStageWorkOrderProgressText,
+  type DisplayBadge,
+} from "../utils/workOrderDisplay";
 
 type QueueFilter = "ALL" | "NORMAL" | "CORRECTIONS";
 
@@ -55,6 +61,14 @@ function buildCorrectionQuantityContext(workOrder: StageWorkOrder, context: Corr
     return `${workOrder.total_quantity} szt. poprawki z ${context.parentTotalQuantity}`;
   }
   return `${workOrder.total_quantity} szt. poprawki`;
+}
+
+function buildMergedCorrectionDeltaText(workOrder: StageWorkOrder, context: CorrectionContext | undefined): string {
+  if (typeof context?.parentTotalQuantity === "number") {
+    return `Poprawiono ${workOrder.total_quantity} z ${context.parentTotalQuantity} szt.`;
+  }
+
+  return `Poprawiono ${workOrder.total_quantity} szt.`;
 }
 
 function badgeClasses(tone: DisplayBadge["tone"]): string {
@@ -275,6 +289,9 @@ export function PackingWorkOrdersPage() {
                   correctionQuantity >= 0 &&
                   okQuantity + correctionQuantity === countedQuantity;
                 const correctionContext = correctionContextByOrderId[workOrder.id];
+                const isMergedHistoricalCorrection = workOrder.is_historical_correction;
+                const showHistoricalResult = status === "DONE" && !workOrder.is_correction;
+                const showBatchProgress = status !== "DONE" || (workOrder.is_correction && !isMergedHistoricalCorrection);
 
                 return (
                   <tr
@@ -308,12 +325,21 @@ export function PackingWorkOrdersPage() {
                             </span>
                           ))}
                         </div>
-                        <p className="text-sm font-semibold text-ink">W pakowaniu</p>
-                        <p className="text-sm text-steel">Postęp partii: {getStageWorkOrderProgressText(workOrder)}</p>
+                        <p className="text-sm font-semibold text-ink">{status === "DONE" ? "Pakowanie zakończone" : "W pakowaniu"}</p>
+                        {showBatchProgress ? (
+                          <p className="text-sm text-steel">Postęp partii: {getStageWorkOrderProgressText(workOrder)}</p>
+                        ) : null}
+                        {showHistoricalResult ? (
+                          <p className="text-sm font-medium text-emerald-700">{getHistoricalStageWorkOrderResultText(workOrder)}</p>
+                        ) : null}
                         {workOrder.is_correction ? (
                           <>
                             <p className="font-medium text-amber-800">{buildCorrectionReference(workOrder, correctionContext)}</p>
-                            <p className="text-amber-700">{buildCorrectionQuantityContext(workOrder, correctionContext)}</p>
+                            <p className="text-amber-700">
+                              {isMergedHistoricalCorrection
+                                ? buildMergedCorrectionDeltaText(workOrder, correctionContext)
+                                : buildCorrectionQuantityContext(workOrder, correctionContext)}
+                            </p>
                           </>
                         ) : null}
                       </div>

@@ -168,6 +168,54 @@ def assert_ready_not_set_while_correction_open(db_session: Session) -> None:
     assert not invalid_ready, f"READY set while correction child still open for parents: {invalid_ready}"
 
 
+def assert_single_active_hanging_and_automatic_line(db_session: Session) -> None:
+    process_service = ProcessService(ProcessRepository(db_session))
+    work_orders = db_session.scalars(
+        select(WorkOrder).options(selectinload(WorkOrder.stage_states), selectinload(WorkOrder.quantity_batches))
+    ).all()
+
+    active_hanging_ids: list[int] = []
+    active_automatic_line_ids: list[int] = []
+
+    for work_order in work_orders:
+        hanging_state = next((stage for stage in work_order.stage_states if stage.stage.value == "HANGING"), None)
+        packing_state = next((stage for stage in work_order.stage_states if stage.stage.value == "PACKING"), None)
+        has_active_hanging_batch = any(
+            batch.is_active
+            and batch.current_stage is not None
+            and batch.current_stage.value == "HANGING"
+            and batch.current_stage_status is not None
+            and batch.current_stage_status.value == "IN_PROGRESS"
+            for batch in work_order.quantity_batches
+        )
+        has_active_packing_batch = any(
+            batch.is_active
+            and batch.current_stage is not None
+            and batch.current_stage.value == "PACKING"
+            and batch.current_stage_status is not None
+            and batch.current_stage_status.value == "IN_PROGRESS"
+            for batch in work_order.quantity_batches
+        )
+
+        if hanging_state is not None and (hanging_state.status.value == "IN_PROGRESS" or has_active_hanging_batch):
+            active_hanging_ids.append(work_order.id)
+
+        if work_order.production_type is not None and work_order.production_type.value == "AUTOMATIC":
+            occupies_automatic_line = (
+                hanging_state is not None
+                and packing_state is not None
+                and hanging_state.status.value == "IN_PROGRESS"
+                and packing_state.status.value != "DONE"
+            ) or has_active_hanging_batch or has_active_packing_batch
+            if occupies_automatic_line:
+                active_automatic_line_ids.append(work_order.id)
+
+        _ = process_service.get_display_status(work_order)
+
+    assert len(active_hanging_ids) <= 1, f"More than one active hanging job detected: {active_hanging_ids}"
+    assert len(active_automatic_line_ids) <= 1, f"More than one automatic-line job detected: {active_automatic_line_ids}"
+
+
 def assert_global_invariants(db_session: Session, events: list[ChaosEvent]) -> None:
     assert_no_raw_500s(events)
     assert_no_duplicate_queue_positions(db_session)
@@ -179,3 +227,4 @@ def assert_global_invariants(db_session: Session, events: list[ChaosEvent]) -> N
     assert_no_duplicate_direct_correction_children(db_session)
     assert_parent_child_quantities_conserved(db_session)
     assert_ready_not_set_while_correction_open(db_session)
+    assert_single_active_hanging_and_automatic_line(db_session)

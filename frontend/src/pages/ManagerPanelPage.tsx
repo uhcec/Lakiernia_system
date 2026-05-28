@@ -20,6 +20,7 @@ import {
   getWorkOrderActiveCorrectionsText,
   getWorkOrderAttentionBadges,
   getWorkOrderBadgeStack,
+  getHistoricalWorkOrderResultText,
   getWorkOrderProgressText,
   getWorkOrderStatusSummary,
   type DisplayBadge,
@@ -121,10 +122,10 @@ function buildCorrectionQuantityContext(workOrder: WorkOrder): string {
 
   const parentQuantity = workOrder.parent_order?.total_quantity;
   if (typeof parentQuantity === "number") {
-    return `${workOrder.total_quantity} szt. poprawki z ${parentQuantity}`;
+    return `Poprawiono ${workOrder.total_quantity} z ${parentQuantity} szt.`;
   }
 
-  return `${workOrder.total_quantity} szt. poprawki`;
+  return `Poprawiono ${workOrder.total_quantity} szt.`;
 }
 
 function badgeClasses(tone: DisplayBadge["tone"]): string {
@@ -478,7 +479,7 @@ export function ManagerPanelPage() {
                 <th className="px-5 py-4 font-semibold">Numer</th>
                 <th className="px-5 py-4 font-semibold">Dane główne</th>
                 <th className="px-5 py-4 font-semibold">Typ zlecenia</th>
-                <th className="px-5 py-4 font-semibold">Kontekst poprawki</th>
+                <th className="px-5 py-4 font-semibold">Podsumowanie historyczne</th>
                 <th className="px-5 py-4 font-semibold">Typ produkcji</th>
               </tr>
             </thead>
@@ -498,7 +499,9 @@ export function ManagerPanelPage() {
                       )}
                     </td>
                     <td className="px-5 py-4 text-steel">
-                      {workOrder.is_correction ? `${buildCorrectionReference(workOrder)} · ${buildCorrectionQuantityContext(workOrder)}` : "-"}
+                      {workOrder.is_correction
+                        ? `${buildCorrectionReference(workOrder)} · ${buildCorrectionQuantityContext(workOrder)}`
+                        : getHistoricalWorkOrderResultText(workOrder)}
                     </td>
                     <td className="px-5 py-4 text-steel">{getProductionTypeLabel(workOrder.production_type?.value)}</td>
                   </tr>

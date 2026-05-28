@@ -23,6 +23,7 @@ export interface StageWorkOrder {
   id: number;
   batch_id: number | null;
   is_correction: boolean;
+  is_historical_correction: boolean;
   order_number: string;
   title: string;
   ral_code: string;

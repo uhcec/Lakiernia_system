@@ -434,6 +434,70 @@ def test_second_automatic_hanging_start_is_rejected_when_line_is_busy(test_clien
     assert second_start_response.json()["detail"] == "Automatic line is already occupied by another active job."
 
 
+def test_automatic_line_is_released_after_first_job_finishes(test_client: TestClient) -> None:
+    first = create_planned_work_order(
+        test_client,
+        title="Automatic line release first",
+        queue_position=1,
+        production_type="AUTOMATIC",
+    )
+    second = create_planned_work_order(
+        test_client,
+        title="Automatic line release second",
+        queue_position=2,
+        production_type="AUTOMATIC",
+    )
+
+    advance_to_hanging(test_client, first["id"])
+    advance_to_hanging(test_client, second["id"])
+
+    first_start_response = test_client.post(f"/process/work-orders/{first['id']}/stages/HANGING/start")
+    blocked_response = test_client.post(f"/process/work-orders/{second['id']}/stages/HANGING/start")
+    finish_first_response = complete_packing_request(
+        test_client,
+        first["id"],
+        counted_quantity=100,
+        ok_quantity=100,
+        correction_quantity=0,
+    )
+    second_start_response = test_client.post(f"/process/work-orders/{second['id']}/stages/HANGING/start")
+
+    assert first_start_response.status_code == 200
+    assert blocked_response.status_code == 409
+    assert finish_first_response.status_code == 200
+    assert second_start_response.status_code == 200
+
+
+def test_correction_quantity_uses_actual_received_split_not_expected_gap(test_client: TestClient) -> None:
+    created = create_planned_work_order(
+        test_client,
+        title="Correction uses actual split",
+        queue_position=1,
+        production_type="MANUAL",
+        total_quantity=100,
+    )
+
+    start_surface_preparation(test_client, created["id"], counted_quantity=95)
+    test_client.post(f"/process/work-orders/{created['id']}/stages/SURFACE_PREPARATION/finish")
+    test_client.post(f"/process/work-orders/{created['id']}/stages/PRODUCTION/start")
+    test_client.post(f"/process/work-orders/{created['id']}/stages/PRODUCTION/finish")
+    test_client.post(f"/process/work-orders/{created['id']}/stages/PACKING/start")
+
+    packing_response = complete_packing_request(
+        test_client,
+        created["id"],
+        counted_quantity=95,
+        ok_quantity=90,
+        correction_quantity=5,
+    )
+    correction_order = next(
+        item for item in test_client.get("/manager/work-orders/unplanned").json() if item["parent_order"]["id"] == created["id"]
+    )
+
+    assert packing_response.status_code == 200
+    assert correction_order["total_quantity"] == 5
+
+
 def test_cannot_start_surface_preparation_with_non_positive_count(test_client: TestClient) -> None:
     created = create_planned_work_order(test_client, title="Bad counted", queue_position=1)
 
@@ -589,10 +653,14 @@ def test_correction_order_can_be_planned_after_packing_split(test_client: TestCl
         json={"production_type": "MANUAL", "queue_position": 3},
     )
     detail = test_client.get(f"/work-orders/{correction_order['id']}")
+    production_rows = test_client.get("/process/stages/PRODUCTION/work-orders", params={"production_type": "MANUAL"})
 
     assert plan_response.status_code == 200
     assert detail.json()["total_quantity"] == 5
+    assert detail.json()["is_historical_correction"] is False
     assert detail.json()["process_status"] == {"value": "PRODUCTION_MANUAL", "label": "Produkcja ręczna"}
+    correction_row = next(item for item in production_rows.json() if item["id"] == correction_order["id"])
+    assert correction_row["is_historical_correction"] is False
 
 
 def test_stage_list_can_filter_by_queue_namespace(test_client: TestClient) -> None:
@@ -731,10 +799,12 @@ def test_completed_correction_child_marks_parent_ready_via_api(test_client: Test
     child_detail = test_client.get(f"/work-orders/{correction_order['id']}")
 
     assert child_complete.status_code == 200
+    assert child_complete.json()["is_historical_correction"] is True
     assert parent_detail.json()["process_status"] == {"value": "READY", "label": "Gotowe"}
     assert parent_detail.json()["completed_quantity"] == 10
     assert any(item["id"] == correction_order["id"] for item in parent_detail.json()["correction_orders"])
     assert child_detail.json()["parent_order"]["id"] == created["id"]
+    assert child_detail.json()["is_historical_correction"] is True
 
 
 def test_multi_round_correction_chain_marks_original_parent_ready_via_api(test_client: TestClient) -> None:
@@ -1229,3 +1299,35 @@ def test_cannot_finish_if_not_started(test_client: TestClient) -> None:
     response = test_client.post(f"/process/work-orders/{created['id']}/stages/SURFACE_PREPARATION/finish")
 
     assert response.status_code == 409
+
+
+def test_tracked_batch_packing_finish_without_counted_quantity_returns_controlled_error(test_client: TestClient) -> None:
+    created = create_planned_work_order(
+        test_client,
+        title="Tracked packing finish without counted quantity",
+        queue_position=1,
+        production_type="MANUAL",
+        coating_type="DECORAL",
+        total_quantity=10,
+    )
+
+    start_surface_preparation(test_client, created["id"], counted_quantity=10)
+    test_client.post(f"/process/work-orders/{created['id']}/stages/SURFACE_PREPARATION/finish")
+    test_client.post(f"/process/work-orders/{created['id']}/stages/PRODUCTION/start")
+    test_client.post(f"/process/work-orders/{created['id']}/stages/PRODUCTION/finish")
+    test_client.post(f"/process/work-orders/{created['id']}/stages/PACKING/start")
+
+    packing_response = complete_packing_request(
+        test_client,
+        created["id"],
+        counted_quantity=10,
+        ok_quantity=7,
+        correction_quantity=3,
+    )
+    assert packing_response.status_code == 200
+    batch_id = packing_response.json()["batch_id"]
+
+    response = test_client.post(f"/process/work-orders/{created['id']}/batches/{batch_id}/stages/PACKING/finish")
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Tracked batch packing must be completed with explicit counted quantity."

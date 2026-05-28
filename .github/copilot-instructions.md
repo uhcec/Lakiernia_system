@@ -1,142 +1,148 @@
-# Copilot instructions
+# SYSTEM DEVELOPMENT PROTOCOL (MANDATORY)
 
-## Role
-Help with this repo, but do not make business decisions.
+You are working on a production-hardened factory system.
 
-## Business source of truth
+Your job is NOT just to implement code.
+Your job is to preserve system correctness, consistency, and operator truth.
 
-- `docs/WORKFLOW.md` is the business source of truth.
-- Do not change business logic without asking first.
-- If code, tests, seeds, or UI behavior differ from `docs/WORKFLOW.md`, stop and ask for clarification before changing logic.
+--------------------------------------------------
 
-## Engineering mode: production hardening
+## 1. SOURCE OF TRUTH
 
-Never assume current code is correct.
+- WORKFLOW.md defines business logic and semantics.
+- NEVER guess behavior.
+- If something is unclear → STOP and ask.
 
-Before coding, identify realistic failure scenarios for the requested change:
-- duplicate execution / double click
-- concurrent users / parallel requests
-- stale UI state or retried requests
-- invalid or partial input
-- partial failures during multi-step writes
-- inconsistent parent/child or quantity state
+--------------------------------------------------
 
-Before implementing ANY change, you must evaluate:
+## 2. FEATURE / BUG FLOW (MANDATORY)
 
-1. Can this action be executed twice (double click)?
-2. Can two users execute this in parallel?
-3. Can stale client data break this?
-4. Can this lead to inconsistent quantities?
-5. Can this break parent/child integrity?
-6. Can this violate READY rules?
+Before ANY implementation:
 
-If any answer is YES or UNKNOWN:
-→ STOP and explain the risk before coding.
+1. Understand the problem
+2. Identify risks:
+   - concurrency
+   - double click / retries
+   - stale UI
+   - invalid input
+   - DB integrity
+   - misleading UI states
 
-Every state-changing action must explicitly consider:
-- idempotency
-- concurrency
-- stale UI data
-- invalid input
+3. Decide:
+   - does this change WORKFLOW.md?
 
-Backend safety is mandatory even if the frontend sends bad, stale, missing, duplicated, or reordered data.
+4. Propose:
+   - approach
+   - tests
 
----
+ONLY THEN implement.
 
-## Idempotency rules
+--------------------------------------------------
 
-All state-changing operations MUST be idempotent.
+## 3. CORE RULE
 
-- Repeating the same request must not change the result twice.
-- Duplicate execution must not create duplicate side effects.
+UI MUST NEVER GUESS BUSINESS SEMANTICS
 
----
+- Backend defines meaning (e.g. is_historical_correction)
+- Frontend only displays it
 
-## Concurrency rules
+Forbidden:
+- inferring meaning from quantities or status combinations
 
-Assume:
-- multiple operators
-- double clicks
-- retries
-- parallel requests
+--------------------------------------------------
 
-System must remain consistent.
+## 4. UI SEMANTICS (GLOBAL)
 
----
+ACTIVE (in-progress):
+- show batch progress
+- show current_active_quantity
 
-## Data integrity rules
+COMPLETED (historical):
+- NEVER show batch progress
+- show final result or summary only
 
-System must NEVER allow:
-- completed_quantity > total_quantity
-- duplicated corrections
-- invalid stage transitions
-- inconsistent parent/child state
+CORRECTIONS:
+- BEFORE merge → behave like work order (progress)
+- AFTER merge → historical event:
+    - show ONLY delta (X corrected out of Y)
+    - NEVER show progress
 
----
+--------------------------------------------------
 
-## Fail-fast principle
+## 5. INVARIANTS (MUST HOLD)
 
-- Never allow silent corruption
-- Reject invalid actions with clear errors (409)
-- Do not allow undefined states
-- Invalid business actions must fail with controlled errors, not silent corruption and not accidental success
+- completed_quantity <= total_quantity
+- no duplicate queue positions
+- no multiple active jobs on constrained resources
+- no invalid READY states
+- correction must be consistent with parent
 
----
+--------------------------------------------------
 
-## Critical mindset
+## 6. TESTING (REQUIRED)
 
-Do NOT assume current code is correct.
+Every change must include:
 
-Always:
-- challenge assumptions
-- look for edge cases
-- identify failure scenarios
+- regression test
+- edge-case test
+- if workflow-related → chaos scenario
 
-If something is unclear → ask instead of implementing.
+Global UI rule:
+- completed views must NOT show:
+    - "Postęp partii"
+    - "0 / X"
+    - misleading progress
 
-## Most important rule
-Do not invent or change business logic.
+--------------------------------------------------
 
-If a task affects:
-- workflow stages
-- quantities
-- corrections
-- READY/Gotowe logic
-- incomplete orders
-- manager planning
-- queue behavior
+## 7. CHAOS ASSUMPTIONS
 
-stop and ask for clarification.
+Always assume:
 
-## Existing business rules
-- process_status is the source of truth
-- status is derived/read-only compatibility
-- quantity must be conserved
-- packing counted_quantity must equal planned quantity
-- READY only when completed_quantity equals total_quantity and nothing is active/open
-- corrections are child orders
-- parent waits for corrections
-- after correction child completes, it merges back into parent
-- incomplete orders cannot enter planning or production
-- queue_position must be unique
+- multiple users act in parallel
+- users double-click
+- requests are retried
+- UI sends stale data
 
-## Before coding
-- identify failure scenarios before proposing or implementing a change
-- inspect relevant service.py
-- inspect existing tests
-- understand current behavior before changing it
+System must:
+- not crash
+- not corrupt state
+- not mislead operator
 
-## While coding
-- prefer small focused changes
-- do not refactor unrelated code
-- do not change migrations unless the task explicitly requires it
+--------------------------------------------------
 
-## After coding
-Run:
-python -m pytest
-cd frontend && npm run build
+## 8. FEEDBACK LOOP
 
-## If unsure
-Do not guess.
-Ask the user.
+When something looks wrong:
 
+Classify:
+- BUG
+- SEMANTIC ISSUE
+- MISSING RULE
+
+Then:
+- update WORKFLOW.md if needed
+- fix implementation
+- add test
+
+--------------------------------------------------
+
+## 9. DO NOT
+
+- do broad refactors without reason
+- introduce silent inconsistencies
+- rely on frontend correctness
+- implement without analysis
+
+--------------------------------------------------
+
+## 10. OUTPUT FORMAT (BEFORE CODING)
+
+Always start with:
+
+- problem analysis
+- risks
+- proposed solution
+- tests to add
+
+THEN implement.

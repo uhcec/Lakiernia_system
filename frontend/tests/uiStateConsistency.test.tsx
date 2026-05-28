@@ -1,10 +1,12 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { PackingWorkOrdersPage } from "../src/components/PackingWorkOrdersPage";
 import { StageWorkOrdersPage } from "../src/components/StageWorkOrdersPage";
 import { ApiError } from "../src/api/apiError";
 import { ManagerPanelPage } from "../src/pages/ManagerPanelPage";
+import { WorkOrderDetailPage } from "../src/pages/WorkOrderDetailPage";
 import type { StageWorkOrder } from "../src/types/process";
 import type { WorkOrder } from "../src/types/workOrders";
 
@@ -22,18 +24,27 @@ vi.mock("../src/api/processApi", () => ({
 }));
 
 vi.mock("../src/api/workOrdersApi", () => ({
+  deleteWorkOrderAttachment: vi.fn(),
   fetchWorkOrder: vi.fn(),
+  fetchWorkOrderAttachments: vi.fn(),
+  getWorkOrderAttachmentDownloadUrl: vi.fn(),
+  markWorkOrderCompleteArrival: vi.fn(),
+  uploadWorkOrderAttachment: vi.fn(),
 }));
 
 vi.mock("../src/utils/workOrderDisplay", () => ({
   formatWorkOrderPrimaryInfo: (workOrder: { order_number: string; customer_name?: string | null }) =>
     `${workOrder.order_number} :: ${workOrder.customer_name ?? "Brak firmy"}`,
+  getHistoricalStageWorkOrderResultText: (workOrder: { counted_quantity?: number | null; batch_quantity?: number | null; planned_quantity: number }) =>
+    `Wynik końcowy: ${workOrder.counted_quantity ?? workOrder.batch_quantity ?? workOrder.planned_quantity} szt.`,
+  getHistoricalWorkOrderResultText: (workOrder: { completed_quantity: number }) => `Wynik końcowy: ${workOrder.completed_quantity} szt.`,
   getStageWorkOrderBadgeStack: () => [],
-  getStageWorkOrderProgressText: (workOrder: { planned_quantity?: number; total_quantity: number }) =>
-    `${workOrder.planned_quantity ?? workOrder.total_quantity} / ${workOrder.total_quantity} szt.`,
+  getStageWorkOrderProgressText: (workOrder: { batch_quantity?: number | null; current_active_quantity: number; total_quantity: number }) =>
+    `${workOrder.batch_quantity ?? workOrder.current_active_quantity} / ${workOrder.total_quantity} szt.`,
   getWorkOrderActiveCorrectionsText: () => null,
   getWorkOrderAttentionBadges: () => [],
   getWorkOrderBadgeStack: () => [],
+  getWorkOrderCorrectionContextText: () => null,
   getWorkOrderProgressText: (workOrder: { total_quantity: number }) => `${workOrder.total_quantity} / ${workOrder.total_quantity} szt.`,
   getWorkOrderStatusSummary: () => "Status testowy",
 }));
@@ -49,6 +60,7 @@ const fetchStageWorkOrdersMock = vi.mocked(processApi.fetchStageWorkOrders);
 const transitionStageMock = vi.mocked(processApi.transitionStage);
 const completePackingMock = vi.mocked(processApi.completePacking);
 const fetchWorkOrderMock = vi.mocked(workOrdersApi.fetchWorkOrder);
+const fetchWorkOrderAttachmentsMock = vi.mocked(workOrdersApi.fetchWorkOrderAttachments);
 
 function buildWorkOrder(id: number, orderNumber: string, queuePosition: number, customerName = "Klient"): WorkOrder {
   return {
@@ -62,6 +74,7 @@ function buildWorkOrder(id: number, orderNumber: string, queuePosition: number, 
     pending_correction_quantity: 0,
     total_progress_quantity: 0,
     is_correction: false,
+    is_historical_correction: false,
     parent_order: null,
     correction_orders: [],
     description: null,
@@ -97,6 +110,7 @@ function buildStageWorkOrder(
     id: overrides.id,
     batch_id: overrides.batch_id ?? null,
     is_correction: overrides.is_correction ?? false,
+    is_historical_correction: overrides.is_historical_correction ?? false,
     order_number: overrides.order_number,
     title: overrides.title ?? overrides.order_number,
     ral_code: overrides.ral_code ?? "RAL 9005",
@@ -126,6 +140,8 @@ beforeEach(() => {
   transitionStageMock.mockReset();
   completePackingMock.mockReset();
   fetchWorkOrderMock.mockReset();
+  fetchWorkOrderAttachmentsMock.mockReset();
+  fetchWorkOrderAttachmentsMock.mockResolvedValue([]);
 });
 
 afterEach(() => {
@@ -133,6 +149,16 @@ afterEach(() => {
 });
 
 describe("frontend state consistency", () => {
+  function renderWorkOrderDetail(workOrderId = 1) {
+    return render(
+      <MemoryRouter initialEntries={[`/zlecenia/${workOrderId}`]}>
+        <Routes>
+          <Route path="/zlecenia/:id" element={<WorkOrderDetailPage />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+  }
+
   it("resets manager reorder UI to backend state after save failure", async () => {
     fetchUnplannedWorkOrdersMock.mockResolvedValue([]);
     fetchPlannedWorkOrdersMock
@@ -276,5 +302,313 @@ describe("frontend state consistency", () => {
     await screen.findByText("WO-CORR :: Klient");
     await screen.findByText("Nie udało się pobrać pełnego kontekstu dla części poprawek. Lista pozostaje dostępna.");
     expect(screen.getByText("Poprawka do zlecenia nadrzędnego")).toBeTruthy();
+  });
+
+  it("does not render 0/X batch progress for merged correction in completed stage tab", async () => {
+    fetchStageWorkOrdersMock.mockResolvedValue([
+      buildStageWorkOrder({
+        id: 60,
+        order_number: "WO-CORR-ZERO",
+        is_correction: true,
+        is_historical_correction: true,
+        total_quantity: 5,
+        current_active_quantity: 0,
+        batch_quantity: null,
+        planned_quantity: 5,
+        stage_status: { stage: "HANGING", status: { value: "DONE", label: "Zakończone" } },
+      }),
+    ]);
+    fetchWorkOrderMock.mockResolvedValue({
+      parent_order: { order_number: "WO-PARENT", total_quantity: 12 },
+    } as never);
+
+    render(
+      <StageWorkOrdersPage
+        stage="HANGING"
+        title="Zawieszanie"
+        emptyMessage="Brak zleceń"
+      />,
+    );
+
+    await screen.findByRole("button", { name: "Pokaż zakończone" });
+    fireEvent.click(screen.getByRole("button", { name: "Pokaż zakończone" }));
+
+    await screen.findByText("Poprawiono 5 z 12 szt.");
+    expect(screen.queryByText("Postęp partii: 0 / 5 szt.")).toBeNull();
+  });
+
+  it("renders only final result for completed normal work order in completed stage tab", async () => {
+    fetchStageWorkOrdersMock.mockResolvedValue([
+      buildStageWorkOrder({
+        id: 63,
+        order_number: "WO-STAGE-DONE",
+        is_correction: false,
+        total_quantity: 8,
+        current_active_quantity: 0,
+        batch_quantity: 8,
+        planned_quantity: 8,
+        stage_status: { stage: "HANGING", status: { value: "DONE", label: "Zakończone" } },
+      }),
+    ]);
+
+    render(
+      <StageWorkOrdersPage
+        stage="HANGING"
+        title="Zawieszanie"
+        emptyMessage="Brak zleceń"
+      />,
+    );
+
+    await screen.findByRole("button", { name: "Pokaż zakończone" });
+    fireEvent.click(screen.getByRole("button", { name: "Pokaż zakończone" }));
+
+    await screen.findByText("Wynik końcowy: 8 szt.");
+    expect(screen.queryByText("Postęp partii: 8 / 8 szt.")).toBeNull();
+  });
+
+  it("renders batch progress for completed correction row until backend marks it as historical", async () => {
+    fetchStageWorkOrdersMock.mockResolvedValue([
+      buildStageWorkOrder({
+        id: 62,
+        order_number: "WO-CORR-ACTIVE",
+        is_correction: true,
+        is_historical_correction: false,
+        total_quantity: 5,
+        current_active_quantity: 2,
+        batch_quantity: 2,
+        planned_quantity: 5,
+        stage_status: { stage: "HANGING", status: { value: "DONE", label: "Zakończone" } },
+      }),
+    ]);
+    fetchWorkOrderMock.mockResolvedValue({
+      parent_order: { order_number: "WO-PARENT", total_quantity: 12 },
+    } as never);
+
+    render(
+      <StageWorkOrdersPage
+        stage="HANGING"
+        title="Zawieszanie"
+        emptyMessage="Brak zleceń"
+      />,
+    );
+
+    await screen.findByRole("button", { name: "Pokaż zakończone" });
+    fireEvent.click(screen.getByRole("button", { name: "Pokaż zakończone" }));
+
+    await screen.findByText("Postęp partii: 2 / 5 szt.");
+    expect(screen.getByText("5 szt. poprawki z 12")).toBeTruthy();
+  });
+
+  it("does not render X/X batch progress for merged correction in completed packing tab and keeps only delta summary", async () => {
+    fetchStageWorkOrdersMock.mockResolvedValue([
+      buildStageWorkOrder({
+        id: 61,
+        order_number: "WO-CORR-FULL",
+        is_correction: true,
+        is_historical_correction: true,
+        total_quantity: 5,
+        current_active_quantity: 0,
+        batch_quantity: 5,
+        planned_quantity: 5,
+        stage_status: { stage: "PACKING", status: { value: "DONE", label: "Zakończone" } },
+      }),
+    ]);
+    fetchWorkOrderMock.mockResolvedValue({
+      parent_order: { order_number: "WO-PARENT", total_quantity: 12 },
+    } as never);
+
+    render(<PackingWorkOrdersPage />);
+
+    await screen.findByRole("button", { name: "Pokaż zakończone" });
+    fireEvent.click(screen.getByRole("button", { name: "Pokaż zakończone" }));
+
+    await screen.findByText("Poprawiono 5 z 12 szt.");
+    expect(screen.queryByText("Postęp partii: 5 / 5 szt.")).toBeNull();
+    expect(screen.getByText("Poprawiono 5 z 12 szt.")).toBeTruthy();
+  });
+
+  it("renders only final result for completed normal work order in completed packing tab", async () => {
+    fetchStageWorkOrdersMock.mockResolvedValue([
+      buildStageWorkOrder({
+        id: 64,
+        order_number: "WO-PACK-DONE",
+        is_correction: false,
+        total_quantity: 6,
+        current_active_quantity: 0,
+        counted_quantity: 6,
+        planned_quantity: 6,
+        stage_status: { stage: "PACKING", status: { value: "DONE", label: "Zakończone" } },
+      }),
+    ]);
+
+    render(<PackingWorkOrdersPage />);
+
+    await screen.findByRole("button", { name: "Pokaż zakończone" });
+    fireEvent.click(screen.getByRole("button", { name: "Pokaż zakończone" }));
+
+    await screen.findByText("Wynik końcowy: 6 szt.");
+    expect(screen.queryByText("Postęp partii: 0 / 6 szt.")).toBeNull();
+  });
+
+  it("keeps progress visible for active normal work order rows", async () => {
+    fetchStageWorkOrdersMock.mockResolvedValue([
+      buildStageWorkOrder({
+        id: 65,
+        order_number: "WO-STAGE-ACTIVE",
+        is_correction: false,
+        total_quantity: 7,
+        current_active_quantity: 3,
+        batch_quantity: 3,
+        planned_quantity: 7,
+        stage_status: { stage: "HANGING", status: { value: "IN_PROGRESS", label: "W toku" } },
+      }),
+    ]);
+
+    render(
+      <StageWorkOrdersPage
+        stage="HANGING"
+        title="Zawieszanie"
+        emptyMessage="Brak zleceń"
+      />,
+    );
+
+    await screen.findByText("Postęp partii: 3 / 7 szt.");
+    expect(screen.queryByText("Wynik końcowy: 3 szt.")).toBeNull();
+  });
+
+  it("renders completed correction quantity context from manager payload after decoral merge", async () => {
+    fetchUnplannedWorkOrdersMock.mockResolvedValue([]);
+    fetchPlannedWorkOrdersMock.mockResolvedValue([
+      {
+        ...buildWorkOrder(1, "WO-PARENT", 1, "Alpha"),
+        total_quantity: 10,
+        completed_quantity: 10,
+        current_active_quantity: 0,
+        process_status: { value: "READY", label: "Gotowe" },
+        coating_type: { value: "DECORAL", label: "Decoral" },
+        correction_orders: [
+          {
+            id: 2,
+            order_number: "WO-CORR",
+            title: "WO-CORR",
+            customer_name: "Alpha",
+            ral_code: "RAL 9005",
+            total_area_m2: null,
+            total_quantity: 3,
+            completed_quantity: 3,
+            current_active_quantity: 0,
+            is_correction: true,
+            is_historical_correction: true,
+            process_status: { value: "READY", label: "Gotowe" },
+          },
+        ],
+      },
+      {
+        ...buildWorkOrder(2, "WO-CORR", 2, "Alpha"),
+        total_quantity: 3,
+        completed_quantity: 3,
+        current_active_quantity: 0,
+        is_correction: true,
+        process_status: { value: "READY", label: "Gotowe" },
+        coating_type: { value: "DECORAL", label: "Decoral" },
+        queue_namespace: { value: "CORRECTIONS", label: "Corrections" },
+        parent_order: {
+          id: 1,
+          order_number: "WO-PARENT",
+          title: "WO-PARENT",
+          customer_name: "Alpha",
+          ral_code: "RAL 9005",
+          total_area_m2: null,
+          total_quantity: 10,
+          completed_quantity: 10,
+          current_active_quantity: 0,
+          is_correction: false,
+          is_historical_correction: false,
+          process_status: { value: "READY", label: "Gotowe" },
+        },
+      },
+    ]);
+
+    render(<ManagerPanelPage />);
+
+    await screen.findByRole("button", { name: "Pokaż zakończone" });
+    fireEvent.click(screen.getByRole("button", { name: "Pokaż zakończone" }));
+
+    await screen.findByText("Poprawka do WO-PARENT · Poprawiono 3 z 10 szt.");
+    expect(screen.queryByText("0 / 3 szt.")).toBeNull();
+  });
+
+  it("shows only historical final result for completed normal work order in manager tab", async () => {
+    fetchUnplannedWorkOrdersMock.mockResolvedValue([]);
+    fetchPlannedWorkOrdersMock.mockResolvedValue([
+      {
+        ...buildWorkOrder(3, "WO-MANAGER-DONE", 1, "Gamma"),
+        total_quantity: 9,
+        completed_quantity: 9,
+        current_active_quantity: 0,
+        total_progress_quantity: 9,
+        process_status: { value: "READY", label: "Gotowe" },
+      },
+    ]);
+
+    render(<ManagerPanelPage />);
+
+    await screen.findByRole("button", { name: "Pokaż zakończone" });
+    fireEvent.click(screen.getByRole("button", { name: "Pokaż zakończone" }));
+
+    await screen.findByText("Wynik końcowy: 9 szt.");
+    expect(screen.queryByText("Postęp: 9 / 9 szt.")).toBeNull();
+  });
+
+  it("shows only final result for READY work order detail", async () => {
+    fetchWorkOrderMock.mockResolvedValue({
+      ...buildWorkOrder(70, "WO-READY-DETAIL", 1, "Delta"),
+      completed_quantity: 10,
+      current_active_quantity: 0,
+      total_progress_quantity: 10,
+      process_status: { value: "READY", label: "Gotowe" },
+      status: { value: "FINISHED", label: "Zakończone" },
+    });
+
+    renderWorkOrderDetail(70);
+
+    await screen.findAllByText("Wynik końcowy: 10 szt.");
+    expect(screen.queryByText(/Postęp/)).toBeNull();
+    expect(screen.queryByText(/Aktywne/)).toBeNull();
+  });
+
+  it("renders historical correction children in detail as delta only", async () => {
+    fetchWorkOrderMock.mockResolvedValue({
+      ...buildWorkOrder(71, "WO-PARENT-DETAIL", 1, "Echo"),
+      total_quantity: 12,
+      completed_quantity: 12,
+      current_active_quantity: 0,
+      total_progress_quantity: 12,
+      process_status: { value: "READY", label: "Gotowe" },
+      status: { value: "FINISHED", label: "Zakończone" },
+      correction_orders: [
+        {
+          id: 72,
+          order_number: "WO-CORR-DETAIL",
+          title: "WO-CORR-DETAIL",
+          customer_name: "Echo",
+          ral_code: "RAL 9005",
+          total_area_m2: null,
+          total_quantity: 3,
+          completed_quantity: 3,
+          current_active_quantity: 0,
+          is_correction: true,
+          is_historical_correction: true,
+          process_status: { value: "READY", label: "Gotowe" },
+        },
+      ],
+    });
+
+    renderWorkOrderDetail(71);
+
+    await screen.findAllByText("Poprawiono 3 z 12 szt.");
+    expect(screen.queryByText(/Postęp/)).toBeNull();
+    expect(screen.queryByText(/Aktywne/)).toBeNull();
+    expect(screen.queryByText("3/3")).toBeNull();
   });
 });

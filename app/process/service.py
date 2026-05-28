@@ -747,7 +747,9 @@ class ProcessService:
         stage: ProcessStage,
     ) -> ProcessStageWorkOrderRead:
         if stage == ProcessStage.PACKING:
-            return self.complete_packing(work_order.id, ok_quantity=batch.quantity, correction_quantity=0, batch_id=batch.id)
+            raise InvalidProcessStageTransitionError(
+                "Tracked batch packing must be completed with explicit counted quantity."
+            )
         if stage == ProcessStage.HANGING and work_order.production_type == ProductionType.AUTOMATIC:
             raise InvalidProcessStageTransitionError(
                 "Automatic hanging can only start painting. Finish it from PACKING."
@@ -1069,6 +1071,9 @@ class ProcessService:
             and not any(not self._is_complete_for_display(correction_order) for correction_order in work_order.correction_orders)
         )
 
+    def is_historical_correction(self, work_order: WorkOrder) -> bool:
+        return work_order.is_correction and self._is_complete_for_display(work_order)
+
     def _store_stage_start_data(
         self,
         work_order: WorkOrder,
@@ -1138,6 +1143,7 @@ class ProcessService:
             id=work_order.id,
             batch_id=batch_id,
             is_correction=work_order.is_correction,
+            is_historical_correction=self.is_historical_correction(work_order),
             order_number=work_order.order_number,
             title=work_order.title,
             ral_code=work_order.ral_code,

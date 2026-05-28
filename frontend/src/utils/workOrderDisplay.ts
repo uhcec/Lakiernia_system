@@ -53,6 +53,10 @@ export function getWorkOrderProgressText(workOrder: WorkOrder): string {
   return `${workOrder.total_progress_quantity} / ${workOrder.total_quantity} szt.`;
 }
 
+export function getHistoricalWorkOrderResultText(workOrder: WorkOrder): string {
+  return `Wynik końcowy: ${workOrder.completed_quantity} szt.`;
+}
+
 export function getWorkOrderActiveCorrectionsText(workOrder: WorkOrder): string | null {
   if (workOrder.pending_correction_quantity <= 0) {
     return null;
@@ -149,4 +153,9 @@ export function getStageWorkOrderBadgeStack(workOrder: StageWorkOrder): DisplayB
 export function getStageWorkOrderProgressText(workOrder: StageWorkOrder): string {
   const current = workOrder.batch_quantity ?? workOrder.current_active_quantity;
   return `${current} / ${workOrder.total_quantity} szt.`;
+}
+
+export function getHistoricalStageWorkOrderResultText(workOrder: StageWorkOrder): string {
+  const finalQuantity = workOrder.counted_quantity ?? workOrder.batch_quantity ?? workOrder.planned_quantity;
+  return `Wynik końcowy: ${finalQuantity} szt.`;
 }

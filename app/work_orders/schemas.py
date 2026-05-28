@@ -109,6 +109,7 @@ class WorkOrderRelationSummaryRead(BaseModel):
     completed_quantity: int
     current_active_quantity: int
     is_correction: bool
+    is_historical_correction: bool = False
     process_status: ProcessStatusView
 
 
@@ -182,6 +183,7 @@ class WorkOrderRead(BaseModel):
     pending_correction_quantity: int
     total_progress_quantity: int
     is_correction: bool
+    is_historical_correction: bool = False
     parent_order: WorkOrderRelationSummaryRead | None = None
     correction_orders: list[WorkOrderRelationSummaryRead] = Field(default_factory=list)
     description: str | None

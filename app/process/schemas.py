@@ -18,6 +18,7 @@ class ProcessStageWorkOrderRead(BaseModel):
     id: int
     batch_id: int | None = None
     is_correction: bool
+    is_historical_correction: bool = False
     order_number: str
     title: str
     ral_code: str

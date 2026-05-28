@@ -347,6 +347,7 @@ class WorkOrderService:
             pending_correction_quantity=pending_correction_quantity,
             total_progress_quantity=total_progress_quantity,
             is_correction=work_order.is_correction,
+            is_historical_correction=self.process_service.is_historical_correction(work_order),
             parent_order=(
                 self._build_relation_summary(work_order.parent_order)
                 if work_order.parent_order is not None
@@ -430,4 +431,5 @@ class WorkOrderService:
     def _build_relation_summary(self, work_order: WorkOrder):
         summary = build_work_order_relation_summary(work_order)
         summary.process_status = build_process_status_view(self.process_service.get_display_status(work_order))
+        summary.is_historical_correction = self.process_service.is_historical_correction(work_order)
         return summary

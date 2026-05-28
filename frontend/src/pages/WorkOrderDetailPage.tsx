@@ -16,6 +16,7 @@ import {
   getWorkOrderAttentionBadges,
   getWorkOrderBadgeStack,
   getWorkOrderCorrectionContextText,
+  getHistoricalWorkOrderResultText,
   getWorkOrderProgressText,
   getWorkOrderStatusSummary,
   type DisplayBadge,
@@ -96,6 +97,17 @@ function badgeClasses(tone: DisplayBadge["tone"]): string {
     case "neutral":
       return "bg-slate-100 text-slate-700";
   }
+}
+
+function isHistoricalWorkOrder(workOrder: WorkOrder): boolean {
+  return workOrder.process_status.value === "READY";
+}
+
+function buildHistoricalCorrectionDeltaText(
+  correctionOrder: WorkOrder["correction_orders"][number],
+  parentWorkOrder: WorkOrder,
+): string {
+  return `Poprawiono ${correctionOrder.total_quantity} z ${parentWorkOrder.total_quantity} szt.`;
 }
 
 export function WorkOrderDetailPage() {
@@ -297,10 +309,14 @@ export function WorkOrderDetailPage() {
                     ))}
                   </div>
                   <p className="text-lg font-semibold text-ink">{getWorkOrderStatusSummary(workOrder)}</p>
-                  <div className="flex flex-wrap gap-3 text-sm text-steel">
-                    <span>Postęp: {getWorkOrderProgressText(workOrder)}</span>
-                    {getWorkOrderActiveCorrectionsText(workOrder) ? <span>{getWorkOrderActiveCorrectionsText(workOrder)}</span> : null}
-                  </div>
+                  {isHistoricalWorkOrder(workOrder) ? (
+                    <p className="text-sm font-semibold text-emerald-700">{getHistoricalWorkOrderResultText(workOrder)}</p>
+                  ) : (
+                    <div className="flex flex-wrap gap-3 text-sm text-steel">
+                      <span>Postęp: {getWorkOrderProgressText(workOrder)}</span>
+                      {getWorkOrderActiveCorrectionsText(workOrder) ? <span>{getWorkOrderActiveCorrectionsText(workOrder)}</span> : null}
+                    </div>
+                  )}
                   {getWorkOrderCorrectionContextText(workOrder) ? (
                     <p className="text-sm text-amber-700">{getWorkOrderCorrectionContextText(workOrder)}</p>
                   ) : null}
@@ -369,17 +385,23 @@ export function WorkOrderDetailPage() {
                   <dt className="text-sm font-medium text-steel">Ilość całkowita</dt>
                   <dd className="mt-1 text-base text-ink">{workOrder.total_quantity}</dd>
                 </div>
-                <div>
-                  <dt className="text-sm font-medium text-steel">Aktywna ilość</dt>
-                  <dd className="mt-1 text-base text-ink">{workOrder.current_active_quantity}</dd>
-                </div>
+                {!isHistoricalWorkOrder(workOrder) ? (
+                  <div>
+                    <dt className="text-sm font-medium text-steel">Aktywna ilość</dt>
+                    <dd className="mt-1 text-base text-ink">{workOrder.current_active_quantity}</dd>
+                  </div>
+                ) : null}
                 <div>
                   <dt className="text-sm font-medium text-steel">Podsumowanie stanu</dt>
                   <dd className="mt-1 text-base font-semibold text-ink">{getWorkOrderStatusSummary(workOrder)}</dd>
                 </div>
                 <div>
-                  <dt className="text-sm font-medium text-steel">Postęp</dt>
-                  <dd className="mt-1 text-base text-ink">{getWorkOrderProgressText(workOrder)}</dd>
+                  <dt className="text-sm font-medium text-steel">
+                    {isHistoricalWorkOrder(workOrder) ? "Wynik końcowy" : "Postęp"}
+                  </dt>
+                  <dd className="mt-1 text-base text-ink">
+                    {isHistoricalWorkOrder(workOrder) ? getHistoricalWorkOrderResultText(workOrder) : getWorkOrderProgressText(workOrder)}
+                  </dd>
                 </div>
                 <div>
                   <dt className="text-sm font-medium text-steel">Data przyjęcia</dt>
@@ -434,7 +456,9 @@ export function WorkOrderDetailPage() {
                           >
                             <div>{formatWorkOrderPrimaryInfo(correctionOrder)} · {correctionOrder.total_quantity} szt.</div>
                             <div className="mt-1 text-sm font-medium text-steel">
-                              Status: {correctionOrder.process_status.label} · Postęp: {correctionOrder.completed_quantity}/{correctionOrder.total_quantity}
+                              {correctionOrder.is_historical_correction
+                                ? buildHistoricalCorrectionDeltaText(correctionOrder, workOrder)
+                                : `Status: ${correctionOrder.process_status.label} · Postęp: ${correctionOrder.completed_quantity}/${correctionOrder.total_quantity}`}
                             </div>
                           </Link>
                         ))}
@@ -471,22 +495,29 @@ export function WorkOrderDetailPage() {
                 {getWorkOrderActiveCorrectionsText(workOrder) ? (
                   <p className="mt-2 text-sm text-rose-700">{getWorkOrderActiveCorrectionsText(workOrder)}</p>
                 ) : null}
-                <div className="mt-6 grid gap-3 sm:grid-cols-3">
-                  <div className="rounded-3xl border border-line/80 bg-white p-4">
-                    <p className="text-xs font-semibold uppercase tracking-[0.14em] text-steel">Łączny postęp</p>
-                    <p className="mt-2 text-2xl font-semibold text-ink">
-                      {getWorkOrderProgressText(workOrder)}
-                    </p>
+                {isHistoricalWorkOrder(workOrder) ? (
+                  <div className="mt-6 rounded-3xl border border-line/80 bg-white p-4">
+                    <p className="text-xs font-semibold uppercase tracking-[0.14em] text-steel">Wynik końcowy</p>
+                    <p className="mt-2 text-2xl font-semibold text-ink">{getHistoricalWorkOrderResultText(workOrder)}</p>
                   </div>
-                  <div className="rounded-3xl border border-line/80 bg-white p-4">
-                    <p className="text-xs font-semibold uppercase tracking-[0.14em] text-steel">OK w oczekiwaniu</p>
-                    <p className="mt-2 text-2xl font-semibold text-ink">{workOrder.waiting_ok_quantity}</p>
+                ) : (
+                  <div className="mt-6 grid gap-3 sm:grid-cols-3">
+                    <div className="rounded-3xl border border-line/80 bg-white p-4">
+                      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-steel">Łączny postęp</p>
+                      <p className="mt-2 text-2xl font-semibold text-ink">
+                        {getWorkOrderProgressText(workOrder)}
+                      </p>
+                    </div>
+                    <div className="rounded-3xl border border-line/80 bg-white p-4">
+                      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-steel">OK w oczekiwaniu</p>
+                      <p className="mt-2 text-2xl font-semibold text-ink">{workOrder.waiting_ok_quantity}</p>
+                    </div>
+                    <div className="rounded-3xl border border-line/80 bg-white p-4">
+                      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-steel">Poprawki w toku</p>
+                      <p className="mt-2 text-2xl font-semibold text-ink">{workOrder.pending_correction_quantity}</p>
+                    </div>
                   </div>
-                  <div className="rounded-3xl border border-line/80 bg-white p-4">
-                    <p className="text-xs font-semibold uppercase tracking-[0.14em] text-steel">Poprawki w toku</p>
-                    <p className="mt-2 text-2xl font-semibold text-ink">{workOrder.pending_correction_quantity}</p>
-                  </div>
-                </div>
+                )}
                 {workOrder.correction_orders.length > 0 ? (
                   <div className="mt-6 space-y-3 rounded-3xl border border-line/80 bg-white p-5">
                     <p className="text-sm font-semibold uppercase tracking-[0.14em] text-steel">Statusy zleceń poprawek</p>
@@ -503,9 +534,15 @@ export function WorkOrderDetailPage() {
                           </span>
                         </div>
                         <p className="text-sm text-steel">{formatWorkOrderPrimaryInfo(correctionOrder)}</p>
-                        <p className="text-sm text-steel">
-                          Postęp: {correctionOrder.completed_quantity}/{correctionOrder.total_quantity} · Aktywne: {correctionOrder.current_active_quantity}
-                        </p>
+                        {correctionOrder.is_historical_correction ? (
+                          <p className="text-sm font-medium text-amber-700">
+                            {buildHistoricalCorrectionDeltaText(correctionOrder, workOrder)}
+                          </p>
+                        ) : (
+                          <p className="text-sm text-steel">
+                            Postęp: {correctionOrder.completed_quantity}/{correctionOrder.total_quantity} · Aktywne: {correctionOrder.current_active_quantity}
+                          </p>
+                        )}
                       </Link>
                     ))}
                   </div>

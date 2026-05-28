@@ -168,6 +168,10 @@ This backlog is derived from the production-readiness audit. It is focused on ha
 - Required tests: attachment upload tests with fake `application/pdf` content and valid PDF content.
 - Acceptance criteria: non-PDF payloads are rejected even when the client sends a PDF MIME type.
 
+### 13. Historical merged-correction display depends on frontend inference instead of an explicit API marker
+
+- Status: IMPLEMENTED via backend-owned `is_historical_correction` on stage and work-order read models, with Stage/Packing completed views consuming that explicit field instead of inferring from quantity/state side effects.
+
 ## Chaos Testing Status
 
 - Status: IMPLEMENTED as an API-level multi-agent chaos harness in `tests/chaos/harness.py`, `tests/chaos/actors.py`, `tests/chaos/scenarios.py`, `tests/chaos/invariants.py`, and `tests/test_chaos_api.py`.

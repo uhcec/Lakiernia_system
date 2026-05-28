@@ -20,8 +20,9 @@ Scope:
 6. `PACKING.planned_quantity` remains the original expected batch quantity for audit visibility, but packing validation must use the persisted actual received quantity from surface preparation.
 - `counted_quantity == actual_received_quantity` for the active batch/order at packing
 - `planned_quantity - actual_received_quantity` must remain visible for audit/read models
-7. Correction is represented as a new child work order (`is_correction=true`, `parent_order_id` set).
-8. Parent waits for open corrections; merge/finalization propagates upward when descendants close.
+7. When packing creates a correction child, the correction quantity is split from the actual received quantity validated at packing, not from the original expected quantity.
+8. Correction is represented as a new child work order (`is_correction=true`, `parent_order_id` set).
+9. Parent waits for open corrections; merge/finalization propagates upward when descendants close.
 
 ## Stage Model
 
@@ -40,6 +41,7 @@ Automatic constraints:
 - Physical resource exclusivity is enforced in the backend with controlled `409` responses.
 - Only one `HANGING` job may be active at a time.
 - Only one automatic-line job may be active at a time; in the current workflow this resource is occupied from automatic `HANGING` start until that path is completed from `PACKING`.
+- Completing the job that holds the resource releases that resource so another queued job can start.
 
 ## Main Flows
 
@@ -99,6 +101,35 @@ Decoral split behavior:
 Multi-round corrections:
 - Child can itself split again and create another child
 - Finalization/merge propagates up chain when deepest open correction closes
+- After a correction is completed and merged back into its parent, it is no longer shown as an active work order.
+- In completed/history views, merged corrections are shown as a historical delta (`X corrected out of Y`), not as active batch progress.
+
+## Display & Semantics Rules
+
+Completed/history views are historical views.
+
+Rules:
+- `COMPLETED` means historical display only.
+- Work-order detail pages are historical views when `process_status = READY`.
+- Never show `Postęp partii` in completed/history views.
+- Never show `Postęp`, `Aktywne`, or `current_active_quantity` summaries in READY work-order detail views.
+- Never show active batch progress in completed/history views.
+- Never use `current_active_quantity` as a historical progress surrogate.
+- Never render misleading `0 / X` progress in completed/history views.
+
+Completed normal work orders:
+- Show final completed result only.
+- Do not render active-process progress language.
+
+Completed merged corrections:
+- Show only the historical delta summary.
+- Use the display form `Poprawiono X z Y szt.` when parent quantity is known.
+- Do not render batch progress, `current_active_quantity`, or `0 / X` summaries.
+- Backend read models, including correction relation summaries, must expose `is_historical_correction`; frontend must not infer historical correction state from quantities or statuses.
+
+Active views:
+- Continue to show in-progress batch progress while the backend still marks the row as active/in-progress.
+- A correction row may still show batch progress in a completed tab until the backend marks it as historical via `is_historical_correction`.
 
 ## Shared Queue Rule (Global)
 

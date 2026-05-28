@@ -7,10 +7,13 @@ import pytest
 from tests.chaos.harness import ChaosEnvironment
 from tests.chaos.invariants import assert_global_invariants
 from tests.chaos.scenarios import (
+    scenario_correction_uses_actual_split,
     scenario_double_click_packing_complete,
     scenario_invalid_patch_during_planning,
     scenario_office_edits_order_while_manager_plans_it,
     scenario_office_mark_complete_while_manager_plans,
+    scenario_packing_actual_expected_mismatch,
+    scenario_parallel_hanging_start,
     scenario_packing_creates_correction_while_manager_reorders,
     scenario_operator_double_finishes_same_stage,
     scenario_repeated_correction_split_does_not_duplicate_child,
@@ -36,6 +39,9 @@ def chaos_environment(tmp_path: Path) -> ChaosEnvironment:
         ("operator_double_finishes_same_stage", scenario_operator_double_finishes_same_stage),
         ("double_click_packing_complete", scenario_double_click_packing_complete),
         ("packing_creates_correction_while_manager_reorders", scenario_packing_creates_correction_while_manager_reorders),
+        ("parallel_hanging_start", scenario_parallel_hanging_start),
+        ("packing_actual_expected_mismatch", scenario_packing_actual_expected_mismatch),
+        ("correction_uses_actual_split", scenario_correction_uses_actual_split),
         ("repeated_correction_split_does_not_duplicate_child", scenario_repeated_correction_split_does_not_duplicate_child),
         ("office_edits_order_while_manager_plans_it", scenario_office_edits_order_while_manager_plans_it),
         ("office_mark_complete_while_manager_plans", scenario_office_mark_complete_while_manager_plans),

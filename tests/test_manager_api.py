@@ -196,10 +196,13 @@ def test_completed_decoral_correction_preserves_correction_quantity_context_in_m
 
     assert correction_item["total_quantity"] == 3
     assert correction_item["completed_quantity"] == 3
+    assert correction_item["is_historical_correction"] is True
     assert correction_item["parent_order"]["id"] == created["id"]
     assert correction_item["parent_order"]["total_quantity"] == 10
+    assert parent_item["is_historical_correction"] is False
     assert parent_item["correction_orders"][0]["id"] == correction_order["id"]
     assert parent_item["correction_orders"][0]["total_quantity"] == 3
+    assert parent_item["correction_orders"][0]["is_historical_correction"] is True
 
 
 def test_corrections_are_listed_in_shared_unplanned_queue(test_client: TestClient) -> None:
