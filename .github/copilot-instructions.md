@@ -45,6 +45,7 @@ UI MUST NEVER GUESS BUSINESS SEMANTICS
 
 - Backend defines meaning (e.g. is_historical_correction)
 - Frontend only displays it
+- Display correctness requires correct labels AND correct authoritative numbers
 
 Forbidden:
 - inferring meaning from quantities or status combinations

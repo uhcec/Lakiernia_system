@@ -52,7 +52,7 @@ def test_upgrade_head_succeeds_after_repair(tmp_path: Path):
 
     _upgrade_database(db_path, "head")
 
-    assert _read_revision(db_path) == "20260527_0012"
+    assert _read_revision(db_path) == "20260528_0013"
     columns = _work_order_columns(db_path)
     assert "parent_order_id" in columns
     assert "is_correction" in columns

@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.process.enums import ProcessStage, ProductionType
 from app.shared.enums import QueueNamespace
-from app.process.models import WorkOrderStageState
+from app.process.models import ProcessResourceLock, WorkOrderStageState
 from app.work_orders.models import WorkOrder
 
 
@@ -75,6 +75,26 @@ class ProcessRepository:
         self.session.flush()
         self.session.refresh(work_order)
         return work_order
+
+    def acquire_resource_lock(self, resource_key: str, work_order_id: int) -> None:
+        existing_lock = self.session.get(ProcessResourceLock, resource_key)
+        if existing_lock is not None:
+            if existing_lock.work_order_id == work_order_id:
+                return
+            raise ValueError(resource_key)
+
+        self.session.add(ProcessResourceLock(resource_key=resource_key, work_order_id=work_order_id))
+        self.session.flush()
+
+    def release_resource_lock(self, resource_key: str, work_order_id: int) -> None:
+        existing_lock = self.session.get(ProcessResourceLock, resource_key)
+        if existing_lock is not None and existing_lock.work_order_id == work_order_id:
+            self.session.delete(existing_lock)
+            self.session.flush()
+
+    def list_resource_locks_for_work_order(self, work_order_id: int) -> Sequence[ProcessResourceLock]:
+        statement = select(ProcessResourceLock).where(ProcessResourceLock.work_order_id == work_order_id)
+        return self.session.scalars(statement).all()
 
     def commit(self) -> None:
         self.session.commit()

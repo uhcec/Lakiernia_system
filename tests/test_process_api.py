@@ -1271,6 +1271,80 @@ def test_packing_stage_list_includes_counted_quantity_difference(test_client: Te
     assert item["quantity_difference"] == 0
 
 
+def test_completed_hanging_stage_row_preserves_historical_non_zero_quantities(test_client: TestClient) -> None:
+    created = create_planned_work_order(
+        test_client,
+        title="Completed hanging quantities",
+        queue_position=1,
+        production_type="AUTOMATIC",
+        total_quantity=11,
+    )
+    advance_to_packing(test_client, created["id"])
+    complete_packing_request(test_client, created["id"], counted_quantity=11, ok_quantity=11, correction_quantity=0)
+
+    response = test_client.get("/process/stages/HANGING/work-orders")
+
+    assert response.status_code == 200
+    item = next(item for item in response.json() if item["id"] == created["id"])
+    assert item["stage_status"] == {
+        "stage": "HANGING",
+        "status": {"value": "DONE", "label": "Zakończone"},
+    }
+    assert item["current_active_quantity"] == 0
+    assert item["planned_quantity"] == 11
+    assert item["batch_quantity"] == 11
+
+
+def test_completed_packing_stage_row_preserves_historical_non_zero_quantities(test_client: TestClient) -> None:
+    created = create_planned_work_order(
+        test_client,
+        title="Completed packing quantities",
+        queue_position=1,
+        total_quantity=11,
+    )
+    advance_to_packing(test_client, created["id"])
+    complete_packing_request(test_client, created["id"], counted_quantity=11, ok_quantity=11, correction_quantity=0)
+
+    response = test_client.get("/process/stages/PACKING/work-orders")
+
+    assert response.status_code == 200
+    item = next(item for item in response.json() if item["id"] == created["id"])
+    assert item["stage_status"] == {
+        "stage": "PACKING",
+        "status": {"value": "DONE", "label": "Zakończone"},
+    }
+    assert item["current_active_quantity"] == 0
+    assert item["planned_quantity"] == 11
+    assert item["counted_quantity"] == 11
+    assert item["quantity_difference"] == 0
+
+
+def test_completed_decoral_stage_row_preserves_historical_non_zero_quantities(test_client: TestClient) -> None:
+    created = create_planned_work_order(
+        test_client,
+        title="Completed decoral quantities",
+        queue_position=1,
+        coating_type="DECORAL",
+        total_quantity=11,
+    )
+    advance_to_packing(test_client, created["id"])
+    complete_packing_request(test_client, created["id"], counted_quantity=11, ok_quantity=11, correction_quantity=0)
+    test_client.post(f"/process/work-orders/{created['id']}/stages/DECORAL_PRODUCTION/start")
+    test_client.post(f"/process/work-orders/{created['id']}/stages/DECORAL_PRODUCTION/finish")
+
+    response = test_client.get("/process/stages/DECORAL_PRODUCTION/work-orders")
+
+    assert response.status_code == 200
+    item = next(item for item in response.json() if item["id"] == created["id"])
+    assert item["stage_status"] == {
+        "stage": "DECORAL_PRODUCTION",
+        "status": {"value": "DONE", "label": "Zakończone"},
+    }
+    assert item["current_active_quantity"] == 0
+    assert item["planned_quantity"] == 11
+    assert item["batch_quantity"] == 11
+
+
 def test_reopen_stage_moves_done_back_to_in_progress(test_client: TestClient) -> None:
     created = create_planned_work_order(test_client, title="Reopen me", queue_position=1)
     start_surface_preparation(test_client, created["id"])

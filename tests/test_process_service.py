@@ -1,15 +1,15 @@
 from concurrent.futures import ThreadPoolExecutor
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 import pytest
-from sqlalchemy.pool import StaticPool
 
 from app.database.base import Base
 from app.manager.repository import ManagerRepository
 from app.manager.schemas import WorkOrderPlanAssignRequest
 from app.manager.service import ManagerService
 from app.process.enums import CoatingType, ProcessStage, ProductionType, QuantityBatchType, StageStatus
+from app.process.models import ProcessResourceLock
 from app.process.repository import ProcessRepository
 from app.process.service import ProcessService
 from app.shared.enums import QueueNamespace, WorkOrderStatus
@@ -999,7 +999,6 @@ def test_parallel_automatic_hanging_start_allows_only_one_order_to_acquire_line(
     engine = create_engine(
         f"sqlite:///{database_path}",
         connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
         future=True,
     )
     session_factory = sessionmaker(bind=engine, autoflush=False, autocommit=False, class_=Session)
@@ -1060,6 +1059,7 @@ def test_parallel_automatic_hanging_start_allows_only_one_order_to_acquire_line(
             process_repository = ProcessRepository(verify_session)
             first_order = process_repository.get_work_order_with_stage_states(first.id)
             second_order = process_repository.get_work_order_with_stage_states(second.id)
+            resource_locks = verify_session.scalars(select(ProcessResourceLock)).all()
         finally:
             verify_session.close()
     finally:
@@ -1076,6 +1076,10 @@ def test_parallel_automatic_hanging_start_allows_only_one_order_to_acquire_line(
         if next(stage for stage in work_order.stage_states if stage.stage == ProcessStage.HANGING).status == StageStatus.IN_PROGRESS
     }
     assert len(in_progress_ids) == 1
+    assert {(lock.resource_key, lock.work_order_id) for lock in resource_locks} == {
+        ("HANGING", next(iter(in_progress_ids))),
+        ("AUTOMATIC_LINE", next(iter(in_progress_ids))),
+    }
 
 
 def test_finished_decoral_tracked_batch_cannot_be_reopened_and_quantities_remain_unchanged(db_session: Session) -> None:

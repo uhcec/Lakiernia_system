@@ -38,7 +38,7 @@ Automatic constraints:
 - Cannot start/finish `PRODUCTION` directly for `AUTOMATIC`
 - `HANGING` start transitions automatic flow forward
 - Finish for automatic path is performed from `PACKING`
-- Physical resource exclusivity is enforced in the backend with controlled `409` responses.
+- Physical resource exclusivity is enforced in the backend with persisted resource locks and controlled `409` responses.
 - Only one `HANGING` job may be active at a time.
 - Only one automatic-line job may be active at a time; in the current workflow this resource is occupied from automatic `HANGING` start until that path is completed from `PACKING`.
 - Completing the job that holds the resource releases that resource so another queued job can start.
@@ -111,10 +111,12 @@ Completed/history views are historical views.
 Rules:
 - `COMPLETED` means historical display only.
 - Work-order detail pages are historical views when `process_status = READY`.
+- Display correctness requires both correct labels and correct authoritative numbers.
 - Never show `Postęp partii` in completed/history views.
 - Never show `Postęp`, `Aktywne`, or `current_active_quantity` summaries in READY work-order detail views.
 - Never show active batch progress in completed/history views.
 - Never use `current_active_quantity` as a historical progress surrogate.
+- Completed/history rows must show persisted historical planned and final quantities for that stage and must never replace them with zeroed live quantities.
 - Never render misleading `0 / X` progress in completed/history views.
 
 Completed normal work orders:

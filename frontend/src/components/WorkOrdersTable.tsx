@@ -7,6 +7,7 @@ import {
   getWorkOrderAttentionBadges,
   getWorkOrderBadgeStack,
   getWorkOrderCorrectionContextText,
+  getHistoricalWorkOrderResultText,
   getWorkOrderProgressText,
   getWorkOrderStatusSummary,
   type DisplayBadge,
@@ -68,6 +69,17 @@ export function WorkOrdersTable({ workOrders }: WorkOrdersTableProps) {
 
     if (totalQuantity === null || completedQuantity === null || activeQuantity === null) {
       return <span className="text-steel">—</span>;
+    }
+
+    if (workOrder.process_status.value === "READY") {
+      return (
+        <div className="space-y-2">
+          <p className="text-sm font-semibold text-ink">{getHistoricalWorkOrderResultText(workOrder)}</p>
+          <span className="inline-flex rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700">
+            Gotowe
+          </span>
+        </div>
+      );
     }
 
     return (

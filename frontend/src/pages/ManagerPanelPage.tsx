@@ -120,6 +120,10 @@ function buildCorrectionQuantityContext(workOrder: WorkOrder): string {
     return "";
   }
 
+  if (!workOrder.is_historical_correction) {
+    return "";
+  }
+
   const parentQuantity = workOrder.parent_order?.total_quantity;
   if (typeof parentQuantity === "number") {
     return `Poprawiono ${workOrder.total_quantity} z ${parentQuantity} szt.`;

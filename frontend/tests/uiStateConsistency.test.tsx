@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { PackingWorkOrdersPage } from "../src/components/PackingWorkOrdersPage";
 import { StageWorkOrdersPage } from "../src/components/StageWorkOrdersPage";
+import { WorkOrdersTable } from "../src/components/WorkOrdersTable";
 import { ApiError } from "../src/api/apiError";
 import { ManagerPanelPage } from "../src/pages/ManagerPanelPage";
 import { WorkOrderDetailPage } from "../src/pages/WorkOrderDetailPage";
@@ -476,6 +477,75 @@ describe("frontend state consistency", () => {
     expect(screen.queryByText("Wynik końcowy: 3 szt.")).toBeNull();
   });
 
+  it("renders READY rows in the work orders table as historical results only", () => {
+    render(
+      <MemoryRouter>
+        <WorkOrdersTable
+          workOrders={[
+            {
+              ...buildWorkOrder(80, "WO-TABLE-READY", 1, "Hotel"),
+              completed_quantity: 10,
+              current_active_quantity: 0,
+              total_progress_quantity: 10,
+              process_status: { value: "READY", label: "Gotowe" },
+            },
+          ]}
+        />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText("Wynik końcowy: 10 szt.")).toBeTruthy();
+    expect(screen.queryByText("10 / 10 szt.")).toBeNull();
+    expect(screen.queryByText(/Aktywne/)).toBeNull();
+  });
+
+  it("keeps active progress visible in the work orders table", () => {
+    render(
+      <MemoryRouter>
+        <WorkOrdersTable workOrders={[buildWorkOrder(81, "WO-TABLE-ACTIVE", 1, "India")]} />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText("10 / 10 szt.")).toBeTruthy();
+    expect(screen.getAllByText(/Aktywne/).length).toBeGreaterThan(0);
+  });
+
+  it("does not use historical correction wording for active manager correction cards", async () => {
+    fetchUnplannedWorkOrdersMock.mockResolvedValue([
+      {
+        ...buildWorkOrder(82, "WO-CORR-ACTIVE-MGR", 1, "Juliet"),
+        total_quantity: 4,
+        completed_quantity: 0,
+        current_active_quantity: 4,
+        total_progress_quantity: 0,
+        is_correction: true,
+        is_historical_correction: false,
+        queue_namespace: { value: "CORRECTIONS", label: "Corrections" },
+        parent_order: {
+          id: 83,
+          order_number: "WO-PARENT-MGR",
+          title: "WO-PARENT-MGR",
+          customer_name: "Juliet",
+          ral_code: "RAL 9005",
+          total_area_m2: null,
+          total_quantity: 10,
+          completed_quantity: 6,
+          current_active_quantity: 0,
+          is_correction: false,
+          is_historical_correction: false,
+          process_status: { value: "WAITING_FOR_CORRECTIONS", label: "Czeka na poprawki" },
+        },
+      },
+    ]);
+    fetchPlannedWorkOrdersMock.mockResolvedValue([]);
+
+    render(<ManagerPanelPage />);
+
+    await screen.findByText("WO-CORR-ACTIVE-MGR :: Juliet");
+    expect(screen.getByText("Postęp: 4 / 4 szt.")).toBeTruthy();
+    expect(screen.queryByText(/Poprawiono/)).toBeNull();
+  });
+
   it("renders completed correction quantity context from manager payload after decoral merge", async () => {
     fetchUnplannedWorkOrdersMock.mockResolvedValue([]);
     fetchPlannedWorkOrdersMock.mockResolvedValue([
@@ -509,6 +579,7 @@ describe("frontend state consistency", () => {
         completed_quantity: 3,
         current_active_quantity: 0,
         is_correction: true,
+        is_historical_correction: true,
         process_status: { value: "READY", label: "Gotowe" },
         coating_type: { value: "DECORAL", label: "Decoral" },
         queue_namespace: { value: "CORRECTIONS", label: "Corrections" },

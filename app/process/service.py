@@ -3,6 +3,8 @@ from contextlib import ExitStack, contextmanager
 from datetime import UTC, datetime
 from threading import RLock
 
+from sqlalchemy.exc import IntegrityError
+
 from app.process.enums import CoatingType, ProcessDisplayStatus, ProcessStage, ProductionType, QuantityBatchType, StageStatus
 from app.process.models import WorkOrderQuantityBatch, WorkOrderStageState
 from app.process.repository import ProcessRepository
@@ -105,6 +107,8 @@ class ProcessService:
 
                 stage_state = self._get_stage_state(work_order, stage)
                 self._validate_transition(work_order, stage_state, target_status)
+                if target_status == StageStatus.IN_PROGRESS:
+                    self._acquire_stage_resource_locks(work_order, stage)
                 stage_state.status = target_status
                 stage_state.updated_at = datetime.now(UTC)
 
@@ -121,6 +125,9 @@ class ProcessService:
                     if packing_state.status == StageStatus.NOT_STARTED:
                         packing_state.status = StageStatus.IN_PROGRESS
                         packing_state.updated_at = stage_state.updated_at
+
+                if target_status != StageStatus.IN_PROGRESS:
+                    self._release_inactive_resource_locks(work_order)
 
                 try:
                     self.repository.commit()
@@ -343,6 +350,7 @@ class ProcessService:
                     ok_quantity=ok_quantity,
                     correction_quantity=correction_quantity,
                 )
+                self._release_inactive_resource_locks(work_order)
                 self._commit_process_changes()
                 refreshed_work_order = self.get_work_order_process(work_order_id)
                 if response_batch is not None:
@@ -363,6 +371,8 @@ class ProcessService:
 
             if work_order.coating_type == CoatingType.DECORAL and correction_quantity == 0:
                 active_batch.is_active = True
+
+            self._release_inactive_resource_locks(work_order)
 
             try:
                 self.repository.commit()
@@ -733,6 +743,7 @@ class ProcessService:
             )
 
         self._store_stage_start_data(work_order, stage, counted_quantity)
+        self._acquire_stage_resource_locks(work_order, stage)
         batch.current_stage_status = StageStatus.IN_PROGRESS
         self._sync_legacy_current_active_batch(work_order)
         self._commit_process_changes()
@@ -795,6 +806,7 @@ class ProcessService:
             return self._to_stage_work_order_read(refreshed_work_order, stage, batch=refreshed_batch)
 
         self._sync_legacy_current_active_batch(work_order)
+        self._release_inactive_resource_locks(work_order)
         self._commit_process_changes()
         refreshed_work_order = self.get_work_order_process(work_order.id)
         refreshed_batch = self._get_batch(refreshed_work_order, batch.id)
@@ -817,6 +829,7 @@ class ProcessService:
         batch.current_stage_status = StageStatus.NOT_STARTED
         batch.is_active = True
         self._sync_legacy_current_active_batch(work_order)
+        self._release_inactive_resource_locks(work_order)
         self._commit_process_changes()
         refreshed_work_order = self.get_work_order_process(work_order.id)
         refreshed_batch = self._get_batch(refreshed_work_order, batch.id)
@@ -885,6 +898,7 @@ class ProcessService:
             work_order.completed_quantity += ok_quantity
 
         self._sync_legacy_current_active_batch(work_order)
+        self._release_inactive_resource_locks(work_order)
         self._commit_process_changes()
 
         refreshed_work_order = self.get_work_order_process(work_order.id)
@@ -1121,23 +1135,27 @@ class ProcessService:
     ) -> ProcessStageWorkOrderRead:
         stage_state = self._get_stage_state(work_order, stage)
         if batch is None:
-            batch_quantity = work_order.current_active_quantity
+            current_active_quantity = work_order.current_active_quantity
+            batch_quantity = self._get_stage_display_quantity(work_order, stage, stage_state, batch=None)
             batch_type = None
             batch_is_partial = False
             batch_id = None
+            planned_quantity = self._get_stage_planned_quantity(work_order, stage, stage_state, batch=None)
             stage_status = self.build_stage_status_view(stage_state.status)
         else:
             batch_status = self._get_tracked_batch_stage_status(work_order, batch, stage)
             if batch_status is None:
                 batch_status = batch.current_stage_status or StageStatus.NOT_STARTED
-            batch_quantity = batch.quantity
+            current_active_quantity = batch.quantity
+            batch_quantity = self._get_stage_display_quantity(work_order, stage, stage_state, batch=batch)
             batch_type = batch.type
             batch_is_partial = batch.is_partial
             batch_id = batch.id
+            planned_quantity = self._get_stage_planned_quantity(work_order, stage, stage_state, batch=batch)
             stage_status = self.build_stage_status_view(batch_status)
 
         counted_quantity = self._get_stage_counted_quantity(work_order, stage, batch=batch)
-        quantity_difference = counted_quantity - batch_quantity if counted_quantity is not None else None
+        quantity_difference = counted_quantity - planned_quantity if counted_quantity is not None else None
 
         return ProcessStageWorkOrderRead(
             id=work_order.id,
@@ -1149,9 +1167,9 @@ class ProcessService:
             ral_code=work_order.ral_code,
             total_area_m2=work_order.total_area_m2,
             total_quantity=work_order.total_quantity,
-            current_active_quantity=batch_quantity,
+            current_active_quantity=current_active_quantity,
             batch_quantity=batch_quantity,
-            planned_quantity=batch_quantity,
+            planned_quantity=planned_quantity,
             counted_quantity=counted_quantity,
             quantity_difference=quantity_difference,
             customer_name=work_order.customer_name,
@@ -1170,6 +1188,37 @@ class ProcessService:
                 status=stage_status,
             ),
         )
+
+    @staticmethod
+    def _get_stage_display_quantity(
+        work_order: WorkOrder,
+        stage: ProcessStage,
+        stage_state: WorkOrderStageState,
+        *,
+        batch: WorkOrderQuantityBatch | None,
+    ) -> int | None:
+        if batch is not None:
+            return batch.quantity
+
+        if stage_state.status == StageStatus.DONE:
+            return work_order.total_quantity
+
+        return work_order.current_active_quantity
+
+    @staticmethod
+    def _get_stage_planned_quantity(
+        work_order: WorkOrder,
+        stage: ProcessStage,
+        stage_state: WorkOrderStageState,
+        *,
+        batch: WorkOrderQuantityBatch | None,
+    ) -> int:
+        _ = stage
+        _ = stage_state
+        if batch is not None:
+            return batch.quantity
+
+        return work_order.total_quantity
 
     @staticmethod
     def _get_process_mutation_lock(work_order_id: int) -> RLock:
@@ -1231,6 +1280,30 @@ class ProcessService:
         hanging_conflict = self._find_active_hanging_conflict(work_order.id)
         if hanging_conflict is not None:
             raise InvalidProcessStageTransitionError("Hanging resource is already occupied by another active job.")
+
+    def _acquire_stage_resource_locks(self, work_order: WorkOrder, stage: ProcessStage) -> None:
+        resource_keys = self._get_stage_resource_keys(work_order, stage, StageStatus.IN_PROGRESS)
+        for resource_key in resource_keys:
+            try:
+                self.repository.acquire_resource_lock(resource_key, work_order.id)
+            except ValueError as exc:
+                raise self._build_resource_conflict_error(resource_key) from exc
+            except IntegrityError as exc:
+                self.repository.rollback()
+                raise self._build_resource_conflict_error(resource_key) from exc
+
+    def _release_inactive_resource_locks(self, work_order: WorkOrder) -> None:
+        for resource_lock in self.repository.list_resource_locks_for_work_order(work_order.id):
+            if resource_lock.resource_key == "HANGING" and not self._has_active_hanging_work(work_order):
+                self.repository.release_resource_lock(resource_lock.resource_key, work_order.id)
+            elif resource_lock.resource_key == "AUTOMATIC_LINE" and not self._occupies_automatic_line(work_order):
+                self.repository.release_resource_lock(resource_lock.resource_key, work_order.id)
+
+    @staticmethod
+    def _build_resource_conflict_error(resource_key: str) -> InvalidProcessStageTransitionError:
+        if resource_key == "AUTOMATIC_LINE":
+            return InvalidProcessStageTransitionError("Automatic line is already occupied by another active job.")
+        return InvalidProcessStageTransitionError("Hanging resource is already occupied by another active job.")
 
     def _find_active_hanging_conflict(self, work_order_id: int) -> WorkOrder | None:
         for candidate in self.repository.list_work_orders_with_stage(ProcessStage.HANGING):
