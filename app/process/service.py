@@ -1,5 +1,5 @@
 from collections.abc import Sequence
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from datetime import UTC, datetime
 from threading import RLock
 
@@ -16,6 +16,8 @@ from app.work_orders.schemas import build_coating_type_view, build_production_ty
 
 _PROCESS_MUTATION_LOCKS: dict[int, RLock] = {}
 _PROCESS_MUTATION_LOCKS_GUARD = RLock()
+_RESOURCE_MUTATION_LOCKS: dict[str, RLock] = {}
+_RESOURCE_MUTATION_LOCKS_GUARD = RLock()
 
 
 class ProcessService:
@@ -94,33 +96,39 @@ class ProcessService:
         stage: ProcessStage,
         target_status: StageStatus,
     ) -> WorkOrderStageState:
-        work_order = self.get_work_order_process(work_order_id)
-        stage_state = self._get_stage_state(work_order, stage)
-        self._validate_transition(work_order, stage_state, target_status)
-        stage_state.status = target_status
-        stage_state.updated_at = datetime.now(UTC)
+        with self._serialize_process_mutation(work_order_id):
+            work_order = self.get_work_order_process(work_order_id)
+            resource_keys = self._get_stage_resource_keys(work_order, stage, target_status)
+            with self._serialize_stage_resources(resource_keys):
+                if target_status == StageStatus.IN_PROGRESS:
+                    self._ensure_stage_resources_available(work_order, stage)
 
-        if (
-            stage == ProcessStage.HANGING
-            and target_status == StageStatus.IN_PROGRESS
-            and work_order.production_type == ProductionType.AUTOMATIC
-        ):
-            production_state = self._get_stage_state(work_order, ProcessStage.PRODUCTION)
-            if production_state.status == StageStatus.NOT_STARTED:
-                production_state.status = StageStatus.IN_PROGRESS
-                production_state.updated_at = stage_state.updated_at
-            packing_state = self._get_stage_state(work_order, ProcessStage.PACKING)
-            if packing_state.status == StageStatus.NOT_STARTED:
-                packing_state.status = StageStatus.IN_PROGRESS
-                packing_state.updated_at = stage_state.updated_at
+                stage_state = self._get_stage_state(work_order, stage)
+                self._validate_transition(work_order, stage_state, target_status)
+                stage_state.status = target_status
+                stage_state.updated_at = datetime.now(UTC)
 
-        try:
-            self.repository.commit()
-        except Exception:
-            self.repository.rollback()
-            raise
+                if (
+                    stage == ProcessStage.HANGING
+                    and target_status == StageStatus.IN_PROGRESS
+                    and work_order.production_type == ProductionType.AUTOMATIC
+                ):
+                    production_state = self._get_stage_state(work_order, ProcessStage.PRODUCTION)
+                    if production_state.status == StageStatus.NOT_STARTED:
+                        production_state.status = StageStatus.IN_PROGRESS
+                        production_state.updated_at = stage_state.updated_at
+                    packing_state = self._get_stage_state(work_order, ProcessStage.PACKING)
+                    if packing_state.status == StageStatus.NOT_STARTED:
+                        packing_state.status = StageStatus.IN_PROGRESS
+                        packing_state.updated_at = stage_state.updated_at
 
-        return stage_state
+                try:
+                    self.repository.commit()
+                except Exception:
+                    self.repository.rollback()
+                    raise
+
+                return stage_state
 
     def list_stage_work_orders(
         self,
@@ -148,34 +156,38 @@ class ProcessService:
         batch_id: int | None = None,
         counted_quantity: int | None = None,
     ) -> ProcessStageWorkOrderRead:
-        work_order = self.get_work_order_process(work_order_id)
-        target_batch = self._resolve_batch_for_stage(work_order, stage, batch_id)
-        if target_batch is not None:
-            return self._start_tracked_batch_stage(work_order, target_batch, stage, counted_quantity=counted_quantity)
+        with self._serialize_process_mutation(work_order_id):
+            work_order = self.get_work_order_process(work_order_id)
+            target_batch = self._resolve_batch_for_stage(work_order, stage, batch_id)
+            if target_batch is not None:
+                resource_keys = self._get_stage_resource_keys(work_order, stage, StageStatus.IN_PROGRESS)
+                with self._serialize_stage_resources(resource_keys):
+                    self._ensure_stage_resources_available(work_order, stage)
+                    return self._start_tracked_batch_stage(work_order, target_batch, stage, counted_quantity=counted_quantity)
 
-        if self._is_automatic_production_preview_stage(work_order, stage):
-            raise InvalidProcessStageTransitionError(
-                "Automatic production is preview-only. Start the process from HANGING and finish it from PACKING."
-            )
+            if self._is_automatic_production_preview_stage(work_order, stage):
+                raise InvalidProcessStageTransitionError(
+                    "Automatic production is preview-only. Start the process from HANGING and finish it from PACKING."
+                )
 
-        self._store_stage_start_data(work_order, stage, counted_quantity)
+            self._store_stage_start_data(work_order, stage, counted_quantity)
 
-        self.transition_stage(work_order_id, stage, StageStatus.IN_PROGRESS)
-        work_order = self.get_work_order_process(work_order_id)
+            self.transition_stage(work_order_id, stage, StageStatus.IN_PROGRESS)
+            work_order = self.get_work_order_process(work_order_id)
 
-        if stage == ProcessStage.HANGING and work_order.production_type == ProductionType.AUTOMATIC:
-            production_state = self._get_stage_state(work_order, ProcessStage.PRODUCTION)
-            if production_state.status == StageStatus.NOT_STARTED:
-                production_state.status = StageStatus.IN_PROGRESS
-                production_state.updated_at = datetime.now(UTC)
-                try:
-                    self.repository.commit()
-                except Exception:
-                    self.repository.rollback()
-                    raise
-                work_order = self.get_work_order_process(work_order_id)
+            if stage == ProcessStage.HANGING and work_order.production_type == ProductionType.AUTOMATIC:
+                production_state = self._get_stage_state(work_order, ProcessStage.PRODUCTION)
+                if production_state.status == StageStatus.NOT_STARTED:
+                    production_state.status = StageStatus.IN_PROGRESS
+                    production_state.updated_at = datetime.now(UTC)
+                    try:
+                        self.repository.commit()
+                    except Exception:
+                        self.repository.rollback()
+                        raise
+                    work_order = self.get_work_order_process(work_order_id)
 
-        return self._to_stage_work_order_read(work_order, stage)
+            return self._to_stage_work_order_read(work_order, stage)
 
     def finish_stage(self, work_order_id: int, stage: ProcessStage, batch_id: int | None = None) -> ProcessStageWorkOrderRead:
         with self._serialize_process_mutation(work_order_id):
@@ -304,9 +316,13 @@ class ProcessService:
                 raise InvalidProcessStageTransitionError("Packing quantities cannot be negative.")
 
             planned_quantity = active_batch.quantity
-            if counted_quantity != planned_quantity:
+            actual_received_quantity = self._get_surface_preparation_actual_quantity(work_order)
+            required_counted_quantity = actual_received_quantity if actual_received_quantity is not None else planned_quantity
+            if counted_quantity != required_counted_quantity:
                 raise InvalidProcessStageTransitionError(
-                    "Policzona ilość różni się od planowanej. Wyjaśnij brakujące sztuki."
+                    "Policzona ilość musi odpowiadać rzeczywistej ilości z przygotowania powierzchni."
+                    if actual_received_quantity is not None
+                    else "Policzona ilość różni się od planowanej. Wyjaśnij brakujące sztuki."
                 )
 
             packing_state.counted_quantity = counted_quantity
@@ -1068,6 +1084,9 @@ class ProcessService:
         if counted_quantity <= 0:
             raise InvalidProcessStageTransitionError("Counted quantity must be greater than zero.")
 
+        if counted_quantity > work_order.current_active_quantity:
+            raise InvalidProcessStageTransitionError("Counted quantity cannot exceed the expected active quantity.")
+
         stage_state = self._get_stage_state(work_order, stage)
         stage_state.counted_quantity = counted_quantity
         stage_state.updated_at = datetime.now(UTC)
@@ -1112,7 +1131,7 @@ class ProcessService:
             batch_id = batch.id
             stage_status = self.build_stage_status_view(batch_status)
 
-        counted_quantity = stage_state.counted_quantity if stage in {ProcessStage.SURFACE_PREPARATION, ProcessStage.PACKING} else None
+        counted_quantity = self._get_stage_counted_quantity(work_order, stage, batch=batch)
         quantity_difference = counted_quantity - batch_quantity if counted_quantity is not None else None
 
         return ProcessStageWorkOrderRead(
@@ -1154,6 +1173,128 @@ class ProcessService:
                 lock = RLock()
                 _PROCESS_MUTATION_LOCKS[work_order_id] = lock
             return lock
+
+    @staticmethod
+    def _get_resource_mutation_lock(resource_key: str) -> RLock:
+        with _RESOURCE_MUTATION_LOCKS_GUARD:
+            lock = _RESOURCE_MUTATION_LOCKS.get(resource_key)
+            if lock is None:
+                lock = RLock()
+                _RESOURCE_MUTATION_LOCKS[resource_key] = lock
+            return lock
+
+    @staticmethod
+    def _get_stage_resource_keys(
+        work_order: WorkOrder,
+        stage: ProcessStage,
+        target_status: StageStatus,
+    ) -> tuple[str, ...]:
+        if stage != ProcessStage.HANGING or target_status != StageStatus.IN_PROGRESS:
+            return ()
+
+        resource_keys = ["HANGING"]
+        if work_order.production_type == ProductionType.AUTOMATIC:
+            resource_keys.append("AUTOMATIC_LINE")
+        return tuple(sorted(resource_keys))
+
+    @contextmanager
+    def _serialize_stage_resources(self, resource_keys: Sequence[str]):
+        with ExitStack() as stack:
+            for resource_key in sorted(set(resource_keys)):
+                stack.enter_context(self._serialize_resource_mutation(resource_key))
+            yield
+
+    @contextmanager
+    def _serialize_resource_mutation(self, resource_key: str):
+        lock = self._get_resource_mutation_lock(resource_key)
+        lock.acquire()
+        try:
+            yield
+        finally:
+            lock.release()
+
+    def _ensure_stage_resources_available(self, work_order: WorkOrder, stage: ProcessStage) -> None:
+        if stage != ProcessStage.HANGING:
+            return
+
+        if work_order.production_type == ProductionType.AUTOMATIC:
+            automatic_line_conflict = self._find_active_automatic_line_conflict(work_order.id)
+            if automatic_line_conflict is not None:
+                raise InvalidProcessStageTransitionError("Automatic line is already occupied by another active job.")
+
+        hanging_conflict = self._find_active_hanging_conflict(work_order.id)
+        if hanging_conflict is not None:
+            raise InvalidProcessStageTransitionError("Hanging resource is already occupied by another active job.")
+
+    def _find_active_hanging_conflict(self, work_order_id: int) -> WorkOrder | None:
+        for candidate in self.repository.list_work_orders_with_stage(ProcessStage.HANGING):
+            if candidate.id == work_order_id:
+                continue
+            if self._has_active_hanging_work(candidate):
+                return candidate
+        return None
+
+    def _find_active_automatic_line_conflict(self, work_order_id: int) -> WorkOrder | None:
+        for candidate in self.repository.list_work_orders_with_stage(ProcessStage.HANGING):
+            if candidate.id == work_order_id:
+                continue
+            if self._occupies_automatic_line(candidate):
+                return candidate
+        return None
+
+    def _has_active_hanging_work(self, work_order: WorkOrder) -> bool:
+        hanging_state = self._get_stage_state(work_order, ProcessStage.HANGING)
+        if hanging_state.status == StageStatus.IN_PROGRESS:
+            return True
+
+        return any(
+            batch.is_active
+            and batch.current_stage == ProcessStage.HANGING
+            and batch.current_stage_status == StageStatus.IN_PROGRESS
+            for batch in work_order.quantity_batches
+        )
+
+    def _occupies_automatic_line(self, work_order: WorkOrder) -> bool:
+        if work_order.production_type != ProductionType.AUTOMATIC:
+            return False
+
+        hanging_state = self._get_stage_state(work_order, ProcessStage.HANGING)
+        packing_state = self._get_stage_state(work_order, ProcessStage.PACKING)
+        if hanging_state.status == StageStatus.IN_PROGRESS and packing_state.status != StageStatus.DONE:
+            return True
+
+        return any(
+            batch.is_active
+            and batch.current_stage in {ProcessStage.HANGING, ProcessStage.PACKING}
+            and batch.current_stage_status == StageStatus.IN_PROGRESS
+            for batch in work_order.quantity_batches
+        )
+
+    def _get_surface_preparation_actual_quantity(self, work_order: WorkOrder) -> int | None:
+        surface_preparation_state = self._get_stage_state(work_order, ProcessStage.SURFACE_PREPARATION)
+        return surface_preparation_state.counted_quantity
+
+    def _get_stage_counted_quantity(
+        self,
+        work_order: WorkOrder,
+        stage: ProcessStage,
+        *,
+        batch: WorkOrderQuantityBatch | None,
+    ) -> int | None:
+        stage_state = self._get_stage_state(work_order, stage)
+        if stage == ProcessStage.SURFACE_PREPARATION:
+            return stage_state.counted_quantity
+
+        if stage != ProcessStage.PACKING:
+            return None
+
+        if stage_state.counted_quantity is not None:
+            return stage_state.counted_quantity
+
+        if batch is None:
+            return self._get_surface_preparation_actual_quantity(work_order)
+
+        return None
 
     @contextmanager
     def _serialize_process_mutation(self, work_order_id: int):

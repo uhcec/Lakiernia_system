@@ -192,8 +192,10 @@ def test_production_type_affects_visibility_logic(db_session: Session) -> None:
         WorkOrderPlanAssignRequest(production_type=ProductionType.AUTOMATIC, queue_position=1),
     )
 
-    for work_order_id in [manual_order.id, automatic_order.id, unassigned_order.id]:
-        advance_to_production(process_service, work_order_id)
+    advance_to_production(process_service, manual_order.id)
+    advance_to_production(process_service, automatic_order.id)
+    process_service.transition_stage(unassigned_order.id, ProcessStage.SURFACE_PREPARATION, StageStatus.IN_PROGRESS)
+    process_service.transition_stage(unassigned_order.id, ProcessStage.SURFACE_PREPARATION, StageStatus.DONE)
 
     manual_visible = process_service.list_visible_work_orders(ProcessStage.PRODUCTION, ProductionType.MANUAL)
     automatic_visible = process_service.list_visible_work_orders(ProcessStage.PRODUCTION, ProductionType.AUTOMATIC)
@@ -939,7 +941,6 @@ def test_parallel_packing_completion_is_serialized_and_does_not_duplicate_child_
     engine = create_engine(
         f"sqlite:///{database_path}",
         connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
         future=True,
     )
     session_factory = sessionmaker(bind=engine, autoflush=False, autocommit=False, class_=Session)
@@ -991,6 +992,90 @@ def test_parallel_packing_completion_is_serialized_and_does_not_duplicate_child_
     assert parent.current_active_quantity == 0
     assert len(correction_orders) == 1
     assert correction_orders[0].total_quantity == 15
+
+
+def test_parallel_automatic_hanging_start_allows_only_one_order_to_acquire_line(tmp_path) -> None:
+    database_path = tmp_path / "parallel_hanging_resource.db"
+    engine = create_engine(
+        f"sqlite:///{database_path}",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+        future=True,
+    )
+    session_factory = sessionmaker(bind=engine, autoflush=False, autocommit=False, class_=Session)
+    Base.metadata.create_all(bind=engine)
+
+    try:
+        setup_session = session_factory()
+        try:
+            work_order_service, process_service, manager_service, _, process_repository = build_services(setup_session)
+            first = create_ral_work_order(work_order_service, "Automatic line parallel A")
+            second = create_ral_work_order(work_order_service, "Automatic line parallel B")
+            manager_service.assign_plan(
+                first.id,
+                WorkOrderPlanAssignRequest(production_type=ProductionType.AUTOMATIC, queue_position=1),
+            )
+            manager_service.assign_plan(
+                second.id,
+                WorkOrderPlanAssignRequest(production_type=ProductionType.AUTOMATIC, queue_position=2),
+            )
+            process_service.transition_stage(first.id, ProcessStage.SURFACE_PREPARATION, StageStatus.IN_PROGRESS)
+            process_service.transition_stage(first.id, ProcessStage.SURFACE_PREPARATION, StageStatus.DONE)
+            process_service.transition_stage(second.id, ProcessStage.SURFACE_PREPARATION, StageStatus.IN_PROGRESS)
+            process_service.transition_stage(second.id, ProcessStage.SURFACE_PREPARATION, StageStatus.DONE)
+            first_state = next(
+                stage_state
+                for stage_state in process_repository.get_work_order_with_stage_states(first.id).stage_states
+                if stage_state.stage == ProcessStage.HANGING
+            )
+            second_state = next(
+                stage_state
+                for stage_state in process_repository.get_work_order_with_stage_states(second.id).stage_states
+                if stage_state.stage == ProcessStage.HANGING
+            )
+            assert first_state.status == StageStatus.NOT_STARTED
+            assert second_state.status == StageStatus.NOT_STARTED
+        finally:
+            setup_session.close()
+
+        def run_start(work_order_id: int):
+            session = session_factory()
+            try:
+                process_service = ProcessService(ProcessRepository(session))
+                try:
+                    process_service.start_stage(work_order_id, ProcessStage.HANGING)
+                    return "started"
+                except InvalidProcessStageTransitionError as exc:
+                    return str(exc)
+            finally:
+                session.close()
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            first_future = executor.submit(run_start, first.id)
+            second_future = executor.submit(run_start, second.id)
+            results = {first_future.result(), second_future.result()}
+
+        verify_session = session_factory()
+        try:
+            process_repository = ProcessRepository(verify_session)
+            first_order = process_repository.get_work_order_with_stage_states(first.id)
+            second_order = process_repository.get_work_order_with_stage_states(second.id)
+        finally:
+            verify_session.close()
+    finally:
+        Base.metadata.drop_all(bind=engine)
+        engine.dispose()
+
+    assert "started" in results
+    assert "Automatic line is already occupied by another active job." in results
+    assert first_order is not None
+    assert second_order is not None
+    in_progress_ids = {
+        work_order.id
+        for work_order in (first_order, second_order)
+        if next(stage for stage in work_order.stage_states if stage.stage == ProcessStage.HANGING).status == StageStatus.IN_PROGRESS
+    }
+    assert len(in_progress_ids) == 1
 
 
 def test_finished_decoral_tracked_batch_cannot_be_reopened_and_quantities_remain_unchanged(db_session: Session) -> None:

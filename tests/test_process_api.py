@@ -345,6 +345,95 @@ def test_start_surface_preparation_returns_difference_and_persists_count(test_cl
     assert stage_item["quantity_difference"] == -4
 
 
+def test_packing_uses_surface_preparation_actual_quantity_and_preserves_difference(test_client: TestClient) -> None:
+    created = create_planned_work_order(
+        test_client,
+        title="Packing uses actual quantity",
+        queue_position=1,
+        production_type="MANUAL",
+        total_quantity=100,
+    )
+
+    start_surface_preparation(test_client, created["id"], counted_quantity=95)
+    test_client.post(f"/process/work-orders/{created['id']}/stages/SURFACE_PREPARATION/finish")
+    test_client.post(f"/process/work-orders/{created['id']}/stages/PRODUCTION/start")
+    test_client.post(f"/process/work-orders/{created['id']}/stages/PRODUCTION/finish")
+
+    packing_start_response = test_client.post(f"/process/work-orders/{created['id']}/stages/PACKING/start")
+    packing_rows_response = test_client.get("/process/stages/PACKING/work-orders")
+    packing_complete_response = complete_packing_request(
+        test_client,
+        created["id"],
+        counted_quantity=95,
+        ok_quantity=90,
+        correction_quantity=5,
+    )
+    unplanned_response = test_client.get("/manager/work-orders/unplanned")
+
+    assert packing_start_response.status_code == 200
+    assert packing_start_response.json()["planned_quantity"] == 100
+    assert packing_start_response.json()["counted_quantity"] == 95
+    assert packing_start_response.json()["quantity_difference"] == -5
+    packing_item = next(item for item in packing_rows_response.json() if item["id"] == created["id"])
+    assert packing_item["planned_quantity"] == 100
+    assert packing_item["counted_quantity"] == 95
+    assert packing_item["quantity_difference"] == -5
+    assert packing_complete_response.status_code == 200
+    correction_order = next(item for item in unplanned_response.json() if item["parent_order"]["id"] == created["id"])
+    assert correction_order["total_quantity"] == 5
+
+
+def test_packing_rejects_quantity_above_surface_preparation_actual_quantity(test_client: TestClient) -> None:
+    created = create_planned_work_order(
+        test_client,
+        title="Packing rejects stale expected quantity",
+        queue_position=1,
+        production_type="MANUAL",
+        total_quantity=100,
+    )
+
+    start_surface_preparation(test_client, created["id"], counted_quantity=95)
+    test_client.post(f"/process/work-orders/{created['id']}/stages/SURFACE_PREPARATION/finish")
+    test_client.post(f"/process/work-orders/{created['id']}/stages/PRODUCTION/start")
+    test_client.post(f"/process/work-orders/{created['id']}/stages/PRODUCTION/finish")
+    test_client.post(f"/process/work-orders/{created['id']}/stages/PACKING/start")
+
+    response = complete_packing_request(
+        test_client,
+        created["id"],
+        counted_quantity=100,
+        ok_quantity=95,
+        correction_quantity=5,
+    )
+
+    assert response.status_code == 409
+
+
+def test_second_automatic_hanging_start_is_rejected_when_line_is_busy(test_client: TestClient) -> None:
+    first = create_planned_work_order(
+        test_client,
+        title="Automatic line first",
+        queue_position=1,
+        production_type="AUTOMATIC",
+    )
+    second = create_planned_work_order(
+        test_client,
+        title="Automatic line second",
+        queue_position=2,
+        production_type="AUTOMATIC",
+    )
+
+    advance_to_hanging(test_client, first["id"])
+    advance_to_hanging(test_client, second["id"])
+
+    first_start_response = test_client.post(f"/process/work-orders/{first['id']}/stages/HANGING/start")
+    second_start_response = test_client.post(f"/process/work-orders/{second['id']}/stages/HANGING/start")
+
+    assert first_start_response.status_code == 200
+    assert second_start_response.status_code == 409
+    assert second_start_response.json()["detail"] == "Automatic line is already occupied by another active job."
+
+
 def test_cannot_start_surface_preparation_with_non_positive_count(test_client: TestClient) -> None:
     created = create_planned_work_order(test_client, title="Bad counted", queue_position=1)
 
@@ -1033,7 +1122,7 @@ def test_packing_complete_rejects_when_counted_quantity_is_lower_than_planned(te
     detail = test_client.get(f"/work-orders/{created['id']}")
 
     assert response.status_code == 409
-    assert response.json()["detail"] == "Policzona ilość różni się od planowanej. Wyjaśnij brakujące sztuki."
+    assert response.json()["detail"] == "Policzona ilość musi odpowiadać rzeczywistej ilości z przygotowania powierzchni."
     assert detail.json()["current_active_quantity"] == 100
     assert detail.json()["correction_orders"] == []
 
@@ -1045,7 +1134,7 @@ def test_packing_complete_rejects_when_counted_quantity_is_higher_than_planned(t
     response = complete_packing_request(test_client, created["id"], counted_quantity=104, ok_quantity=100, correction_quantity=4)
 
     assert response.status_code == 409
-    assert response.json()["detail"] == "Policzona ilość różni się od planowanej. Wyjaśnij brakujące sztuki."
+    assert response.json()["detail"] == "Policzona ilość musi odpowiadać rzeczywistej ilości z przygotowania powierzchni."
 
 
 def test_packing_complete_accepts_valid_quantity_split_without_phantom_ok(test_client: TestClient) -> None:
@@ -1093,7 +1182,7 @@ def test_decoral_packing_rejects_counted_quantity_lower_than_planned(test_client
     detail = test_client.get(f"/work-orders/{created['id']}")
 
     assert response.status_code == 409
-    assert response.json()["detail"] == "Policzona ilość różni się od planowanej. Wyjaśnij brakujące sztuki."
+    assert response.json()["detail"] == "Policzona ilość musi odpowiadać rzeczywistej ilości z przygotowania powierzchni."
     assert detail.json()["completed_quantity"] == 0
     assert detail.json()["current_active_quantity"] == 100
     assert detail.json()["process_status"] == {"value": "PACKING", "label": "Pakowanie"}
@@ -1108,8 +1197,8 @@ def test_packing_stage_list_includes_counted_quantity_difference(test_client: Te
     assert response.status_code == 200
     item = next(item for item in response.json() if item["id"] == created["id"])
     assert item["planned_quantity"] == 100
-    assert item["counted_quantity"] is None
-    assert item["quantity_difference"] is None
+    assert item["counted_quantity"] == 100
+    assert item["quantity_difference"] == 0
 
 
 def test_reopen_stage_moves_done_back_to_in_progress(test_client: TestClient) -> None:

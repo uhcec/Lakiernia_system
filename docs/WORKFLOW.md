@@ -16,9 +16,12 @@ Scope:
 3. Quantity must be conserved across parent/child correction chains.
 4. Packing split rules:
 - `ok_quantity + correction_quantity == counted_quantity`
-- `counted_quantity == planned_quantity` for active batch
-5. Correction is represented as a new child work order (`is_correction=true`, `parent_order_id` set).
-6. Parent waits for open corrections; merge/finalization propagates upward when descendants close.
+5. `SURFACE_PREPARATION.counted_quantity` is the persisted actual received quantity and becomes the source of truth for downstream quantity validation.
+6. `PACKING.planned_quantity` remains the original expected batch quantity for audit visibility, but packing validation must use the persisted actual received quantity from surface preparation.
+- `counted_quantity == actual_received_quantity` for the active batch/order at packing
+- `planned_quantity - actual_received_quantity` must remain visible for audit/read models
+7. Correction is represented as a new child work order (`is_correction=true`, `parent_order_id` set).
+8. Parent waits for open corrections; merge/finalization propagates upward when descendants close.
 
 ## Stage Model
 
@@ -34,6 +37,9 @@ Automatic constraints:
 - Cannot start/finish `PRODUCTION` directly for `AUTOMATIC`
 - `HANGING` start transitions automatic flow forward
 - Finish for automatic path is performed from `PACKING`
+- Physical resource exclusivity is enforced in the backend with controlled `409` responses.
+- Only one `HANGING` job may be active at a time.
+- Only one automatic-line job may be active at a time; in the current workflow this resource is occupied from automatic `HANGING` start until that path is completed from `PACKING`.
 
 ## Main Flows
 

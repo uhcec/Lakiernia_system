@@ -140,6 +140,68 @@ def test_packing_correction_creates_new_unplanned_work_order(test_client: TestCl
     assert correction_order["queue_position"] is None
 
 
+def test_completed_decoral_correction_preserves_correction_quantity_context_in_manager_queue(test_client: TestClient) -> None:
+    created = create_work_order(test_client, title="Completed decoral correction", coating_type="DECORAL", total_quantity=10)
+
+    test_client.post(
+        f"/manager/work-orders/{created['id']}/plan",
+        json={"production_type": "AUTOMATIC", "queue_position": 1},
+    )
+    test_client.post(
+        f"/process/work-orders/{created['id']}/stages/SURFACE_PREPARATION/start",
+        json={"counted_quantity": 10},
+    )
+    test_client.post(f"/process/work-orders/{created['id']}/stages/SURFACE_PREPARATION/finish")
+    test_client.post(f"/process/work-orders/{created['id']}/stages/HANGING/start")
+    parent_pack_response = test_client.post(
+        f"/process/work-orders/{created['id']}/packing/complete",
+        json={"counted_quantity": 10, "ok_quantity": 7, "correction_quantity": 3},
+    )
+
+    correction_order = next(
+        item
+        for item in test_client.get("/manager/work-orders/unplanned").json()
+        if item["parent_order"]["id"] == created["id"]
+    )
+    test_client.post(
+        f"/manager/work-orders/{correction_order['id']}/plan",
+        json={"production_type": "AUTOMATIC", "queue_position": 2},
+    )
+
+    parent_batch_id = parent_pack_response.json()["batch_id"]
+    test_client.post(f"/process/work-orders/{created['id']}/batches/{parent_batch_id}/stages/DECORAL_PRODUCTION/start")
+    test_client.post(f"/process/work-orders/{created['id']}/batches/{parent_batch_id}/stages/DECORAL_PRODUCTION/finish")
+
+    test_client.post(
+        f"/process/work-orders/{correction_order['id']}/stages/SURFACE_PREPARATION/start",
+        json={"counted_quantity": 3},
+    )
+    test_client.post(f"/process/work-orders/{correction_order['id']}/stages/SURFACE_PREPARATION/finish")
+    test_client.post(f"/process/work-orders/{correction_order['id']}/stages/HANGING/start")
+    test_client.post(
+        f"/process/work-orders/{correction_order['id']}/packing/complete",
+        json={"counted_quantity": 3, "ok_quantity": 3, "correction_quantity": 0},
+    )
+    test_client.post(f"/process/work-orders/{correction_order['id']}/stages/DECORAL_PRODUCTION/start")
+    test_client.post(f"/process/work-orders/{correction_order['id']}/stages/DECORAL_PRODUCTION/finish")
+
+    planned_response = test_client.get("/manager/work-orders")
+
+    assert planned_response.status_code == 200
+    completed_orders = {
+        item["id"]: item for item in planned_response.json() if item["process_status"]["value"] == "READY"
+    }
+    parent_item = completed_orders[created["id"]]
+    correction_item = completed_orders[correction_order["id"]]
+
+    assert correction_item["total_quantity"] == 3
+    assert correction_item["completed_quantity"] == 3
+    assert correction_item["parent_order"]["id"] == created["id"]
+    assert correction_item["parent_order"]["total_quantity"] == 10
+    assert parent_item["correction_orders"][0]["id"] == correction_order["id"]
+    assert parent_item["correction_orders"][0]["total_quantity"] == 3
+
+
 def test_corrections_are_listed_in_shared_unplanned_queue(test_client: TestClient) -> None:
     created = create_work_order(test_client, title="Correction namespace", coating_type="RAL", total_quantity=100)
     create_work_order(test_client, title="Regular unplanned", coating_type="RAL", total_quantity=50)
