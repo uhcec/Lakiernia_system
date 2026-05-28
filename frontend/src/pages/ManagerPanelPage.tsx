@@ -326,9 +326,16 @@ export function ManagerPanelPage() {
     await saveQueueOrder(activePlannedWorkOrders);
   }
 
-  function handleQueueDragStart(workOrderId: number) {
+  function handleQueueDragStart(event: DragEvent<HTMLElement>, workOrderId: number) {
     if (!isAllQueueFilter) {
       return;
+    }
+
+    if (event.dataTransfer) {
+      event.dataTransfer.effectAllowed = "move";
+      if (typeof event.dataTransfer.setData === "function") {
+        event.dataTransfer.setData("text/plain", String(workOrderId));
+      }
     }
     setDraggedWorkOrderId(workOrderId);
     setSuccessMessage(null);
@@ -348,11 +355,22 @@ export function ManagerPanelPage() {
     if (!isAllQueueFilter) {
       return;
     }
-    if (draggedWorkOrderId === null) {
+
+    const dragPayload = event.dataTransfer && typeof event.dataTransfer.getData === "function"
+      ? event.dataTransfer.getData("text/plain").trim()
+      : "";
+    const fallbackDraggedWorkOrderId = dragPayload ? Number(dragPayload) : null;
+    const resolvedDraggedWorkOrderId = draggedWorkOrderId ?? fallbackDraggedWorkOrderId;
+
+    if (resolvedDraggedWorkOrderId === null || Number.isNaN(resolvedDraggedWorkOrderId)) {
       return;
     }
 
-    const reorderedWorkOrders = moveWorkOrderWithinQueueSlots(activePlannedWorkOrders, draggedWorkOrderId, targetWorkOrderId);
+    const reorderedWorkOrders = moveWorkOrderWithinQueueSlots(
+      activePlannedWorkOrders,
+      resolvedDraggedWorkOrderId,
+      targetWorkOrderId,
+    );
     logQueueDebug("drag result order", summarizeQueueOrders(reorderedWorkOrders));
     setDraggedWorkOrderId(null);
 
@@ -375,7 +393,7 @@ export function ManagerPanelPage() {
             <article
               key={workOrder.id}
               draggable={!isSavingQueueOrder && isAllQueueFilter}
-              onDragStart={() => handleQueueDragStart(workOrder.id)}
+              onDragStart={(event) => handleQueueDragStart(event, workOrder.id)}
               onDragOver={handleQueueDragOver}
               onDrop={(event) => handleQueueDrop(event, workOrder.id)}
               onDragEnd={handleQueueDragEnd}

@@ -146,6 +146,22 @@ class ManagerService:
             ]
 
             now = datetime.now(UTC)
+            temporarily_repositioned_work_orders = [
+                existing_work_orders[item.work_order_id]
+                for item in items
+            ] + omitted_completed_work_orders
+            temporary_queue_position = max(
+                [work_order.queue_position or 0 for work_order in planned_work_orders] + queue_positions,
+                default=0,
+            ) + 1
+
+            for work_order in temporarily_repositioned_work_orders:
+                work_order.queue_position = temporary_queue_position
+                work_order.updated_at = now
+                temporary_queue_position += 1
+
+            self.repository.session.flush()
+
             for item in items:
                 work_order = existing_work_orders[item.work_order_id]
                 if not self._is_planned(work_order):
