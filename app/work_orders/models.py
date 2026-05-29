@@ -48,6 +48,10 @@ class WorkOrder(Base):
             "(production_type IS NULL AND queue_position IS NULL) OR (production_type IS NOT NULL AND queue_position IS NOT NULL)",
             name="planned_requires_production_type_and_queue_position",
         ),
+        CheckConstraint(
+            "queue_position IS NULL OR (is_incomplete_on_arrival = 0 AND status != 'INCOMPLETE')",
+            name="incomplete_requires_unplanned",
+        ),
         CheckConstraint("profiles_quantity IS NULL OR profiles_quantity > 0", name="profiles_quantity_positive_if_present"),
         CheckConstraint(
             "accessories_quantity IS NULL OR accessories_quantity > 0",

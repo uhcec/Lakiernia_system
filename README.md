@@ -62,6 +62,8 @@ app/
   work_orders/          Intake, order detail, attachments, numbering
 alembic/                Database migration history
 docs/
+  DEVELOPMENT_RUNBOOK.md
+                        Local setup, run, seed, and quality-gate commands
   WORKFLOW.md           Business workflow source of truth
   WORKFLOW_VALIDATION_CHECKLIST.md
                         Factory-policy questions to answer before semantic workflow changes
@@ -193,6 +195,14 @@ http://127.0.0.1:5173
 
 ## Quality Checks
 
+Full local quality gate:
+
+```powershell
+.\scripts\run_quality_gate.ps1
+```
+
+Individual checks:
+
 Backend tests:
 
 ```powershell
@@ -214,7 +224,9 @@ npm run build
 Pop-Location
 ```
 
-The GitHub Actions quality gate runs backend tests, upgrades/checks Alembic schema drift, and builds the frontend.
+The GitHub Actions quality gate runs backend tests, upgrades/checks Alembic schema drift, frontend tests, and the frontend build.
+
+See `docs/DEVELOPMENT_RUNBOOK.md` for first setup, local database, seed, server, and verification commands.
 
 ## Database Migrations
 

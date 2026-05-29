@@ -2,6 +2,7 @@ from concurrent.futures import ThreadPoolExecutor
 import json
 
 from sqlalchemy import create_engine, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 import pytest
 
@@ -651,7 +652,7 @@ def test_unplanned_orders_are_hidden_from_process_visibility(db_session: Session
     assert [work_order.id for work_order in visible] == [planned_order.id]
 
 
-def test_incomplete_order_does_not_appear_in_stage_lists_even_if_planned_earlier(db_session: Session) -> None:
+def test_incomplete_order_cannot_be_forced_into_stage_queue_by_direct_update(db_session: Session) -> None:
     work_order_service, process_service, manager_service, _, process_repository = build_services(db_session)
 
     visible_order = create_ral_work_order(work_order_service, "Visible planned")
@@ -670,7 +671,10 @@ def test_incomplete_order_does_not_appear_in_stage_lists_even_if_planned_earlier
     assert persisted_incomplete is not None
     persisted_incomplete.production_type = ProductionType.MANUAL
     persisted_incomplete.queue_position = 2
-    process_repository.commit()
+
+    with pytest.raises(IntegrityError):
+        process_repository.commit()
+    process_repository.rollback()
 
     visible = process_service.list_visible_work_orders(ProcessStage.SURFACE_PREPARATION)
 
@@ -1316,7 +1320,7 @@ def test_read_model_status_is_derived_even_if_stored_status_drifts(db_session: S
     assert refreshed.status.value == WorkOrderStatus.ENTERED
 
 
-def test_incomplete_marker_does_not_leak_into_manager_or_stage_views(db_session: Session) -> None:
+def test_incomplete_marker_cannot_be_forced_into_manager_or_stage_views(db_session: Session) -> None:
     work_order_service, process_service, manager_service, work_order_repository, _ = build_services(db_session)
 
     visible_order = create_ral_work_order(work_order_service, "Visible planned manager")
@@ -1335,7 +1339,10 @@ def test_incomplete_marker_does_not_leak_into_manager_or_stage_views(db_session:
     assert stored is not None
     stored.production_type = ProductionType.MANUAL
     stored.queue_position = 2
-    work_order_repository.commit()
+
+    with pytest.raises(IntegrityError):
+        work_order_repository.commit()
+    work_order_repository.rollback()
 
     planned_ids = [item.id for item in manager_service.list_planned_work_orders()]
     stage_ids = [item.id for item in process_service.list_stage_work_orders(ProcessStage.SURFACE_PREPARATION)]
@@ -1368,7 +1375,7 @@ def test_inconsistent_incomplete_row_cannot_be_planned(db_session: Session) -> N
     assert str(exc_info.value) == "Cannot plan incomplete order. Mark as complete first."
 
 
-def test_inconsistent_incomplete_row_does_not_appear_in_stage_queues(db_session: Session) -> None:
+def test_planned_row_cannot_be_marked_incomplete_by_direct_update(db_session: Session) -> None:
     work_order_service, process_service, manager_service, work_order_repository, _ = build_services(db_session)
 
     created = create_ral_work_order(work_order_service, "Inconsistent incomplete stage")
@@ -1382,14 +1389,14 @@ def test_inconsistent_incomplete_row_does_not_appear_in_stage_queues(db_session:
 
     stored.status = WorkOrderStatus.INCOMPLETE
     stored.is_incomplete_on_arrival = False
-    work_order_repository.commit()
 
-    process_repository = ProcessRepository(db_session)
-    repository_ids = [item.id for item in process_repository.list_work_orders_with_stage(ProcessStage.SURFACE_PREPARATION)]
+    with pytest.raises(IntegrityError):
+        work_order_repository.commit()
+    work_order_repository.rollback()
+
     visible_ids = [item.id for item in process_service.list_stage_work_orders(ProcessStage.SURFACE_PREPARATION)]
 
-    assert created.id not in repository_ids
-    assert created.id not in visible_ids
+    assert created.id in visible_ids
 
 
 # docs/WORKFLOW.md scenario S04 (DECORAL + AUTOMATIC + none)

@@ -729,4 +729,34 @@ describe("frontend state consistency", () => {
     expect(screen.queryByText(/Aktywne/)).toBeNull();
     expect(screen.queryByText("3/3")).toBeNull();
   });
+
+  it("renders active correction children in detail with backend progress state", async () => {
+    fetchWorkOrderMock.mockResolvedValue({
+      ...buildWorkOrder(74, "WO-PARENT-ACTIVE-CORR", 1, "Golf"),
+      process_status: { value: "WAITING_FOR_CORRECTIONS", label: "Czeka na poprawki" },
+      correction_orders: [
+        {
+          id: 75,
+          order_number: "WO-CORR-ACTIVE",
+          title: "WO-CORR-ACTIVE",
+          customer_name: "Golf",
+          ral_code: "RAL 9005",
+          total_area_m2: null,
+          total_quantity: 4,
+          completed_quantity: 1,
+          current_active_quantity: 3,
+          is_correction: true,
+          is_historical_correction: false,
+          process_status: { value: "PACKING", label: "Pakowanie" },
+        },
+      ],
+    });
+
+    renderWorkOrderDetail(74);
+
+    await screen.findByText("WO-CORR-ACTIVE");
+    expect(screen.getByText("Status: Pakowanie · Postęp: 1/4")).toBeTruthy();
+    expect(screen.getByText("Postęp: 1/4 · Aktywne: 3")).toBeTruthy();
+    expect(screen.queryByText("Poprawiono 4 z 10 szt.")).toBeNull();
+  });
 });

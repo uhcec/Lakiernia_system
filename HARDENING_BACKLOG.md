@@ -4,7 +4,7 @@
 
 No new features until all CRITICAL and HIGH items are closed.
 
-Current implementation evidence marks all CRITICAL, HIGH, and LOW backlog items as closed. That means the current code and tests address the listed acceptance criteria; it does not prove that the real factory workflow is complete or conceptually correct. Remaining hardening work is the deferred incomplete-order DB invariant, chaos scenario expansion, and broader production-readiness audits.
+Current implementation evidence marks all CRITICAL, HIGH, and LOW backlog items as closed. That means the current code and tests address the listed acceptance criteria; it does not prove that the real factory workflow is complete or conceptually correct. Remaining hardening work is chaos scenario expansion under newly validated business rules and broader production-readiness audits.
 
 Workflow-policy questions that need factory validation are tracked in `docs/WORKFLOW_VALIDATION_CHECKLIST.md`.
 
@@ -111,12 +111,12 @@ Baseline check snapshot after backlog/doc cleanup: full backend suite passed wit
 
 ### 8. Core business invariants are not enforced at the database level
 
-- Status: CLOSED except deferred incomplete-order DB invariant
+- Status: CLOSED
 - Implementation summary: safe row-local DB CHECK constraints were added in `app/work_orders/models.py` and `app/process/models.py`, and Alembic migration `20260527_0012_phase1_core_invariant_checks.py` adds them with fail-fast dirty-row prechecks before SQLite table rewrites. Phase 2 then added `20260529_0015_phase2_db_invariants.py` for correction parent requirements, one active batch per work order, and inactive batch requires `DONE` status.
 - Tests added: direct DB constraint coverage in `tests/test_db_constraints_phase1.py` and `tests/test_db_constraints_phase2.py`, migration safety coverage in `tests/test_phase1_core_invariant_checks_migration.py` and `tests/test_phase2_db_invariant_migration.py`, and updated head coverage in `tests/test_repair_sqlite_migration_0007.py`.
 - Validation: focused Phase 2 DB tests passed with `13 passed`; combined Phase 1/Phase 2 DB invariant tests passed with `27 passed`; full backend validation passed with `236 passed`; incomplete-order service/query regression and chaos coverage passed with `15 passed`; `python -m alembic upgrade head && python -m alembic check` reported no new upgrade operations.
-- Phase 2 decisions:
-	- Incomplete orders not planned at DB level: DEFERRED. Keep this in service logic until incomplete-state canonicalization is simplified enough for a clean DB invariant.
+- Phase 2/3 decisions:
+	- Incomplete orders not planned at DB level: CLOSED. Enforced by `ck_work_orders_incomplete_requires_unplanned`, which keeps any row with `is_incomplete_on_arrival = true` or legacy `status = INCOMPLETE` out of planned queues.
 	- Correction must have parent: CLOSED. Enforced by `ck_work_orders_correction_requires_parent`.
 	- One active batch per work order: CLOSED. Enforced by `uq_work_order_quantity_batches_one_active_per_work_order`.
 	- `current_active_batch_id` integrity: CLOSED / not needed. Treat this as a legacy/cache pointer rather than a production DB invariant.
@@ -128,7 +128,7 @@ Baseline check snapshot after backlog/doc cleanup: full backend suite passed wit
 - Required fix: add database constraints for core invariants, with safe migration/backfill handling for existing data.
 - Required tests: migration tests showing invalid rows are rejected and valid existing rows migrate cleanly.
 - Acceptance criteria: core quantity, correction-link, and planning invariants are enforceable even if application code regresses.
-- Final note: Current implementation evidence is strong enough to continue controlled cleanup and planning work. The incomplete-order queue invariant remains deliberately deferred at the DB layer; this is not a statement that the full production process has been independently validated.
+- Final note: Current implementation evidence is strong enough to continue controlled cleanup and planning work. This is not a statement that the full production process has been independently validated.
 
 ### 9. Queue UI keeps optimistic order after save failure
 
@@ -195,7 +195,7 @@ Baseline check snapshot after backlog/doc cleanup: full backend suite passed wit
 
 Open item-level work:
 
-- Deferred DB invariant: incomplete orders are blocked from planned queues at service/query level; a database-level constraint remains deferred until the incomplete-state model is simple enough for a clean invariant.
+- None under currently validated implementation rules.
 - Factory workflow validation: `docs/FACTORY_USAGE_NOTES.md` captures station/device usage and flags open questions around correction defect review and automatic hanging/production overlap. Surface-preparation discrepancy visibility is a current working policy: station enters counted quantity only; office sees declared quantity and differences, subject to later review. Automatic flow working policy: hanging has start/finish, automatic production is display-only, packing handles completion, and blocking the next hanging order while automatic production is occupied is a conservative assumption pending factory validation. Correction working policy: packing creates correction work orders automatically; manager later assigns production type and queue position; correction orders skip surface preparation and start at production or hanging according to manager-assigned route; correction-chain completion races reconcile/idempotently succeed when final state is valid, otherwise fail with a controlled conflict.
 
 Open audit work:

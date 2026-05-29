@@ -84,7 +84,7 @@ function summarizeQueueOrders(workOrders: WorkOrder[]) {
 }
 
 function logQueueDebug(label: string, payload: unknown) {
-  if (!import.meta.env.DEV) {
+  if (!import.meta.env.DEV || import.meta.env.VITE_QUEUE_DEBUG !== "true") {
     return;
   }
 

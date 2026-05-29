@@ -12,6 +12,10 @@ def _insert_work_order(
     order_number: str,
     is_correction: int = 0,
     parent_order_id: int | None = None,
+    status: str = "ENTERED",
+    is_incomplete_on_arrival: int = 0,
+    production_type: str | None = None,
+    queue_position: int | None = None,
 ) -> int:
     result = db_session.execute(
         text(
@@ -24,9 +28,9 @@ def _insert_work_order(
                 notes, created_at, updated_at
             ) VALUES (
                 :order_number, :order_number, 10, 0, NULL, :parent_order_id,
-                :is_correction, NULL, 'Customer', 'RAL 9005', 'Producer', 'ENTERED', 'RAL',
-                NULL, :queue_namespace, NULL, '2026-05-25', NULL, NULL,
-                0, NULL, 1, NULL, 1,
+                :is_correction, NULL, 'Customer', 'RAL 9005', 'Producer', :status, 'RAL',
+                :production_type, :queue_namespace, :queue_position, '2026-05-25', NULL, NULL,
+                :is_incomplete_on_arrival, NULL, 1, NULL, 1,
                 NULL, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
             )
             """
@@ -36,6 +40,10 @@ def _insert_work_order(
             "is_correction": is_correction,
             "parent_order_id": parent_order_id,
             "queue_namespace": "CORRECTIONS" if is_correction else "MAIN",
+            "status": status,
+            "is_incomplete_on_arrival": is_incomplete_on_arrival,
+            "production_type": production_type,
+            "queue_position": queue_position,
         },
     )
     db_session.flush()
@@ -130,6 +138,7 @@ def test_second_active_batch_for_same_work_order_fails(db_session: Session) -> N
     db_session.rollback()
 
 
+
 def test_inactive_batch_without_done_status_fails(db_session: Session) -> None:
     work_order_id = _insert_work_order(db_session, order_number="WO-2026-9704")
 
@@ -140,6 +149,32 @@ def test_inactive_batch_without_done_status_fails(db_session: Session) -> None:
             is_active=0,
             current_stage=ProcessStage.PACKING.value,
             current_stage_status=StageStatus.IN_PROGRESS.value,
+        )
+        db_session.commit()
+    db_session.rollback()
+
+
+def test_incomplete_arrival_work_order_cannot_be_queued_by_direct_db_write(db_session: Session) -> None:
+    with pytest.raises(IntegrityError):
+        _insert_work_order(
+            db_session,
+            order_number="WO-2026-9705",
+            is_incomplete_on_arrival=1,
+            production_type="MANUAL",
+            queue_position=3,
+        )
+        db_session.commit()
+    db_session.rollback()
+
+
+def test_legacy_incomplete_status_work_order_cannot_be_queued_by_direct_db_write(db_session: Session) -> None:
+    with pytest.raises(IntegrityError):
+        _insert_work_order(
+            db_session,
+            order_number="WO-2026-9706",
+            status="INCOMPLETE",
+            production_type="MANUAL",
+            queue_position=4,
         )
         db_session.commit()
     db_session.rollback()
