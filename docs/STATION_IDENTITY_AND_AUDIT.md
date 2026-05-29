@@ -153,6 +153,8 @@ Open questions from `docs/FACTORY_USAGE_NOTES.md`:
 - Do any correction defect types need special review/approval before manager planning?
 - Should office-only discrepancy visibility ever be expanded to manager or station views?
 
+Track these decisions in `docs/WORKFLOW_VALIDATION_CHECKLIST.md` before changing workflow semantics.
+
 These do not block station identity/audit infrastructure, but they do block semantic rewrites to automatic flow and correction variants.
 
 ## Implementation Plan

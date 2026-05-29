@@ -6,6 +6,8 @@ No new features until all CRITICAL and HIGH items are closed.
 
 Current implementation evidence marks all CRITICAL, HIGH, and LOW backlog items as closed. That means the current code and tests address the listed acceptance criteria; it does not prove that the real factory workflow is complete or conceptually correct. Remaining hardening work is the deferred incomplete-order DB invariant, chaos scenario expansion, and broader production-readiness audits.
 
+Workflow-policy questions that need factory validation are tracked in `docs/WORKFLOW_VALIDATION_CHECKLIST.md`.
+
 This backlog is derived from the production-readiness audit. It is focused on hardening, failure containment, validation, concurrency safety, and test coverage. It does not authorize business logic changes without explicit clarification against `docs/WORKFLOW.md`.
 
 Baseline check snapshot after backlog/doc cleanup: full backend suite passed with `227 passed`, frontend tests passed with `21 passed`, frontend build passed, and `python -m alembic check` reported no new upgrade operations. After Phase 2 DB invariant work, full backend validation passed with `236 passed`. Incomplete-order service/query hardening passed focused regression and chaos coverage with `15 passed`. After attachment lifecycle hardening, full backend validation passed with `238 passed`; frontend tests passed with `21 passed`; frontend build passed; `python -m alembic check` reported no new upgrade operations. These checks are regression evidence, not business validation.

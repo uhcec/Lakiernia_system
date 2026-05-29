@@ -2,6 +2,8 @@
 
 Captured from user discussion on 2026-05-29. These notes describe expected real-life use in the factory. They are business evidence to validate against `docs/WORKFLOW.md`, not a replacement for final factory-policy review.
 
+Use `docs/WORKFLOW_VALIDATION_CHECKLIST.md` as the active checklist before changing workflow semantics based on these notes.
+
 ## Terminology
 
 - Elements are physical objects handled in the factory.
