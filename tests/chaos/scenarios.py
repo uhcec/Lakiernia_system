@@ -27,6 +27,11 @@ def create_work_order(client, title: str) -> dict:
     return response.json()
 
 
+def synchronized_create_work_order(client, barrier: Barrier, title: str):
+    barrier.wait()
+    return client.post("/work-orders", json=build_create_payload(title))
+
+
 def create_planned_work_order(client, title: str, queue_position: int, production_type: str = "MANUAL") -> dict:
     created = create_work_order(client, title)
     response = client.post(
@@ -263,6 +268,35 @@ def scenario_repeated_correction_split_does_not_duplicate_child(env: ChaosEnviro
     return [future_a.result(), future_b.result()]
 
 
+def scenario_parallel_normal_and_correction_creation(env: ChaosEnvironment):
+    seeder = env.create_actor_client("Seeder-Mixed-Creation")
+    parent = create_planned_work_order(seeder, "Mixed Creation Parent", 1)
+    advance_to_packing(seeder, parent["id"])
+
+    creators = [env.create_actor_client(f"OfficeCreator-{index}") for index in range(1, 4)]
+    packing = PackingAgent(env.create_actor_client("PackingAgent-Mixed-Creation"))
+    barrier = Barrier(4)
+
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        create_futures = [
+            executor.submit(synchronized_create_work_order, creator, barrier, f"Mixed Creation Normal {index}")
+            for index, creator in enumerate(creators, start=1)
+        ]
+        correction_future = executor.submit(
+            packing.synchronized_complete_packing,
+            barrier,
+            parent["id"],
+            counted_quantity=100,
+            ok_quantity=90,
+            correction_quantity=10,
+        )
+
+    children = get_direct_correction_children(seeder, parent["id"])
+    assert len(children) <= 1
+
+    return [*(future.result() for future in create_futures), correction_future.result()]
+
+
 def scenario_office_edits_order_while_manager_plans_it(env: ChaosEnvironment):
     seeder = env.create_actor_client("Seeder")
     created = create_work_order(seeder, "Office Edit During Planning")
@@ -422,6 +456,11 @@ def scenario_attachment_upload_delete_detail_reload(env: ChaosEnvironment):
     )
     assert initial_upload.status_code == 201
     initial_attachment_id = initial_upload.json()["id"]
+    anchor_upload = seeder.post(
+        f"/work-orders/{created['id']}/attachments",
+        files={"file": ("anchor.pdf", b"%PDF-1.4\n%%EOF", "application/pdf")},
+    )
+    assert anchor_upload.status_code == 201
 
     uploader = AttachmentAgent(env.create_actor_client("AttachmentAgent-Upload"))
     deleter = AttachmentAgent(env.create_actor_client("AttachmentAgent-Delete"))
@@ -437,7 +476,8 @@ def scenario_attachment_upload_delete_detail_reload(env: ChaosEnvironment):
     assert list_response.status_code == 200
     remaining_filenames = {attachment["original_filename"] for attachment in list_response.json()}
     assert "initial.pdf" not in remaining_filenames
-    assert remaining_filenames <= {"fresh.pdf"}
+    assert "anchor.pdf" in remaining_filenames
+    assert remaining_filenames <= {"anchor.pdf", "fresh.pdf"}
 
     return [future_upload.result(), future_delete.result(), future_detail.result(), list_response]
 

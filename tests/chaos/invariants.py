@@ -31,6 +31,16 @@ def assert_no_duplicate_queue_positions(db_session: Session) -> None:
     assert not duplicates, f"Duplicate planned queue positions detected: {duplicates}"
 
 
+def assert_no_duplicate_order_numbers(db_session: Session) -> None:
+    work_orders = db_session.scalars(select(WorkOrder)).all()
+    duplicates = [
+        order_number
+        for order_number, count in Counter(order.order_number for order in work_orders).items()
+        if count > 1
+    ]
+    assert not duplicates, f"Duplicate work-order numbers detected: {duplicates}"
+
+
 def assert_incomplete_orders_cannot_enter_queue(db_session: Session) -> None:
     queued_incomplete = db_session.scalars(
         select(WorkOrder).where(
@@ -219,6 +229,7 @@ def assert_single_active_hanging_and_automatic_line(db_session: Session) -> None
 
 def assert_global_invariants(db_session: Session, events: list[ChaosEvent]) -> None:
     assert_no_raw_500s(events)
+    assert_no_duplicate_order_numbers(db_session)
     assert_no_duplicate_queue_positions(db_session)
     assert_incomplete_orders_cannot_enter_queue(db_session)
     assert_planned_orders_have_valid_intake_data(db_session)
