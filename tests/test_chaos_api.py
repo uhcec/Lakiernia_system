@@ -7,6 +7,7 @@ import pytest
 from tests.chaos.harness import ChaosEnvironment
 from tests.chaos.invariants import assert_global_invariants
 from tests.chaos.scenarios import (
+    scenario_attachment_upload_delete_detail_reload,
     scenario_correction_uses_actual_split,
     scenario_double_click_packing_complete,
     scenario_invalid_patch_during_planning,
@@ -46,6 +47,7 @@ def chaos_environment(tmp_path: Path) -> ChaosEnvironment:
         ("office_edits_order_while_manager_plans_it", scenario_office_edits_order_while_manager_plans_it),
         ("office_mark_complete_while_manager_plans", scenario_office_mark_complete_while_manager_plans),
         ("invalid_patch_during_planning", scenario_invalid_patch_during_planning),
+        ("attachment_upload_delete_detail_reload", scenario_attachment_upload_delete_detail_reload),
     ],
 )
 def test_chaos_scenarios_preserve_global_invariants(

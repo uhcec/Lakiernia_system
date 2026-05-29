@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from io import BytesIO
 from threading import Barrier
 
 from tests.chaos.harness import LoggedApiClient
@@ -97,6 +98,35 @@ class OfficeAgent:
 
     def get_work_order(self, work_order_id: int):
         return self.client.get(f"/work-orders/{work_order_id}")
+
+    def synchronized_get_work_order(self, barrier: Barrier, work_order_id: int):
+        barrier.wait()
+        return self.get_work_order(work_order_id)
+
+
+@dataclass(slots=True)
+class AttachmentAgent:
+    client: LoggedApiClient
+
+    def upload_pdf(self, work_order_id: int, *, filename: str):
+        return self.client.post(
+            f"/work-orders/{work_order_id}/attachments",
+            files={"file": (filename, BytesIO(b"%PDF-1.4\n%%EOF"), "application/pdf")},
+        )
+
+    def synchronized_upload_pdf(self, barrier: Barrier, work_order_id: int, *, filename: str):
+        barrier.wait()
+        return self.upload_pdf(work_order_id, filename=filename)
+
+    def delete_attachment(self, work_order_id: int, attachment_id: int):
+        return self.client.delete(f"/work-orders/{work_order_id}/attachments/{attachment_id}")
+
+    def synchronized_delete_attachment(self, barrier: Barrier, work_order_id: int, attachment_id: int):
+        barrier.wait()
+        return self.delete_attachment(work_order_id, attachment_id)
+
+    def list_attachments(self, work_order_id: int):
+        return self.client.get(f"/work-orders/{work_order_id}/attachments")
 
 
 @dataclass(slots=True)

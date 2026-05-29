@@ -67,6 +67,9 @@ class LoggedApiClient:
     def patch(self, path: str, **kwargs: Any):
         return self.request("PATCH", path, **kwargs)
 
+    def delete(self, path: str, **kwargs: Any):
+        return self.request("DELETE", path, **kwargs)
+
 
 class ChaosEnvironment:
     def __init__(self, database_path: Path) -> None:

@@ -3,7 +3,7 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
 from threading import Barrier
 
-from tests.chaos.actors import ChaosAgent, ManagerAgent, OfficeAgent, PackingAgent, StageOperatorAgent
+from tests.chaos.actors import AttachmentAgent, ChaosAgent, ManagerAgent, OfficeAgent, PackingAgent, StageOperatorAgent
 from tests.chaos.harness import ChaosEnvironment
 
 
@@ -350,6 +350,35 @@ def scenario_invalid_patch_during_planning(env: ChaosEnvironment):
     assert after_detail["notes"] == before_detail["notes"]
 
     return [future_plan.result(), patch_response]
+
+
+def scenario_attachment_upload_delete_detail_reload(env: ChaosEnvironment):
+    seeder = env.create_actor_client("Seeder-Attachments")
+    created = create_work_order(seeder, "Attachment Race")
+    initial_upload = seeder.post(
+        f"/work-orders/{created['id']}/attachments",
+        files={"file": ("initial.pdf", b"%PDF-1.4\n%%EOF", "application/pdf")},
+    )
+    assert initial_upload.status_code == 201
+    initial_attachment_id = initial_upload.json()["id"]
+
+    uploader = AttachmentAgent(env.create_actor_client("AttachmentAgent-Upload"))
+    deleter = AttachmentAgent(env.create_actor_client("AttachmentAgent-Delete"))
+    office = OfficeAgent(env.create_actor_client("OfficeAgent-Detail"))
+    barrier = Barrier(3)
+
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        future_upload = executor.submit(uploader.synchronized_upload_pdf, barrier, created["id"], filename="fresh.pdf")
+        future_delete = executor.submit(deleter.synchronized_delete_attachment, barrier, created["id"], initial_attachment_id)
+        future_detail = executor.submit(office.synchronized_get_work_order, barrier, created["id"])
+
+    list_response = uploader.list_attachments(created["id"])
+    assert list_response.status_code == 200
+    remaining_filenames = {attachment["original_filename"] for attachment in list_response.json()}
+    assert "initial.pdf" not in remaining_filenames
+    assert remaining_filenames <= {"fresh.pdf"}
+
+    return [future_upload.result(), future_delete.result(), future_detail.result(), list_response]
 
 
 def scenario_parallel_hanging_start(env: ChaosEnvironment):
