@@ -1,6 +1,15 @@
 from io import BytesIO
 
 from fastapi.testclient import TestClient
+import pytest
+from sqlalchemy.orm import Session
+
+from app.core.config import get_work_order_attachments_path
+from app.shared.exceptions import ResourceNotFoundError
+from app.work_orders.models import WorkOrderAttachment
+from app.work_orders.repository import WorkOrderRepository
+from app.work_orders.schemas import WorkOrderCreate
+from app.work_orders.service import WorkOrderService
 
 
 def build_create_payload(**overrides: object) -> dict:
@@ -180,3 +189,61 @@ def test_cannot_access_attachment_from_another_order(test_client: TestClient) ->
     assert list_response.json() == []
     assert download_response.status_code == 404
     assert delete_response.status_code == 404
+
+
+def test_download_rejects_attachment_storage_path_outside_root(db_session: Session) -> None:
+    service = WorkOrderService(WorkOrderRepository(db_session))
+    created = service.create_work_order(WorkOrderCreate.model_validate(build_create_payload()))
+    root_path = get_work_order_attachments_path()
+    outside_path = root_path.parent / "outside.pdf"
+    outside_path.write_bytes(b"%PDF-1.4")
+
+    attachment = WorkOrderAttachment(
+        work_order_id=created.id,
+        original_filename="outside.pdf",
+        stored_filename="outside.pdf",
+        storage_path="../outside.pdf",
+        content_type="application/pdf",
+        file_size=8,
+    )
+    db_session.add(attachment)
+    db_session.commit()
+
+    with pytest.raises(ResourceNotFoundError):
+        service.get_attachment_download(created.id, attachment.id)
+
+
+def test_delete_missing_or_escaped_attachment_file_removes_db_row_without_touching_outside_file(db_session: Session) -> None:
+    service = WorkOrderService(WorkOrderRepository(db_session))
+    created = service.create_work_order(WorkOrderCreate.model_validate(build_create_payload()))
+    root_path = get_work_order_attachments_path()
+    outside_path = root_path.parent / "outside-delete.pdf"
+    outside_path.write_bytes(b"%PDF-1.4")
+
+    missing_file_attachment = WorkOrderAttachment(
+        work_order_id=created.id,
+        original_filename="missing.pdf",
+        stored_filename="missing.pdf",
+        storage_path=f"{created.id}/missing.pdf",
+        content_type="application/pdf",
+        file_size=8,
+    )
+    escaped_file_attachment = WorkOrderAttachment(
+        work_order_id=created.id,
+        original_filename="outside-delete.pdf",
+        stored_filename="outside-delete.pdf",
+        storage_path="../outside-delete.pdf",
+        content_type="application/pdf",
+        file_size=8,
+    )
+    db_session.add_all([missing_file_attachment, escaped_file_attachment])
+    db_session.commit()
+    missing_file_attachment_id = missing_file_attachment.id
+    escaped_file_attachment_id = escaped_file_attachment.id
+
+    service.delete_attachment(created.id, missing_file_attachment_id)
+    service.delete_attachment(created.id, escaped_file_attachment_id)
+
+    assert db_session.get(WorkOrderAttachment, missing_file_attachment_id) is None
+    assert db_session.get(WorkOrderAttachment, escaped_file_attachment_id) is None
+    assert outside_path.exists()

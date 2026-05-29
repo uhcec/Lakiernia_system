@@ -1,6 +1,6 @@
 # Workflow Source of Truth
 
-This document defines the current business workflow behavior implemented in backend services and validated by tests.
+This document defines the current intended business workflow behavior reflected by backend services and tests. Tests are implementation evidence; they do not replace business review when requirements are unclear.
 
 Scope:
 - Work order flow by coating type and production type
@@ -11,8 +11,8 @@ Scope:
 
 ## Core Principles
 
-1. `process_status` is the source of truth for workflow state.
-2. `status` is derived (compatibility/read model), not manually controlled.
+1. `process_status` is the backend-owned authoritative workflow display value exposed by read models. It is derived from persisted quantities, stage states, correction state, planning state, and incomplete-on-arrival markers; it is not a manually edited database column.
+2. `status` is a compatibility/read model field, not manually controlled workflow truth.
 3. Quantity must be conserved across parent/child correction chains.
 4. Packing split rules:
 - `ok_quantity + correction_quantity == counted_quantity`
@@ -187,6 +187,7 @@ A work order is READY only when all are true:
 1. `completed_quantity == total_quantity`
 2. `current_active_quantity == 0`
 3. No open correction children/descendants remain
+4. The order is not marked incomplete on arrival
 
 Tracked batch reopen rule:
 - Finished/DONE tracked batches can never be reopened.
@@ -216,10 +217,10 @@ Additional completion behavior:
 
 ## Test Alignment
 
-The behavior above is covered by existing and newly added tests in:
+The behavior above is exercised by existing and newly added tests in:
 - `tests/test_process_service.py`
 - `tests/test_process_api.py`
 - `tests/test_manager_api.py`
 - `tests/test_work_orders_api.py`
 
-This document should be updated whenever workflow behavior changes in services or tests.
+These tests are regression evidence, not a substitute for business validation. This document should be updated whenever workflow behavior changes in services or tests.

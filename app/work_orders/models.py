@@ -1,6 +1,6 @@
 from datetime import UTC, date, datetime
 
-from sqlalchemy import Boolean, CheckConstraint, Date, DateTime, Enum, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, CheckConstraint, Date, DateTime, Enum, Float, ForeignKey, Index, Integer, String, Text, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database.base import Base
@@ -54,9 +54,16 @@ class WorkOrder(Base):
             name="accessories_quantity_positive_if_present",
         ),
         CheckConstraint("parent_order_id IS NULL OR parent_order_id != id", name="parent_order_cannot_reference_self"),
+        CheckConstraint("is_correction = 0 OR parent_order_id IS NOT NULL", name="correction_requires_parent"),
         CheckConstraint(
             "(is_correction = 1 AND queue_namespace = 'CORRECTIONS') OR (is_correction = 0 AND queue_namespace = 'MAIN')",
             name="correction_namespace_consistent",
+        ),
+        Index(
+            "uq_work_orders_queue_position",
+            "queue_position",
+            unique=True,
+            sqlite_where=text("queue_position IS NOT NULL"),
         ),
     )
 
@@ -75,7 +82,12 @@ class WorkOrder(Base):
     status: Mapped[WorkOrderStatus] = mapped_column(work_order_status_enum, default=WorkOrderStatus.ENTERED, nullable=False)
     coating_type: Mapped[CoatingType] = mapped_column(coating_type_enum, default=CoatingType.RAL, nullable=False)
     production_type: Mapped[ProductionType | None] = mapped_column(production_type_enum, nullable=True)
-    queue_namespace: Mapped[QueueNamespace] = mapped_column(queue_namespace_enum, nullable=False, default=QueueNamespace.MAIN)
+    queue_namespace: Mapped[QueueNamespace] = mapped_column(
+        queue_namespace_enum,
+        nullable=False,
+        default=QueueNamespace.MAIN,
+        index=True,
+    )
     queue_position: Mapped[int | None] = mapped_column(Integer(), nullable=True, index=True)
     received_date: Mapped[date] = mapped_column(Date(), nullable=False)
     planned_pickup_date: Mapped[date | None] = mapped_column(Date(), nullable=True)

@@ -1,9 +1,13 @@
+import json
 from datetime import UTC, datetime
 
 from threading import RLock
 
 from sqlalchemy.exc import IntegrityError
 
+from app.audit.context import StationContext
+from app.audit.models import AuditEvent
+from app.audit.repository import AuditRepository
 from app.process.enums import ProcessDisplayStatus
 from app.process.repository import ProcessRepository
 from app.process.service import ProcessService
@@ -14,7 +18,7 @@ from app.manager.schemas import (
     WorkOrderQueueReorderBatchRequest,
     WorkOrderQueueReorderRequest,
 )
-from app.shared.enums import WorkOrderStatus
+from app.shared.enums import StationId, WorkOrderStatus
 from app.shared.exceptions import InvalidManagerPlanningError, ResourceNotFoundError
 from app.work_orders.models import WorkOrder
 from app.work_orders.schemas import WorkOrderRead
@@ -41,6 +45,7 @@ class ManagerService:
     def __init__(self, repository: ManagerRepository) -> None:
         self.repository = repository
         self.process_service = ProcessService(ProcessRepository(repository.session))
+        self.audit_repository = AuditRepository(repository.session)
 
     def list_unplanned_work_orders(self) -> list[WorkOrderRead]:
         return [self._to_read_model(work_order) for work_order in self.repository.list_unplanned_work_orders()]
@@ -48,7 +53,12 @@ class ManagerService:
     def list_planned_work_orders(self) -> list[WorkOrderRead]:
         return [self._to_read_model(work_order) for work_order in self.repository.list_planned_work_orders()]
 
-    def assign_plan(self, work_order_id: int, payload: WorkOrderPlanAssignRequest) -> WorkOrderRead:
+    def assign_plan(
+        self,
+        work_order_id: int,
+        payload: WorkOrderPlanAssignRequest,
+        station_context: StationContext | None = None,
+    ) -> WorkOrderRead:
         with _QUEUE_MUTATION_LOCK:
             work_order = self._get_existing_work_order(work_order_id)
             if self._is_planned(work_order):
@@ -61,6 +71,18 @@ class ManagerService:
             work_order.queue_position = payload.queue_position
             work_order.updated_at = datetime.now(UTC)
             self.process_service.prepare_correction_work_order_for_planning(work_order)
+            self._record_audit_event(
+                event_type="manager.plan_assigned",
+                station_context=station_context,
+                work_order=work_order,
+                target_type="work_order",
+                target_id=work_order.id,
+                summary=f"Assigned plan for work order {work_order.order_number}.",
+                details={
+                    "production_type": payload.production_type.value,
+                    "queue_position": payload.queue_position,
+                },
+            )
 
             try:
                 self.repository.commit()
@@ -79,6 +101,7 @@ class ManagerService:
         self,
         work_order_id: int,
         payload: WorkOrderQueuePositionUpdateRequest,
+        station_context: StationContext | None = None,
     ) -> WorkOrderRead:
         with _QUEUE_MUTATION_LOCK:
             work_order = self._get_existing_work_order(work_order_id)
@@ -89,8 +112,21 @@ class ManagerService:
                 exclude_work_order_id=work_order_id,
             )
 
+            previous_queue_position = work_order.queue_position
             work_order.queue_position = payload.queue_position
             work_order.updated_at = datetime.now(UTC)
+            self._record_audit_event(
+                event_type="manager.queue_position_updated",
+                station_context=station_context,
+                work_order=work_order,
+                target_type="work_order",
+                target_id=work_order.id,
+                summary=f"Updated queue position for work order {work_order.order_number}.",
+                details={
+                    "previous_queue_position": previous_queue_position,
+                    "queue_position": payload.queue_position,
+                },
+            )
 
             try:
                 self.repository.commit()
@@ -105,7 +141,11 @@ class ManagerService:
 
             return self._to_read_model(work_order)
 
-    def reorder_queue(self, payload: WorkOrderQueueReorderBatchRequest) -> list[WorkOrderRead]:
+    def reorder_queue(
+        self,
+        payload: WorkOrderQueueReorderBatchRequest,
+        station_context: StationContext | None = None,
+    ) -> list[WorkOrderRead]:
         items = payload.items
         if not items:
             return self.list_planned_work_orders()
@@ -178,6 +218,25 @@ class ManagerService:
                 work_order.updated_at = now
                 next_queue_position += 1
 
+            self._record_audit_event(
+                event_type="manager.queue_reordered",
+                station_context=station_context,
+                work_order=None,
+                target_type="manager_queue",
+                target_id=None,
+                summary="Reordered manager queue.",
+                details={
+                    "queue_revision": payload.queue_revision.isoformat(),
+                    "items": [
+                        {
+                            "work_order_id": item.work_order_id,
+                            "queue_position": item.queue_position,
+                        }
+                        for item in items
+                    ],
+                },
+            )
+
             try:
                 self.repository.commit()
             except IntegrityError as exc:
@@ -215,6 +274,30 @@ class ManagerService:
     @staticmethod
     def _has_incomplete_marker(work_order: WorkOrder) -> bool:
         return work_order.is_incomplete_on_arrival or work_order.status == WorkOrderStatus.INCOMPLETE
+
+    def _record_audit_event(
+        self,
+        *,
+        event_type: str,
+        station_context: StationContext | None,
+        work_order: WorkOrder | None,
+        target_type: str,
+        target_id: int | None,
+        summary: str,
+        details: dict[str, object],
+    ) -> None:
+        station_id = station_context.station_id if station_context is not None else StationId.SYSTEM
+        self.audit_repository.add(
+            AuditEvent(
+                event_type=event_type,
+                station_id=station_id,
+                work_order_id=work_order.id if work_order is not None else None,
+                target_type=target_type,
+                target_id=target_id,
+                summary=summary,
+                details_json=json.dumps(details, separators=(",", ":")),
+            )
+        )
 
     def _to_read_model(self, work_order: WorkOrder) -> WorkOrderRead:
         waiting_ok_quantity = self.process_service.get_waiting_ok_quantity(work_order)

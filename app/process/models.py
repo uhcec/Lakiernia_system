@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from sqlalchemy import Boolean, CheckConstraint, DateTime, Enum, ForeignKey, Integer, String, UniqueConstraint
+from sqlalchemy import Boolean, CheckConstraint, DateTime, Enum, ForeignKey, Index, Integer, String, UniqueConstraint, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database.base import Base
@@ -61,6 +61,14 @@ class WorkOrderQuantityBatch(Base):
         CheckConstraint(
             "(current_stage IS NULL AND current_stage_status IS NULL) OR (current_stage IS NOT NULL AND current_stage_status IS NOT NULL)",
             name="current_stage_and_status_nullness_match",
+        ),
+        CheckConstraint("is_active = 1 OR current_stage_status = 'DONE'", name="inactive_batch_requires_done_status"),
+        Index(
+            "uq_work_order_quantity_batches_one_active_per_work_order",
+            "work_order_id",
+            unique=True,
+            sqlite_where=text("is_active = 1"),
+            postgresql_where=text("is_active = true"),
         ),
     )
 

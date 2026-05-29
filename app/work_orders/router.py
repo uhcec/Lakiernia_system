@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, File, Form, Query, Response, UploadFile,
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
+from app.audit.context import StationContext, get_station_context
 from app.database.session import get_db_session
 from app.process.enums import ProcessDisplayStatus
 from app.work_orders.repository import WorkOrderRepository
@@ -28,8 +29,9 @@ def get_work_order_service(session: Annotated[Session, Depends(get_db_session)])
 def create_work_order(
 	payload: WorkOrderCreate,
 	service: Annotated[WorkOrderService, Depends(get_work_order_service)],
+	station_context: Annotated[StationContext, Depends(get_station_context)],
 ) -> WorkOrderRead:
-	return service.create_work_order(payload)
+	return service.create_work_order(payload, station_context=station_context)
 
 
 @router.get("/{work_order_id}", response_model=WorkOrderRead)

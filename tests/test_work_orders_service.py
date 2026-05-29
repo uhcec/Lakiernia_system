@@ -1,10 +1,14 @@
+import json
 from datetime import date
 
 import pytest
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.audit.context import StationContext
+from app.audit.models import AuditEvent
 from app.process.enums import CoatingType
-from app.shared.enums import WorkOrderStatus
+from app.shared.enums import StationId, WorkOrderStatus
 from app.shared.exceptions import InvalidWorkOrderDataError
 from app.work_orders.repository import WorkOrderRepository
 from app.work_orders.schemas import WorkOrderCreate
@@ -31,6 +35,28 @@ def build_incomplete_work_order_payload(**overrides: object) -> WorkOrderCreate:
 def build_work_order_service(db_session: Session) -> tuple[WorkOrderService, WorkOrderRepository]:
     repository = WorkOrderRepository(db_session)
     return WorkOrderService(repository), repository
+
+
+def test_create_work_order_records_station_audit_event(db_session: Session) -> None:
+    service, _ = build_work_order_service(db_session)
+
+    created = service.create_work_order(
+        build_incomplete_work_order_payload(title="Audytowane zlecenie", is_incomplete_on_arrival=False),
+        station_context=StationContext(station_id=StationId.OFFICE),
+    )
+
+    event = db_session.scalar(select(AuditEvent).where(AuditEvent.event_type == "work_order.created"))
+
+    assert event is not None
+    assert event.station_id == StationId.OFFICE
+    assert event.work_order_id == created.id
+    assert event.target_type == "work_order"
+    assert event.target_id == created.id
+    assert event.summary == f"Created work order {created.order_number}."
+    assert json.loads(event.details_json or "{}") == {
+        "order_number": created.order_number,
+        "is_incomplete_on_arrival": False,
+    }
 
 
 def test_mark_complete_arrival_rejects_invalid_profiles_state(db_session: Session) -> None:

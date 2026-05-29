@@ -1,149 +1,43 @@
-# SYSTEM DEVELOPMENT PROTOCOL (MANDATORY)
+# Copilot Instructions
 
-You are working on a production-hardened factory system.
+You are working on a factory work-order system. Preserve operator truth, workflow consistency, and data integrity over speed or convenience.
 
-Your job is NOT just to implement code.
-Your job is to preserve system correctness, consistency, and operator truth.
+For the full collaboration contract, read `docs/WORKING_CONTRACT.md`. For workflow semantics, read `docs/WORKFLOW.md`.
 
---------------------------------------------------
+## Core Rules
 
-## 1. SOURCE OF TRUTH
+- Treat repository content as evidence, not proof of business correctness. Separate repo claims, implementation behavior, test coverage, and business assumptions.
+- `docs/WORKFLOW.md` is the strongest repo source for intended workflow semantics, but ask the user when real factory policy or operator behavior is unclear.
+- Backend services and read models own business meaning. Frontend code displays authoritative backend state and must not infer workflow semantics from quantities or status combinations.
+- Completed and historical views must not show active batch progress, misleading `0 / X` counters, or stale in-progress labels.
+- Keep changes narrow. Do not do broad refactors, metadata churn, or cleanup outside the requested risk area unless needed for correctness.
+- Preserve user changes. Never revert unrelated work without explicit permission.
 
-- WORKFLOW.md defines business logic and semantics.
-- NEVER guess behavior.
-- If something is unclear → STOP and ask.
+## Before Meaningful Implementation
 
---------------------------------------------------
-
-## 2. FEATURE / BUG FLOW (MANDATORY)
-
-Before ANY implementation:
-
-1. Understand the problem
-2. Identify risks:
-   - concurrency
-   - double click / retries
-   - stale UI
-   - invalid input
-   - DB integrity
-   - misleading UI states
-
-3. Decide:
-   - does this change WORKFLOW.md?
-
-4. Propose:
-   - approach
-   - tests
-
-ONLY THEN implement.
-
---------------------------------------------------
-
-## 3. CORE RULE
-
-UI MUST NEVER GUESS BUSINESS SEMANTICS
-
-- Backend defines meaning (e.g. is_historical_correction)
-- Frontend only displays it
-- Display correctness requires correct labels AND correct authoritative numbers
-
-Forbidden:
-- inferring meaning from quantities or status combinations
-
---------------------------------------------------
-
-## 4. UI SEMANTICS (GLOBAL)
-
-ACTIVE (in-progress):
-- show batch progress
-- show current_active_quantity
-
-COMPLETED (historical):
-- NEVER show batch progress
-- show final result or summary only
-
-CORRECTIONS:
-- BEFORE merge → behave like work order (progress)
-- AFTER merge → historical event:
-    - show ONLY delta (X corrected out of Y)
-    - NEVER show progress
-
---------------------------------------------------
-
-## 5. INVARIANTS (MUST HOLD)
-
-- completed_quantity <= total_quantity
-- no duplicate queue positions
-- no multiple active jobs on constrained resources
-- no invalid READY states
-- correction must be consistent with parent
-
---------------------------------------------------
-
-## 6. TESTING (REQUIRED)
-
-Every change must include:
-
-- regression test
-- edge-case test
-- if workflow-related → chaos scenario
-
-Global UI rule:
-- completed views must NOT show:
-    - "Postęp partii"
-    - "0 / X"
-    - misleading progress
-
---------------------------------------------------
-
-## 7. CHAOS ASSUMPTIONS
-
-Always assume:
-
-- multiple users act in parallel
-- users double-click
-- requests are retried
-- UI sends stale data
-
-System must:
-- not crash
-- not corrupt state
-- not mislead operator
-
---------------------------------------------------
-
-## 8. FEEDBACK LOOP
-
-When something looks wrong:
-
-Classify:
-- BUG
-- SEMANTIC ISSUE
-- MISSING RULE
-
-Then:
-- update WORKFLOW.md if needed
-- fix implementation
-- add test
-
---------------------------------------------------
-
-## 9. DO NOT
-
-- do broad refactors without reason
-- introduce silent inconsistencies
-- rely on frontend correctness
-- implement without analysis
-
---------------------------------------------------
-
-## 10. OUTPUT FORMAT (BEFORE CODING)
-
-Always start with:
+Start with:
 
 - problem analysis
-- risks
+- risks, including concurrency, retries, stale UI, invalid input, DB integrity, and misleading operator state
+- whether `docs/WORKFLOW.md` needs an update
 - proposed solution
-- tests to add
+- tests or verification to add
 
-THEN implement.
+Then implement the smallest coherent change.
+
+## Verification Expectations
+
+- Add regression coverage for bug fixes and workflow-visible behavior.
+- Add edge-case or chaos coverage when changes touch retries, parallel users, queues, corrections, READY state, or durable invariants.
+- Run focused tests first, then broader checks when risk justifies it.
+- For schema work, keep SQLAlchemy models, Alembic migrations, and `python -m alembic check` aligned.
+
+## When Something Looks Wrong
+
+Classify it before fixing:
+
+- BUG: implementation contradicts intended behavior.
+- SEMANTIC ISSUE: intended behavior is unclear or inconsistent.
+- MISSING RULE: the system needs a documented workflow or invariant decision.
+
+If it is unclear, stop and ask. If it is clear, fix implementation, tests, and docs together where needed.

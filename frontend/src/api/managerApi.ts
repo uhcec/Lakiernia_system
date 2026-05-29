@@ -1,4 +1,5 @@
 import { createApiError } from "./apiError";
+import { getCurrentStationHeaders } from "./stationContext";
 import type { AssignWorkOrderPlanRequest, ReorderQueueRequest, UpdateQueuePositionRequest } from "../types/manager";
 import type { WorkOrder } from "../types/workOrders";
 
@@ -52,6 +53,7 @@ export async function assignWorkOrderPlan(workOrderId: number, payload: AssignWo
     headers: {
       Accept: "application/json",
       "Content-Type": "application/json",
+      ...getCurrentStationHeaders(),
     },
     body: JSON.stringify(payload),
   });
@@ -72,6 +74,7 @@ export async function updateWorkOrderQueuePosition(
     headers: {
       Accept: "application/json",
       "Content-Type": "application/json",
+      ...getCurrentStationHeaders(),
     },
     body: JSON.stringify(payload),
   });
@@ -91,6 +94,7 @@ export async function reorderWorkOrderQueue(
     headers: {
       Accept: "application/json",
       "Content-Type": "application/json",
+      ...getCurrentStationHeaders(),
     },
     body: JSON.stringify(payload),
   });

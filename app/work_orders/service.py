@@ -1,3 +1,4 @@
+import json
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
@@ -5,11 +6,14 @@ from uuid import uuid4
 from fastapi import UploadFile
 from pydantic import ValidationError
 
+from app.audit.context import StationContext
+from app.audit.models import AuditEvent
+from app.audit.repository import AuditRepository
 from app.core.config import get_settings, get_work_order_attachments_path
 from app.process.enums import ProcessDisplayStatus
 from app.process.repository import ProcessRepository
 from app.process.service import ProcessService
-from app.shared.enums import WorkOrderStatus, get_work_order_status_label
+from app.shared.enums import StationId, WorkOrderStatus, get_work_order_status_label
 from app.shared.exceptions import InvalidAttachmentError, InvalidStatusTransitionError, InvalidWorkOrderDataError, ResourceNotFoundError
 from app.work_orders.models import WorkOrder, WorkOrderAttachment
 from app.work_orders.number_allocator import WorkOrderNumberAllocator
@@ -45,6 +49,7 @@ class WorkOrderService:
         self.repository = repository
         self.process_service = ProcessService(ProcessRepository(repository.session))
         self.number_allocator = WorkOrderNumberAllocator(repository.session)
+        self.audit_repository = AuditRepository(repository.session)
 
     @staticmethod
     def get_status_options() -> list[WorkOrderStatusOption]:
@@ -68,7 +73,7 @@ class WorkOrderService:
         status = cls.derive_status(process_status)
         return WorkOrderStatusView(value=status, label=get_work_order_status_label(status))
 
-    def create_work_order(self, payload: WorkOrderCreate) -> WorkOrderRead:
+    def create_work_order(self, payload: WorkOrderCreate, station_context: StationContext | None = None) -> WorkOrderRead:
         initial_status = WorkOrderStatus.INCOMPLETE if payload.is_incomplete_on_arrival else WorkOrderStatus.ENTERED
         order_number = self.number_allocator.allocate()
 
@@ -97,12 +102,33 @@ class WorkOrderService:
             persisted_work_order = self.repository.add(work_order)
             self.process_service.initialize_quantity_tracking(persisted_work_order)
             self.process_service.initialize_stage_states(persisted_work_order)
+            self._record_work_order_created(persisted_work_order, station_context)
             self.repository.commit()
         except Exception:
             self.repository.rollback()
             raise
 
         return self._to_read_model(persisted_work_order)
+
+    def _record_work_order_created(self, work_order: WorkOrder, station_context: StationContext | None) -> None:
+        station_id = station_context.station_id if station_context is not None else StationId.SYSTEM
+        self.audit_repository.add(
+            AuditEvent(
+                event_type="work_order.created",
+                station_id=station_id,
+                work_order_id=work_order.id,
+                target_type="work_order",
+                target_id=work_order.id,
+                summary=f"Created work order {work_order.order_number}.",
+                details_json=json.dumps(
+                    {
+                        "order_number": work_order.order_number,
+                        "is_incomplete_on_arrival": work_order.is_incomplete_on_arrival,
+                    },
+                    separators=(",", ":"),
+                ),
+            )
+        )
 
     def get_work_order(self, work_order_id: int) -> WorkOrderRead:
         work_order = self._get_existing_work_order(work_order_id)
@@ -286,15 +312,13 @@ class WorkOrderService:
 
     def get_attachment_download(self, work_order_id: int, attachment_id: int) -> tuple[WorkOrderAttachmentRead, Path]:
         attachment = self._get_existing_attachment(work_order_id, attachment_id)
-        root_path = get_work_order_attachments_path()
-        absolute_path = (root_path / attachment.storage_path).resolve()
-        if not absolute_path.exists():
-            raise ResourceNotFoundError(f"Attachment {attachment_id} file not found.")
+        absolute_path = self._resolve_attachment_storage_path(attachment, require_exists=True)
+        assert absolute_path is not None
         return build_work_order_attachment_read(attachment), absolute_path
 
     def delete_attachment(self, work_order_id: int, attachment_id: int) -> None:
         attachment = self._get_existing_attachment(work_order_id, attachment_id)
-        file_path = get_work_order_attachments_path() / attachment.storage_path
+        file_path = self._resolve_attachment_storage_path(attachment, require_exists=False)
 
         try:
             self.repository.delete_attachment(attachment)
@@ -303,12 +327,27 @@ class WorkOrderService:
             self.repository.rollback()
             raise
 
-        if file_path.exists():
+        if file_path is not None and file_path.exists():
             file_path.unlink()
 
-        parent_directory = file_path.parent
-        if parent_directory.exists() and not any(parent_directory.iterdir()):
+        parent_directory = file_path.parent if file_path is not None else None
+        if parent_directory is not None and parent_directory.exists() and not any(parent_directory.iterdir()):
             parent_directory.rmdir()
+
+    @staticmethod
+    def _resolve_attachment_storage_path(attachment: WorkOrderAttachment, *, require_exists: bool) -> Path | None:
+        root_path = get_work_order_attachments_path()
+        absolute_path = (root_path / attachment.storage_path).resolve()
+        try:
+            absolute_path.relative_to(root_path)
+        except ValueError:
+            if require_exists:
+                raise ResourceNotFoundError(f"Attachment {attachment.id} file not found.")
+            return None
+
+        if require_exists and not absolute_path.exists():
+            raise ResourceNotFoundError(f"Attachment {attachment.id} file not found.")
+        return absolute_path
 
     def _get_existing_work_order(self, work_order_id: int) -> WorkOrder:
         work_order = self.repository.get_by_id(work_order_id)

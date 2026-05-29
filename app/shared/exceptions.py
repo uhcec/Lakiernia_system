@@ -35,3 +35,8 @@ class InvalidWorkOrderDataError(AppException):
 class InvalidAttachmentError(AppException):
     def __init__(self, detail: str, status_code: int = 400) -> None:
         super().__init__(detail=detail, status_code=status_code)
+
+
+class InvalidStationIdentityError(AppException):
+    def __init__(self, detail: str) -> None:
+        super().__init__(detail=detail, status_code=400)

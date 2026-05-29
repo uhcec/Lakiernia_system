@@ -24,6 +24,9 @@ jobs:
       - name: Run backend tests
         run: python -m pytest
 
+      - name: Check Alembic schema drift
+        run: python -m alembic upgrade head && python -m alembic check
+
   frontend-build:
     name: Frontend Build
     runs-on: ubuntu-latest

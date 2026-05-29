@@ -133,6 +133,17 @@ def test_create_work_order(test_client: TestClient) -> None:
     assert body["updated_at"]
 
 
+def test_create_work_order_rejects_invalid_station_header(test_client: TestClient) -> None:
+    response = test_client.post(
+        "/work-orders",
+        json=build_create_payload(),
+        headers={"X-Station-Id": "warehouse"},
+    )
+
+    assert response.status_code == 400
+    assert response.json() == {"detail": "Invalid station identity: warehouse."}
+
+
 def test_create_work_order_without_title_uses_order_number_as_fallback(test_client: TestClient) -> None:
     payload = build_create_payload(total_quantity=10)
     payload.pop("title")

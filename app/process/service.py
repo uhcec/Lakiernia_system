@@ -1,15 +1,19 @@
 from collections.abc import Sequence
 from contextlib import ExitStack, contextmanager
 from datetime import UTC, datetime
+import json
 from threading import RLock
 
 from sqlalchemy.exc import IntegrityError
 
+from app.audit.context import StationContext
+from app.audit.models import AuditEvent
+from app.audit.repository import AuditRepository
 from app.process.enums import CoatingType, ProcessDisplayStatus, ProcessStage, ProductionType, QuantityBatchType, StageStatus
 from app.process.models import WorkOrderQuantityBatch, WorkOrderStageState
 from app.process.repository import ProcessRepository
 from app.process.schemas import ProcessStageStatusRead, ProcessStageWorkOrderRead, StageStatusView
-from app.shared.enums import QueueNamespace, WorkOrderStatus
+from app.shared.enums import QueueNamespace, StationId, WorkOrderStatus
 from app.shared.exceptions import InvalidProcessStageTransitionError, ResourceNotFoundError
 from app.work_orders.number_allocator import WorkOrderNumberAllocator
 from app.work_orders.models import WorkOrder
@@ -28,6 +32,7 @@ class ProcessService:
     def __init__(self, repository: ProcessRepository) -> None:
         self.repository = repository
         self.number_allocator = WorkOrderNumberAllocator(repository.session)
+        self.audit_repository = AuditRepository(repository.session)
 
     @staticmethod
     def get_stage_sequence_for_configuration(
@@ -97,6 +102,7 @@ class ProcessService:
         work_order_id: int,
         stage: ProcessStage,
         target_status: StageStatus,
+        station_context: StationContext | None = None,
     ) -> WorkOrderStageState:
         with self._serialize_process_mutation(work_order_id):
             work_order = self.get_work_order_process(work_order_id)
@@ -128,6 +134,14 @@ class ProcessService:
 
                 if target_status != StageStatus.IN_PROGRESS:
                     self._release_inactive_resource_locks(work_order)
+
+                self._record_stage_audit_event(
+                    work_order=work_order,
+                    stage=stage,
+                    target_status=target_status,
+                    station_context=station_context,
+                    batch_id=None,
+                )
 
                 try:
                     self.repository.commit()
@@ -162,6 +176,7 @@ class ProcessService:
         stage: ProcessStage,
         batch_id: int | None = None,
         counted_quantity: int | None = None,
+        station_context: StationContext | None = None,
     ) -> ProcessStageWorkOrderRead:
         with self._serialize_process_mutation(work_order_id):
             work_order = self.get_work_order_process(work_order_id)
@@ -170,7 +185,13 @@ class ProcessService:
                 resource_keys = self._get_stage_resource_keys(work_order, stage, StageStatus.IN_PROGRESS)
                 with self._serialize_stage_resources(resource_keys):
                     self._ensure_stage_resources_available(work_order, stage)
-                    return self._start_tracked_batch_stage(work_order, target_batch, stage, counted_quantity=counted_quantity)
+                    return self._start_tracked_batch_stage(
+                        work_order,
+                        target_batch,
+                        stage,
+                        counted_quantity=counted_quantity,
+                        station_context=station_context,
+                    )
 
             if self._is_automatic_production_preview_stage(work_order, stage):
                 raise InvalidProcessStageTransitionError(
@@ -179,7 +200,7 @@ class ProcessService:
 
             self._store_stage_start_data(work_order, stage, counted_quantity)
 
-            self.transition_stage(work_order_id, stage, StageStatus.IN_PROGRESS)
+            self.transition_stage(work_order_id, stage, StageStatus.IN_PROGRESS, station_context=station_context)
             work_order = self.get_work_order_process(work_order_id)
 
             if stage == ProcessStage.HANGING and work_order.production_type == ProductionType.AUTOMATIC:
@@ -196,12 +217,18 @@ class ProcessService:
 
             return self._to_stage_work_order_read(work_order, stage)
 
-    def finish_stage(self, work_order_id: int, stage: ProcessStage, batch_id: int | None = None) -> ProcessStageWorkOrderRead:
+    def finish_stage(
+        self,
+        work_order_id: int,
+        stage: ProcessStage,
+        batch_id: int | None = None,
+        station_context: StationContext | None = None,
+    ) -> ProcessStageWorkOrderRead:
         with self._serialize_process_mutation(work_order_id):
             work_order = self.get_work_order_process(work_order_id)
             target_batch = self._resolve_batch_for_stage(work_order, stage, batch_id)
             if target_batch is not None:
-                return self._finish_tracked_batch_stage(work_order, target_batch, stage)
+                return self._finish_tracked_batch_stage(work_order, target_batch, stage, station_context=station_context)
 
             if self._is_automatic_production_preview_stage(work_order, stage):
                 raise InvalidProcessStageTransitionError(
@@ -218,9 +245,10 @@ class ProcessService:
                     counted_quantity=work_order.current_active_quantity,
                     ok_quantity=work_order.current_active_quantity,
                     correction_quantity=0,
+                    station_context=station_context,
                 )
 
-            self.transition_stage(work_order_id, stage, StageStatus.DONE)
+            self.transition_stage(work_order_id, stage, StageStatus.DONE, station_context=station_context)
             work_order = self.get_work_order_process(work_order_id)
 
             if stage == ProcessStage.DECORAL_PRODUCTION:
@@ -249,11 +277,12 @@ class ProcessService:
         work_order_id: int,
         stage: ProcessStage,
         batch_id: int | None = None,
+        station_context: StationContext | None = None,
     ) -> ProcessStageWorkOrderRead:
         work_order = self.get_work_order_process(work_order_id)
         target_batch = self._resolve_batch_for_stage(work_order, stage, batch_id)
         if target_batch is not None:
-            return self._reopen_tracked_batch_stage(work_order, target_batch, stage)
+            return self._reopen_tracked_batch_stage(work_order, target_batch, stage, station_context=station_context)
 
         if self._is_automatic_production_preview_stage(work_order, stage):
             raise InvalidProcessStageTransitionError(
@@ -276,7 +305,7 @@ class ProcessService:
                 f"Cannot reopen stage {stage.value} from {stage_state.status.value}."
             )
 
-        self.transition_stage(work_order_id, stage, target_status)
+        self.transition_stage(work_order_id, stage, target_status, station_context=station_context)
         work_order = self.get_work_order_process(work_order_id)
         return self._to_stage_work_order_read(work_order, stage)
 
@@ -288,6 +317,7 @@ class ProcessService:
         ok_quantity: int,
         correction_quantity: int,
         batch_id: int | None = None,
+        station_context: StationContext | None = None,
     ) -> ProcessStageWorkOrderRead:
         with self._serialize_process_mutation(work_order_id):
             work_order = self.get_work_order_process(work_order_id)
@@ -299,6 +329,7 @@ class ProcessService:
                     counted_quantity=counted_quantity,
                     ok_quantity=ok_quantity,
                     correction_quantity=correction_quantity,
+                    station_context=station_context,
                 )
 
             packing_state = self._get_stage_state(work_order, ProcessStage.PACKING)
@@ -349,8 +380,17 @@ class ProcessService:
                     planned_quantity=planned_quantity,
                     ok_quantity=ok_quantity,
                     correction_quantity=correction_quantity,
+                    station_context=station_context,
                 )
                 self._release_inactive_resource_locks(work_order)
+                self._record_packing_audit_event(
+                    work_order=work_order,
+                    station_context=station_context,
+                    batch_id=active_batch.id,
+                    counted_quantity=counted_quantity,
+                    ok_quantity=ok_quantity,
+                    correction_quantity=correction_quantity,
+                )
                 self._commit_process_changes()
                 refreshed_work_order = self.get_work_order_process(work_order_id)
                 if response_batch is not None:
@@ -373,6 +413,14 @@ class ProcessService:
                 active_batch.is_active = True
 
             self._release_inactive_resource_locks(work_order)
+            self._record_packing_audit_event(
+                work_order=work_order,
+                station_context=station_context,
+                batch_id=active_batch.id,
+                counted_quantity=counted_quantity,
+                ok_quantity=ok_quantity,
+                correction_quantity=correction_quantity,
+            )
 
             try:
                 self.repository.commit()
@@ -732,6 +780,7 @@ class ProcessService:
         batch: WorkOrderQuantityBatch,
         stage: ProcessStage,
         counted_quantity: int | None = None,
+        station_context: StationContext | None = None,
     ) -> ProcessStageWorkOrderRead:
         if stage == ProcessStage.PRODUCTION and work_order.production_type == ProductionType.AUTOMATIC:
             raise InvalidProcessStageTransitionError(
@@ -746,6 +795,13 @@ class ProcessService:
         self._acquire_stage_resource_locks(work_order, stage)
         batch.current_stage_status = StageStatus.IN_PROGRESS
         self._sync_legacy_current_active_batch(work_order)
+        self._record_stage_audit_event(
+            work_order=work_order,
+            stage=stage,
+            target_status=StageStatus.IN_PROGRESS,
+            station_context=station_context,
+            batch_id=batch.id,
+        )
         self._commit_process_changes()
         refreshed_work_order = self.get_work_order_process(work_order.id)
         refreshed_batch = self._get_batch(refreshed_work_order, batch.id)
@@ -756,6 +812,7 @@ class ProcessService:
         work_order: WorkOrder,
         batch: WorkOrderQuantityBatch,
         stage: ProcessStage,
+        station_context: StationContext | None = None,
     ) -> ProcessStageWorkOrderRead:
         if stage == ProcessStage.PACKING:
             raise InvalidProcessStageTransitionError(
@@ -797,6 +854,13 @@ class ProcessService:
             batch.is_active = False
             work_order.completed_quantity += batch.quantity
             self._sync_legacy_current_active_batch(work_order)
+            self._record_stage_audit_event(
+                work_order=work_order,
+                stage=stage,
+                target_status=StageStatus.DONE,
+                station_context=station_context,
+                batch_id=batch.id,
+            )
             self._commit_process_changes()
             refreshed_work_order = self.get_work_order_process(work_order.id)
             finalized_work_order = self._finalize_completion_chain_if_ready(refreshed_work_order)
@@ -807,6 +871,13 @@ class ProcessService:
 
         self._sync_legacy_current_active_batch(work_order)
         self._release_inactive_resource_locks(work_order)
+        self._record_stage_audit_event(
+            work_order=work_order,
+            stage=stage,
+            target_status=StageStatus.DONE,
+            station_context=station_context,
+            batch_id=batch.id,
+        )
         self._commit_process_changes()
         refreshed_work_order = self.get_work_order_process(work_order.id)
         refreshed_batch = self._get_batch(refreshed_work_order, batch.id)
@@ -817,6 +888,7 @@ class ProcessService:
         work_order: WorkOrder,
         batch: WorkOrderQuantityBatch,
         stage: ProcessStage,
+        station_context: StationContext | None = None,
     ) -> ProcessStageWorkOrderRead:
         if batch.current_stage != stage or batch.current_stage_status not in {StageStatus.IN_PROGRESS, StageStatus.DONE}:
             raise InvalidProcessStageTransitionError(
@@ -830,6 +902,13 @@ class ProcessService:
         batch.is_active = True
         self._sync_legacy_current_active_batch(work_order)
         self._release_inactive_resource_locks(work_order)
+        self._record_stage_audit_event(
+            work_order=work_order,
+            stage=stage,
+            target_status=StageStatus.NOT_STARTED,
+            station_context=station_context,
+            batch_id=batch.id,
+        )
         self._commit_process_changes()
         refreshed_work_order = self.get_work_order_process(work_order.id)
         refreshed_batch = self._get_batch(refreshed_work_order, batch.id)
@@ -843,6 +922,7 @@ class ProcessService:
         counted_quantity: int,
         ok_quantity: int,
         correction_quantity: int,
+        station_context: StationContext | None = None,
     ) -> ProcessStageWorkOrderRead:
         if batch.current_stage == ProcessStage.PACKING and batch.current_stage_status == StageStatus.DONE:
             return self._to_stage_work_order_read(work_order, ProcessStage.PACKING, batch=batch)
@@ -893,12 +973,20 @@ class ProcessService:
             created_batches.append(ok_batch)
 
         if correction_quantity > 0:
-            self._create_correction_work_order(work_order, correction_quantity)
+            self._create_correction_work_order(work_order, correction_quantity, station_context=station_context)
         elif ok_quantity > 0:
             work_order.completed_quantity += ok_quantity
 
         self._sync_legacy_current_active_batch(work_order)
         self._release_inactive_resource_locks(work_order)
+        self._record_packing_audit_event(
+            work_order=work_order,
+            station_context=station_context,
+            batch_id=batch.id,
+            counted_quantity=counted_quantity,
+            ok_quantity=ok_quantity,
+            correction_quantity=correction_quantity,
+        )
         self._commit_process_changes()
 
         refreshed_work_order = self.get_work_order_process(work_order.id)
@@ -924,10 +1012,17 @@ class ProcessService:
         planned_quantity: int,
         ok_quantity: int,
         correction_quantity: int,
+        station_context: StationContext | None = None,
     ) -> tuple[ProcessStage, WorkOrderQuantityBatch | None]:
         _ = planned_quantity
         response_stage = ProcessStage.PACKING
         response_batch: WorkOrderQuantityBatch | None = None
+
+        packing_state.status = StageStatus.DONE
+        packing_state.updated_at = datetime.now(UTC)
+        active_batch.is_active = False
+        active_batch.current_stage = ProcessStage.PACKING
+        active_batch.current_stage_status = StageStatus.DONE
 
         if work_order.coating_type == CoatingType.DECORAL and ok_quantity > 0:
             response_batch = WorkOrderQuantityBatch(
@@ -943,13 +1038,7 @@ class ProcessService:
             self.repository.add_quantity_batch(response_batch)
             response_stage = ProcessStage.DECORAL_PRODUCTION
 
-        self._create_correction_work_order(work_order, correction_quantity)
-
-        packing_state.status = StageStatus.DONE
-        packing_state.updated_at = datetime.now(UTC)
-        active_batch.is_active = False
-        active_batch.current_stage = ProcessStage.PACKING
-        active_batch.current_stage_status = StageStatus.DONE
+        self._create_correction_work_order(work_order, correction_quantity, station_context=station_context)
 
         if work_order.production_type == ProductionType.AUTOMATIC:
             production_state.status = StageStatus.DONE
@@ -958,7 +1047,12 @@ class ProcessService:
         self._sync_legacy_current_active_batch(work_order)
         return response_stage, response_batch
 
-    def _create_correction_work_order(self, parent_work_order: WorkOrder, correction_quantity: int) -> WorkOrder:
+    def _create_correction_work_order(
+        self,
+        parent_work_order: WorkOrder,
+        correction_quantity: int,
+        station_context: StationContext | None = None,
+    ) -> WorkOrder:
         correction_order = WorkOrder(
             order_number=self.number_allocator.allocate(),
             title=parent_work_order.title,
@@ -989,6 +1083,19 @@ class ProcessService:
         persisted_correction_order = self.repository.add_work_order(correction_order)
         self.initialize_quantity_tracking(persisted_correction_order)
         self.initialize_stage_states(persisted_correction_order)
+        self._record_audit_event(
+            event_type="work_order.correction_created",
+            station_context=station_context,
+            work_order=persisted_correction_order,
+            target_type="work_order",
+            target_id=persisted_correction_order.id,
+            summary=f"Created correction work order {persisted_correction_order.order_number}.",
+            details={
+                "parent_work_order_id": parent_work_order.id,
+                "parent_order_number": parent_work_order.order_number,
+                "correction_quantity": correction_quantity,
+            },
+        )
         return persisted_correction_order
 
     def prepare_correction_work_order_for_planning(self, work_order: WorkOrder) -> None:
@@ -997,6 +1104,85 @@ class ProcessService:
 
         return_stage = self.get_correction_return_stage(work_order)
         self._reset_stage_states_for_active_batch(work_order, return_stage)
+
+    def _record_stage_audit_event(
+        self,
+        *,
+        work_order: WorkOrder,
+        stage: ProcessStage,
+        target_status: StageStatus,
+        station_context: StationContext | None,
+        batch_id: int | None,
+    ) -> None:
+        action_by_status = {
+            StageStatus.IN_PROGRESS: ("process.stage.started", "Started"),
+            StageStatus.DONE: ("process.stage.finished", "Finished"),
+            StageStatus.NOT_STARTED: ("process.stage.reopened", "Reopened"),
+        }
+        event_type, action_label = action_by_status[target_status]
+        self._record_audit_event(
+            event_type=event_type,
+            station_context=station_context,
+            work_order=work_order,
+            target_type="process_stage",
+            target_id=batch_id,
+            summary=f"{action_label} {stage.value} for work order {work_order.order_number}.",
+            details={
+                "stage": stage.value,
+                "target_status": target_status.value,
+                "batch_id": batch_id,
+            },
+        )
+
+    def _record_packing_audit_event(
+        self,
+        *,
+        work_order: WorkOrder,
+        station_context: StationContext | None,
+        batch_id: int | None,
+        counted_quantity: int,
+        ok_quantity: int,
+        correction_quantity: int,
+    ) -> None:
+        self._record_audit_event(
+            event_type="process.packing.completed",
+            station_context=station_context,
+            work_order=work_order,
+            target_type="process_stage",
+            target_id=batch_id,
+            summary=f"Completed packing for work order {work_order.order_number}.",
+            details={
+                "stage": ProcessStage.PACKING.value,
+                "batch_id": batch_id,
+                "counted_quantity": counted_quantity,
+                "ok_quantity": ok_quantity,
+                "correction_quantity": correction_quantity,
+            },
+        )
+
+    def _record_audit_event(
+        self,
+        *,
+        event_type: str,
+        station_context: StationContext | None,
+        work_order: WorkOrder,
+        target_type: str,
+        target_id: int | None,
+        summary: str,
+        details: dict[str, object],
+    ) -> None:
+        station_id = station_context.station_id if station_context is not None else StationId.SYSTEM
+        self.audit_repository.add(
+            AuditEvent(
+                event_type=event_type,
+                station_id=station_id,
+                work_order_id=work_order.id,
+                target_type=target_type,
+                target_id=target_id,
+                summary=summary,
+                details_json=json.dumps(details, separators=(",", ":")),
+            )
+        )
 
     @staticmethod
     def _uses_batch_tracking(work_order: WorkOrder) -> bool:

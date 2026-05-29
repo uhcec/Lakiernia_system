@@ -3,6 +3,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
+from app.audit.context import StationContext, get_station_context
 from app.database.session import get_db_session
 from app.process.enums import ProcessStage, ProductionType
 from app.process.repository import ProcessRepository
@@ -33,9 +34,15 @@ def start_stage(
     work_order_id: int,
     stage: ProcessStage,
     service: Annotated[ProcessService, Depends(get_process_service)],
+    station_context: Annotated[StationContext, Depends(get_station_context)],
     payload: StageStartRequest | None = None,
 ) -> ProcessStageWorkOrderRead:
-    return service.start_stage(work_order_id, stage, counted_quantity=payload.counted_quantity if payload else None)
+    return service.start_stage(
+        work_order_id,
+        stage,
+        counted_quantity=payload.counted_quantity if payload else None,
+        station_context=station_context,
+    )
 
 
 @router.post("/work-orders/{work_order_id}/batches/{batch_id}/stages/{stage}/start", response_model=ProcessStageWorkOrderRead)
@@ -44,6 +51,7 @@ def start_stage_for_batch(
     batch_id: int,
     stage: ProcessStage,
     service: Annotated[ProcessService, Depends(get_process_service)],
+    station_context: Annotated[StationContext, Depends(get_station_context)],
     payload: StageStartRequest | None = None,
 ) -> ProcessStageWorkOrderRead:
     return service.start_stage(
@@ -51,6 +59,7 @@ def start_stage_for_batch(
         stage,
         batch_id=batch_id,
         counted_quantity=payload.counted_quantity if payload else None,
+        station_context=station_context,
     )
 
 
@@ -59,8 +68,9 @@ def finish_stage(
     work_order_id: int,
     stage: ProcessStage,
     service: Annotated[ProcessService, Depends(get_process_service)],
+    station_context: Annotated[StationContext, Depends(get_station_context)],
 ) -> ProcessStageWorkOrderRead:
-    return service.finish_stage(work_order_id, stage)
+    return service.finish_stage(work_order_id, stage, station_context=station_context)
 
 
 @router.post("/work-orders/{work_order_id}/batches/{batch_id}/stages/{stage}/finish", response_model=ProcessStageWorkOrderRead)
@@ -69,8 +79,9 @@ def finish_stage_for_batch(
     batch_id: int,
     stage: ProcessStage,
     service: Annotated[ProcessService, Depends(get_process_service)],
+    station_context: Annotated[StationContext, Depends(get_station_context)],
 ) -> ProcessStageWorkOrderRead:
-    return service.finish_stage(work_order_id, stage, batch_id=batch_id)
+    return service.finish_stage(work_order_id, stage, batch_id=batch_id, station_context=station_context)
 
 
 @router.post("/work-orders/{work_order_id}/stages/{stage}/reopen", response_model=ProcessStageWorkOrderRead)
@@ -78,8 +89,9 @@ def reopen_stage(
     work_order_id: int,
     stage: ProcessStage,
     service: Annotated[ProcessService, Depends(get_process_service)],
+    station_context: Annotated[StationContext, Depends(get_station_context)],
 ) -> ProcessStageWorkOrderRead:
-    return service.reopen_stage(work_order_id, stage)
+    return service.reopen_stage(work_order_id, stage, station_context=station_context)
 
 
 @router.post("/work-orders/{work_order_id}/batches/{batch_id}/stages/{stage}/reopen", response_model=ProcessStageWorkOrderRead)
@@ -88,8 +100,9 @@ def reopen_stage_for_batch(
     batch_id: int,
     stage: ProcessStage,
     service: Annotated[ProcessService, Depends(get_process_service)],
+    station_context: Annotated[StationContext, Depends(get_station_context)],
 ) -> ProcessStageWorkOrderRead:
-    return service.reopen_stage(work_order_id, stage, batch_id=batch_id)
+    return service.reopen_stage(work_order_id, stage, batch_id=batch_id, station_context=station_context)
 
 
 @router.post("/work-orders/{work_order_id}/packing/complete", response_model=ProcessStageWorkOrderRead)
@@ -97,12 +110,14 @@ def complete_packing(
     work_order_id: int,
     payload: PackingCompleteRequest,
     service: Annotated[ProcessService, Depends(get_process_service)],
+    station_context: Annotated[StationContext, Depends(get_station_context)],
 ) -> ProcessStageWorkOrderRead:
     return service.complete_packing(
         work_order_id,
         counted_quantity=payload.counted_quantity,
         ok_quantity=payload.ok_quantity,
         correction_quantity=payload.correction_quantity,
+        station_context=station_context,
     )
 
 
@@ -112,6 +127,7 @@ def complete_packing_for_batch(
     batch_id: int,
     payload: PackingCompleteRequest,
     service: Annotated[ProcessService, Depends(get_process_service)],
+    station_context: Annotated[StationContext, Depends(get_station_context)],
 ) -> ProcessStageWorkOrderRead:
     return service.complete_packing(
         work_order_id,
@@ -119,4 +135,5 @@ def complete_packing_for_batch(
         ok_quantity=payload.ok_quantity,
         correction_quantity=payload.correction_quantity,
         batch_id=batch_id,
+        station_context=station_context,
     )

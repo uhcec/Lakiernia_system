@@ -93,6 +93,49 @@ def complete_packing(
     )
 
 
+def test_s05_ral_manual_correction_child_close_merges_parent(db_session: Session) -> None:
+    work_order_service, process_service, manager_service, work_order_repository, process_repository = build_services(db_session)
+
+    parent_id = create_planned_work_order(
+        work_order_service,
+        manager_service,
+        title="Contract S05 full close",
+        coating_type=CoatingType.RAL,
+        production_type=ProductionType.MANUAL,
+        queue_position=1,
+    )
+    advance_to_packing(process_service, parent_id)
+    complete_packing(process_service, parent_id, ok_quantity=7, correction_quantity=3)
+
+    parent_after_split = process_repository.get_work_order_with_stage_states(parent_id)
+    assert parent_after_split is not None
+    assert process_service.get_display_status(parent_after_split).value == "WAITING_FOR_CORRECTIONS"
+
+    correction_order = next(
+        item for item in work_order_repository.list(limit=20, offset=0) if item.parent_order_id == parent_id
+    )
+    manager_service.assign_plan(
+        correction_order.id,
+        WorkOrderPlanAssignRequest(production_type=ProductionType.MANUAL, queue_position=2),
+    )
+    advance_to_packing(process_service, correction_order.id)
+    complete_packing(process_service, correction_order.id, ok_quantity=3, correction_quantity=0)
+
+    parent_final = process_repository.get_work_order_with_stage_states(parent_id)
+    child_final = process_repository.get_work_order_with_stage_states(correction_order.id)
+
+    assert parent_final is not None
+    assert child_final is not None
+    assert process_service.get_display_status(parent_final).value == "READY"
+    assert process_service.get_display_status(child_final).value == "READY"
+    assert parent_final.completed_quantity == parent_final.total_quantity
+    assert parent_final.current_active_quantity == 0
+    assert process_service.get_waiting_ok_quantity(parent_final) == 0
+    assert process_service.get_pending_correction_quantity(parent_final) == 0
+    assert child_final.completed_quantity == child_final.total_quantity
+    assert child_final.current_active_quantity == 0
+
+
 def test_workflow_contract_core_invariants(db_session: Session) -> None:
     """High-level regression contract from docs/WORKFLOW.md using S01, S05, and S07."""
     work_order_service, process_service, manager_service, work_order_repository, process_repository = build_services(db_session)

@@ -1,10 +1,13 @@
 from concurrent.futures import ThreadPoolExecutor
+import json
 
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 import pytest
 
 from app.database.base import Base
+from app.audit.context import StationContext
+from app.audit.models import AuditEvent
 from app.manager.repository import ManagerRepository
 from app.manager.schemas import WorkOrderPlanAssignRequest
 from app.manager.service import ManagerService
@@ -12,7 +15,7 @@ from app.process.enums import CoatingType, ProcessStage, ProductionType, Quantit
 from app.process.models import ProcessResourceLock
 from app.process.repository import ProcessRepository
 from app.process.service import ProcessService
-from app.shared.enums import QueueNamespace, WorkOrderStatus
+from app.shared.enums import QueueNamespace, StationId, WorkOrderStatus
 from app.shared.exceptions import InvalidManagerPlanningError, InvalidProcessStageTransitionError
 from app.work_orders.repository import WorkOrderRepository
 from app.work_orders.schemas import WorkOrderCreate
@@ -117,6 +120,64 @@ def test_creating_work_order_initializes_stage_states(db_session: Session) -> No
     assert persisted.total_quantity == 100
     assert persisted.current_active_quantity == 100
     assert len(persisted.quantity_batches) == 1
+
+
+def test_start_stage_records_station_audit_event(db_session: Session) -> None:
+    work_order_service, process_service, manager_service, _, _ = build_services(db_session)
+    created = create_ral_work_order(work_order_service, "Audit stage")
+    manager_service.assign_plan(created.id, WorkOrderPlanAssignRequest(production_type=ProductionType.MANUAL, queue_position=1))
+
+    process_service.start_stage(
+        created.id,
+        ProcessStage.SURFACE_PREPARATION,
+        counted_quantity=100,
+        station_context=StationContext(station_id=StationId.SURFACE_PREPARATION),
+    )
+
+    event = db_session.scalar(select(AuditEvent).where(AuditEvent.event_type == "process.stage.started"))
+
+    assert event is not None
+    assert event.station_id == StationId.SURFACE_PREPARATION
+    assert event.work_order_id == created.id
+    assert event.target_type == "process_stage"
+    assert json.loads(event.details_json or "{}") == {
+        "stage": "SURFACE_PREPARATION",
+        "target_status": "IN_PROGRESS",
+        "batch_id": None,
+    }
+
+
+def test_packing_correction_records_packing_and_correction_audit_events(db_session: Session) -> None:
+    work_order_service, process_service, manager_service, _, _ = build_services(db_session)
+    created = create_ral_work_order(work_order_service, "Audit packing")
+    manager_service.assign_plan(created.id, WorkOrderPlanAssignRequest(production_type=ProductionType.MANUAL, queue_position=1))
+    advance_to_packing(process_service, created.id)
+
+    process_service.complete_packing(
+        created.id,
+        counted_quantity=100,
+        ok_quantity=70,
+        correction_quantity=30,
+        station_context=StationContext(station_id=StationId.PACKING),
+    )
+
+    events = db_session.scalars(
+        select(AuditEvent)
+        .where(AuditEvent.station_id == StationId.PACKING)
+        .order_by(AuditEvent.id.asc())
+    ).all()
+    event_types = [event.event_type for event in events]
+
+    assert "work_order.correction_created" in event_types
+    assert "process.packing.completed" in event_types
+    packing_event = next(event for event in events if event.event_type == "process.packing.completed")
+    assert json.loads(packing_event.details_json or "{}") == {
+        "stage": "PACKING",
+        "batch_id": 1,
+        "counted_quantity": 100,
+        "ok_quantity": 70,
+        "correction_quantity": 30,
+    }
 
 
 def test_stage_transitions_forward(db_session: Session) -> None:
@@ -772,12 +833,15 @@ def test_multi_round_ral_correction_chain_merges_back_into_original_parent(db_se
     assert parent_work_order is not None
     assert completed_first_correction is not None
     assert completed_second_correction is not None
-    assert parent_work_order.completed_quantity == 10
     assert process_service.get_display_status(parent_work_order).value == "READY"
-    assert completed_first_correction.completed_quantity == 3
     assert process_service.get_display_status(completed_first_correction).value == "READY"
-    assert completed_second_correction.completed_quantity == 1
     assert process_service.get_display_status(completed_second_correction).value == "READY"
+    assert parent_work_order.completed_quantity == parent_work_order.total_quantity
+    assert parent_work_order.current_active_quantity == 0
+    assert completed_first_correction.completed_quantity == completed_first_correction.total_quantity
+    assert completed_first_correction.current_active_quantity == 0
+    assert completed_second_correction.completed_quantity == completed_second_correction.total_quantity
+    assert completed_second_correction.current_active_quantity == 0
 
 
 # docs/WORKFLOW.md scenario S07 (DECORAL + MANUAL + correction after packing)
@@ -1293,8 +1357,11 @@ def test_inconsistent_incomplete_row_does_not_appear_in_stage_queues(db_session:
     stored.is_incomplete_on_arrival = False
     work_order_repository.commit()
 
+    process_repository = ProcessRepository(db_session)
+    repository_ids = [item.id for item in process_repository.list_work_orders_with_stage(ProcessStage.SURFACE_PREPARATION)]
     visible_ids = [item.id for item in process_service.list_stage_work_orders(ProcessStage.SURFACE_PREPARATION)]
 
+    assert created.id not in repository_ids
     assert created.id not in visible_ids
 
 
@@ -1360,7 +1427,10 @@ def test_s08_decoral_automatic_correction_split_and_merge(db_session: Session) -
     assert child_work_order is not None
     assert process_service.get_display_status(parent_work_order).value == "READY"
     assert process_service.get_display_status(child_work_order).value == "READY"
-    assert parent_work_order.completed_quantity == 10
+    assert parent_work_order.completed_quantity == parent_work_order.total_quantity
+    assert parent_work_order.current_active_quantity == 0
+    assert child_work_order.completed_quantity == child_work_order.total_quantity
+    assert child_work_order.current_active_quantity == 0
 
 
 # docs/WORKFLOW.md scenario S10 (RAL + AUTOMATIC + multi-round correction)
@@ -1408,7 +1478,12 @@ def test_s10_ral_automatic_multi_round_correction_chain_merges(db_session: Sessi
     assert process_service.get_display_status(parent_work_order).value == "READY"
     assert process_service.get_display_status(completed_first_correction).value == "READY"
     assert process_service.get_display_status(completed_second_correction).value == "READY"
-    assert parent_work_order.completed_quantity == 100
+    assert parent_work_order.completed_quantity == parent_work_order.total_quantity
+    assert parent_work_order.current_active_quantity == 0
+    assert completed_first_correction.completed_quantity == completed_first_correction.total_quantity
+    assert completed_first_correction.current_active_quantity == 0
+    assert completed_second_correction.completed_quantity == completed_second_correction.total_quantity
+    assert completed_second_correction.current_active_quantity == 0
 
 
 # docs/WORKFLOW.md scenario S11 (DECORAL + MANUAL + multi-round correction)
@@ -1466,7 +1541,12 @@ def test_s11_decoral_manual_multi_round_correction_chain_merges(db_session: Sess
     assert process_service.get_display_status(parent_work_order).value == "READY"
     assert process_service.get_display_status(completed_first_correction).value == "READY"
     assert process_service.get_display_status(completed_second_correction).value == "READY"
-    assert parent_work_order.completed_quantity == 10
+    assert parent_work_order.completed_quantity == parent_work_order.total_quantity
+    assert parent_work_order.current_active_quantity == 0
+    assert completed_first_correction.completed_quantity == completed_first_correction.total_quantity
+    assert completed_first_correction.current_active_quantity == 0
+    assert completed_second_correction.completed_quantity == completed_second_correction.total_quantity
+    assert completed_second_correction.current_active_quantity == 0
 
 
 # docs/WORKFLOW.md scenario S12 (DECORAL + AUTOMATIC + multi-round correction)
@@ -1524,4 +1604,9 @@ def test_s12_decoral_automatic_multi_round_correction_chain_merges(db_session: S
     assert process_service.get_display_status(parent_work_order).value == "READY"
     assert process_service.get_display_status(completed_first_correction).value == "READY"
     assert process_service.get_display_status(completed_second_correction).value == "READY"
-    assert parent_work_order.completed_quantity == 10
+    assert parent_work_order.completed_quantity == parent_work_order.total_quantity
+    assert parent_work_order.current_active_quantity == 0
+    assert completed_first_correction.completed_quantity == completed_first_correction.total_quantity
+    assert completed_first_correction.current_active_quantity == 0
+    assert completed_second_correction.completed_quantity == completed_second_correction.total_quantity
+    assert completed_second_correction.current_active_quantity == 0

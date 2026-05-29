@@ -4,7 +4,11 @@
 
 No new features until all CRITICAL and HIGH items are closed.
 
+Current implementation evidence marks all CRITICAL, HIGH, and LOW backlog items as closed. That means the current code and tests address the listed acceptance criteria; it does not prove that the real factory workflow is complete or conceptually correct. Remaining hardening work is the deferred incomplete-order DB invariant, chaos scenario expansion, and broader production-readiness audits.
+
 This backlog is derived from the production-readiness audit. It is focused on hardening, failure containment, validation, concurrency safety, and test coverage. It does not authorize business logic changes without explicit clarification against `docs/WORKFLOW.md`.
+
+Baseline check snapshot after backlog/doc cleanup: full backend suite passed with `227 passed`, frontend tests passed with `21 passed`, frontend build passed, and `python -m alembic check` reported no new upgrade operations. After Phase 2 DB invariant work, full backend validation passed with `236 passed`. Incomplete-order service/query hardening passed focused regression and chaos coverage with `15 passed`. After attachment lifecycle hardening, full backend validation passed with `238 passed`; frontend tests passed with `21 passed`; frontend build passed; `python -m alembic check` reported no new upgrade operations. These checks are regression evidence, not business validation.
 
 ## CRITICAL
 
@@ -92,6 +96,11 @@ This backlog is derived from the production-readiness audit. It is focused on ha
 
 ### 7. Incomplete orders can be marked complete without full state revalidation
 
+- Status: CLOSED
+- Implementation summary: `WorkOrderService.mark_complete_arrival()` now revalidates the full persisted work-order state with create-level intake rules before clearing `is_incomplete_on_arrival`; invalid persisted profiles, accessories, or customer data raises `InvalidWorkOrderDataError` and leaves the order unchanged.
+- Tests added: service coverage in `tests/test_work_orders_service.py` for invalid profiles, invalid accessories, blank persisted customer name, successful completion, and unchanged-on-rejection behavior; API coverage in `tests/test_work_orders_api.py` verifies detail/list process status after completion.
+- Validation: full `python -m pytest` passed with `227 passed` during backlog reconciliation.
+
 - Risk: an order can leave the incomplete-on-arrival quarantine path even if its editable intake data is still inconsistent.
 - Affected files: `app/work_orders/service.py`, `app/work_orders/router.py`, `tests/test_work_orders_api.py`
 - Required fix: revalidate the full current work-order state before allowing `mark_complete_arrival`.
@@ -100,24 +109,24 @@ This backlog is derived from the production-readiness audit. It is focused on ha
 
 ### 8. Core business invariants are not enforced at the database level
 
-- Status: CLOSED for Phase 1 only
-- Implementation summary: safe row-local DB CHECK constraints were added in `app/work_orders/models.py` and `app/process/models.py`, and Alembic migration `20260527_0012_phase1_core_invariant_checks.py` adds them with fail-fast dirty-row prechecks before SQLite table rewrites. This closes the approved Phase 1 scope only and does not include the deferred wait-class constraints.
-- Tests added: direct DB constraint coverage in `tests/test_db_constraints_phase1.py`, migration safety coverage in `tests/test_phase1_core_invariant_checks_migration.py`, and updated head coverage in `tests/test_repair_sqlite_migration_0007.py`.
-- Pytest result: focused phase-1 constraint tests passed, then full `python -m pytest` passed with `195 passed`.
+- Status: CLOSED except deferred incomplete-order DB invariant
+- Implementation summary: safe row-local DB CHECK constraints were added in `app/work_orders/models.py` and `app/process/models.py`, and Alembic migration `20260527_0012_phase1_core_invariant_checks.py` adds them with fail-fast dirty-row prechecks before SQLite table rewrites. Phase 2 then added `20260529_0015_phase2_db_invariants.py` for correction parent requirements, one active batch per work order, and inactive batch requires `DONE` status.
+- Tests added: direct DB constraint coverage in `tests/test_db_constraints_phase1.py` and `tests/test_db_constraints_phase2.py`, migration safety coverage in `tests/test_phase1_core_invariant_checks_migration.py` and `tests/test_phase2_db_invariant_migration.py`, and updated head coverage in `tests/test_repair_sqlite_migration_0007.py`.
+- Validation: focused Phase 2 DB tests passed with `13 passed`; combined Phase 1/Phase 2 DB invariant tests passed with `27 passed`; full backend validation passed with `236 passed`; incomplete-order service/query regression and chaos coverage passed with `15 passed`; `python -m alembic upgrade head && python -m alembic check` reported no new upgrade operations.
 - Phase 2 decisions:
 	- Incomplete orders not planned at DB level: DEFERRED. Keep this in service logic until incomplete-state canonicalization is simplified enough for a clean DB invariant.
-	- Correction must have parent: OPEN. Still worth enforcing at the DB layer because correction orders are defined as child orders.
-	- One active batch per work order: OPEN. Still worth enforcing as defense-in-depth for tracked-batch integrity.
+	- Correction must have parent: CLOSED. Enforced by `ck_work_orders_correction_requires_parent`.
+	- One active batch per work order: CLOSED. Enforced by `uq_work_order_quantity_batches_one_active_per_work_order`.
 	- `current_active_batch_id` integrity: CLOSED / not needed. Treat this as a legacy/cache pointer rather than a production DB invariant.
-	- Inactive batch implies `DONE`: OPEN. Still worth enforcing to prevent invalid tracked-batch states.
+	- Inactive batch implies `DONE`: CLOSED. Enforced by `ck_work_order_quantity_batches_inactive_batch_requires_done_status`.
 	- Invalid `IN_PROGRESS` workflow shapes: CLOSED / not DB layer. These rules belong in workflow services and tests, not declarative DB constraints.
 
 - Risk: a bug, migration issue, manual SQL change, or partial failure can leave durable invalid rows such as negative quantities, `completed_quantity > total_quantity`, invalid correction links, or invalid planning state.
 - Affected files: `app/work_orders/models.py`, `app/process/models.py`, `alembic/versions/20260523_0001_initial_work_orders.py`, `alembic/versions/20260524_0002_quantity_batches.py`, `alembic/versions/20260525_0007_correction_orders.py`, `alembic/versions/20260526_0010_shared_queue_position.py`, `tests/test_repair_sqlite_migration_0007.py`
 - Required fix: add database constraints for core invariants, with safe migration/backfill handling for existing data.
-- Required tests: migration tests that prove invalid rows are rejected and valid existing rows migrate cleanly.
+- Required tests: migration tests showing invalid rows are rejected and valid existing rows migrate cleanly.
 - Acceptance criteria: core quantity, correction-link, and planning invariants are enforceable even if application code regresses.
-- Final note: Current state is production-hardened enough to continue feature work, but remaining OPEN Phase 2 DB constraints should be handled before broad rollout.
+- Final note: Current implementation evidence is strong enough to continue controlled cleanup and planning work. The incomplete-order queue invariant remains deliberately deferred at the DB layer; this is not a statement that the full production process has been independently validated.
 
 ### 9. Queue UI keeps optimistic order after save failure
 
@@ -162,6 +171,11 @@ This backlog is derived from the production-readiness audit. It is focused on ha
 
 ### 12. Attachment upload trusts declared MIME type without verifying PDF content
 
+- Status: CLOSED
+- Implementation summary: attachment upload now checks the file header against PDF magic bytes before persistence, rejects empty or fake PDFs even when the declared content type is `application/pdf`, and removes any partially written file on failure.
+- Tests added: `tests/test_work_order_attachments_api.py` covers valid PDF upload, non-PDF MIME rejection, fake `application/pdf` rejection, valid `%PDF-` header acceptance, listing, download, delete, and cross-order access protection.
+- Validation: full `python -m pytest` passed with `227 passed` during backlog reconciliation.
+
 - Risk: a client can upload non-PDF content while claiming `application/pdf`, leading to invalid or unsafe attachment storage.
 - Affected files: `app/work_orders/service.py`, `app/work_orders/router.py`, `tests/test_work_order_attachments_api.py`
 - Required fix: validate stored attachment content as PDF before persistence.
@@ -170,7 +184,24 @@ This backlog is derived from the production-readiness audit. It is focused on ha
 
 ### 13. Historical merged-correction display depends on frontend inference instead of an explicit API marker
 
-- Status: IMPLEMENTED via backend-owned `is_historical_correction` on stage and work-order read models, with Stage/Packing completed views consuming that explicit field instead of inferring from quantity/state side effects.
+- Status: CLOSED
+- Implementation summary: backend read models expose `is_historical_correction` for stage and work-order responses, and frontend completed/history views consume that explicit marker instead of inferring merged correction state from quantities or status combinations.
+- Tests added: frontend state-consistency coverage verifies completed correction wording and guards against using historical correction wording for active correction cards.
+- Acceptance criteria: completed merged corrections are displayed as historical delta summaries without active batch progress or misleading `0 / X` progress.
+
+## Current Open Hardening Work
+
+Open item-level work:
+
+- Deferred DB invariant: incomplete orders are blocked from planned queues at service/query level; a database-level constraint remains deferred until the incomplete-state model is simple enough for a clean invariant.
+- Factory workflow validation: `docs/FACTORY_USAGE_NOTES.md` captures station/device usage and flags open questions around correction path variants and automatic hanging/production overlap. Surface-preparation discrepancy visibility is a current working policy: station enters counted quantity only; office sees declared quantity and differences, subject to later review. Automatic flow working policy: hanging has start/finish, automatic production is display-only, packing handles completion, and blocking the next hanging order while automatic production is occupied is a conservative assumption pending factory validation. Correction working policy: packing creates correction work orders automatically; manager later assigns production type and queue position.
+
+Open audit work:
+
+- Multi-worker/process concurrency assumptions beyond in-process Python locks. Current evidence: queue/process actions use in-process `RLock`s plus selected DB constraints/resource-lock rows; this is not a complete durable multi-worker concurrency design for stale queue overwrites or duplicate same-order side effects. User decision 2026-05-29: single backend process is acceptable for near-term deployment. Future multi-worker support needs a durable idempotency/revision strategy before claiming multi-worker safety.
+- Auth, roles, audit logging, and request traceability. Current evidence: shared station identity and `audit_events` now exist; frontend mutating API calls send `X-Station-Id`; backend records audit events for work-order creation, manager planning/reorder, process stage transitions, packing completion, and packing-created correction orders. User decision 2026-05-29: station devices should have shared station identity without personal login in the near term; personal operator login is deferred and should be clarified before implementation. Remaining work: attachment/intake audit coverage, request IDs, audit read/export UX, personal actor model, and station permission enforcement after business validation.
+- Attachment lifecycle safety under upload/delete/detail reload races. Current evidence: upload rejects spoofed PDFs and cleans failed writes; download/delete now constrain stored paths to the configured attachment root, missing files delete cleanly, and escaped stored paths cannot read/delete outside files. Remaining audit work is true concurrent upload/delete/download interleaving under deployment load.
+- Historical/completed UI semantics regression audit as new UI surfaces are added. Current evidence: frontend tests cover READY work-order tables/details, manager completed rows, completed stage/packing tabs, active correction cards, and historical correction delta summaries; frontend tests passed with `21 passed` and production build passed.
 
 ## Chaos Testing Status
 
@@ -215,5 +246,6 @@ This backlog is derived from the production-readiness audit. It is focused on ha
 ## Closure Expectations
 
 - A backlog item is closed only when the required fix is implemented, the required tests exist and pass, and the acceptance criteria are demonstrably true.
+- Closure is based on current implementation evidence. If user/business review later changes the intended behavior, reopen or replace the item.
 - Any hardening change that touches workflow, quantities, corrections, READY rules, queue behavior, or incomplete-order behavior must be checked against `docs/WORKFLOW.md` before implementation.
 - Hardening work must fail invalid business actions with controlled errors rather than allowing silent corruption.

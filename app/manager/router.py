@@ -3,6 +3,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
+from app.audit.context import StationContext, get_station_context
 from app.database.session import get_db_session
 from app.manager.repository import ManagerRepository
 from app.manager.schemas import (
@@ -40,8 +41,9 @@ def assign_plan(
     work_order_id: int,
     payload: WorkOrderPlanAssignRequest,
     service: Annotated[ManagerService, Depends(get_manager_service)],
+    station_context: Annotated[StationContext, Depends(get_station_context)],
 ) -> WorkOrderRead:
-    return service.assign_plan(work_order_id, payload)
+    return service.assign_plan(work_order_id, payload, station_context=station_context)
 
 
 @router.patch("/work-orders/{work_order_id}/queue-position", response_model=WorkOrderRead)
@@ -49,13 +51,15 @@ def update_queue_position(
     work_order_id: int,
     payload: WorkOrderQueuePositionUpdateRequest,
     service: Annotated[ManagerService, Depends(get_manager_service)],
+    station_context: Annotated[StationContext, Depends(get_station_context)],
 ) -> WorkOrderRead:
-    return service.update_queue_position(work_order_id, payload)
+    return service.update_queue_position(work_order_id, payload, station_context=station_context)
 
 
 @router.post("/queue/reorder", response_model=list[WorkOrderRead])
 def reorder_queue(
     payload: WorkOrderQueueReorderBatchRequest,
     service: Annotated[ManagerService, Depends(get_manager_service)],
+    station_context: Annotated[StationContext, Depends(get_station_context)],
 ) -> list[WorkOrderRead]:
-    return service.reorder_queue(payload)
+    return service.reorder_queue(payload, station_context=station_context)

@@ -1,4 +1,5 @@
 import { createApiError } from "./apiError";
+import { getCurrentStationHeaders } from "./stationContext";
 import type { ProcessStageValue, StageWorkOrder } from "../types/process";
 import type { ProductionTypeValue } from "../types/workOrders";
 
@@ -79,6 +80,7 @@ export async function transitionStage(
     headers: {
       Accept: "application/json",
       ...(payload ? { "Content-Type": "application/json" } : {}),
+      ...getCurrentStationHeaders(),
     },
     body: payload ? JSON.stringify(payload) : undefined,
   });
@@ -104,6 +106,7 @@ export async function completePacking(
     headers: {
       Accept: "application/json",
       "Content-Type": "application/json",
+      ...getCurrentStationHeaders(),
     },
     body: JSON.stringify(payload),
   });

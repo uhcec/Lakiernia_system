@@ -1,0 +1,173 @@
+# Station Identity And Audit Design
+
+This document defines the near-term identity and audit model for physical factory station panels. It is based on `docs/FACTORY_USAGE_NOTES.md` and the current working contract. It is not a personal-login design.
+
+## Problem
+
+The application is used from physical devices in specific factory areas. A screen action is not just a generic API request; it comes from an office computer, manager computer, surface-preparation tablet, hanging tablet, packing tablet, Decoral tablet, or another station device.
+
+Near-term requirements:
+
+- identify which station/device context performed important actions
+- keep personal operator login deferred
+- keep the first implementation low-friction for factory devices
+- preserve operator truth and workflow integrity
+- avoid pretending that station identity solves multi-worker backend concurrency
+
+## Current Decisions
+
+- Station identity is shared by device/panel for now.
+- Personal operator login is deferred pending business clarification.
+- A single backend process is acceptable for near-term deployment.
+- Station identity and audit should be implemented before personal accounts.
+- Audit records are implementation evidence and operational traceability, not business validation by themselves.
+
+## Station Identities
+
+Initial station identity values:
+
+- `OFFICE`
+- `MANAGER`
+- `SURFACE_PREPARATION`
+- `HANGING`
+- `AUTOMATIC_PRODUCTION`
+- `MANUAL_PRODUCTION`
+- `PACKING`
+- `DECORAL_PRODUCTION`
+- `SYSTEM`
+- `UNKNOWN`
+
+`SYSTEM` is for backend-created/maintenance events when no physical station is the actor. `UNKNOWN` is a compatibility fallback while station headers are rolled out. The long-term target is that normal frontend station requests are not `UNKNOWN`.
+
+## Station Context Transport
+
+Near-term API transport:
+
+- frontend sends `X-Station-Id` with station identity
+- backend parses the header into a station context
+- invalid station values are rejected with a controlled client error once enforcement is enabled for audited mutations
+- during rollout, missing station values may be accepted as `UNKNOWN` to avoid breaking existing clients/tests
+
+Frontend mapping should be route/panel based, not user-entered on every action:
+
+- `/zlecenia` -> `OFFICE`
+- `/kierownik` -> `MANAGER`
+- `/przygotowanie-powierzchni` -> `SURFACE_PREPARATION`
+- `/zawieszanie` -> `HANGING`
+- `/produkcja-automatyczna` -> `AUTOMATIC_PRODUCTION`
+- `/produkcja-reczna` -> `MANUAL_PRODUCTION`
+- `/pakowanie` -> `PACKING`
+- `/dekoracja` or Decoral route -> `DECORAL_PRODUCTION`
+
+Exact route names should be checked against the current frontend before implementation.
+
+## Audit Event Shape
+
+Audit events should be append-only records.
+
+Proposed fields:
+
+- `id`
+- `event_type`
+- `station_id`
+- `work_order_id` nullable
+- `target_type` nullable
+- `target_id` nullable
+- `summary`
+- `details_json` nullable text/JSON
+- `created_at`
+
+Future personal-login fields can be added later:
+
+- `actor_user_id`
+- `actor_display_name`
+
+Do not require those fields in the near-term station identity slice.
+
+## Events To Audit First
+
+Start with workflow-visible mutations:
+
+- work order created
+- work order intake updated
+- incomplete-on-arrival marked complete
+- manager assigns production type and queue position
+- manager reorders queue
+- stage started
+- stage finished
+- packing completed with counted/OK/correction quantities
+- correction work order auto-created
+- attachment uploaded/deleted
+
+Audit should be recorded only after a successful business mutation, ideally in the same transaction as the mutation.
+
+## Current Implementation
+
+Implemented backend audit coverage:
+
+- `POST /work-orders` records `work_order.created`
+- manager plan assignment records `manager.plan_assigned`
+- manager queue-position update records `manager.queue_position_updated`
+- manager bulk queue reorder records `manager.queue_reordered`
+- process stage start/finish/reopen records `process.stage.started`, `process.stage.finished`, or `process.stage.reopened`
+- packing completion records `process.packing.completed`
+- packing-created correction work orders record `work_order.correction_created`
+
+Implemented frontend propagation:
+
+- mutating work-orders, manager, and process API calls send `X-Station-Id`
+- station identity is derived from the current panel route
+
+Still open:
+
+- audit attachment upload/delete
+- audit incomplete-arrival completion and work-order intake updates
+- add an audit read/export endpoint if operations need searchable history in the UI
+- enforce station permissions after business validation
+
+## Permission Direction
+
+Do not implement full role enforcement in the first slice unless needed for audit correctness.
+
+Expected future permission direction:
+
+- `OFFICE`: create/update intake, view discrepancies, manage attachments
+- `MANAGER`: assign production type, queue/reorder, view global queue
+- `SURFACE_PREPARATION`: enter counted quantity, start/finish surface prep
+- `HANGING`: start/finish hanging
+- `AUTOMATIC_PRODUCTION`: display-only unless future policy changes
+- `MANUAL_PRODUCTION`: start/finish manual production
+- `PACKING`: enter counted/OK/correction quantities, complete packing
+- `DECORAL_PRODUCTION`: start/finish Decoral production
+
+Permission enforcement needs business validation. Audit can arrive first.
+
+## Known Workflow Validation Points
+
+Open questions from `docs/FACTORY_USAGE_NOTES.md`:
+
+- Can hanging start the next order while the previous order is still in automatic production?
+- Do any correction defect types need special review/approval before manager planning?
+- Should office-only discrepancy visibility ever be expanded to manager or station views?
+
+These do not block station identity/audit infrastructure, but they do block semantic rewrites to automatic flow and correction variants.
+
+## Implementation Plan
+
+1. Add backend station enum/context parsing and audit event model.
+2. Add Alembic migration for audit events.
+3. Add focused tests for station parsing and audit event persistence.
+4. Integrate audit recording into one or two low-risk successful mutations first.
+5. Add frontend `X-Station-Id` propagation by panel route.
+6. Expand audit coverage across workflow-visible mutations.
+7. Consider permission enforcement only after station audit is stable.
+
+## Verification
+
+For each implementation slice:
+
+- focused backend tests for audit persistence and failure behavior
+- route/API tests for station header handling
+- frontend tests for station header propagation where applicable
+- full backend suite after service-level audit integration
+- frontend tests/build after frontend propagation

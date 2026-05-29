@@ -1,4 +1,5 @@
 import { createApiError } from "./apiError";
+import { getCurrentStationHeaders } from "./stationContext";
 import type { CreateWorkOrderRequest, WorkOrder, WorkOrderAttachment, WorkOrdersListResponse } from "../types/workOrders";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL?.trim();
@@ -39,6 +40,7 @@ export async function createWorkOrder(payload: CreateWorkOrderRequest): Promise<
     headers: {
       Accept: "application/json",
       "Content-Type": "application/json",
+      ...getCurrentStationHeaders(),
     },
     body: JSON.stringify(payload),
   });
@@ -56,6 +58,7 @@ export async function fetchWorkOrder(workOrderId: number): Promise<WorkOrder> {
   const response = await fetch(url, {
     headers: {
       Accept: "application/json",
+      ...getCurrentStationHeaders(),
     },
   });
 
@@ -73,6 +76,7 @@ export async function markWorkOrderCompleteArrival(workOrderId: number): Promise
     method: "POST",
     headers: {
       Accept: "application/json",
+      ...getCurrentStationHeaders(),
     },
   });
 
@@ -87,6 +91,7 @@ export async function fetchWorkOrderAttachments(workOrderId: number): Promise<Wo
   const response = await fetch(createApiUrl(`/work-orders/${workOrderId}/attachments`), {
     headers: {
       Accept: "application/json",
+      ...getCurrentStationHeaders(),
     },
   });
 
