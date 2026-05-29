@@ -119,6 +119,7 @@ export async function uploadWorkOrderAttachment(
     method: "POST",
     headers: {
       Accept: "application/json",
+      ...getCurrentStationHeaders(),
     },
     body: formData,
   });
@@ -135,6 +136,7 @@ export async function deleteWorkOrderAttachment(workOrderId: number, attachmentI
     method: "DELETE",
     headers: {
       Accept: "application/json",
+      ...getCurrentStationHeaders(),
     },
   });
 

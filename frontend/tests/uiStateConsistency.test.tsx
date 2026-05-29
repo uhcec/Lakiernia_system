@@ -18,6 +18,10 @@ vi.mock("../src/api/managerApi", () => ({
   reorderWorkOrderQueue: vi.fn(),
 }));
 
+vi.mock("../src/api/auditApi", () => ({
+  fetchWorkOrderAuditEvents: vi.fn(),
+}));
+
 vi.mock("../src/api/processApi", () => ({
   completePacking: vi.fn(),
   fetchStageWorkOrders: vi.fn(),
@@ -51,9 +55,11 @@ vi.mock("../src/utils/workOrderDisplay", () => ({
 }));
 
 const managerApi = await import("../src/api/managerApi");
+const auditApi = await import("../src/api/auditApi");
 const processApi = await import("../src/api/processApi");
 const workOrdersApi = await import("../src/api/workOrdersApi");
 
+const fetchWorkOrderAuditEventsMock = vi.mocked(auditApi.fetchWorkOrderAuditEvents);
 const fetchUnplannedWorkOrdersMock = vi.mocked(managerApi.fetchUnplannedWorkOrders);
 const fetchPlannedWorkOrdersMock = vi.mocked(managerApi.fetchPlannedWorkOrders);
 const reorderWorkOrderQueueMock = vi.mocked(managerApi.reorderWorkOrderQueue);
@@ -134,6 +140,8 @@ function buildStageWorkOrder(
 }
 
 beforeEach(() => {
+  fetchWorkOrderAuditEventsMock.mockReset();
+  fetchWorkOrderAuditEventsMock.mockResolvedValue([]);
   fetchUnplannedWorkOrdersMock.mockReset();
   fetchPlannedWorkOrdersMock.mockReset();
   reorderWorkOrderQueueMock.mockReset();
@@ -646,6 +654,43 @@ describe("frontend state consistency", () => {
     await screen.findAllByText("Wynik końcowy: 10 szt.");
     expect(screen.queryByText(/Postęp/)).toBeNull();
     expect(screen.queryByText(/Aktywne/)).toBeNull();
+  });
+
+  it("renders work order audit history on detail page", async () => {
+    fetchWorkOrderMock.mockResolvedValue(buildWorkOrder(73, "WO-AUDIT-DETAIL", 1, "Foxtrot"));
+    fetchWorkOrderAuditEventsMock.mockResolvedValue([
+      {
+        id: 1,
+        event_type: "work_order.created",
+        station_id: "OFFICE",
+        work_order_id: 73,
+        target_type: "work_order",
+        target_id: 73,
+        summary: "Created work order WO-AUDIT-DETAIL.",
+        details: { order_number: "WO-AUDIT-DETAIL", is_incomplete_on_arrival: false },
+        created_at: "2026-05-29T10:00:00Z",
+      },
+      {
+        id: 2,
+        event_type: "work_order.updated",
+        station_id: "MANAGER",
+        work_order_id: 73,
+        target_type: "work_order",
+        target_id: 73,
+        summary: "Updated work order WO-AUDIT-DETAIL.",
+        details: { updated_fields: ["title"] },
+        created_at: "2026-05-29T10:05:00Z",
+      },
+    ]);
+
+    renderWorkOrderDetail(73);
+
+    await screen.findByText("Historia zmian");
+    expect(screen.getByText("Created work order WO-AUDIT-DETAIL.")).toBeTruthy();
+    expect(screen.getByText("Updated work order WO-AUDIT-DETAIL.")).toBeTruthy();
+    expect(screen.getByText("Biuro")).toBeTruthy();
+    expect(screen.getByText("Kierownik")).toBeTruthy();
+    expect(screen.getByText("Zmieniono: title")).toBeTruthy();
   });
 
   it("renders historical correction children in detail as delta only", async () => {

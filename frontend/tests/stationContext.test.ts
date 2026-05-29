@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { createWorkOrder } from "../src/api/workOrdersApi";
+import { createWorkOrder, deleteWorkOrderAttachment, uploadWorkOrderAttachment } from "../src/api/workOrdersApi";
 import { getStationIdForPath } from "../src/api/stationContext";
 import type { CreateWorkOrderRequest } from "../src/types/workOrders";
 
@@ -40,6 +40,39 @@ describe("station context", () => {
     expect(requestInit.headers).toMatchObject({
       "X-Station-Id": "OFFICE",
       "Content-Type": "application/json",
+    });
+  });
+
+  it("sends current station identity when uploading an attachment", async () => {
+    window.history.pushState({}, "", "/zlecenia/12");
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ id: 7 }), {
+        status: 201,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await uploadWorkOrderAttachment(12, {
+      file: new File(["%PDF-1.4"], "audyt.pdf", { type: "application/pdf" }),
+    });
+
+    const requestInit = fetchMock.mock.calls[0][1] as RequestInit;
+    expect(requestInit.headers).toMatchObject({
+      "X-Station-Id": "OFFICE",
+    });
+  });
+
+  it("sends current station identity when deleting an attachment", async () => {
+    window.history.pushState({}, "", "/zlecenia/12");
+    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await deleteWorkOrderAttachment(12, 7);
+
+    const requestInit = fetchMock.mock.calls[0][1] as RequestInit;
+    expect(requestInit.headers).toMatchObject({
+      "X-Station-Id": "OFFICE",
     });
   });
 });

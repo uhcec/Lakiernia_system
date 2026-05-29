@@ -1,6 +1,7 @@
 import { ChangeEvent, FormEvent, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 
+import { fetchWorkOrderAuditEvents } from "../api/auditApi";
 import {
   deleteWorkOrderAttachment,
   fetchWorkOrder,
@@ -9,6 +10,7 @@ import {
   markWorkOrderCompleteArrival,
   uploadWorkOrderAttachment,
 } from "../api/workOrdersApi";
+import type { AuditEvent, AuditStationId } from "../types/audit";
 import type { WorkOrder, WorkOrderAttachment } from "../types/workOrders";
 import {
   formatWorkOrderPrimaryInfo,
@@ -82,6 +84,65 @@ function formatFileSize(fileSize: number): string {
   return `${(fileSize / (1024 * 1024)).toFixed(2)} MB`;
 }
 
+const stationLabels: Record<AuditStationId, string> = {
+  OFFICE: "Biuro",
+  MANAGER: "Kierownik",
+  SURFACE_PREPARATION: "Przygotowanie",
+  HANGING: "Zawieszanie",
+  AUTOMATIC_PRODUCTION: "Produkcja automat",
+  MANUAL_PRODUCTION: "Produkcja ręczna",
+  PACKING: "Pakowanie",
+  DECORAL_PRODUCTION: "Produkcja Decoral",
+  SYSTEM: "System",
+  UNKNOWN: "Nieznana stacja",
+};
+
+function formatAuditDetails(details: AuditEvent["details"]): string | null {
+  if (!details || typeof details !== "object" || Array.isArray(details)) {
+    return null;
+  }
+
+  const detailRecord = details as Record<string, unknown>;
+
+  const updatedFields = detailRecord.updated_fields;
+  if (Array.isArray(updatedFields) && updatedFields.length > 0) {
+    return `Zmieniono: ${updatedFields.join(", ")}`;
+  }
+
+  const countedQuantity = detailRecord.counted_quantity;
+  const okQuantity = detailRecord.ok_quantity;
+  const correctionQuantity = detailRecord.correction_quantity;
+  if (typeof countedQuantity === "number" && typeof okQuantity === "number" && typeof correctionQuantity === "number") {
+    return `Policzono: ${countedQuantity} · OK: ${okQuantity} · Poprawki: ${correctionQuantity}`;
+  }
+
+  const stage = detailRecord.stage;
+  const targetStatus = detailRecord.target_status;
+  if (typeof stage === "string" && typeof targetStatus === "string") {
+    return `${stage}: ${targetStatus}`;
+  }
+
+  const originalFilename = detailRecord.original_filename;
+  if (typeof originalFilename === "string") {
+    return originalFilename;
+  }
+
+  const correctionQuantityValue = detailRecord.correction_quantity;
+  if (typeof correctionQuantityValue === "number") {
+    return `Ilość poprawki: ${correctionQuantityValue}`;
+  }
+
+  return null;
+}
+
+function formatAuditDetailsJson(details: AuditEvent["details"]): string {
+  if (details === null) {
+    return "-";
+  }
+
+  return JSON.stringify(details, null, 2);
+}
+
 function badgeClasses(tone: DisplayBadge["tone"]): string {
   switch (tone) {
     case "info":
@@ -114,10 +175,13 @@ export function WorkOrderDetailPage() {
   const { id } = useParams();
   const [workOrder, setWorkOrder] = useState<WorkOrder | null>(null);
   const [attachments, setAttachments] = useState<WorkOrderAttachment[]>([]);
+  const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingAttachments, setIsLoadingAttachments] = useState(true);
+  const [isLoadingAuditEvents, setIsLoadingAuditEvents] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [attachmentsErrorMessage, setAttachmentsErrorMessage] = useState<string | null>(null);
+  const [auditErrorMessage, setAuditErrorMessage] = useState<string | null>(null);
   const [uploadErrorMessage, setUploadErrorMessage] = useState<string | null>(null);
   const [isUpdatingArrival, setIsUpdatingArrival] = useState(false);
   const [isUploadingAttachment, setIsUploadingAttachment] = useState(false);
@@ -154,6 +218,20 @@ export function WorkOrderDetailPage() {
     }
   }
 
+  async function loadAuditEvents(workOrderId: number) {
+    setIsLoadingAuditEvents(true);
+    setAuditErrorMessage(null);
+
+    try {
+      const items = await fetchWorkOrderAuditEvents(workOrderId);
+      setAuditEvents(items);
+    } catch (error) {
+      setAuditErrorMessage(error instanceof Error ? error.message : "Nie udało się pobrać historii zmian");
+    } finally {
+      setIsLoadingAuditEvents(false);
+    }
+  }
+
   useEffect(() => {
     let isActive = true;
 
@@ -166,9 +244,15 @@ export function WorkOrderDetailPage() {
 
       try {
         const workOrderId = Number(id);
-        const [item, attachmentItems] = await Promise.all([
+        const [item, attachmentItems, auditItems] = await Promise.all([
           fetchWorkOrder(workOrderId),
           fetchWorkOrderAttachments(workOrderId),
+          fetchWorkOrderAuditEvents(workOrderId).catch((error: unknown) => {
+            if (isActive) {
+              setAuditErrorMessage(error instanceof Error ? error.message : "Nie udało się pobrać historii zmian");
+            }
+            return [] as AuditEvent[];
+          }),
         ]);
         if (!isActive) {
           return;
@@ -176,6 +260,7 @@ export function WorkOrderDetailPage() {
         setErrorMessage(null);
         setWorkOrder(item);
         setAttachments(attachmentItems);
+        setAuditEvents(auditItems);
         setAttachmentsErrorMessage(null);
       } catch (error) {
         if (!isActive) {
@@ -186,6 +271,7 @@ export function WorkOrderDetailPage() {
         if (isActive) {
           setIsLoading(false);
           setIsLoadingAttachments(false);
+          setIsLoadingAuditEvents(false);
         }
       }
     }
@@ -212,7 +298,7 @@ export function WorkOrderDetailPage() {
 
     try {
       await markWorkOrderCompleteArrival(Number(id));
-      await loadWorkOrder(Number(id));
+      await Promise.all([loadWorkOrder(Number(id)), loadAuditEvents(Number(id))]);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "Nie udało się oznaczyć zlecenia jako kompletne");
     } finally {
@@ -254,7 +340,7 @@ export function WorkOrderDetailPage() {
       setSelectedFile(null);
       setAttachmentType("");
       setAttachmentDescription("");
-      await loadAttachments(Number(id));
+      await Promise.all([loadAttachments(Number(id)), loadAuditEvents(Number(id))]);
     } catch (error) {
       setUploadErrorMessage(error instanceof Error ? error.message : "Nie udało się przesłać załącznika");
     } finally {
@@ -277,7 +363,7 @@ export function WorkOrderDetailPage() {
 
     try {
       await deleteWorkOrderAttachment(Number(id), attachment.id);
-      await loadAttachments(Number(id));
+      await Promise.all([loadAttachments(Number(id)), loadAuditEvents(Number(id))]);
     } catch (error) {
       setAttachmentsErrorMessage(error instanceof Error ? error.message : "Nie udało się usunąć załącznika");
     } finally {
@@ -721,6 +807,52 @@ export function WorkOrderDetailPage() {
                     </tbody>
                   </table>
                 </div>
+              </div>
+            )}
+          </section>
+
+          <section className="rounded-[2rem] border border-white/70 bg-white/80 p-6 shadow-panel backdrop-blur sm:p-8">
+            <h3 className="text-2xl font-semibold text-ink">Historia zmian</h3>
+
+            {auditErrorMessage ? (
+              <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">{auditErrorMessage}</div>
+            ) : null}
+
+            {isLoadingAuditEvents ? (
+              <div className="mt-6 rounded-3xl border border-line/80 bg-white px-5 py-8 text-center text-sm text-steel">Ładowanie historii...</div>
+            ) : auditEvents.length === 0 ? (
+              <div className="mt-6 rounded-3xl border border-dashed border-line bg-white px-5 py-8 text-center text-sm text-steel">
+                Brak zdarzeń historii dla tego zlecenia.
+              </div>
+            ) : (
+              <div className="mt-6 space-y-4">
+                {auditEvents.map((event) => {
+                  const detailsText = formatAuditDetails(event.details);
+                  return (
+                    <article key={event.id} className="rounded-3xl border border-line/80 bg-white p-5">
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                        <div className="space-y-2">
+                          <p className="text-base font-semibold text-ink">{event.summary}</p>
+                          {detailsText ? <p className="text-sm text-steel">{detailsText}</p> : null}
+                        </div>
+                        <div className="flex flex-wrap gap-2 sm:justify-end">
+                          <span className="inline-flex rounded-full bg-mist px-3 py-1 text-xs font-semibold text-ink">
+                            {stationLabels[event.station_id]}
+                          </span>
+                          <span className="inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
+                            {formatDateTime(event.created_at)}
+                          </span>
+                        </div>
+                      </div>
+                      {event.details !== null ? (
+                        <details className="mt-4 rounded-2xl border border-line/80 bg-mist/40 px-4 py-3 text-sm text-steel">
+                          <summary className="cursor-pointer font-medium text-ink">Szczegóły</summary>
+                          <pre className="mt-3 overflow-x-auto whitespace-pre-wrap text-xs leading-5 text-steel">{formatAuditDetailsJson(event.details)}</pre>
+                        </details>
+                      ) : null}
+                    </article>
+                  );
+                })}
               </div>
             )}
           </section>

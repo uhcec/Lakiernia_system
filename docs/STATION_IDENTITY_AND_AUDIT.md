@@ -121,10 +121,11 @@ Implemented frontend propagation:
 
 - mutating work-orders, manager, and process API calls send `X-Station-Id`
 - station identity is derived from the current panel route
+- work-order detail view displays `GET /audit/work-orders/{work_order_id}/events` as a non-blocking history section
 
 Still open:
 
-- add an audit export/search UI if operations need broader history beyond the work-order-scoped API
+- add broader audit export/search UI if operations need history beyond the work-order-scoped detail view
 - enforce station permissions after business validation
 
 ## Permission Direction
@@ -162,7 +163,8 @@ These do not block station identity/audit infrastructure, but they do block sema
 4. Integrate audit recording into one or two low-risk successful mutations first.
 5. Add frontend `X-Station-Id` propagation by panel route.
 6. Expand audit coverage across workflow-visible mutations.
-7. Consider permission enforcement only after station audit is stable.
+7. Display work-order-scoped audit history on the work-order detail view.
+8. Consider permission enforcement only after station audit is stable.
 
 ## Verification
 
@@ -170,6 +172,6 @@ For each implementation slice:
 
 - focused backend tests for audit persistence and failure behavior
 - route/API tests for station header handling
-- frontend tests for station header propagation where applicable
+- frontend tests for station header propagation and audit history rendering where applicable
 - full backend suite after service-level audit integration
 - frontend tests/build after frontend propagation
