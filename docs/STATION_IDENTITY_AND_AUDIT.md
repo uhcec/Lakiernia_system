@@ -106,12 +106,15 @@ Audit should be recorded only after a successful business mutation, ideally in t
 Implemented backend audit coverage:
 
 - `POST /work-orders` records `work_order.created`
+- work-order intake updates record `work_order.updated`
+- incomplete-arrival completion records `work_order.arrival_completed`
 - manager plan assignment records `manager.plan_assigned`
 - manager queue-position update records `manager.queue_position_updated`
 - manager bulk queue reorder records `manager.queue_reordered`
 - process stage start/finish/reopen records `process.stage.started`, `process.stage.finished`, or `process.stage.reopened`
 - packing completion records `process.packing.completed`
 - packing-created correction work orders record `work_order.correction_created`
+- attachment upload/delete records `work_order.attachment_uploaded` and `work_order.attachment_deleted`
 
 Implemented frontend propagation:
 
@@ -120,8 +123,6 @@ Implemented frontend propagation:
 
 Still open:
 
-- audit attachment upload/delete
-- audit incomplete-arrival completion and work-order intake updates
 - add an audit read/export endpoint if operations need searchable history in the UI
 - enforce station permissions after business validation
 

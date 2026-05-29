@@ -1,15 +1,33 @@
+import asyncio
 from io import BytesIO
 
 from fastapi.testclient import TestClient
 import pytest
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.audit.context import StationContext
+from app.audit.models import AuditEvent
 from app.core.config import get_work_order_attachments_path
+from app.shared.enums import StationId
 from app.shared.exceptions import ResourceNotFoundError
 from app.work_orders.models import WorkOrderAttachment
 from app.work_orders.repository import WorkOrderRepository
 from app.work_orders.schemas import WorkOrderCreate
 from app.work_orders.service import WorkOrderService
+
+
+class FakeUploadFile:
+    def __init__(self, *, filename: str, content: bytes, content_type: str = "application/pdf") -> None:
+        self.filename = filename
+        self.content_type = content_type
+        self._stream = BytesIO(content)
+
+    async def read(self, size: int = -1) -> bytes:
+        return self._stream.read(size)
+
+    async def close(self) -> None:
+        self._stream.close()
 
 
 def build_create_payload(**overrides: object) -> dict:
@@ -129,6 +147,55 @@ def test_accept_pdf_with_real_header(test_client: TestClient) -> None:
     assert response.json()["original_filename"] == "real-header.pdf"
     assert response.json()["attachment_type"] == "SPEC"
     assert response.json()["description"] == "Zweryfikowany PDF"
+
+
+def test_upload_attachment_records_station_audit_event(db_session: Session) -> None:
+    service = WorkOrderService(WorkOrderRepository(db_session))
+    created = service.create_work_order(WorkOrderCreate.model_validate(build_create_payload()))
+
+    uploaded = asyncio.run(
+        service.upload_attachment(
+            created.id,
+            FakeUploadFile(filename="audyt.pdf", content=b"%PDF-1.4\n%%EOF"),
+            attachment_type="SPEC",
+            station_context=StationContext(station_id=StationId.OFFICE),
+        )
+    )
+
+    event = db_session.scalar(select(AuditEvent).where(AuditEvent.event_type == "work_order.attachment_uploaded"))
+
+    assert event is not None
+    assert event.station_id == StationId.OFFICE
+    assert event.work_order_id == created.id
+    assert event.target_type == "work_order_attachment"
+    assert event.target_id == uploaded.id
+    assert event.summary == f"Uploaded attachment audyt.pdf for work order {created.order_number}."
+
+
+def test_delete_attachment_records_station_audit_event(db_session: Session) -> None:
+    service = WorkOrderService(WorkOrderRepository(db_session))
+    created = service.create_work_order(WorkOrderCreate.model_validate(build_create_payload()))
+    uploaded = asyncio.run(
+        service.upload_attachment(
+            created.id,
+            FakeUploadFile(filename="usun-audyt.pdf", content=b"%PDF-1.4\n%%EOF"),
+        )
+    )
+
+    service.delete_attachment(
+        created.id,
+        uploaded.id,
+        station_context=StationContext(station_id=StationId.OFFICE),
+    )
+
+    event = db_session.scalar(select(AuditEvent).where(AuditEvent.event_type == "work_order.attachment_deleted"))
+
+    assert event is not None
+    assert event.station_id == StationId.OFFICE
+    assert event.work_order_id == created.id
+    assert event.target_type == "work_order_attachment"
+    assert event.target_id == uploaded.id
+    assert event.summary == f"Deleted attachment usun-audyt.pdf from work order {created.order_number}."
 
 
 def test_list_attachments(test_client: TestClient) -> None:

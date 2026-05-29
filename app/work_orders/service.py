@@ -1,5 +1,5 @@
 import json
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 from uuid import uuid4
 
@@ -110,39 +110,45 @@ class WorkOrderService:
 
         return self._to_read_model(persisted_work_order)
 
-    def _record_work_order_created(self, work_order: WorkOrder, station_context: StationContext | None) -> None:
-        station_id = station_context.station_id if station_context is not None else StationId.SYSTEM
-        self.audit_repository.add(
-            AuditEvent(
-                event_type="work_order.created",
-                station_id=station_id,
-                work_order_id=work_order.id,
-                target_type="work_order",
-                target_id=work_order.id,
-                summary=f"Created work order {work_order.order_number}.",
-                details_json=json.dumps(
-                    {
-                        "order_number": work_order.order_number,
-                        "is_incomplete_on_arrival": work_order.is_incomplete_on_arrival,
-                    },
-                    separators=(",", ":"),
-                ),
-            )
-        )
-
     def get_work_order(self, work_order_id: int) -> WorkOrderRead:
         work_order = self._get_existing_work_order(work_order_id)
         return self._to_read_model(work_order)
 
-    def update_work_order(self, work_order_id: int, payload: WorkOrderUpdate) -> WorkOrderRead:
+    def update_work_order(
+        self,
+        work_order_id: int,
+        payload: WorkOrderUpdate,
+        station_context: StationContext | None = None,
+    ) -> WorkOrderRead:
         work_order = self._get_existing_work_order(work_order_id)
         updates = payload.model_dump(exclude_unset=True)
         validated_payload = self._validate_work_order_state(work_order, updates)
+        changed_fields = {
+            field_name: {
+                "before": getattr(work_order, field_name),
+                "after": getattr(validated_payload, field_name),
+            }
+            for field_name in updates
+            if getattr(work_order, field_name) != getattr(validated_payload, field_name)
+        }
 
         for field_name in updates:
             setattr(work_order, field_name, getattr(validated_payload, field_name))
 
         work_order.updated_at = datetime.now(UTC)
+        if changed_fields:
+            self._record_audit_event(
+                event_type="work_order.updated",
+                station_context=station_context,
+                work_order=work_order,
+                target_type="work_order",
+                target_id=work_order.id,
+                summary=f"Updated work order {work_order.order_number}.",
+                details={
+                    "updated_fields": sorted(changed_fields),
+                    "changes": self._json_ready(changed_fields),
+                },
+            )
 
         try:
             self.repository.commit()
@@ -209,7 +215,11 @@ class WorkOrderService:
             "Work order status is derived from process status and cannot be changed manually."
         )
 
-    def mark_complete_arrival(self, work_order_id: int) -> WorkOrderRead:
+    def mark_complete_arrival(
+        self,
+        work_order_id: int,
+        station_context: StationContext | None = None,
+    ) -> WorkOrderRead:
         work_order = self._get_existing_work_order(work_order_id)
 
         if not self._has_incomplete_marker(work_order):
@@ -222,6 +232,18 @@ class WorkOrderService:
         work_order.is_incomplete_on_arrival = False
         work_order.status = WorkOrderStatus.ENTERED
         work_order.updated_at = datetime.now(UTC)
+        self._record_audit_event(
+            event_type="work_order.arrival_completed",
+            station_context=station_context,
+            work_order=work_order,
+            target_type="work_order",
+            target_id=work_order.id,
+            summary=f"Marked work order {work_order.order_number} as complete on arrival.",
+            details={
+                "is_incomplete_on_arrival": False,
+                "status": WorkOrderStatus.ENTERED.value,
+            },
+        )
 
         try:
             self.repository.commit()
@@ -242,6 +264,7 @@ class WorkOrderService:
         *,
         attachment_type: str | None = None,
         description: str | None = None,
+        station_context: StationContext | None = None,
     ) -> WorkOrderAttachmentRead:
         work_order = self._get_existing_work_order(work_order_id)
         original_filename = Path(file.filename or "").name.strip()
@@ -292,6 +315,13 @@ class WorkOrderService:
             )
 
             persisted_attachment = self.repository.add_attachment(attachment)
+            self._record_attachment_audit_event(
+                event_type="work_order.attachment_uploaded",
+                station_context=station_context,
+                work_order=work_order,
+                attachment=persisted_attachment,
+                summary=f"Uploaded attachment {persisted_attachment.original_filename} for work order {work_order.order_number}.",
+            )
             self.repository.commit()
         except Exception:
             self.repository.rollback()
@@ -316,11 +346,24 @@ class WorkOrderService:
         assert absolute_path is not None
         return build_work_order_attachment_read(attachment), absolute_path
 
-    def delete_attachment(self, work_order_id: int, attachment_id: int) -> None:
+    def delete_attachment(
+        self,
+        work_order_id: int,
+        attachment_id: int,
+        station_context: StationContext | None = None,
+    ) -> None:
         attachment = self._get_existing_attachment(work_order_id, attachment_id)
+        work_order = self._get_existing_work_order(work_order_id)
         file_path = self._resolve_attachment_storage_path(attachment, require_exists=False)
 
         try:
+            self._record_attachment_audit_event(
+                event_type="work_order.attachment_deleted",
+                station_context=station_context,
+                work_order=work_order,
+                attachment=attachment,
+                summary=f"Deleted attachment {attachment.original_filename} from work order {work_order.order_number}.",
+            )
             self.repository.delete_attachment(attachment)
             self.repository.commit()
         except Exception:
@@ -368,6 +411,82 @@ class WorkOrderService:
             return None
         normalized = value.strip()
         return normalized or None
+
+    def _record_work_order_created(self, work_order: WorkOrder, station_context: StationContext | None) -> None:
+        self._record_audit_event(
+            event_type="work_order.created",
+            station_context=station_context,
+            work_order=work_order,
+            target_type="work_order",
+            target_id=work_order.id,
+            summary=f"Created work order {work_order.order_number}.",
+            details={
+                "order_number": work_order.order_number,
+                "is_incomplete_on_arrival": work_order.is_incomplete_on_arrival,
+            },
+        )
+
+    def _record_attachment_audit_event(
+        self,
+        *,
+        event_type: str,
+        station_context: StationContext | None,
+        work_order: WorkOrder,
+        attachment: WorkOrderAttachment,
+        summary: str,
+    ) -> None:
+        self._record_audit_event(
+            event_type=event_type,
+            station_context=station_context,
+            work_order=work_order,
+            target_type="work_order_attachment",
+            target_id=attachment.id,
+            summary=summary,
+            details={
+                "attachment_id": attachment.id,
+                "original_filename": attachment.original_filename,
+                "stored_filename": attachment.stored_filename,
+                "content_type": attachment.content_type,
+                "file_size": attachment.file_size,
+                "attachment_type": attachment.attachment_type,
+            },
+        )
+
+    def _record_audit_event(
+        self,
+        *,
+        event_type: str,
+        station_context: StationContext | None,
+        work_order: WorkOrder,
+        target_type: str,
+        target_id: int | None,
+        summary: str,
+        details: dict[str, object],
+    ) -> None:
+        station_id = station_context.station_id if station_context is not None else StationId.SYSTEM
+        self.audit_repository.add(
+            AuditEvent(
+                event_type=event_type,
+                station_id=station_id,
+                work_order_id=work_order.id,
+                target_type=target_type,
+                target_id=target_id,
+                summary=summary,
+                details_json=json.dumps(self._json_ready(details), separators=(",", ":")),
+            )
+        )
+
+    @classmethod
+    def _json_ready(cls, value: object) -> object:
+        if isinstance(value, (date, datetime)):
+            return value.isoformat()
+        if hasattr(value, "value"):
+            return getattr(value, "value")
+        if isinstance(value, dict):
+            return {key: cls._json_ready(nested_value) for key, nested_value in value.items()}
+        if isinstance(value, list):
+            return [cls._json_ready(nested_value) for nested_value in value]
+        return value
 
     def _to_read_model(self, work_order: WorkOrder) -> WorkOrderRead:
         waiting_ok_quantity = self.process_service.get_waiting_ok_quantity(work_order)

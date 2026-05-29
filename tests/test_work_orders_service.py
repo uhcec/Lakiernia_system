@@ -11,7 +11,7 @@ from app.process.enums import CoatingType
 from app.shared.enums import StationId, WorkOrderStatus
 from app.shared.exceptions import InvalidWorkOrderDataError
 from app.work_orders.repository import WorkOrderRepository
-from app.work_orders.schemas import WorkOrderCreate
+from app.work_orders.schemas import WorkOrderCreate, WorkOrderUpdate
 from app.work_orders.service import WorkOrderService
 
 
@@ -56,6 +56,32 @@ def test_create_work_order_records_station_audit_event(db_session: Session) -> N
     assert json.loads(event.details_json or "{}") == {
         "order_number": created.order_number,
         "is_incomplete_on_arrival": False,
+    }
+
+
+def test_update_work_order_records_station_audit_event(db_session: Session) -> None:
+    service, _ = build_work_order_service(db_session)
+    created = service.create_work_order(build_incomplete_work_order_payload(is_incomplete_on_arrival=False))
+
+    service.update_work_order(
+        created.id,
+        WorkOrderUpdate(title="Po korekcie", planned_pickup_date=date(2026, 6, 3)),
+        station_context=StationContext(station_id=StationId.OFFICE),
+    )
+
+    event = db_session.scalar(select(AuditEvent).where(AuditEvent.event_type == "work_order.updated"))
+
+    assert event is not None
+    assert event.station_id == StationId.OFFICE
+    assert event.work_order_id == created.id
+    assert event.target_type == "work_order"
+    assert event.target_id == created.id
+    assert json.loads(event.details_json or "{}") == {
+        "updated_fields": ["planned_pickup_date", "title"],
+        "changes": {
+            "title": {"before": "Niekompletne zlecenie", "after": "Po korekcie"},
+            "planned_pickup_date": {"before": None, "after": "2026-06-03"},
+        },
     }
 
 
@@ -130,6 +156,28 @@ def test_valid_incomplete_order_can_still_be_marked_complete_arrival(db_session:
     assert persisted is not None
     assert persisted.is_incomplete_on_arrival is False
     assert persisted.status == WorkOrderStatus.ENTERED
+
+
+def test_mark_complete_arrival_records_station_audit_event(db_session: Session) -> None:
+    service, _ = build_work_order_service(db_session)
+    created = service.create_work_order(build_incomplete_work_order_payload())
+
+    service.mark_complete_arrival(
+        created.id,
+        station_context=StationContext(station_id=StationId.OFFICE),
+    )
+
+    event = db_session.scalar(select(AuditEvent).where(AuditEvent.event_type == "work_order.arrival_completed"))
+
+    assert event is not None
+    assert event.station_id == StationId.OFFICE
+    assert event.work_order_id == created.id
+    assert event.target_type == "work_order"
+    assert event.target_id == created.id
+    assert json.loads(event.details_json or "{}") == {
+        "is_incomplete_on_arrival": False,
+        "status": "ENTERED",
+    }
 
 
 def test_rejected_mark_complete_arrival_leaves_order_state_unchanged(db_session: Session) -> None:

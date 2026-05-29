@@ -47,8 +47,9 @@ def update_work_order(
 	work_order_id: int,
 	payload: WorkOrderUpdate,
 	service: Annotated[WorkOrderService, Depends(get_work_order_service)],
+	station_context: Annotated[StationContext, Depends(get_station_context)],
 ) -> WorkOrderRead:
-	return service.update_work_order(work_order_id, payload)
+	return service.update_work_order(work_order_id, payload, station_context=station_context)
 
 
 @router.get("", response_model=WorkOrderListResponse)
@@ -73,14 +74,16 @@ def transition_work_order_status(
 def mark_work_order_complete_arrival(
 	work_order_id: int,
 	service: Annotated[WorkOrderService, Depends(get_work_order_service)],
+	station_context: Annotated[StationContext, Depends(get_station_context)],
 ) -> WorkOrderRead:
-	return service.mark_complete_arrival(work_order_id)
+	return service.mark_complete_arrival(work_order_id, station_context=station_context)
 
 
 @router.post("/{work_order_id}/attachments", response_model=WorkOrderAttachmentRead, status_code=status.HTTP_201_CREATED)
 async def upload_work_order_attachment(
 	work_order_id: int,
 	service: Annotated[WorkOrderService, Depends(get_work_order_service)],
+	station_context: Annotated[StationContext, Depends(get_station_context)],
 	file: UploadFile = File(...),
 	attachment_type: Annotated[str | None, Form()] = None,
 	description: Annotated[str | None, Form()] = None,
@@ -90,6 +93,7 @@ async def upload_work_order_attachment(
 		file,
 		attachment_type=attachment_type,
 		description=description,
+		station_context=station_context,
 	)
 
 
@@ -120,6 +124,7 @@ def delete_work_order_attachment(
 	work_order_id: int,
 	attachment_id: int,
 	service: Annotated[WorkOrderService, Depends(get_work_order_service)],
+	station_context: Annotated[StationContext, Depends(get_station_context)],
 ) -> Response:
-	service.delete_attachment(work_order_id, attachment_id)
+	service.delete_attachment(work_order_id, attachment_id, station_context=station_context)
 	return Response(status_code=status.HTTP_204_NO_CONTENT)
