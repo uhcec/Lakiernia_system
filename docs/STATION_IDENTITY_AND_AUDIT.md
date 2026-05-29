@@ -115,6 +115,7 @@ Implemented backend audit coverage:
 - packing completion records `process.packing.completed`
 - packing-created correction work orders record `work_order.correction_created`
 - attachment upload/delete records `work_order.attachment_uploaded` and `work_order.attachment_deleted`
+- `GET /audit/work-orders/{work_order_id}/events` returns chronological audit history for a work order
 
 Implemented frontend propagation:
 
@@ -123,7 +124,7 @@ Implemented frontend propagation:
 
 Still open:
 
-- add an audit read/export endpoint if operations need searchable history in the UI
+- add an audit export/search UI if operations need broader history beyond the work-order-scoped API
 - enforce station permissions after business validation
 
 ## Permission Direction
