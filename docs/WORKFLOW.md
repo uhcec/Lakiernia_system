@@ -175,6 +175,7 @@ Rules:
 1. Only one request can successfully mutate a given stage or tracked batch at a time.
 2. Other concurrent requests for the same mutation must either be ignored as idempotent repeats or be rejected with a controlled `409` error.
 3. Parallel requests must never leave partially duplicated side effects.
+4. For correction-chain completion races, prefer idempotent success or automatic reconciliation when the final persisted parent/child quantities and READY state are already equivalent and valid. Use a controlled conflict only when the requested action cannot be safely applied to the current state.
 
 ### Guarantees
 
@@ -200,6 +201,7 @@ Tracked batch reopen rule:
 Additional completion behavior:
 - If correction descendants are completed and no active quantity remains, completion can finalize upward through parent chain.
 - Parent remains non-READY while any correction descendant is still open.
+- Parent and correction completion actions may overlap; the backend must either reconcile to the same valid final state or reject stale impossible actions with a controlled response.
 
 ## Scenario Matrix S01-S12
 

@@ -79,6 +79,7 @@ Use `docs/WORKFLOW_VALIDATION_CHECKLIST.md` as the active checklist before chang
 
 - Current working correction policy: when packing marks `corrections > 0`, the system automatically creates a correction work order. The manager later assigns that correction to manual or automatic production and inserts it into the global queue.
 - Correction work orders do not go through surface preparation. After manager planning, manual corrections start at production and automatic corrections start at hanging.
-- Remaining correction clarification: validate whether any defect types require a different review/approval path and how simultaneous parent/correction completion should respond to stale duplicate actions.
+- Correction-chain completion races should reconcile or behave idempotently when the final persisted state is already valid; otherwise the stale action should fail with a controlled conflict.
+- Remaining correction clarification: validate whether any defect types require a different review/approval path.
 - Surface-preparation quantity difference visibility is mostly clarified for now: counted quantity entry belongs on the surface-preparation tablet, while declared quantity and discrepancy visibility should be office-only unless later factory review changes this.
 - Need factory-knowledge validation on automatic-line overlap: can hanging start the next order while the previous order is still in automatic production, or does the whole hanging/automatic-line path stay blocked until packing?

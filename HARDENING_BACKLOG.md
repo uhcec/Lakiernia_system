@@ -196,7 +196,7 @@ Baseline check snapshot after backlog/doc cleanup: full backend suite passed wit
 Open item-level work:
 
 - Deferred DB invariant: incomplete orders are blocked from planned queues at service/query level; a database-level constraint remains deferred until the incomplete-state model is simple enough for a clean invariant.
-- Factory workflow validation: `docs/FACTORY_USAGE_NOTES.md` captures station/device usage and flags open questions around correction defect review, simultaneous parent/correction completion response, and automatic hanging/production overlap. Surface-preparation discrepancy visibility is a current working policy: station enters counted quantity only; office sees declared quantity and differences, subject to later review. Automatic flow working policy: hanging has start/finish, automatic production is display-only, packing handles completion, and blocking the next hanging order while automatic production is occupied is a conservative assumption pending factory validation. Correction working policy: packing creates correction work orders automatically; manager later assigns production type and queue position; correction orders skip surface preparation and start at production or hanging according to manager-assigned route.
+- Factory workflow validation: `docs/FACTORY_USAGE_NOTES.md` captures station/device usage and flags open questions around correction defect review and automatic hanging/production overlap. Surface-preparation discrepancy visibility is a current working policy: station enters counted quantity only; office sees declared quantity and differences, subject to later review. Automatic flow working policy: hanging has start/finish, automatic production is display-only, packing handles completion, and blocking the next hanging order while automatic production is occupied is a conservative assumption pending factory validation. Correction working policy: packing creates correction work orders automatically; manager later assigns production type and queue position; correction orders skip surface preparation and start at production or hanging according to manager-assigned route; correction-chain completion races reconcile/idempotently succeed when final state is valid, otherwise fail with a controlled conflict.
 
 Open audit work:
 
@@ -228,6 +228,8 @@ Open audit work:
 	- manager queue-position patch collides with bulk reorder
 	- office PATCH races `mark-complete-arrival` on an intake-incomplete order
 	- parallel normal work-order creation and correction-child creation under API load
+	- correction child planning collides with parent completion/merge-back
+	- correction-child completion races another packing completion on the same parent chain
 - Invariants checked:
 	- no raw `500`s or other unexpected HTTP statuses
 	- no duplicate work-order numbers
@@ -241,10 +243,8 @@ Open audit work:
 	- no duplicate direct correction children from the same parent
 	- parent/child quantities remain conserved after packing/correction races
 	- `READY` is not set while a correction child remains open
-- Result: `python -m pytest tests/test_chaos_api.py` passed with `16 passed`.
-- Remaining recommended chaos scenarios:
-	- correction child planning collides with parent completion/merge-back
-	- correction-child completion races another packing completion on the same parent chain
+- Result: `python -m pytest tests/test_chaos_api.py` passed with `18 passed`.
+- Remaining recommended chaos scenarios: none pending under the currently validated business rules.
 
 ## Closure Expectations
 

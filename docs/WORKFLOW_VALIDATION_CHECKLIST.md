@@ -49,12 +49,12 @@ Current repository behavior/evidence:
 - Correction children may themselves create further correction children.
 - Correction orders do not go through surface preparation; after manager planning, manual corrections start at production and automatic corrections start at hanging.
 - Correction orders use the same manager planning and queue-position workflow as normal orders.
+- Simultaneous parent/correction completion should reconcile or behave idempotently when the final state is already valid; otherwise it should fail with a controlled conflict.
 
 Factory decision needed:
 
 - Do any defect types require office, manager, quality-control, or customer review before planning?
 - Should the packing operator choose a defect category/reason when creating a correction?
-- For simultaneous parent/correction completion, should stale duplicate actions return refresh-required conflicts or should the system reconcile automatically when invariants are still satisfied?
 
 Why this matters:
 

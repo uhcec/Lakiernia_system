@@ -7,11 +7,11 @@ from tests.chaos.actors import AttachmentAgent, ChaosAgent, ManagerAgent, Office
 from tests.chaos.harness import ChaosEnvironment
 
 
-def build_create_payload(title: str) -> dict:
+def build_create_payload(title: str, *, coating_type: str = "RAL", total_quantity: int = 100) -> dict:
     return {
         "title": title,
-        "coating_type": "RAL",
-        "total_quantity": 100,
+        "coating_type": coating_type,
+        "total_quantity": total_quantity,
         "customer_name": "ACME",
         "ral_code": "RAL 7016",
         "paint_producer": "AkzoNobel",
@@ -21,8 +21,8 @@ def build_create_payload(title: str) -> dict:
     }
 
 
-def create_work_order(client, title: str) -> dict:
-    response = client.post("/work-orders", json=build_create_payload(title))
+def create_work_order(client, title: str, *, coating_type: str = "RAL", total_quantity: int = 100) -> dict:
+    response = client.post("/work-orders", json=build_create_payload(title, coating_type=coating_type, total_quantity=total_quantity))
     assert response.status_code == 201
     return response.json()
 
@@ -32,8 +32,16 @@ def synchronized_create_work_order(client, barrier: Barrier, title: str):
     return client.post("/work-orders", json=build_create_payload(title))
 
 
-def create_planned_work_order(client, title: str, queue_position: int, production_type: str = "MANUAL") -> dict:
-    created = create_work_order(client, title)
+def create_planned_work_order(
+    client,
+    title: str,
+    queue_position: int,
+    production_type: str = "MANUAL",
+    *,
+    coating_type: str = "RAL",
+    total_quantity: int = 100,
+) -> dict:
+    created = create_work_order(client, title, coating_type=coating_type, total_quantity=total_quantity)
     response = client.post(
         f"/manager/work-orders/{created['id']}/plan",
         json={"production_type": production_type, "queue_position": queue_position},
@@ -50,11 +58,24 @@ def start_surface_preparation(client, work_order_id: int, counted_quantity: int 
 
 
 def advance_to_packing(client, work_order_id: int) -> None:
-    start_surface_preparation(client, work_order_id, 100)
-    client.post(f"/process/work-orders/{work_order_id}/stages/SURFACE_PREPARATION/finish")
+    detail = get_work_order_detail(client, work_order_id)
+    if not detail["is_correction"]:
+        start_surface_preparation(client, work_order_id, detail["current_active_quantity"])
+        client.post(f"/process/work-orders/{work_order_id}/stages/SURFACE_PREPARATION/finish")
+
+    detail = get_work_order_detail(client, work_order_id)
+    if detail["production_type"]["value"] == "AUTOMATIC":
+        client.post(f"/process/work-orders/{work_order_id}/stages/HANGING/start")
+        return
+
     client.post(f"/process/work-orders/{work_order_id}/stages/PRODUCTION/start")
     client.post(f"/process/work-orders/{work_order_id}/stages/PRODUCTION/finish")
     client.post(f"/process/work-orders/{work_order_id}/stages/PACKING/start")
+
+
+def synchronized_post(client, barrier: Barrier, path: str, **kwargs):
+    barrier.wait()
+    return client.post(path, **kwargs)
 
 
 def get_direct_correction_children(client, parent_id: int) -> list[dict]:
@@ -295,6 +316,105 @@ def scenario_parallel_normal_and_correction_creation(env: ChaosEnvironment):
     assert len(children) <= 1
 
     return [*(future.result() for future in create_futures), correction_future.result()]
+
+
+def scenario_correction_planning_collides_with_parent_completion(env: ChaosEnvironment):
+    seeder = env.create_actor_client("Seeder-Correction-Planning-Race")
+    parent = create_planned_work_order(
+        seeder,
+        "Correction Planning Parent Completion",
+        1,
+        production_type="MANUAL",
+        coating_type="DECORAL",
+    )
+    advance_to_packing(seeder, parent["id"])
+    split_response = seeder.post(
+        f"/process/work-orders/{parent['id']}/packing/complete",
+        json={"counted_quantity": 100, "ok_quantity": 70, "correction_quantity": 30},
+    )
+    assert split_response.status_code == 200
+    batch_id = split_response.json()["batch_id"]
+    correction_order = get_direct_correction_children(seeder, parent["id"])[0]
+    start_parent_decoral = seeder.post(f"/process/work-orders/{parent['id']}/batches/{batch_id}/stages/DECORAL_PRODUCTION/start")
+    assert start_parent_decoral.status_code == 200
+
+    manager = ManagerAgent(env.create_actor_client("ManagerAgent-Correction-Planning"))
+    parent_finisher = env.create_actor_client("DecoralFinalizer-Parent")
+    barrier = Barrier(2)
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        future_plan = executor.submit(
+            manager.synchronized_plan,
+            barrier,
+            correction_order["id"],
+            production_type="MANUAL",
+            queue_position=2,
+        )
+        future_finish = executor.submit(
+            synchronized_post,
+            parent_finisher,
+            barrier,
+            f"/process/work-orders/{parent['id']}/batches/{batch_id}/stages/DECORAL_PRODUCTION/finish",
+        )
+
+    parent_detail = get_work_order_detail(seeder, parent["id"])
+    correction_detail = get_work_order_detail(seeder, correction_order["id"])
+    assert parent_detail["process_status"]["value"] == "WAITING_FOR_CORRECTIONS"
+    assert parent_detail["completed_quantity"] in {0, 70}
+    assert correction_detail["production_type"]["value"] == "MANUAL"
+    stage_states = {stage["stage"]["value"]: stage["status"]["value"] for stage in correction_detail["stage_states"]}
+    assert stage_states["SURFACE_PREPARATION"] == "DONE"
+    assert stage_states["PRODUCTION"] == "NOT_STARTED"
+
+    return [future_plan.result(), future_finish.result()]
+
+
+def scenario_correction_completion_races_parent_duplicate_packing(env: ChaosEnvironment):
+    seeder = env.create_actor_client("Seeder-Correction-Completion-Race")
+    parent = create_planned_work_order(seeder, "Correction Completion Parent Duplicate", 1)
+    advance_to_packing(seeder, parent["id"])
+    split_response = seeder.post(
+        f"/process/work-orders/{parent['id']}/packing/complete",
+        json={"counted_quantity": 100, "ok_quantity": 90, "correction_quantity": 10},
+    )
+    assert split_response.status_code == 200
+    correction_order = get_direct_correction_children(seeder, parent["id"])[0]
+    manager = ManagerAgent(env.create_actor_client("ManagerAgent-Correction-Completion"))
+    plan_response = manager.plan(correction_order["id"], production_type="MANUAL", queue_position=2)
+    assert plan_response.status_code == 200
+    advance_to_packing(seeder, correction_order["id"])
+
+    child_packing = PackingAgent(env.create_actor_client("PackingAgent-Correction-Child"))
+    parent_duplicate = PackingAgent(env.create_actor_client("PackingAgent-Parent-Duplicate"))
+    barrier = Barrier(2)
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        future_child = executor.submit(
+            child_packing.synchronized_complete_packing,
+            barrier,
+            correction_order["id"],
+            counted_quantity=10,
+            ok_quantity=10,
+            correction_quantity=0,
+        )
+        future_parent_duplicate = executor.submit(
+            parent_duplicate.synchronized_complete_packing,
+            barrier,
+            parent["id"],
+            counted_quantity=100,
+            ok_quantity=90,
+            correction_quantity=10,
+        )
+
+    parent_detail = get_work_order_detail(seeder, parent["id"])
+    correction_detail = get_work_order_detail(seeder, correction_order["id"])
+    children = get_direct_correction_children(seeder, parent["id"])
+    assert len(children) == 1
+    assert parent_detail["process_status"]["value"] == "READY"
+    assert parent_detail["completed_quantity"] == 100
+    assert correction_detail["is_historical_correction"] is True
+
+    return [future_child.result(), future_parent_duplicate.result()]
 
 
 def scenario_office_edits_order_while_manager_plans_it(env: ChaosEnvironment):

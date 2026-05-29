@@ -8,6 +8,8 @@ from tests.chaos.harness import ChaosEnvironment
 from tests.chaos.invariants import assert_global_invariants
 from tests.chaos.scenarios import (
     scenario_attachment_upload_delete_detail_reload,
+    scenario_correction_completion_races_parent_duplicate_packing,
+    scenario_correction_planning_collides_with_parent_completion,
     scenario_correction_uses_actual_split,
     scenario_double_click_packing_complete,
     scenario_invalid_patch_during_planning,
@@ -49,6 +51,8 @@ def chaos_environment(tmp_path: Path) -> ChaosEnvironment:
         ("correction_uses_actual_split", scenario_correction_uses_actual_split),
         ("repeated_correction_split_does_not_duplicate_child", scenario_repeated_correction_split_does_not_duplicate_child),
         ("parallel_normal_and_correction_creation", scenario_parallel_normal_and_correction_creation),
+        ("correction_planning_collides_with_parent_completion", scenario_correction_planning_collides_with_parent_completion),
+        ("correction_completion_races_parent_duplicate_packing", scenario_correction_completion_races_parent_duplicate_packing),
         ("office_edits_order_while_manager_plans_it", scenario_office_edits_order_while_manager_plans_it),
         ("office_mark_complete_while_manager_plans", scenario_office_mark_complete_while_manager_plans),
         ("office_patch_races_complete_arrival", scenario_office_patch_races_complete_arrival),
