@@ -1,9 +1,11 @@
 from collections.abc import Sequence
+from datetime import datetime
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.audit.models import AuditEvent
+from app.shared.enums import StationId
 from app.shared.request_context import get_current_request_id
 
 
@@ -27,4 +29,40 @@ class AuditRepository:
             .offset(offset)
             .limit(limit)
         )
+        return self.session.scalars(statement).all()
+
+    def list_events(
+        self,
+        *,
+        limit: int,
+        offset: int = 0,
+        work_order_id: int | None = None,
+        event_type: str | None = None,
+        station_id: StationId | None = None,
+        request_id: str | None = None,
+        target_type: str | None = None,
+        target_id: int | None = None,
+        created_from: datetime | None = None,
+        created_to: datetime | None = None,
+    ) -> Sequence[AuditEvent]:
+        statement = select(AuditEvent)
+
+        if work_order_id is not None:
+            statement = statement.where(AuditEvent.work_order_id == work_order_id)
+        if event_type is not None:
+            statement = statement.where(AuditEvent.event_type == event_type)
+        if station_id is not None:
+            statement = statement.where(AuditEvent.station_id == station_id)
+        if request_id is not None:
+            statement = statement.where(AuditEvent.request_id == request_id)
+        if target_type is not None:
+            statement = statement.where(AuditEvent.target_type == target_type)
+        if target_id is not None:
+            statement = statement.where(AuditEvent.target_id == target_id)
+        if created_from is not None:
+            statement = statement.where(AuditEvent.created_at >= created_from)
+        if created_to is not None:
+            statement = statement.where(AuditEvent.created_at <= created_to)
+
+        statement = statement.order_by(AuditEvent.created_at.desc(), AuditEvent.id.desc()).offset(offset).limit(limit)
         return self.session.scalars(statement).all()

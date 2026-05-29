@@ -119,6 +119,8 @@ Implemented backend audit coverage:
 - audit events created during an HTTP request persist that request ID for traceability
 - request logs include the request ID, method, path, status, and duration for log/event correlation
 - `GET /audit/work-orders/{work_order_id}/events` returns chronological audit history for a work order
+- `GET /audit/events` searches audit events by work order, event type, station, request ID, target, and created-at range
+- `GET /audit/events/export.csv` exports the same filtered audit events as CSV
 
 Implemented frontend propagation:
 
@@ -128,7 +130,7 @@ Implemented frontend propagation:
 
 Still open:
 
-- add broader audit export/search UI if operations need history beyond the work-order-scoped detail view
+- add broader audit search/export frontend UX if operations need a dedicated audit console beyond backend endpoints and work-order detail history
 - enforce station permissions after business validation
 
 ## Permission Direction

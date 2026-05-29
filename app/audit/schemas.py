@@ -21,6 +21,12 @@ class AuditEventRead(BaseModel):
     created_at: datetime
 
 
+class AuditEventListResponse(BaseModel):
+    items: list[AuditEventRead]
+    limit: int
+    offset: int
+
+
 def build_audit_event_read(event: AuditEvent) -> AuditEventRead:
     return AuditEventRead(
         id=event.id,
