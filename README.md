@@ -175,7 +175,7 @@ Optional frontend `.env`:
 Copy-Item frontend\.env.example frontend\.env
 ```
 
-If `VITE_API_BASE_URL` is not set, frontend API calls use same-origin paths. In local Vite development, `/health`, `/manager`, `/process`, and `/work-orders` are proxied to `http://127.0.0.1:8000`.
+If `VITE_API_BASE_URL` is not set, frontend API calls use same-origin paths. In local Vite development, `/audit`, `/health`, `/manager`, `/process`, and `/work-orders` are proxied to `http://127.0.0.1:8000`.
 
 Start the frontend:
 
