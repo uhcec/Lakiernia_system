@@ -24,6 +24,7 @@ def test_alembic_check_passes_after_upgrade_head(tmp_path: Path) -> None:
     work_order_indexes = _table_indexes(db_path, "work_orders")
     quantity_batch_indexes = _table_indexes(db_path, "work_order_quantity_batches")
     audit_event_indexes = _table_indexes(db_path, "audit_events")
+    audit_event_columns = _table_columns(db_path, "audit_events")
 
     assert "due_date" not in columns
     assert "ix_work_orders_queue_namespace" in work_order_indexes
@@ -31,8 +32,10 @@ def test_alembic_check_passes_after_upgrade_head(tmp_path: Path) -> None:
     assert "uq_work_order_quantity_batches_one_active_per_work_order" in quantity_batch_indexes
     assert "ix_audit_events_event_type" in audit_event_indexes
     assert "ix_audit_events_work_order_id" in audit_event_indexes
+    assert "ix_audit_events_request_id" in audit_event_indexes
     assert "ix_audit_events_created_at" in audit_event_indexes
     assert "ix_audit_events_id" in audit_event_indexes
+    assert "request_id" in audit_event_columns
 
 
 def _alembic_config() -> Config:
@@ -61,8 +64,12 @@ def _sqlite_url(db_path: Path) -> str:
 
 
 def _work_order_columns(db_path: Path) -> set[str]:
+    return _table_columns(db_path, "work_orders")
+
+
+def _table_columns(db_path: Path, table_name: str) -> set[str]:
     with sqlite3.connect(db_path) as connection:
-        rows = connection.execute("PRAGMA table_info(work_orders)").fetchall()
+        rows = connection.execute(f"PRAGMA table_info({table_name})").fetchall()
     return {row[1] for row in rows}
 
 

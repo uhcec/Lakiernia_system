@@ -63,6 +63,8 @@ app/
 alembic/                Database migration history
 docs/
   WORKFLOW.md           Business workflow source of truth
+  WORKFLOW_VALIDATION_CHECKLIST.md
+                        Factory-policy questions to answer before semantic workflow changes
   WORKING_CONTRACT.md   Collaboration and quality rules
 frontend/               React/Vite operator UI
 scripts/                Local database repair, reset, and seed utilities
@@ -258,5 +260,5 @@ Work-order attachments are stored on the local filesystem under `WORK_ORDER_ATTA
 Near-term cleanup priorities are tracked in `docs/WORKING_CONTRACT.md` and `HARDENING_BACKLOG.md`. The current sequence is:
 
 1. Refactor Copilot instructions into a shorter always-on contract plus targeted workflow aids.
-2. Audit multi-worker concurrency, remaining DB invariants, historical UI semantics, auth/roles, audit logging, and attachment lifecycle safety.
-3. Add traceability between workflow scenarios, tests, and unresolved business assumptions.
+2. Audit multi-worker concurrency, remaining DB invariants, historical UI semantics, auth/roles, request traceability, audit logging, and attachment lifecycle safety.
+3. Keep traceability between workflow scenarios, tests, audit events, and unresolved business assumptions.

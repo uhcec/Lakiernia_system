@@ -5,6 +5,7 @@ from pathlib import Path
 
 from alembic import command
 from alembic.config import Config
+from alembic.script import ScriptDirectory
 
 from app.core.config import get_settings
 from scripts.repair_sqlite_migration_0007 import REVISION_0006, repair_local_sqlite_migration_0007
@@ -52,7 +53,7 @@ def test_upgrade_head_succeeds_after_repair(tmp_path: Path):
 
     _upgrade_database(db_path, "head")
 
-    assert _read_revision(db_path) == "20260529_0016"
+    assert _read_revision(db_path) == _current_alembic_head()
     columns = _work_order_columns(db_path)
     assert "parent_order_id" in columns
     assert "is_correction" in columns
@@ -278,6 +279,12 @@ def _upgrade_database(db_path: Path, revision: str) -> None:
     config.set_main_option("script_location", str(REPO_ROOT / "alembic"))
     with _temporary_database_url(_sqlite_url(db_path)):
         command.upgrade(config, revision)
+
+
+def _current_alembic_head() -> str:
+    config = Config(str(REPO_ROOT / "alembic.ini"))
+    config.set_main_option("script_location", str(REPO_ROOT / "alembic"))
+    return ScriptDirectory.from_config(config).get_current_head()
 
 
 @contextmanager

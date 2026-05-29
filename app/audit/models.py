@@ -20,6 +20,7 @@ class AuditEvent(Base):
     __table_args__ = (
         Index("ix_audit_events_event_type", "event_type"),
         Index("ix_audit_events_work_order_id", "work_order_id"),
+        Index("ix_audit_events_request_id", "request_id"),
         Index("ix_audit_events_created_at", "created_at"),
     )
 
@@ -29,6 +30,7 @@ class AuditEvent(Base):
     work_order_id: Mapped[int | None] = mapped_column(ForeignKey("work_orders.id", ondelete="SET NULL"), nullable=True)
     target_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
     target_id: Mapped[int | None] = mapped_column(Integer(), nullable=True)
+    request_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     summary: Mapped[str] = mapped_column(String(255), nullable=False)
     details_json: Mapped[str | None] = mapped_column(Text(), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False)

@@ -19,6 +19,7 @@ export interface AuditEvent {
   work_order_id: number | null;
   target_type: string | null;
   target_id: number | null;
+  request_id: string | null;
   summary: string;
   details: AuditEventDetails;
   created_at: string;

@@ -15,6 +15,7 @@ class AuditEventRead(BaseModel):
     work_order_id: int | None
     target_type: str | None
     target_id: int | None
+    request_id: str | None
     summary: str
     details: dict[str, Any] | list[Any] | str | int | float | bool | None
     created_at: datetime
@@ -28,6 +29,7 @@ def build_audit_event_read(event: AuditEvent) -> AuditEventRead:
         work_order_id=event.work_order_id,
         target_type=event.target_type,
         target_id=event.target_id,
+        request_id=event.request_id,
         summary=event.summary,
         details=_parse_details(event.details_json),
         created_at=event.created_at,
