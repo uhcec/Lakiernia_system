@@ -172,11 +172,6 @@ def test_completed_decoral_correction_preserves_correction_quantity_context_in_m
     test_client.post(f"/process/work-orders/{created['id']}/batches/{parent_batch_id}/stages/DECORAL_PRODUCTION/start")
     test_client.post(f"/process/work-orders/{created['id']}/batches/{parent_batch_id}/stages/DECORAL_PRODUCTION/finish")
 
-    test_client.post(
-        f"/process/work-orders/{correction_order['id']}/stages/SURFACE_PREPARATION/start",
-        json={"counted_quantity": 3},
-    )
-    test_client.post(f"/process/work-orders/{correction_order['id']}/stages/SURFACE_PREPARATION/finish")
     test_client.post(f"/process/work-orders/{correction_order['id']}/stages/HANGING/start")
     test_client.post(
         f"/process/work-orders/{correction_order['id']}/packing/complete",

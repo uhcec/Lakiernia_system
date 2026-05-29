@@ -40,20 +40,21 @@ Why this matters:
 
 ### 2. Correction Review And Planning
 
-Status: `WORKING ASSUMPTION`
+Status: `PARTLY VALIDATED`
 
 Current repository behavior/evidence:
 
 - Packing with `correction_quantity > 0` automatically creates an unplanned correction work order.
 - Manager later assigns manual or automatic production and queue position.
 - Correction children may themselves create further correction children.
+- Correction orders do not go through surface preparation; after manager planning, manual corrections start at production and automatic corrections start at hanging.
+- Correction orders use the same manager planning and queue-position workflow as normal orders.
 
 Factory decision needed:
 
-- Are all correction quantities allowed to become manager-planned correction work orders automatically?
 - Do any defect types require office, manager, quality-control, or customer review before planning?
 - Should the packing operator choose a defect category/reason when creating a correction?
-- Should correction work ever skip manager planning and return directly to a default route?
+- For simultaneous parent/correction completion, should stale duplicate actions return refresh-required conflicts or should the system reconcile automatically when invariants are still satisfied?
 
 Why this matters:
 

@@ -90,8 +90,10 @@ When packing has correction quantity (`correction_quantity > 0`):
 3. Parent enters waiting state until all open correction descendants are completed.
 
 Correction planning return stage:
-- Child planned as `MANUAL`: returns to painting flow from `PRODUCTION`
-- Child planned as `AUTOMATIC`: returns to painting flow from `HANGING`
+- Correction orders do not go through `SURFACE_PREPARATION`.
+- When a correction is manager-planned, its `SURFACE_PREPARATION` stage is treated as already done.
+- Child planned as `MANUAL`: first actionable station is `PRODUCTION`.
+- Child planned as `AUTOMATIC`: first actionable station is `HANGING`.
 
 Decoral split behavior:
 - Parent OK part continues on `DECORAL_PRODUCTION`
@@ -100,6 +102,7 @@ Decoral split behavior:
 
 Multi-round corrections:
 - Child can itself split again and create another child
+- Every correction descendant follows the same rule: skip `SURFACE_PREPARATION`, then start from the manager-assigned manual or automatic route.
 - Finalization/merge propagates up chain when deepest open correction closes
 - After a correction is completed and merged back into its parent, it is no longer shown as an active work order.
 - In completed/history views, merged corrections are shown as a historical delta (`X corrected out of Y`), not as active batch progress.

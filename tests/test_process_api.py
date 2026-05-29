@@ -663,6 +663,35 @@ def test_correction_order_can_be_planned_after_packing_split(test_client: TestCl
     assert correction_row["is_historical_correction"] is False
 
 
+def test_correction_order_cannot_enter_surface_preparation_via_api(test_client: TestClient) -> None:
+    created = create_planned_work_order(test_client, title="Correction skips surface prep API", queue_position=1, production_type="MANUAL")
+    advance_to_packing(test_client, created["id"])
+    complete_packing_request(test_client, created["id"], counted_quantity=100, ok_quantity=95, correction_quantity=5)
+    correction_order = next(
+        item
+        for item in test_client.get("/manager/work-orders/unplanned").json()
+        if item["parent_order"]["id"] == created["id"]
+    )
+    plan_response = test_client.post(
+        f"/manager/work-orders/{correction_order['id']}/plan",
+        json={"production_type": "MANUAL", "queue_position": 2},
+    )
+    surface_response = test_client.get("/process/stages/SURFACE_PREPARATION/work-orders")
+    start_response = test_client.post(
+        f"/process/work-orders/{correction_order['id']}/stages/SURFACE_PREPARATION/start",
+        json={"counted_quantity": 5},
+    )
+    correction_detail = test_client.get(f"/work-orders/{correction_order['id']}")
+
+    assert plan_response.status_code == 200
+    assert correction_order["id"] not in [item["id"] for item in surface_response.json()]
+    assert start_response.status_code == 409
+    assert start_response.json()["detail"] == "Correction orders do not go through surface preparation."
+    stage_states = {stage["stage"]["value"]: stage["status"]["value"] for stage in correction_detail.json()["stage_states"]}
+    assert stage_states["SURFACE_PREPARATION"] == "DONE"
+    assert stage_states["PRODUCTION"] == "NOT_STARTED"
+
+
 def test_stage_list_can_filter_by_queue_namespace(test_client: TestClient) -> None:
     main = create_planned_work_order(test_client, title="Main production list", queue_position=1, production_type="MANUAL")
     advance_to_hanging(test_client, main["id"])

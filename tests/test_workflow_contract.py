@@ -67,8 +67,9 @@ def create_planned_work_order(
 
 def advance_to_packing(process_service: ProcessService, work_order_id: int) -> None:
     work_order = process_service.get_work_order_process(work_order_id)
-    process_service.transition_stage(work_order_id, ProcessStage.SURFACE_PREPARATION, StageStatus.IN_PROGRESS)
-    process_service.transition_stage(work_order_id, ProcessStage.SURFACE_PREPARATION, StageStatus.DONE)
+    if not work_order.is_correction:
+        process_service.transition_stage(work_order_id, ProcessStage.SURFACE_PREPARATION, StageStatus.IN_PROGRESS)
+        process_service.transition_stage(work_order_id, ProcessStage.SURFACE_PREPARATION, StageStatus.DONE)
     if work_order.production_type == ProductionType.AUTOMATIC:
         process_service.transition_stage(work_order_id, ProcessStage.HANGING, StageStatus.IN_PROGRESS)
         return

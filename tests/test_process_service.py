@@ -513,6 +513,33 @@ def test_decoral_split_moves_ok_quantity_to_decoral_and_child_to_painting_flow(d
     assert stage_states[ProcessStage.PRODUCTION] == StageStatus.NOT_STARTED
 
 
+def test_correction_order_cannot_enter_surface_preparation(db_session: Session) -> None:
+    work_order_service, process_service, manager_service, work_order_repository, process_repository = build_services(db_session)
+
+    created = create_ral_work_order(work_order_service, "Correction skips surface prep")
+    manager_service.assign_plan(
+        created.id,
+        WorkOrderPlanAssignRequest(production_type=ProductionType.MANUAL, queue_position=1),
+    )
+    advance_to_packing(process_service, created.id)
+    complete_packing(process_service, created.id, ok_quantity=90, correction_quantity=10)
+    correction_order = next(work_order for work_order in work_order_repository.list(limit=20, offset=0) if work_order.is_correction)
+    manager_service.assign_plan(
+        correction_order.id,
+        WorkOrderPlanAssignRequest(production_type=ProductionType.MANUAL, queue_position=2),
+    )
+
+    with pytest.raises(InvalidProcessStageTransitionError) as exc_info:
+        process_service.start_stage(correction_order.id, ProcessStage.SURFACE_PREPARATION, counted_quantity=10)
+
+    planned_correction = process_repository.get_work_order_with_stage_states(correction_order.id)
+    assert str(exc_info.value) == "Correction orders do not go through surface preparation."
+    assert planned_correction is not None
+    stage_states = {stage_state.stage: stage_state.status for stage_state in planned_correction.stage_states}
+    assert stage_states[ProcessStage.SURFACE_PREPARATION] == StageStatus.DONE
+    assert stage_states[ProcessStage.PRODUCTION] == StageStatus.NOT_STARTED
+
+
 def test_decoral_parent_stays_not_ready_when_ok_decoral_finishes_but_correction_is_open(db_session: Session) -> None:
     work_order_service, process_service, manager_service, work_order_repository, process_repository = build_services(db_session)
 

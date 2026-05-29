@@ -198,6 +198,9 @@ class ProcessService:
                     "Automatic production is preview-only. Start the process from HANGING and finish it from PACKING."
                 )
 
+            if self._is_correction_surface_preparation(work_order, stage):
+                raise InvalidProcessStageTransitionError("Correction orders do not go through surface preparation.")
+
             self._store_stage_start_data(work_order, stage, counted_quantity)
 
             self.transition_stage(work_order_id, stage, StageStatus.IN_PROGRESS, station_context=station_context)
@@ -288,6 +291,9 @@ class ProcessService:
             raise InvalidProcessStageTransitionError(
                 "Automatic production is preview-only. Start the process from HANGING and finish it from PACKING."
             )
+
+        if self._is_correction_surface_preparation(work_order, stage):
+            raise InvalidProcessStageTransitionError("Correction orders do not go through surface preparation.")
 
         stage_state = self._get_stage_state(work_order, stage)
 
@@ -461,6 +467,9 @@ class ProcessService:
         if not self._is_planned(work_order):
             return False
 
+        if self._is_correction_surface_preparation(work_order, stage):
+            return False
+
         if self._uses_batch_tracking(work_order):
             if stage == ProcessStage.PRODUCTION and production_type is not None and work_order.production_type != production_type:
                 return False
@@ -611,6 +620,9 @@ class ProcessService:
                 "Automatic production is preview-only. Start the process from HANGING and finish it from PACKING."
             )
 
+        if self._is_correction_surface_preparation(work_order, stage_state.stage):
+            raise InvalidProcessStageTransitionError("Correction orders do not go through surface preparation.")
+
         if (
             work_order.production_type == ProductionType.AUTOMATIC
             and stage_state.stage == ProcessStage.HANGING
@@ -673,6 +685,10 @@ class ProcessService:
     @staticmethod
     def _is_automatic_production_preview_stage(work_order: WorkOrder, stage: ProcessStage) -> bool:
         return work_order.production_type == ProductionType.AUTOMATIC and stage == ProcessStage.PRODUCTION
+
+    @staticmethod
+    def _is_correction_surface_preparation(work_order: WorkOrder, stage: ProcessStage) -> bool:
+        return work_order.is_correction and stage == ProcessStage.SURFACE_PREPARATION
 
     def _is_visible_in_automatic_production_preview(
         self,
