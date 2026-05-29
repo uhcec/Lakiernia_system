@@ -117,6 +117,7 @@ Implemented backend audit coverage:
 - attachment upload/delete records `work_order.attachment_uploaded` and `work_order.attachment_deleted`
 - every HTTP response includes `X-Request-Id`; a valid incoming `X-Request-Id` is echoed, otherwise the backend generates one
 - audit events created during an HTTP request persist that request ID for traceability
+- request logs include the request ID, method, path, status, and duration for log/event correlation
 - `GET /audit/work-orders/{work_order_id}/events` returns chronological audit history for a work order
 
 Implemented frontend propagation:
@@ -128,7 +129,6 @@ Implemented frontend propagation:
 Still open:
 
 - add broader audit export/search UI if operations need history beyond the work-order-scoped detail view
-- add structured application logging keyed by request ID if deployment troubleshooting requires log/event correlation beyond audit history
 - enforce station permissions after business validation
 
 ## Permission Direction

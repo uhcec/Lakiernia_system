@@ -1,3 +1,5 @@
+import logging
+
 from fastapi.testclient import TestClient
 
 
@@ -59,3 +61,39 @@ def test_audit_event_records_current_request_id(test_client: TestClient) -> None
     events = audit_response.json()
     assert events[0]["event_type"] == "work_order.created"
     assert events[0]["request_id"] == "trace-create-001"
+
+
+def test_request_log_includes_traceability_fields(test_client: TestClient) -> None:
+    records: list[logging.LogRecord] = []
+
+    class CaptureHandler(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            records.append(record)
+
+    logger = logging.getLogger("app.request")
+    previous_level = logger.level
+    previous_disabled = logger.disabled
+    previous_global_disable = logging.root.manager.disable
+    handler = CaptureHandler()
+    handler.setLevel(logging.INFO)
+    logger.addHandler(handler)
+    logger.setLevel(logging.INFO)
+    logger.disabled = False
+    logging.disable(logging.NOTSET)
+
+    try:
+        response = test_client.get("/health", headers={REQUEST_ID_HEADER: "trace-log-001"})
+    finally:
+        logger.removeHandler(handler)
+        logger.setLevel(previous_level)
+        logger.disabled = previous_disabled
+        logging.disable(previous_global_disable)
+
+    assert response.status_code == 200
+    record = next(record for record in records if record.name == "app.request")
+    assert record.message == "HTTP request completed"
+    assert record.request_id == "trace-log-001"
+    assert record.http_method == "GET"
+    assert record.http_path == "/health"
+    assert record.http_status_code == 200
+    assert isinstance(record.duration_ms, float)
