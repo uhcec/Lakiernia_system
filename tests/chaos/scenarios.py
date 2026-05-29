@@ -126,6 +126,36 @@ def scenario_stale_queue_payload_submit(env: ChaosEnvironment):
     return [future_fresh.result(), future_stale.result()]
 
 
+def scenario_queue_position_patch_collides_with_bulk_reorder(env: ChaosEnvironment):
+    orders = seed_three_planned_orders(env)
+    manager_reorder = ManagerAgent(env.create_actor_client("ManagerAgent-Reorder"))
+    manager_patch = ManagerAgent(env.create_actor_client("ManagerAgent-Patch"))
+    barrier = Barrier(2)
+
+    queue_revision = manager_reorder.get_queue_revision()
+    reorder_items = [
+        {"work_order_id": orders[2]["id"], "queue_position": 1},
+        {"work_order_id": orders[1]["id"], "queue_position": 2},
+        {"work_order_id": orders[0]["id"], "queue_position": 3},
+    ]
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        future_reorder = executor.submit(manager_reorder.synchronized_reorder, barrier, queue_revision=queue_revision, items=reorder_items)
+        future_patch = executor.submit(
+            manager_patch.synchronized_update_queue_position,
+            barrier,
+            orders[0]["id"],
+            queue_position=4,
+        )
+
+    list_response, planned = manager_reorder.list_planned()
+    assert list_response.status_code == 200
+    planned_positions = [item["queue_position"] for item in planned]
+    assert len(planned_positions) == len(set(planned_positions))
+
+    return [future_reorder.result(), future_patch.result(), list_response]
+
+
 def scenario_operator_double_finishes_same_stage(env: ChaosEnvironment):
     seeder = env.create_actor_client("Seeder")
     created = create_planned_work_order(seeder, "Double Finish", 1)
@@ -303,6 +333,37 @@ def scenario_office_mark_complete_while_manager_plans(env: ChaosEnvironment):
         and final_detail["queue_position"] is not None
     )
     return [future_complete.result(), future_plan.result()]
+
+
+def scenario_office_patch_races_complete_arrival(env: ChaosEnvironment):
+    seeder = env.create_actor_client("Seeder-Incomplete-Patch")
+    created_response = seeder.post(
+        "/work-orders",
+        json={**build_create_payload("Office Patch Complete Arrival Race"), "is_incomplete_on_arrival": True},
+    )
+    assert created_response.status_code == 201
+    created = created_response.json()
+
+    patching_office = OfficeAgent(env.create_actor_client("OfficeAgent-Patch-Incomplete"))
+    completing_office = OfficeAgent(env.create_actor_client("OfficeAgent-Complete-Incomplete"))
+    barrier = Barrier(2)
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        future_patch = executor.submit(
+            patching_office.synchronized_patch_work_order,
+            barrier,
+            created["id"],
+            {"customer_name": "Office Race Customer", "notes": "Race patch kept coherent"},
+        )
+        future_complete = executor.submit(completing_office.synchronized_mark_complete_arrival, barrier, created["id"])
+
+    final_detail = get_work_order_detail(seeder, created["id"])
+    assert final_detail["is_incomplete_on_arrival"] is False
+    assert final_detail["status"]["value"] == "ENTERED"
+    assert final_detail["customer_name"] in {"ACME", "Office Race Customer"}
+    assert final_detail["notes"] in {None, "Race patch kept coherent"}
+
+    return [future_patch.result(), future_complete.result()]
 
 
 def scenario_invalid_patch_during_planning(env: ChaosEnvironment):

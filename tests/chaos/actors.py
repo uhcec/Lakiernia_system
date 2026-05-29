@@ -26,9 +26,19 @@ class ManagerAgent:
             json={"queue_revision": queue_revision, "items": items},
         )
 
+    def update_queue_position(self, work_order_id: int, *, queue_position: int):
+        return self.client.patch(
+            f"/manager/work-orders/{work_order_id}/queue-position",
+            json={"queue_position": queue_position},
+        )
+
     def synchronized_reorder(self, barrier: Barrier, *, queue_revision: str, items: list[dict]):
         barrier.wait()
         return self.reorder(queue_revision=queue_revision, items=items)
+
+    def synchronized_update_queue_position(self, barrier: Barrier, work_order_id: int, *, queue_position: int):
+        barrier.wait()
+        return self.update_queue_position(work_order_id, queue_position=queue_position)
 
     def plan(self, work_order_id: int, *, production_type: str, queue_position: int):
         return self.client.post(

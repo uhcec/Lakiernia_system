@@ -225,6 +225,8 @@ Open audit work:
 	- office marks complete-on-arrival while manager plans
 	- invalid PATCH during planning
 	- attachment upload/delete/detail reload race
+	- manager queue-position patch collides with bulk reorder
+	- office PATCH races `mark-complete-arrival` on an intake-incomplete order
 - Invariants checked:
 	- no raw `500`s or other unexpected HTTP statuses
 	- no duplicate planned `queue_position`
@@ -237,12 +239,10 @@ Open audit work:
 	- no duplicate direct correction children from the same parent
 	- parent/child quantities remain conserved after packing/correction races
 	- `READY` is not set while a correction child remains open
-- Result: `python -m pytest tests/test_chaos_api.py` passed with `13 passed`.
+- Result: `python -m pytest tests/test_chaos_api.py` passed with `15 passed`.
 - Remaining recommended chaos scenarios:
 	- correction child planning collides with parent completion/merge-back
-	- manager queue-position patch collides with bulk reorder on the same order set
 	- correction-child completion races another packing completion on the same parent chain
-	- office PATCH races `mark-complete-arrival` on an intake-invalid order
 	- parallel normal work-order creation and correction-child creation mixed under load to keep allocator and numbering coverage exercised at the API level
 
 ## Closure Expectations
