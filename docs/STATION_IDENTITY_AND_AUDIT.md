@@ -127,10 +127,10 @@ Implemented frontend propagation:
 - mutating work-orders, manager, and process API calls send `X-Station-Id`
 - station identity is derived from the current panel route
 - work-order detail view displays `GET /audit/work-orders/{work_order_id}/events` as a non-blocking history section
+- `/audyt` provides a read-only audit console with backend search filters and CSV export link
 
 Still open:
 
-- add broader audit search/export frontend UX if operations need a dedicated audit console beyond backend endpoints and work-order detail history
 - enforce station permissions after business validation
 
 ## Permission Direction

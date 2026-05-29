@@ -4,6 +4,10 @@ export function AppLayout() {
   const location = useLocation();
 
   function getSectionTitle(pathname: string): string {
+    if (pathname.startsWith("/audyt")) {
+      return "Audyt";
+    }
+
     if (pathname.startsWith("/kierownik")) {
       return "Kierownik";
     }
@@ -139,6 +143,17 @@ export function AppLayout() {
               }
             >
               Pakowanie
+            </NavLink>
+            <NavLink
+              to="/audyt"
+              className={({ isActive }) =>
+                [
+                  "rounded-full px-4 py-2 text-sm font-medium transition-colors",
+                  isActive ? "bg-white text-ink shadow-sm" : "text-steel hover:text-accent",
+                ].join(" ")
+              }
+            >
+              Audyt
             </NavLink>
             <NavLink
               to="/zlecenia/nowe"

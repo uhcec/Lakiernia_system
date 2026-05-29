@@ -24,3 +24,9 @@ export interface AuditEvent {
   details: AuditEventDetails;
   created_at: string;
 }
+
+export interface AuditEventListResponse {
+  items: AuditEvent[];
+  limit: number;
+  offset: number;
+}

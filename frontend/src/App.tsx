@@ -1,6 +1,7 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 
 import { AppLayout } from "./components/AppLayout";
+import { AuditEventsPage } from "./pages/AuditEventsPage";
 import { AutomaticProductionPage } from "./pages/AutomaticProductionPage";
 import { CreateWorkOrderPage } from "./pages/CreateWorkOrderPage";
 import { DecoralProductionPage } from "./pages/DecoralProductionPage";
@@ -17,6 +18,7 @@ export default function App() {
     <Routes>
       <Route path="/" element={<Navigate to="/zlecenia" replace />} />
       <Route element={<AppLayout />}>
+        <Route path="/audyt" element={<AuditEventsPage />} />
         <Route path="/kierownik" element={<ManagerPanelPage />} />
         <Route path="/przygotowanie" element={<SurfacePreparationPage />} />
         <Route path="/zawieszanie" element={<HangingPage />} />
