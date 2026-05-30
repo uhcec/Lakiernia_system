@@ -193,7 +193,7 @@ Why this matters:
 
 ### 7. Office/Manager Tabs And Completed Release
 
-Status: `PARTIALLY IMPLEMENTED; tab grouping still needs UX work`
+Status: `IMPLEMENTED for office buckets; manager panel aligned with bucket counters`
 
 Confirmed direction from 2026-05-30:
 
@@ -211,9 +211,15 @@ Current repository behavior/evidence:
 - Office and manager station identities may update release status; production station identities are rejected.
 - Release-status changes create audit events.
 
-Implementation decision needed:
+Implemented in session B on 2026-05-31:
 
-- Define whether manager and office share the same tab semantics or need small screen-specific differences.
+- Office `/zlecenia` groups work orders into `Zlecenia`, `Na produkcji`, and `Gotowe` using backend `process_status` only.
+- Manager planning keeps its planning-specific layout, but header counters now use the same practical buckets: `Zlecenia`, `Na produkcji`, and `Gotowe`.
+- `READY` display remains historical/completed and release state remains separate logistics state.
+
+Remaining design option:
+
+- If manager and office later need different small-screen workflows, split the shared bucket labels into role-specific layouts without changing backend workflow semantics.
 
 ### 8. Station List Information Architecture
 

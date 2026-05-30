@@ -563,10 +563,19 @@ export function ManagerPanelPage() {
               </button>
             </div>
           </div>
-          <div className="rounded-2xl border border-line bg-mist px-4 py-3 text-sm text-steel">
-            Do zaplanowania: <span className="font-semibold text-ink">{filteredUnplannedWorkOrders.length}</span>
-            <span className="mx-2 text-line">|</span>
-            Zaplanowane: <span className="font-semibold text-ink">{filteredActivePlannedWorkOrders.length + filteredCompletedPlannedWorkOrders.length}</span>
+          <div className="grid gap-2 sm:grid-cols-3">
+            <div className="rounded-2xl border border-line bg-mist px-4 py-3 text-sm text-steel">
+              Zlecenia
+              <div className="mt-1 text-2xl font-semibold text-ink">{filteredUnplannedWorkOrders.length}</div>
+            </div>
+            <div className="rounded-2xl border border-line bg-mist px-4 py-3 text-sm text-steel">
+              Na produkcji
+              <div className="mt-1 text-2xl font-semibold text-ink">{filteredActivePlannedWorkOrders.length}</div>
+            </div>
+            <div className="rounded-2xl border border-line bg-mist px-4 py-3 text-sm text-steel">
+              Gotowe
+              <div className="mt-1 text-2xl font-semibold text-ink">{filteredCompletedPlannedWorkOrders.length}</div>
+            </div>
           </div>
         </div>
       </section>

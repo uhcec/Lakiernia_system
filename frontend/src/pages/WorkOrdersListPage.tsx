@@ -3,12 +3,55 @@ import { Link } from "react-router-dom";
 
 import { fetchWorkOrders } from "../api/workOrdersApi";
 import { WorkOrdersTable } from "../components/WorkOrdersTable";
-import type { WorkOrder } from "../types/workOrders";
+import type { ProcessStatusValue, WorkOrder } from "../types/workOrders";
+
+type OfficeBucket = "INTAKE" | "PRODUCTION" | "READY";
+
+const officeBucketOptions: Array<{ value: OfficeBucket; label: string }> = [
+  { value: "INTAKE", label: "Zlecenia" },
+  { value: "PRODUCTION", label: "Na produkcji" },
+  { value: "READY", label: "Gotowe" },
+];
+
+function getOfficeBucket(status: ProcessStatusValue): OfficeBucket {
+  if (status === "TO_BE_PLANNED" || status === "INCOMPLETE") {
+    return "INTAKE";
+  }
+
+  if (status === "READY") {
+    return "READY";
+  }
+
+  return "PRODUCTION";
+}
+
+function getBucketDescription(bucket: OfficeBucket): string {
+  switch (bucket) {
+    case "INTAKE":
+      return "Nowe i niekompletne zlecenia przed produkcją.";
+    case "PRODUCTION":
+      return "Aktywne zlecenia na hali, według stanu procesu z backendu.";
+    case "READY":
+      return "Ukończone zlecenia z widocznym statusem wydania klientowi.";
+  }
+}
 
 export function WorkOrdersListPage() {
   const [workOrders, setWorkOrders] = useState<WorkOrder[]>([]);
+  const [activeBucket, setActiveBucket] = useState<OfficeBucket>("INTAKE");
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  const bucketCounts = officeBucketOptions.reduce<Record<OfficeBucket, number>>(
+    (counts, bucket) => ({ ...counts, [bucket.value]: 0 }),
+    { INTAKE: 0, PRODUCTION: 0, READY: 0 },
+  );
+
+  for (const workOrder of workOrders) {
+    bucketCounts[getOfficeBucket(workOrder.process_status.value)] += 1;
+  }
+
+  const visibleWorkOrders = workOrders.filter((workOrder) => getOfficeBucket(workOrder.process_status.value) === activeBucket);
 
   useEffect(() => {
     let isActive = true;
@@ -74,6 +117,27 @@ export function WorkOrdersListPage() {
         <div>
           <h2 className="text-lg font-semibold text-ink">Lista zleceń</h2>
           <p className="mt-1 text-sm text-steel">Status procesu i etapy pozostają jedynym aktywnym źródłem informacji o workflow.</p>
+            <div className="mt-4 flex flex-wrap gap-2">
+              {officeBucketOptions.map((bucket) => (
+                <button
+                  key={bucket.value}
+                  type="button"
+                  onClick={() => setActiveBucket(bucket.value)}
+                  className={[
+                    "inline-flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-medium transition",
+                    activeBucket === bucket.value
+                      ? "border-accent bg-white text-ink shadow-sm"
+                      : "border-line bg-mist text-steel hover:border-accent hover:text-accent",
+                  ].join(" ")}
+                >
+                  <span>{bucket.label}</span>
+                  <span className="inline-flex min-w-6 justify-center rounded-full bg-white px-2 py-0.5 text-xs font-semibold text-ink">
+                    {bucketCounts[bucket.value]}
+                  </span>
+                </button>
+              ))}
+            </div>
+            <p className="mt-3 text-sm text-steel">{getBucketDescription(activeBucket)}</p>
         </div>
 
         {isLoading ? (
@@ -88,8 +152,12 @@ export function WorkOrdersListPage() {
           <div className="rounded-3xl border border-dashed border-line bg-mist px-6 py-12 text-center text-base text-steel">
             Brak zleceń
           </div>
+        ) : visibleWorkOrders.length === 0 ? (
+          <div className="rounded-3xl border border-dashed border-line bg-mist px-6 py-12 text-center text-base text-steel">
+            Brak zleceń w wybranej grupie
+          </div>
         ) : (
-          <WorkOrdersTable workOrders={workOrders} />
+          <WorkOrdersTable workOrders={visibleWorkOrders} />
         )}
       </section>
     </main>

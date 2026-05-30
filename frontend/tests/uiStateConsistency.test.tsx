@@ -9,6 +9,7 @@ import { ApiError } from "../src/api/apiError";
 import { AutomaticProductionPage } from "../src/pages/AutomaticProductionPage";
 import { CreateWorkOrderPage } from "../src/pages/CreateWorkOrderPage";
 import { ManagerPanelPage } from "../src/pages/ManagerPanelPage";
+import { WorkOrdersListPage } from "../src/pages/WorkOrdersListPage";
 import { WorkOrderDetailPage } from "../src/pages/WorkOrderDetailPage";
 import type { StageWorkOrder } from "../src/types/process";
 import type { WorkOrder } from "../src/types/workOrders";
@@ -33,6 +34,7 @@ vi.mock("../src/api/processApi", () => ({
 vi.mock("../src/api/workOrdersApi", () => ({
   createWorkOrder: vi.fn(),
   deleteWorkOrderAttachment: vi.fn(),
+  fetchWorkOrders: vi.fn(),
   fetchWorkOrder: vi.fn(),
   fetchWorkOrderAttachments: vi.fn(),
   getWorkOrderAttachmentDownloadUrl: vi.fn(),
@@ -74,6 +76,7 @@ const fetchStageWorkOrdersMock = vi.mocked(processApi.fetchStageWorkOrders);
 const transitionStageMock = vi.mocked(processApi.transitionStage);
 const completePackingMock = vi.mocked(processApi.completePacking);
 const createWorkOrderMock = vi.mocked(workOrdersApi.createWorkOrder);
+const fetchWorkOrdersMock = vi.mocked(workOrdersApi.fetchWorkOrders);
 const fetchWorkOrderMock = vi.mocked(workOrdersApi.fetchWorkOrder);
 const fetchWorkOrderAttachmentsMock = vi.mocked(workOrdersApi.fetchWorkOrderAttachments);
 const updateWorkOrderReleaseStatusMock = vi.mocked(workOrdersApi.updateWorkOrderReleaseStatus);
@@ -170,6 +173,7 @@ beforeEach(() => {
   transitionStageMock.mockReset();
   completePackingMock.mockReset();
   createWorkOrderMock.mockReset();
+  fetchWorkOrdersMock.mockReset();
   fetchWorkOrderMock.mockReset();
   fetchWorkOrderAttachmentsMock.mockReset();
   updateWorkOrderReleaseStatusMock.mockReset();
@@ -834,6 +838,59 @@ describe("frontend state consistency", () => {
 
     expect(screen.getByText("10 / 10 szt.")).toBeTruthy();
     expect(screen.getAllByText(/Aktywne/).length).toBeGreaterThan(0);
+  });
+
+  it("groups office work orders into intake, production, and ready buckets", async () => {
+    fetchWorkOrdersMock.mockResolvedValue({
+      items: [
+        {
+          ...buildWorkOrder(91, "WO-OFFICE-INTAKE", 1, "Lima"),
+          process_status: { value: "TO_BE_PLANNED", label: "Do zaplanowania" },
+        },
+        {
+          ...buildWorkOrder(92, "WO-OFFICE-PROD", 2, "Mike"),
+          process_status: { value: "PACKING", label: "Pakowanie" },
+        },
+        {
+          ...buildWorkOrder(93, "WO-OFFICE-READY", 3, "November"),
+          completed_quantity: 10,
+          current_active_quantity: 0,
+          total_progress_quantity: 10,
+          process_status: { value: "READY", label: "Gotowe" },
+          is_released_to_client: true,
+          released_to_client_at: "2026-05-31T08:00:00Z",
+        },
+      ],
+      total: 3,
+      limit: 50,
+      offset: 0,
+    });
+
+    render(
+      <MemoryRouter>
+        <WorkOrdersListPage />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText("WO-OFFICE-INTAKE")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Zlecenia 1/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Na produkcji 1/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Gotowe 1/ })).toBeTruthy();
+    expect(screen.queryByText("WO-OFFICE-PROD")).toBeNull();
+    expect(screen.queryByText("WO-OFFICE-READY")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: /Na produkcji 1/ }));
+
+    expect(await screen.findByText("WO-OFFICE-PROD")).toBeTruthy();
+    expect(screen.queryByText("WO-OFFICE-INTAKE")).toBeNull();
+    expect(screen.queryByText("WO-OFFICE-READY")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: /Gotowe 1/ }));
+
+    expect(await screen.findByText("WO-OFFICE-READY")).toBeTruthy();
+    expect(screen.getByText("Wynik końcowy: 10 szt.")).toBeTruthy();
+    expect(screen.getByText("WYDANE")).toBeTruthy();
+    expect(screen.queryByText("WO-OFFICE-PROD")).toBeNull();
   });
 
   it("does not use historical correction wording for active manager correction cards", async () => {
