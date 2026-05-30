@@ -164,7 +164,7 @@ Confirmed decisions from `docs/FACTORY_USAGE_NOTES.md`:
 
 Track these decisions in `docs/WORKFLOW_VALIDATION_CHECKLIST.md` before changing workflow semantics.
 
-These decisions unblock station permission design, but automatic-flow resource changes, discrepancy recording, new work types, paint inventory, issued/released state, and quality-document generation still need focused implementation design before code changes.
+These decisions unblock station permission design. Automatic-flow resource changes were implemented on 2026-05-30; discrepancy recording, new work types, paint inventory, issued/released state, and quality-document generation still need focused implementation design before code changes.
 
 ## Implementation Plan
 

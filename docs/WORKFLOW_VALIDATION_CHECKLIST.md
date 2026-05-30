@@ -31,13 +31,13 @@ Current repository behavior/evidence:
 
 - Automatic orders flow through `SURFACE_PREPARATION -> HANGING -> PACKING`.
 - Automatic `PRODUCTION` currently does not use manual start/finish clicks.
-- Backend resource locks currently allow only one active hanging job and one active automatic-line job.
-- Current implementation evidence may still be stricter than confirmed factory policy because it historically blocked the automatic path until packing completion.
+- Backend resource locks allow only one active hanging job and one active automatic-line job.
+- Implementation evidence from 2026-05-30 now models `HANGING` capacity separately from `AUTOMATIC_LINE` capacity: `HANGING/start` occupies hanging, `HANGING/finish` releases hanging and occupies the automatic line until packing completion.
 
 Implementation decision needed:
 
-- Model hanging capacity separately from automatic-production capacity so a work order can leave hanging without incorrectly blocking the next hanging job.
-- Preserve one-active-work-order-at-a-time per physical station/resource.
+- Done in the 2026-05-30 automatic-line implementation slice.
+- Continue preserving one-active-work-order-at-a-time per physical station/resource as new automatic-production actions, such as paint consumption, are added.
 
 Why this matters:
 
