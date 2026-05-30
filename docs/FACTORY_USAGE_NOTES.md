@@ -38,7 +38,9 @@ Use `docs/WORKFLOW_VALIDATION_CHECKLIST.md` as the active checklist before chang
 - The counted amount becomes the real received amount used by all following stations.
 - Operators start washing, then finish washing to pass the work order onward.
 - Confirmed policy: surface-preparation operators should enter the counted quantity only. Declared client quantity and declared-versus-counted difference should be visible to office and manager, not station operators.
-- Large quantity discrepancies should stop the work order until office/manager acknowledgement; the threshold and acknowledgement flow still need definition.
+- Quantity discrepancies should be recorded and visible to office/manager, but should not block the work order for now.
+- The surface-preparation operator confirms the discrepancy where counting happens.
+- Surface preparation may be started before the counted quantity is entered, but it cannot be finished without the counted quantity.
 
 ### Hanging Area Tablet / Zawieszanie
 
@@ -71,6 +73,7 @@ Use `docs/WORKFLOW_VALIDATION_CHECKLIST.md` as the active checklist before chang
 - Operators count elements again and compare against the real received amount from surface preparation.
 - Operators perform quality check and split quantity into OK amount and correction amount.
 - When corrections are created, packing should record a correction reason/category for statistics and audit. The reason does not affect the workflow path.
+- Initial coating-defect reason/category list: `niedomalowanie`, `za grubo`, `wtrącenia`, `inne`. This list is not final.
 - RAL OK elements are packed here; RAL/manual work orders end their journey here when no further correction/decoral work remains.
 - Decoral elements are not packed here; they continue to Decoral production.
 
@@ -88,14 +91,14 @@ Use `docs/WORKFLOW_VALIDATION_CHECKLIST.md` as the active checklist before chang
 - Defect/correction type does not require office, manager, quality-control, or customer approval before planning.
 - Correction reason/category is needed for statistics/audit, not for workflow routing.
 - Correction-chain completion races should reconcile or behave idempotently when the final persisted state is already valid; otherwise the stale action should fail with a controlled conflict.
-- Remaining correction implementation detail: define the allowed correction reason/category list.
+- Remaining correction implementation detail: choose flexible storage/display for the not-final reason/category list.
 - Confirmed quantity visibility: counted quantity entry belongs on the surface-preparation tablet; declared quantity and discrepancy visibility belong to office and manager; production/station operators see only operational quantity.
-- Remaining discrepancy detail: define what counts as a large discrepancy and the office/manager acknowledgement action.
+- Confirmed discrepancy handling: discrepancy is recorded and confirmed by surface preparation, but does not block the work order for now. Surface preparation start does not require counted quantity; finish does require counted quantity.
 - Confirmed station permissions: station identity should remain audited, but invalid station actions should be impossible in the UI and rejected by the backend if attempted.
 - Confirmed automatic overlap: hanging can start the next automatic order after the previous hanging stage is finished, while preserving one active work order per physical station/resource.
 
 ## Additional Work Types
 
-- `Przemalowanka`: behaves like a correction and skips surface preparation. It may follow RAL or Decoral downstream paths.
-- `Ocynk`: follows the same stage path as normal work but must be visibly marked because station work differs. It may follow RAL or Decoral downstream paths.
-- Open implementation details: decide whether these are separate work-order categories, intake flags, child-order types, or route modifiers before adding code.
+- `Przemalowanka`: always a separate customer work order. It behaves like a correction operationally and skips surface preparation. It may follow RAL or Decoral downstream paths.
+- `Ocynk`: a separate production-relevant work-order type/marker that can combine with RAL or Decoral (`Ocynk RAL`, `Ocynk Decoral`). It follows the same stage path as normal work but must be strongly marked as `OCYNK` on station screens because station work differs.
+- Open implementation detail: design the work-order kind/type model so `Przemalowanka` and `Ocynk` can coexist with existing RAL/Decoral route semantics.

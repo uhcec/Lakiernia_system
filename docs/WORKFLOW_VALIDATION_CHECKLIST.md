@@ -46,13 +46,14 @@ Why this matters:
 
 ### 2. Correction Review And Planning
 
-Status: `CONFIRMED with follow-up data field`
+Status: `CONFIRMED`
 
 Confirmed factory policy from 2026-05-30:
 
 - Packing with correction quantity should automatically create an unplanned correction work order.
 - No defect type requires office, manager, quality-control, or customer approval before planning.
 - Packing should record a correction reason/category.
+- Initial coating-defect reason/category list: `niedomalowanie`, `za grubo`, `wtrącenia`, `inne`. This is not final and should remain easy to change.
 - Correction reason/category is statistical/audit data only and does not affect the workflow path.
 - Correction orders use the same manager planning and queue workflow as normal orders.
 - Correction orders do not go through `SURFACE_PREPARATION`; manual corrections start at production, automatic corrections start at hanging.
@@ -68,7 +69,8 @@ Current repository behavior/evidence:
 
 Implementation decision needed:
 
-- Define the allowed correction reason/category list and where it is stored/displayed.
+- Decide whether reason/category should be stored as a flexible text/code list or a strict enum, given that the list is not final.
+- Decide where the statistical reason/category is displayed/exported.
 
 Why this matters:
 
@@ -77,31 +79,34 @@ Why this matters:
 
 ### 3. Quantity Discrepancy Visibility
 
-Status: `CONFIRMED with threshold follow-up`
+Status: `CONFIRMED`
 
 Confirmed factory policy from 2026-05-30:
 
 - Office and manager should have the same broad process visibility.
 - Office and manager should see declared-versus-counted quantity discrepancies.
 - Production/station operators should not see discrepancy context; they should see only the current operational quantity.
-- Large discrepancies should stop the work order and require office/manager confirmation before continuing.
+- Quantity discrepancies should be recorded and shown to office/manager, but should not block the work order for now.
+- Surface-preparation operator confirms the discrepancy at the station where counting happens.
+- Starting `SURFACE_PREPARATION` must not require a counted quantity.
+- Finishing `SURFACE_PREPARATION` must require the counted quantity.
 
 Current repository behavior/evidence:
 
 - Office enters declared client quantity.
 - Surface preparation enters counted received quantity.
-- Current implementation may not yet enforce an acknowledgement/hold workflow for large discrepancies.
+- Current implementation may already require counted quantity at surface-preparation start rather than finish; verify before changing behavior.
 - Downstream validation uses the surface-preparation counted quantity as operational truth.
 
 Implementation decision needed:
 
-- Define what counts as a large discrepancy: any difference, absolute threshold, percentage threshold, or manager-configured threshold.
-- Define the acknowledgement action and audit event.
+- Define the exact station UI wording for confirming a discrepancy without blocking the workflow.
+- Define the audit event/details for discrepancy confirmation.
 
 Why this matters:
 
-- This affects frontend read models and station UI copy.
-- It may introduce a new hold/acknowledgement workflow if discrepancy approval is required.
+- This affects frontend read models, station UI copy, and audit/statistical evidence.
+- It must preserve the rule that discrepancy recording is visible to office/manager without blocking the workflow for now.
 
 ### 4. Station Permissions
 
@@ -164,19 +169,20 @@ Implementation decision needed:
 
 ### 6. Additional Work Types
 
-Status: `NEW CONFIRMED CONCEPTS, DETAILS OPEN`
+Status: `CONFIRMED with implementation design needed`
 
 Confirmed factory policy from 2026-05-30:
 
-- `Przemalowanka` behaves like a correction: it skips `SURFACE_PREPARATION`.
-- `Ocynk` follows the same stage path as other work orders, but it must be visibly marked because station work differs.
+- `Przemalowanka` is always a separate customer work order, not a child correction of an existing work order.
+- `Przemalowanka` behaves like a correction operationally: it skips `SURFACE_PREPARATION`.
+- `Ocynk` is a separate work-order type/marker like a production-relevant order type, while still combinable with RAL or Decoral (`Ocynk RAL`, `Ocynk Decoral`).
+- `Ocynk` follows the same stage path as other work orders, but station screens must strongly mark it as `OCYNK` because station work differs.
 - Both new work types can follow RAL or Decoral paths.
 
 Implementation decision needed:
 
-- Define whether `Przemalowanka` is created as a child of an existing work order, a standalone work order type, or both.
-- Define whether `Ocynk` is a coating/process flag, intake field, route modifier, or separate work-order category.
-- Define which station screens need different labels/instructions for `Ocynk`.
+- Define the data model for a standalone work-order kind/type that can represent `Przemalowanka` and `Ocynk` without breaking existing RAL/Decoral route semantics.
+- Define which station and manager/office screens show the strong `OCYNK` marker.
 
 Why this matters:
 

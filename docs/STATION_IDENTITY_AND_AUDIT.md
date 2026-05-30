@@ -140,7 +140,7 @@ Confirmed permission direction:
 
 - `OFFICE`: create/update intake, view discrepancies, manage attachments
 - `MANAGER`: assign production type, queue/reorder, view global queue and discrepancies
-- `SURFACE_PREPARATION`: enter counted quantity, start/finish surface prep
+- `SURFACE_PREPARATION`: start surface prep, enter counted quantity, confirm quantity discrepancy, finish surface prep after counted quantity exists
 - `HANGING`: start/finish hanging
 - `AUTOMATIC_PRODUCTION`: display-only unless future policy changes
 - `MANUAL_PRODUCTION`: start/finish manual production
@@ -156,12 +156,12 @@ Confirmed decisions from `docs/FACTORY_USAGE_NOTES.md`:
 - Hanging can start the next automatic order after the previous hanging stage is finished, while automatic production remains one work order at a time.
 - Correction defect types do not need special review/approval before manager planning.
 - Office and manager should see quantity discrepancies; station operators should see only operational quantities.
-- Large discrepancies should require office/manager acknowledgement, with threshold and acknowledgement details still to define.
-- `Przemalowanka` and `Ocynk` need data-model design before implementation.
+- Quantity discrepancies should be recorded and confirmed at surface preparation, but should not block work orders for now. Surface-preparation finish requires counted quantity; start does not.
+- `Przemalowanka` is a standalone customer work order that skips surface preparation; `Ocynk` is a strong station-visible type/marker combinable with RAL or Decoral.
 
 Track these decisions in `docs/WORKFLOW_VALIDATION_CHECKLIST.md` before changing workflow semantics.
 
-These decisions unblock station permission design, but automatic-flow resource changes, discrepancy holds, and new work types still need focused implementation design before code changes.
+These decisions unblock station permission design, but automatic-flow resource changes, discrepancy recording, and new work types still need focused implementation design before code changes.
 
 ## Implementation Plan
 

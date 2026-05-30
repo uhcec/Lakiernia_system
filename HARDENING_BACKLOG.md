@@ -196,7 +196,7 @@ Baseline check snapshot after backlog/doc cleanup: full backend suite passed wit
 Open item-level work:
 
 - None under currently validated implementation rules.
-- Factory workflow validation: 2026-05-30 factory answers confirmed automatic hanging overlap, correction planning without approval, correction reason/category as statistical data, station-action blocking, office/manager discrepancy visibility, one global queue, manager blocked-work warnings, and new `Przemalowanka`/`Ocynk` concepts. Remaining implementation-design questions are the correction reason list, large-discrepancy threshold/acknowledgement flow, station permission matrix implementation, automatic resource-lock alignment, manager blocked-work warning model, and data model for `Przemalowanka`/`Ocynk`.
+- Factory workflow validation: 2026-05-30 factory answers confirmed automatic hanging overlap, correction planning without approval, correction reason/category as statistical data with initial values `niedomalowanie`, `za grubo`, `wtrącenia`, `inne`, station-action blocking, office/manager discrepancy visibility, discrepancy confirmation at surface preparation without blocking, one global queue, manager blocked-work warnings, standalone `Przemalowanka`, and `Ocynk` as a strong station-visible type/marker combinable with RAL or Decoral. Remaining implementation-design questions are flexible correction-reason storage/display, station permission matrix implementation, automatic resource-lock alignment, manager blocked-work warning model, and data model for `Przemalowanka`/`Ocynk`.
 
 Open audit work:
 

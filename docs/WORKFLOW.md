@@ -91,6 +91,7 @@ When packing has correction quantity (`correction_quantity > 0`):
 - `production_type = null`, `queue_position = null` (unplanned)
 3. Parent enters waiting state until all open correction descendants are completed.
 4. Packing should record a correction reason/category for statistics and audit. The reason/category does not change the workflow path and does not require approval before planning.
+5. Initial coating-defect reason/category values are `niedomalowanie`, `za grubo`, `wtrącenia`, and `inne`; the list is not final and should remain changeable.
 
 Correction planning return stage:
 - Correction orders do not go through `SURFACE_PREPARATION`.
@@ -170,17 +171,19 @@ Rules:
 Rules:
 - Office and manager should see declared client quantity, surface-preparation counted quantity, and their difference.
 - Production/station operators should see only the current operational quantity they need to process.
-- Large discrepancies should hold the order until office/manager acknowledgement.
-- The large-discrepancy threshold and acknowledgement flow still need a precise implementation decision.
+- Quantity discrepancies should be recorded and visible to office/manager, but should not block the work order for now.
+- Surface-preparation operators confirm discrepancies where counting happens.
+- Starting `SURFACE_PREPARATION` does not require counted quantity.
+- Finishing `SURFACE_PREPARATION` requires counted quantity.
 
 ## Additional Work Types
 
 Confirmed concepts:
-- `Przemalowanka` behaves like a correction and skips `SURFACE_PREPARATION`.
-- `Ocynk` follows the normal stage path but must be visibly marked because station work differs.
+- `Przemalowanka` is always a separate customer work order. It behaves like a correction operationally and skips `SURFACE_PREPARATION`.
+- `Ocynk` is a separate production-relevant work-order type/marker that can combine with RAL or Decoral. It follows the normal stage path but must be strongly marked as `OCYNK` because station work differs.
 - Both may follow RAL or Decoral downstream paths.
 
-These concepts need data-model design before implementation.
+These concepts need data-model design before implementation so they can coexist with existing RAL/Decoral route semantics.
 
 ## Process Action Safety
 
