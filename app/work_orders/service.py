@@ -6,7 +6,7 @@ from uuid import uuid4
 from fastapi import UploadFile
 from pydantic import ValidationError
 
-from app.audit.context import StationContext
+from app.audit.context import StationContext, ensure_station_allowed
 from app.audit.models import AuditEvent
 from app.audit.repository import AuditRepository
 from app.core.config import get_settings, get_work_order_attachments_path
@@ -74,6 +74,7 @@ class WorkOrderService:
         return WorkOrderStatusView(value=status, label=get_work_order_status_label(status))
 
     def create_work_order(self, payload: WorkOrderCreate, station_context: StationContext | None = None) -> WorkOrderRead:
+        self._ensure_office_station_action(station_context, "office work-order actions")
         initial_status = WorkOrderStatus.INCOMPLETE if payload.is_incomplete_on_arrival else WorkOrderStatus.ENTERED
         order_number = self.number_allocator.allocate()
 
@@ -120,6 +121,7 @@ class WorkOrderService:
         payload: WorkOrderUpdate,
         station_context: StationContext | None = None,
     ) -> WorkOrderRead:
+        self._ensure_office_station_action(station_context, "office work-order actions")
         work_order = self._get_existing_work_order(work_order_id)
         updates = payload.model_dump(exclude_unset=True)
         validated_payload = self._validate_work_order_state(work_order, updates)
@@ -220,6 +222,7 @@ class WorkOrderService:
         work_order_id: int,
         station_context: StationContext | None = None,
     ) -> WorkOrderRead:
+        self._ensure_office_station_action(station_context, "office work-order actions")
         work_order = self._get_existing_work_order(work_order_id)
 
         if not self._has_incomplete_marker(work_order):
@@ -266,6 +269,7 @@ class WorkOrderService:
         description: str | None = None,
         station_context: StationContext | None = None,
     ) -> WorkOrderAttachmentRead:
+        self._ensure_office_station_action(station_context, "office attachment actions")
         work_order = self._get_existing_work_order(work_order_id)
         original_filename = Path(file.filename or "").name.strip()
         if not original_filename:
@@ -352,6 +356,7 @@ class WorkOrderService:
         attachment_id: int,
         station_context: StationContext | None = None,
     ) -> None:
+        self._ensure_office_station_action(station_context, "office attachment actions")
         attachment = self._get_existing_attachment(work_order_id, attachment_id)
         work_order = self._get_existing_work_order(work_order_id)
         file_path = self._resolve_attachment_storage_path(attachment, require_exists=False)
@@ -376,6 +381,14 @@ class WorkOrderService:
         parent_directory = file_path.parent if file_path is not None else None
         if parent_directory is not None and parent_directory.exists() and not any(parent_directory.iterdir()):
             parent_directory.rmdir()
+
+    @staticmethod
+    def _ensure_office_station_action(station_context: StationContext | None, action: str) -> None:
+        ensure_station_allowed(
+            station_context,
+            allowed_station_ids={StationId.OFFICE},
+            action=action,
+        )
 
     @staticmethod
     def _resolve_attachment_storage_path(attachment: WorkOrderAttachment, *, require_exists: bool) -> Path | None:

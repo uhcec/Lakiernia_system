@@ -122,6 +122,7 @@ Implemented backend audit coverage:
 - `GET /audit/work-orders/{work_order_id}/events` returns chronological audit history for a work order
 - `GET /audit/events` searches audit events by work order, event type, station, request ID, target, and created-at range
 - `GET /audit/events/export.csv` exports the same filtered audit events as CSV
+- mutating work-order, manager, process-stage, and packing endpoints reject explicit wrong-station actions with `403`; `UNKNOWN` and `SYSTEM` remain compatibility identities during rollout
 
 Implemented frontend propagation:
 
@@ -132,7 +133,7 @@ Implemented frontend propagation:
 
 Still open:
 
-- enforce confirmed station permissions in backend services/routes and hide invalid actions on frontend station panels
+- hide or reshape any future frontend actions that might cross station boundaries as new station capabilities are added, especially automatic-production paint consumption and completed-order issue/release
 
 ## Permission Direction
 
@@ -164,7 +165,7 @@ Confirmed decisions from `docs/FACTORY_USAGE_NOTES.md`:
 
 Track these decisions in `docs/WORKFLOW_VALIDATION_CHECKLIST.md` before changing workflow semantics.
 
-These decisions unblock station permission design. Automatic-flow resource changes were implemented on 2026-05-30; discrepancy recording, new work types, paint inventory, issued/released state, and quality-document generation still need focused implementation design before code changes.
+These decisions unblock station permission design. Automatic-flow resource changes and backend station permission enforcement were implemented on 2026-05-30; discrepancy recording, new work types, paint inventory, issued/released state, and quality-document generation still need focused implementation design before code changes.
 
 ## Implementation Plan
 

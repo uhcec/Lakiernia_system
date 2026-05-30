@@ -6,7 +6,7 @@ from threading import RLock
 
 from sqlalchemy.exc import IntegrityError
 
-from app.audit.context import StationContext
+from app.audit.context import StationContext, ensure_station_allowed
 from app.audit.models import AuditEvent
 from app.audit.repository import AuditRepository
 from app.process.enums import CoatingType, ProcessDisplayStatus, ProcessStage, ProductionType, QuantityBatchType, StageStatus
@@ -109,6 +109,7 @@ class ProcessService:
     ) -> WorkOrderStageState:
         with self._serialize_process_mutation(work_order_id):
             work_order = self.get_work_order_process(work_order_id)
+            self._ensure_stage_station_action(work_order, stage, station_context)
             resource_keys = self._get_stage_resource_keys(work_order, stage, target_status)
             with self._serialize_stage_resources(resource_keys):
                 if resource_keys:
@@ -183,6 +184,7 @@ class ProcessService:
     ) -> ProcessStageWorkOrderRead:
         with self._serialize_process_mutation(work_order_id):
             work_order = self.get_work_order_process(work_order_id)
+            self._ensure_stage_station_action(work_order, stage, station_context)
             target_batch = self._resolve_batch_for_stage(work_order, stage, batch_id)
             if target_batch is not None:
                 resource_keys = self._get_stage_resource_keys(work_order, stage, StageStatus.IN_PROGRESS)
@@ -219,6 +221,7 @@ class ProcessService:
     ) -> ProcessStageWorkOrderRead:
         with self._serialize_process_mutation(work_order_id):
             work_order = self.get_work_order_process(work_order_id)
+            self._ensure_stage_station_action(work_order, stage, station_context)
             target_batch = self._resolve_batch_for_stage(work_order, stage, batch_id)
             if target_batch is not None:
                 return self._finish_tracked_batch_stage(
@@ -281,6 +284,7 @@ class ProcessService:
         station_context: StationContext | None = None,
     ) -> ProcessStageWorkOrderRead:
         work_order = self.get_work_order_process(work_order_id)
+        self._ensure_stage_station_action(work_order, stage, station_context)
         target_batch = self._resolve_batch_for_stage(work_order, stage, batch_id)
         if target_batch is not None:
             return self._reopen_tracked_batch_stage(work_order, target_batch, stage, station_context=station_context)
@@ -323,6 +327,7 @@ class ProcessService:
     ) -> ProcessStageWorkOrderRead:
         with self._serialize_process_mutation(work_order_id):
             work_order = self.get_work_order_process(work_order_id)
+            self._ensure_packing_station_action(station_context)
             target_batch = self._resolve_batch_for_stage(work_order, ProcessStage.PACKING, batch_id)
             if target_batch is not None:
                 return self._complete_tracked_batch_packing(
@@ -636,6 +641,42 @@ class ProcessService:
                     raise InvalidProcessStageTransitionError(
                         f"Stage {stage_state.stage.value} requires {previous_stage.value} to be DONE first."
                     )
+
+    def _ensure_stage_station_action(
+        self,
+        work_order: WorkOrder,
+        stage: ProcessStage,
+        station_context: StationContext | None,
+    ) -> None:
+        ensure_station_allowed(
+            station_context,
+            allowed_station_ids=self._get_allowed_stage_station_ids(work_order, stage),
+            action=f"{stage.value} stage actions",
+        )
+
+    @staticmethod
+    def _ensure_packing_station_action(station_context: StationContext | None) -> None:
+        ensure_station_allowed(
+            station_context,
+            allowed_station_ids={StationId.PACKING},
+            action="PACKING actions",
+        )
+
+    @staticmethod
+    def _get_allowed_stage_station_ids(work_order: WorkOrder, stage: ProcessStage) -> set[StationId]:
+        if stage == ProcessStage.SURFACE_PREPARATION:
+            return {StationId.SURFACE_PREPARATION}
+        if stage == ProcessStage.HANGING:
+            return {StationId.HANGING}
+        if stage == ProcessStage.PRODUCTION:
+            if work_order.production_type == ProductionType.AUTOMATIC:
+                return {StationId.AUTOMATIC_PRODUCTION}
+            return {StationId.MANUAL_PRODUCTION}
+        if stage == ProcessStage.PACKING:
+            return {StationId.PACKING}
+        if stage == ProcessStage.DECORAL_PRODUCTION:
+            return {StationId.DECORAL_PRODUCTION}
+        return {StationId.SYSTEM}
 
     def get_correction_return_stage(self, work_order: WorkOrder) -> ProcessStage:
         if work_order.production_type == ProductionType.AUTOMATIC:

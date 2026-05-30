@@ -5,7 +5,7 @@ from threading import RLock
 
 from sqlalchemy.exc import IntegrityError
 
-from app.audit.context import StationContext
+from app.audit.context import StationContext, ensure_station_allowed
 from app.audit.models import AuditEvent
 from app.audit.repository import AuditRepository
 from app.process.enums import ProcessDisplayStatus
@@ -59,6 +59,7 @@ class ManagerService:
         payload: WorkOrderPlanAssignRequest,
         station_context: StationContext | None = None,
     ) -> WorkOrderRead:
+        self._ensure_manager_station_action(station_context)
         with _QUEUE_MUTATION_LOCK:
             work_order = self._get_existing_work_order(work_order_id)
             if self._is_planned(work_order):
@@ -103,6 +104,7 @@ class ManagerService:
         payload: WorkOrderQueuePositionUpdateRequest,
         station_context: StationContext | None = None,
     ) -> WorkOrderRead:
+        self._ensure_manager_station_action(station_context)
         with _QUEUE_MUTATION_LOCK:
             work_order = self._get_existing_work_order(work_order_id)
             if not self._is_planned(work_order):
@@ -146,6 +148,7 @@ class ManagerService:
         payload: WorkOrderQueueReorderBatchRequest,
         station_context: StationContext | None = None,
     ) -> list[WorkOrderRead]:
+        self._ensure_manager_station_action(station_context)
         items = payload.items
         if not items:
             return self.list_planned_work_orders()
@@ -247,6 +250,14 @@ class ManagerService:
                 raise
 
             return self.list_planned_work_orders()
+
+    @staticmethod
+    def _ensure_manager_station_action(station_context: StationContext | None) -> None:
+        ensure_station_allowed(
+            station_context,
+            allowed_station_ids={StationId.MANAGER},
+            action="manager planning actions",
+        )
 
     def _get_existing_work_order(self, work_order_id: int) -> WorkOrder:
         work_order = self.repository.get_by_id(work_order_id)

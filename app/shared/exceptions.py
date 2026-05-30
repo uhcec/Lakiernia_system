@@ -40,3 +40,8 @@ class InvalidAttachmentError(AppException):
 class InvalidStationIdentityError(AppException):
     def __init__(self, detail: str) -> None:
         super().__init__(detail=detail, status_code=400)
+
+
+class StationActionForbiddenError(AppException):
+    def __init__(self, detail: str) -> None:
+        super().__init__(detail=detail, status_code=403)

@@ -77,13 +77,20 @@ def test_list_audit_events_filters_by_request_and_station(test_client: TestClien
         json=build_create_payload(title="Audyt request A"),
         headers={"X-Request-Id": "audit-search-a", "X-Station-Id": "OFFICE"},
     )
-    second_response = test_client.post(
+    second_create_response = test_client.post(
         "/work-orders",
         json=build_create_payload(title="Audyt request B"),
-        headers={"X-Request-Id": "audit-search-b", "X-Station-Id": "MANAGER"},
+        headers={"X-Request-Id": "audit-search-b-create", "X-Station-Id": "OFFICE"},
     )
     assert first_response.status_code == 201
-    assert second_response.status_code == 201
+    assert second_create_response.status_code == 201
+
+    second_response = test_client.post(
+        f"/manager/work-orders/{second_create_response.json()['id']}/plan",
+        json={"production_type": "MANUAL", "queue_position": 1},
+        headers={"X-Request-Id": "audit-search-b", "X-Station-Id": "MANAGER"},
+    )
+    assert second_response.status_code == 200
 
     request_response = test_client.get("/audit/events", params={"request_id": "audit-search-a"})
 
