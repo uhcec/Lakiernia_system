@@ -225,13 +225,20 @@ class ProcessService:
         work_order_id: int,
         stage: ProcessStage,
         batch_id: int | None = None,
+        counted_quantity: int | None = None,
         station_context: StationContext | None = None,
     ) -> ProcessStageWorkOrderRead:
         with self._serialize_process_mutation(work_order_id):
             work_order = self.get_work_order_process(work_order_id)
             target_batch = self._resolve_batch_for_stage(work_order, stage, batch_id)
             if target_batch is not None:
-                return self._finish_tracked_batch_stage(work_order, target_batch, stage, station_context=station_context)
+                return self._finish_tracked_batch_stage(
+                    work_order,
+                    target_batch,
+                    stage,
+                    counted_quantity=counted_quantity,
+                    station_context=station_context,
+                )
 
             if self._is_automatic_production_preview_stage(work_order, stage):
                 raise InvalidProcessStageTransitionError(
@@ -241,6 +248,10 @@ class ProcessService:
             stage_state = self._get_stage_state(work_order, stage)
             if stage_state.status == StageStatus.DONE:
                 return self._to_stage_work_order_read(work_order, stage)
+
+            if stage == ProcessStage.SURFACE_PREPARATION:
+                self._store_surface_preparation_counted_quantity(work_order, counted_quantity)
+                self._ensure_surface_preparation_counted_quantity(work_order)
 
             if stage == ProcessStage.PACKING:
                 return self.complete_packing(
@@ -828,6 +839,7 @@ class ProcessService:
         work_order: WorkOrder,
         batch: WorkOrderQuantityBatch,
         stage: ProcessStage,
+        counted_quantity: int | None = None,
         station_context: StationContext | None = None,
     ) -> ProcessStageWorkOrderRead:
         if stage == ProcessStage.PACKING:
@@ -849,6 +861,10 @@ class ProcessService:
             raise InvalidProcessStageTransitionError(
                 f"Cannot transition stage {stage.value} from {batch.current_stage_status.value if batch.current_stage_status else 'UNKNOWN'} to DONE."
             )
+
+        if stage == ProcessStage.SURFACE_PREPARATION:
+            self._store_surface_preparation_counted_quantity(work_order, counted_quantity)
+            self._ensure_surface_preparation_counted_quantity(work_order)
 
         response_stage = stage
         if stage == ProcessStage.SURFACE_PREPARATION:
@@ -1300,7 +1316,17 @@ class ProcessService:
             return
 
         if counted_quantity is None:
-            raise InvalidProcessStageTransitionError("Counted quantity is required to start surface preparation.")
+            return
+
+        self._store_surface_preparation_counted_quantity(work_order, counted_quantity)
+
+    def _store_surface_preparation_counted_quantity(
+        self,
+        work_order: WorkOrder,
+        counted_quantity: int | None,
+    ) -> None:
+        if counted_quantity is None:
+            return
 
         if counted_quantity <= 0:
             raise InvalidProcessStageTransitionError("Counted quantity must be greater than zero.")
@@ -1308,9 +1334,14 @@ class ProcessService:
         if counted_quantity > work_order.current_active_quantity:
             raise InvalidProcessStageTransitionError("Counted quantity cannot exceed the expected active quantity.")
 
-        stage_state = self._get_stage_state(work_order, stage)
+        stage_state = self._get_stage_state(work_order, ProcessStage.SURFACE_PREPARATION)
         stage_state.counted_quantity = counted_quantity
         stage_state.updated_at = datetime.now(UTC)
+
+    def _ensure_surface_preparation_counted_quantity(self, work_order: WorkOrder) -> None:
+        stage_state = self._get_stage_state(work_order, ProcessStage.SURFACE_PREPARATION)
+        if stage_state.counted_quantity is None:
+            raise InvalidProcessStageTransitionError("Counted quantity is required to finish surface preparation.")
 
     @staticmethod
     def _get_previous_stage(

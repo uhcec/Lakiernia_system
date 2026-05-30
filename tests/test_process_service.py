@@ -148,6 +148,45 @@ def test_start_stage_records_station_audit_event(db_session: Session) -> None:
     }
 
 
+def test_surface_preparation_start_does_not_require_counted_quantity_but_finish_does(db_session: Session) -> None:
+    work_order_service, process_service, manager_service, _, _ = build_services(db_session)
+    created = create_ral_work_order(work_order_service, "Surface count on finish")
+    manager_service.assign_plan(
+        created.id,
+        WorkOrderPlanAssignRequest(production_type=ProductionType.MANUAL, queue_position=1),
+    )
+
+    start_response = process_service.start_stage(created.id, ProcessStage.SURFACE_PREPARATION)
+
+    assert start_response.stage_status.status.value == StageStatus.IN_PROGRESS
+    assert start_response.counted_quantity is None
+
+    with pytest.raises(InvalidProcessStageTransitionError) as exc_info:
+        process_service.finish_stage(created.id, ProcessStage.SURFACE_PREPARATION)
+
+    assert str(exc_info.value) == "Counted quantity is required to finish surface preparation."
+
+
+def test_surface_preparation_finish_persists_counted_quantity(db_session: Session) -> None:
+    work_order_service, process_service, manager_service, _, process_repository = build_services(db_session)
+    created = create_ral_work_order(work_order_service, "Surface finish count")
+    manager_service.assign_plan(
+        created.id,
+        WorkOrderPlanAssignRequest(production_type=ProductionType.MANUAL, queue_position=1),
+    )
+
+    process_service.start_stage(created.id, ProcessStage.SURFACE_PREPARATION)
+    response = process_service.finish_stage(created.id, ProcessStage.SURFACE_PREPARATION, counted_quantity=95)
+    work_order = process_repository.get_work_order_with_stage_states(created.id)
+
+    assert response.stage_status.status.value == StageStatus.DONE
+    assert response.counted_quantity == 95
+    assert response.quantity_difference == -5
+    assert work_order is not None
+    surface_state = next(stage for stage in work_order.stage_states if stage.stage == ProcessStage.SURFACE_PREPARATION)
+    assert surface_state.counted_quantity == 95
+
+
 def test_packing_correction_records_packing_and_correction_audit_events(db_session: Session) -> None:
     work_order_service, process_service, manager_service, _, _ = build_services(db_session)
     created = create_ral_work_order(work_order_service, "Audit packing")

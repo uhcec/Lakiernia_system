@@ -46,10 +46,8 @@ export async function fetchStageWorkOrders(
   return response.json() as Promise<StageWorkOrder[]>;
 }
 
-export async function startSurfacePreparation(workOrderId: number, countedQuantity: number): Promise<StageWorkOrder> {
-  return transitionStage(workOrderId, "SURFACE_PREPARATION", "start", undefined, {
-    counted_quantity: countedQuantity,
-  });
+export async function startSurfacePreparation(workOrderId: number): Promise<StageWorkOrder> {
+  return transitionStage(workOrderId, "SURFACE_PREPARATION", "start");
 }
 
 type StageAction = "start" | "finish" | "reopen";
@@ -118,8 +116,10 @@ export async function completePacking(
   return response.json() as Promise<StageWorkOrder>;
 }
 
-export async function finishSurfacePreparation(workOrderId: number): Promise<StageWorkOrder> {
-  return transitionStage(workOrderId, "SURFACE_PREPARATION", "finish");
+export async function finishSurfacePreparation(workOrderId: number, countedQuantity: number): Promise<StageWorkOrder> {
+  return transitionStage(workOrderId, "SURFACE_PREPARATION", "finish", undefined, {
+    counted_quantity: countedQuantity,
+  });
 }
 
 export async function reopenSurfacePreparation(workOrderId: number): Promise<StageWorkOrder> {

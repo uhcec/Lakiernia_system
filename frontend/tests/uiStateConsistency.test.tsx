@@ -243,6 +243,73 @@ describe("frontend state consistency", () => {
     await waitFor(() => expect(fetchStageWorkOrdersMock).toHaveBeenCalledTimes(2));
   });
 
+  it("starts surface preparation without count and submits counted quantity on finish", async () => {
+    fetchStageWorkOrdersMock
+      .mockResolvedValueOnce([
+        buildStageWorkOrder({
+          id: 11,
+          order_number: "WO-SURFACE",
+          planned_quantity: 10,
+          counted_quantity: null,
+          quantity_difference: null,
+          stage_status: { stage: "SURFACE_PREPARATION", status: { value: "NOT_STARTED", label: "Nie rozpoczęto" } },
+        }),
+      ])
+      .mockResolvedValueOnce([
+        buildStageWorkOrder({
+          id: 11,
+          order_number: "WO-SURFACE",
+          planned_quantity: 10,
+          counted_quantity: null,
+          quantity_difference: null,
+          stage_status: { stage: "SURFACE_PREPARATION", status: { value: "IN_PROGRESS", label: "W toku" } },
+        }),
+      ])
+      .mockResolvedValueOnce([
+        buildStageWorkOrder({
+          id: 11,
+          order_number: "WO-SURFACE",
+          planned_quantity: 10,
+          counted_quantity: 8,
+          quantity_difference: -2,
+          stage_status: { stage: "SURFACE_PREPARATION", status: { value: "DONE", label: "Zakończone" } },
+        }),
+      ]);
+    transitionStageMock.mockResolvedValue({} as never);
+
+    render(
+      <StageWorkOrdersPage
+        stage="SURFACE_PREPARATION"
+        title="Przygotowanie"
+        emptyMessage="Brak zleceń"
+      />,
+    );
+
+    await screen.findByText("WO-SURFACE :: Klient");
+    fireEvent.click(screen.getByRole("button", { name: "Rozpocznij" }));
+
+    await waitFor(() => {
+      expect(transitionStageMock).toHaveBeenCalledWith(11, "SURFACE_PREPARATION", "start", undefined, undefined);
+    });
+    await screen.findByRole("button", { name: "Zakończ" });
+
+    const finishButton = screen.getByRole("button", { name: "Zakończ" });
+    expect((finishButton as HTMLButtonElement).disabled).toBe(true);
+
+    fireEvent.change(screen.getByRole("spinbutton"), { target: { value: "8" } });
+    fireEvent.click(finishButton);
+
+    await waitFor(() => {
+      expect(transitionStageMock).toHaveBeenLastCalledWith(
+        11,
+        "SURFACE_PREPARATION",
+        "finish",
+        undefined,
+        { counted_quantity: 8 },
+      );
+    });
+  });
+
   it("reloads packing view and discards local draft after submit failure", async () => {
     fetchStageWorkOrdersMock
       .mockResolvedValueOnce([

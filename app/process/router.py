@@ -7,7 +7,7 @@ from app.audit.context import StationContext, get_station_context
 from app.database.session import get_db_session
 from app.process.enums import ProcessStage, ProductionType
 from app.process.repository import ProcessRepository
-from app.process.schemas import PackingCompleteRequest, ProcessStageWorkOrderRead, StageStartRequest
+from app.process.schemas import PackingCompleteRequest, ProcessStageWorkOrderRead, StageTransitionRequest
 from app.process.service import ProcessService
 from app.shared.enums import QueueNamespace
 
@@ -35,7 +35,7 @@ def start_stage(
     stage: ProcessStage,
     service: Annotated[ProcessService, Depends(get_process_service)],
     station_context: Annotated[StationContext, Depends(get_station_context)],
-    payload: StageStartRequest | None = None,
+    payload: StageTransitionRequest | None = None,
 ) -> ProcessStageWorkOrderRead:
     return service.start_stage(
         work_order_id,
@@ -52,7 +52,7 @@ def start_stage_for_batch(
     stage: ProcessStage,
     service: Annotated[ProcessService, Depends(get_process_service)],
     station_context: Annotated[StationContext, Depends(get_station_context)],
-    payload: StageStartRequest | None = None,
+    payload: StageTransitionRequest | None = None,
 ) -> ProcessStageWorkOrderRead:
     return service.start_stage(
         work_order_id,
@@ -69,8 +69,14 @@ def finish_stage(
     stage: ProcessStage,
     service: Annotated[ProcessService, Depends(get_process_service)],
     station_context: Annotated[StationContext, Depends(get_station_context)],
+    payload: StageTransitionRequest | None = None,
 ) -> ProcessStageWorkOrderRead:
-    return service.finish_stage(work_order_id, stage, station_context=station_context)
+    return service.finish_stage(
+        work_order_id,
+        stage,
+        counted_quantity=payload.counted_quantity if payload else None,
+        station_context=station_context,
+    )
 
 
 @router.post("/work-orders/{work_order_id}/batches/{batch_id}/stages/{stage}/finish", response_model=ProcessStageWorkOrderRead)
@@ -80,8 +86,15 @@ def finish_stage_for_batch(
     stage: ProcessStage,
     service: Annotated[ProcessService, Depends(get_process_service)],
     station_context: Annotated[StationContext, Depends(get_station_context)],
+    payload: StageTransitionRequest | None = None,
 ) -> ProcessStageWorkOrderRead:
-    return service.finish_stage(work_order_id, stage, batch_id=batch_id, station_context=station_context)
+    return service.finish_stage(
+        work_order_id,
+        stage,
+        batch_id=batch_id,
+        counted_quantity=payload.counted_quantity if payload else None,
+        station_context=station_context,
+    )
 
 
 @router.post("/work-orders/{work_order_id}/stages/{stage}/reopen", response_model=ProcessStageWorkOrderRead)

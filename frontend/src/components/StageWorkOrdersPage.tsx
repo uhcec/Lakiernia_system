@@ -199,7 +199,7 @@ export function StageWorkOrdersPage({
     setActiveWorkOrderId(workOrder.id);
     setErrorMessage(null);
 
-    const countedQuantity = isSurfacePreparationStage && workOrder.stage_status.status.value === "NOT_STARTED"
+    const countedQuantity = isSurfacePreparationStage && workOrder.stage_status.status.value === "IN_PROGRESS"
       ? parseCountedQuantity(countedQuantities[workOrder.id] ?? "")
       : null;
 
@@ -257,7 +257,7 @@ export function StageWorkOrdersPage({
       return false;
     }
 
-    if (isSurfacePreparationStage && workOrder.stage_status.status.value === "NOT_STARTED") {
+    if (isSurfacePreparationStage && workOrder.stage_status.status.value === "IN_PROGRESS") {
       return parseCountedQuantity(countedQuantities[workOrder.id] ?? "") !== null;
     }
 
@@ -310,7 +310,7 @@ export function StageWorkOrdersPage({
                 const countedDraft = countedQuantities[workOrder.id] ?? "";
                 const parsedCountedQuantity = parseCountedQuantity(countedDraft);
                 const difference =
-                  status === "NOT_STARTED"
+                  status === "IN_PROGRESS"
                     ? parsedCountedQuantity !== null
                       ? parsedCountedQuantity - workOrder.planned_quantity
                       : null
@@ -384,7 +384,7 @@ export function StageWorkOrdersPage({
                     <td className="px-5 py-4 font-semibold">{workOrder.planned_quantity}</td>
                     {isSurfacePreparationStage ? (
                       <td className="px-5 py-4">
-                        {status === "NOT_STARTED" ? (
+                        {status === "IN_PROGRESS" ? (
                           <input
                             type="number"
                             min={1}

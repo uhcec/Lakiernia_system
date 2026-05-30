@@ -39,7 +39,7 @@ class ProcessStageWorkOrderRead(BaseModel):
     stage_status: ProcessStageStatusRead
 
 
-class StageStartRequest(BaseModel):
+class StageTransitionRequest(BaseModel):
     counted_quantity: int | None = None
 
     model_config = ConfigDict(extra="forbid")
