@@ -245,7 +245,7 @@ def test_automatic_hanging_finish_releases_hanging_capacity(test_client: TestCli
     assert hanging_item["stage_status"]["status"]["value"] == "DONE"
 
 
-def test_automatic_hanging_finish_makes_order_visible_in_packing(test_client: TestClient) -> None:
+def test_automatic_active_hanging_is_visible_in_packing_before_finish(test_client: TestClient) -> None:
     automatic = create_planned_work_order(test_client, title="Automatic packing visibility", queue_position=1, production_type="AUTOMATIC")
     advance_to_hanging(test_client, automatic["id"])
 
@@ -256,8 +256,14 @@ def test_automatic_hanging_finish_makes_order_visible_in_packing(test_client: Te
     packing_response = test_client.get("/process/stages/PACKING/work-orders")
     production_response = test_client.get("/process/stages/PRODUCTION/work-orders", params={"production_type": "AUTOMATIC"})
 
+    assert before_finish_response.status_code == 200
+    assert automatic["id"] in [item["id"] for item in before_finish_response.json()]
+    before_finish_item = next(item for item in before_finish_response.json() if item["id"] == automatic["id"])
+    assert before_finish_item["stage_status"] == {
+        "stage": "HANGING",
+        "status": {"value": "IN_PROGRESS", "label": "W trakcie"},
+    }
     assert packing_response.status_code == 200
-    assert automatic["id"] not in [item["id"] for item in before_finish_response.json()]
     assert automatic["id"] in [item["id"] for item in packing_response.json()]
     packing_item = next(item for item in packing_response.json() if item["id"] == automatic["id"])
     assert packing_item["stage_status"] == {

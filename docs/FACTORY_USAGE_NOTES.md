@@ -82,6 +82,7 @@ Use `docs/WORKFLOW_VALIDATION_CHECKLIST.md` as the active checklist before chang
 
 - Used by packing operators; there may be multiple operators in the area.
 - Both automatic and manual production elements arrive here, including where the overhead crane runway ends.
+- Confirmed update from 2026-05-30: packing should see active automatic orders while hanging is still in progress, but only as waiting visibility. Packing must not be completable until hanging is finished.
 - Operators count elements again and compare against the real received amount from surface preparation.
 - Operators perform quality check and split quantity into OK amount and correction amount.
 - When corrections are created, packing should record a correction reason/category for statistics and audit. The reason does not affect the workflow path.

@@ -62,6 +62,14 @@ function formatDifference(difference: number): string {
   return difference > 0 ? `+${difference}` : String(difference);
 }
 
+function getPackingRowSummary(workOrder: StageWorkOrder): string {
+  if (workOrder.stage_status.stage === "HANGING") {
+    return "W zawieszaniu - oczekuje na pakowanie";
+  }
+
+  return workOrder.stage_status.status.value === "DONE" ? "Pakowanie zakończone" : "W pakowaniu";
+}
+
 function buildCorrectionReference(workOrder: StageWorkOrder, context: CorrectionContext | undefined): string {
   if (!workOrder.is_correction) {
     return "";
@@ -307,6 +315,8 @@ export function PackingWorkOrdersPage() {
             <tbody>
               {items.map((workOrder) => {
                 const status = workOrder.stage_status.status.value;
+                const isPackingStage = workOrder.stage_status.stage === "PACKING";
+                const isPackingInProgress = isPackingStage && status === "IN_PROGRESS";
                 const draftKey = getDraftKey(workOrder);
                 const isSubmitting = activeWorkOrderId === draftKey;
                 const draft = drafts[draftKey] ?? buildEmptyPackingDraft();
@@ -364,7 +374,7 @@ export function PackingWorkOrdersPage() {
                             </span>
                           ))}
                         </div>
-                        <p className="text-sm font-semibold text-ink">{status === "DONE" ? "Pakowanie zakończone" : "W pakowaniu"}</p>
+                        <p className="text-sm font-semibold text-ink">{getPackingRowSummary(workOrder)}</p>
                         {showBatchProgress ? (
                           <p className="text-sm text-steel">Postęp partii: {getStageWorkOrderProgressText(workOrder)}</p>
                         ) : null}
@@ -385,7 +395,7 @@ export function PackingWorkOrdersPage() {
                     </td>
                     <td className="px-5 py-4 font-semibold">{workOrder.planned_quantity}</td>
                     <td className="px-5 py-4">
-                      {status === "IN_PROGRESS" ? (
+                      {isPackingInProgress ? (
                         <input
                           type="number"
                           min="1"
@@ -408,7 +418,7 @@ export function PackingWorkOrdersPage() {
                       )}
                     </td>
                     <td className="px-5 py-4">
-                      {status === "IN_PROGRESS" ? (
+                      {isPackingInProgress ? (
                         <input
                           type="number"
                           min="0"
@@ -422,7 +432,7 @@ export function PackingWorkOrdersPage() {
                       )}
                     </td>
                     <td className="px-5 py-4">
-                      {status === "IN_PROGRESS" ? (
+                      {isPackingInProgress ? (
                         <input
                           type="number"
                           min="0"
@@ -436,7 +446,7 @@ export function PackingWorkOrdersPage() {
                       )}
                     </td>
                     <td className="px-5 py-4">
-                      {status === "IN_PROGRESS" && correctionQuantity > 0 ? (
+                      {isPackingInProgress && correctionQuantity > 0 ? (
                         <div className="flex min-w-[12rem] flex-col gap-2">
                           <select
                             value={draft.correctionReasonCategory}
@@ -471,7 +481,13 @@ export function PackingWorkOrdersPage() {
                       </span>
                     </td>
                     <td className="px-5 py-4">
-                      {status === "IN_PROGRESS" ? (
+                      {!isPackingStage ? (
+                        <div className="flex justify-end">
+                          <span className="inline-flex rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800">
+                            Czeka na koniec zawieszania
+                          </span>
+                        </div>
+                      ) : isPackingInProgress ? (
                         <div className="flex min-w-[20rem] flex-col items-end gap-3">
                           <p className="text-xs text-steel">
                             Plan: {workOrder.planned_quantity}. Zatwierdzenie jest dostępne dopiero, gdy OK + poprawki = Policzono.
@@ -516,7 +532,7 @@ export function PackingWorkOrdersPage() {
           <div>
             <h2 className="text-3xl font-semibold text-ink sm:text-4xl">Pakowanie</h2>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-steel sm:text-base">
-              Pakowanie i kontrola jakości po zakończonej produkcji.
+              Pakowanie, kontrola jakości i podgląd aktywnych automatów oczekujących na koniec zawieszania.
             </p>
             <div className="mt-3 inline-flex rounded-full border border-line bg-mist p-1">
               <button
@@ -576,7 +592,7 @@ export function PackingWorkOrdersPage() {
             <div className="space-y-4">
               <div>
                 <h3 className="text-lg font-semibold text-ink">Do wykonania</h3>
-                <p className="mt-1 text-sm text-steel">Uruchom pakowanie, wpisz ilość policzoną i dopiero wtedy rozdziel partię na OK i poprawki.</p>
+                <p className="mt-1 text-sm text-steel">Zlecenia do pakowania oraz automaty widoczne wcześniej jako oczekujące na koniec zawieszania.</p>
               </div>
               {activeWorkOrders.length === 0 ? (
                 <div className="rounded-3xl border border-dashed border-line bg-mist px-6 py-12 text-center text-base text-steel">

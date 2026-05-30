@@ -413,6 +413,27 @@ describe("frontend state consistency", () => {
     expect(screen.queryByRole("button", { name: "Rozpocznij" })).toBeNull();
   });
 
+  it("shows automatic active hanging in packing without packing actions", async () => {
+    fetchStageWorkOrdersMock.mockResolvedValueOnce([
+      buildStageWorkOrder({
+        id: 14,
+        order_number: "WO-AUTO-PACK-PREVIEW",
+        production_type: { value: "AUTOMATIC", label: "Automatyczna" },
+        stage_status: { stage: "HANGING", status: { value: "IN_PROGRESS", label: "W toku" } },
+      }),
+    ]);
+
+    render(<PackingWorkOrdersPage />);
+
+    expect(await screen.findByText("WO-AUTO-PACK-PREVIEW :: Klient")).toBeTruthy();
+    expect(fetchStageWorkOrdersMock).toHaveBeenCalledWith("PACKING");
+    expect(screen.getByText("W zawieszaniu - oczekuje na pakowanie")).toBeTruthy();
+    expect(screen.getByText("Czeka na koniec zawieszania")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Zatwierdź pakowanie" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Rozpocznij" })).toBeNull();
+    expect(screen.queryAllByRole("spinbutton")).toHaveLength(0);
+  });
+
   it("reloads packing view and discards local draft after submit failure", async () => {
     fetchStageWorkOrdersMock
       .mockResolvedValueOnce([

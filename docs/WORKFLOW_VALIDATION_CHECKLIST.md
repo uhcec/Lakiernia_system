@@ -226,7 +226,7 @@ Confirmed direction from 2026-05-30:
 - Manual production: work-order number, square meters, paint, company/customer, queue position, details access for drawings.
 - Hanging: work-order number, square meters, paint, company/customer, queue position, details access for drawings.
 - Automatic production: work-order number, square meters, paint, company/customer, queue position, details access for drawings; it also needs visibility into automatic work that is ready for or currently in hanging, so the operator sees the day's flow before the automatic line is occupied.
-- Packing: work-order number, profile pieces to verify, accessory pieces to verify, paint, company/customer, queue position.
+- Packing: work-order number, profile pieces to verify, accessory pieces to verify, paint, company/customer, queue position; it also needs read-only visibility into active automatic hanging rows, while completion stays blocked until hanging is finished.
 - Decoral production: work-order number, profile pieces to verify, accessory pieces to verify, paint, company/customer, queue position.
 
 Implementation decision needed:

@@ -53,6 +53,7 @@ Automatic constraints:
 - Automatic production is no longer display-only: it should allow paint-consumption entry as a separate audited inventory action.
 - `HANGING` start transitions automatic flow forward
 - The automatic production panel must show upcoming and active automatic flow from the moment a work order is ready for `HANGING`, including `HANGING` not-started/in-progress rows, so the automatic operator sees the day's workflow before the line is occupied.
+- The packing panel must show active automatic work while `HANGING` is still in progress, but as a read-only `HANGING` row. Packing completion remains blocked until `HANGING` is `DONE`.
 - Finish for automatic path is performed from `PACKING`
 - Physical resource exclusivity is enforced in the backend with persisted resource locks and controlled `409` responses.
 - Only one `HANGING` job may be active at a time.
@@ -206,6 +207,7 @@ Packing list columns:
 - paint
 - company/customer
 - queue position
+- active automatic `HANGING` rows as read-only waiting-for-packing visibility
 
 Decoral production list columns:
 - work-order number

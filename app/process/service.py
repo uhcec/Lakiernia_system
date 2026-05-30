@@ -831,7 +831,13 @@ class ProcessService:
             return False
 
         hanging_state = self._get_stage_state(work_order, ProcessStage.HANGING)
-        return hanging_state.status == StageStatus.DONE
+        return hanging_state.status in {StageStatus.IN_PROGRESS, StageStatus.DONE}
+
+    def _get_automatic_packing_display_stage(self, work_order: WorkOrder) -> ProcessStage:
+        hanging_state = self._get_stage_state(work_order, ProcessStage.HANGING)
+        if hanging_state.status != StageStatus.DONE:
+            return ProcessStage.HANGING
+        return ProcessStage.PACKING
 
     def _get_batches_visible_in_stage(
         self,
@@ -1478,6 +1484,8 @@ class ProcessService:
     ) -> ProcessStageWorkOrderRead:
         if batch is None and self._is_automatic_production_preview_stage(work_order, stage):
             stage = self._get_automatic_production_preview_display_stage(work_order)
+        elif batch is None and stage == ProcessStage.PACKING and work_order.production_type == ProductionType.AUTOMATIC:
+            stage = self._get_automatic_packing_display_stage(work_order)
 
         stage_state = self._get_stage_state(work_order, stage)
         if batch is None:
