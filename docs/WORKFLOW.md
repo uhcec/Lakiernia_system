@@ -40,8 +40,10 @@ Automatic constraints:
 - Finish for automatic path is performed from `PACKING`
 - Physical resource exclusivity is enforced in the backend with persisted resource locks and controlled `409` responses.
 - Only one `HANGING` job may be active at a time.
-- Only one automatic-line job may be active at a time; in the current workflow this resource is occupied from automatic `HANGING` start until that path is completed from `PACKING`.
-- Completing the job that holds the resource releases that resource so another queued job can start.
+- Only one automatic-production job may be active at a time.
+- `HANGING` capacity is released when the hanging stage is finished, so the next automatic work order may start hanging while the previous automatic order is still in automatic production or waiting for packing.
+- No physical station/resource may process multiple work orders at the same time.
+- Implementation note: if backend resource-lock behavior is stricter than this, it should be changed with focused tests before claiming policy alignment.
 
 ## Main Flows
 
@@ -88,6 +90,7 @@ When packing has correction quantity (`correction_quantity > 0`):
 - `queue_namespace = CORRECTIONS`
 - `production_type = null`, `queue_position = null` (unplanned)
 3. Parent enters waiting state until all open correction descendants are completed.
+4. Packing should record a correction reason/category for statistics and audit. The reason/category does not change the workflow path and does not require approval before planning.
 
 Correction planning return stage:
 - Correction orders do not go through `SURFACE_PREPARATION`.
@@ -149,6 +152,35 @@ Rules:
 6. If the queue revision is stale, reorder must fail with a controlled `409` error.
 7. Queue uniqueness conflicts, including database-level uniqueness collisions during concurrent writes, must fail with a controlled `409` error and must never surface as a raw `500`.
 8. Two managers must not be able to silently overwrite each other's queue reorder using stale data.
+9. Corrections do not receive automatic priority over normal work orders.
+10. Manager views should warn when a globally high-priority item is blocked by resource or station state, without splitting the global queue.
+
+## Station Permissions
+
+Shared station identity is both audit context and an authorization input.
+
+Rules:
+- Frontend station panels should not show actions belonging to other stations.
+- Backend must reject state-changing actions sent from a station that is not allowed to perform them.
+- Station-action restrictions should be explicit and tested before rollout.
+- There are no expected normal-production cases where one station needs to perform another station's action.
+
+## Quantity Discrepancy Visibility
+
+Rules:
+- Office and manager should see declared client quantity, surface-preparation counted quantity, and their difference.
+- Production/station operators should see only the current operational quantity they need to process.
+- Large discrepancies should hold the order until office/manager acknowledgement.
+- The large-discrepancy threshold and acknowledgement flow still need a precise implementation decision.
+
+## Additional Work Types
+
+Confirmed concepts:
+- `Przemalowanka` behaves like a correction and skips `SURFACE_PREPARATION`.
+- `Ocynk` follows the normal stage path but must be visibly marked because station work differs.
+- Both may follow RAL or Decoral downstream paths.
+
+These concepts need data-model design before implementation.
 
 ## Process Action Safety
 

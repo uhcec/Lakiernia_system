@@ -18,20 +18,26 @@ Validate the business decisions that would affect station behavior, queueing, co
 
 ### 1. Automatic Line Overlap
 
-Status: `OPEN`
+Status: `CONFIRMED`
+
+Confirmed factory policy from 2026-05-30:
+
+- The next automatic order may start `HANGING` while the previous automatic order is still in automatic production or waiting for packing.
+- No physical station may process multiple work orders at the same time.
+- `HANGING` capacity is released when the previous order's hanging stage is finished.
+- The earlier conservative assumption that one automatic order blocks the whole path until packing completion is not correct.
 
 Current repository behavior/evidence:
 
 - Automatic orders flow through `SURFACE_PREPARATION -> HANGING -> PACKING`.
 - Automatic `PRODUCTION` is preview-only.
 - Backend resource locks currently allow only one active hanging job and one active automatic-line job.
-- Current conservative assumption blocks starting the next automatic hanging job until the previous automatic path is completed from packing.
+- Current implementation evidence may still be stricter than confirmed factory policy because it historically blocked the automatic path until packing completion.
 
-Factory decision needed:
+Implementation decision needed:
 
-- Can hanging start preparing the next automatic order while the previous order is still physically moving through automatic production?
-- If yes, how many jobs can be in each physical segment at once: hanging area, crane/line, automatic production, exit/packing handoff?
-- Which operator action should release hanging capacity: hanging finish, automatic display state, packing receipt, or packing completion?
+- Model hanging capacity separately from automatic-production capacity so a work order can leave hanging without incorrectly blocking the next hanging job.
+- Preserve one-active-work-order-at-a-time per physical station/resource.
 
 Why this matters:
 
@@ -40,7 +46,16 @@ Why this matters:
 
 ### 2. Correction Review And Planning
 
-Status: `PARTLY VALIDATED`
+Status: `CONFIRMED with follow-up data field`
+
+Confirmed factory policy from 2026-05-30:
+
+- Packing with correction quantity should automatically create an unplanned correction work order.
+- No defect type requires office, manager, quality-control, or customer approval before planning.
+- Packing should record a correction reason/category.
+- Correction reason/category is statistical/audit data only and does not affect the workflow path.
+- Correction orders use the same manager planning and queue workflow as normal orders.
+- Correction orders do not go through `SURFACE_PREPARATION`; manual corrections start at production, automatic corrections start at hanging.
 
 Current repository behavior/evidence:
 
@@ -51,10 +66,9 @@ Current repository behavior/evidence:
 - Correction orders use the same manager planning and queue-position workflow as normal orders.
 - Simultaneous parent/correction completion should reconcile or behave idempotently when the final state is already valid; otherwise it should fail with a controlled conflict.
 
-Factory decision needed:
+Implementation decision needed:
 
-- Do any defect types require office, manager, quality-control, or customer review before planning?
-- Should the packing operator choose a defect category/reason when creating a correction?
+- Define the allowed correction reason/category list and where it is stored/displayed.
 
 Why this matters:
 
@@ -63,20 +77,26 @@ Why this matters:
 
 ### 3. Quantity Discrepancy Visibility
 
-Status: `WORKING ASSUMPTION`
+Status: `CONFIRMED with threshold follow-up`
+
+Confirmed factory policy from 2026-05-30:
+
+- Office and manager should have the same broad process visibility.
+- Office and manager should see declared-versus-counted quantity discrepancies.
+- Production/station operators should not see discrepancy context; they should see only the current operational quantity.
+- Large discrepancies should stop the work order and require office/manager confirmation before continuing.
 
 Current repository behavior/evidence:
 
 - Office enters declared client quantity.
 - Surface preparation enters counted received quantity.
-- Current policy keeps declared-vs-counted discrepancy visibility office-only.
+- Current implementation may not yet enforce an acknowledgement/hold workflow for large discrepancies.
 - Downstream validation uses the surface-preparation counted quantity as operational truth.
 
-Factory decision needed:
+Implementation decision needed:
 
-- Should managers see declared-vs-counted discrepancies?
-- Should station operators see discrepancies, or only the current operational quantity they must handle?
-- Should large discrepancies require office acknowledgement before the order can continue?
+- Define what counts as a large discrepancy: any difference, absolute threshold, percentage threshold, or manager-configured threshold.
+- Define the acknowledgement action and audit event.
 
 Why this matters:
 
@@ -85,7 +105,15 @@ Why this matters:
 
 ### 4. Station Permissions
 
-Status: `OPEN`
+Status: `CONFIRMED`
+
+Confirmed factory policy from 2026-05-30:
+
+- Station identity should be used for audit.
+- Stations should not be able to perform another station's actions.
+- The UI generally should not present actions that belong to another station.
+- If an invalid station action reaches the backend, it should be blocked rather than only warned/logged.
+- There are no expected real cases where a station needs to perform another station's action due to staffing or device placement.
 
 Current repository behavior/evidence:
 
@@ -93,11 +121,9 @@ Current repository behavior/evidence:
 - Backend audit records the station identity for workflow-visible mutations.
 - Full permission enforcement is not enabled yet.
 
-Factory decision needed:
+Implementation decision needed:
 
-- Should station identity remain audit-only for now?
-- If permissions are enforced, should invalid station actions be blocked immediately, or warned/logged during a rollout period?
-- Are there real cases where a station needs to perform another station's action due to staffing or device placement?
+- Add backend station-action authorization and frontend action visibility rules in a focused permission hardening change.
 
 Expected permission direction to validate:
 
@@ -117,7 +143,14 @@ Why this matters:
 
 ### 5. Global Queue Semantics
 
-Status: `WORKING ASSUMPTION`
+Status: `CONFIRMED`
+
+Confirmed factory policy from 2026-05-30:
+
+- Use one shared global queue for all planned work.
+- Do not split queues by manual, automatic, decoral, corrections, or stations.
+- Corrections should not automatically receive higher priority than normal work orders.
+- Manager queue UI should warn when a high-priority work order is blocked by a resource or station state.
 
 Current repository behavior/evidence:
 
@@ -125,11 +158,25 @@ Current repository behavior/evidence:
 - Corrections start unplanned and join the global queue when manager-planned.
 - Station panels filter the global queue to work actionable at that station.
 
-Factory decision needed:
+Implementation decision needed:
 
-- Should there be one global priority list for all planned work, or separate priority lists by route/station/resource?
-- Should corrections receive special queue priority by default?
-- Should manager reorder show capacity/resource warnings when a high-priority item is blocked by station/resource state?
+- Add manager-facing blocked-work warnings without changing the single global queue rule.
+
+### 6. Additional Work Types
+
+Status: `NEW CONFIRMED CONCEPTS, DETAILS OPEN`
+
+Confirmed factory policy from 2026-05-30:
+
+- `Przemalowanka` behaves like a correction: it skips `SURFACE_PREPARATION`.
+- `Ocynk` follows the same stage path as other work orders, but it must be visibly marked because station work differs.
+- Both new work types can follow RAL or Decoral paths.
+
+Implementation decision needed:
+
+- Define whether `Przemalowanka` is created as a child of an existing work order, a standalone work order type, or both.
+- Define whether `Ocynk` is a coating/process flag, intake field, route modifier, or separate work-order category.
+- Define which station screens need different labels/instructions for `Ocynk`.
 
 Why this matters:
 
@@ -144,6 +191,7 @@ Why this matters:
 4. Walk through one packing correction and one repeated correction.
 5. Review which station can perform each action.
 6. Review which users/stations should see quantity discrepancies.
+7. Walk through `Przemalowanka` and `Ocynk` examples before implementing their data model.
 
 ## After Decisions Are Confirmed
 

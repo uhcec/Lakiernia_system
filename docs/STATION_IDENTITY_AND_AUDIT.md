@@ -17,9 +17,10 @@ Near-term requirements:
 ## Current Decisions
 
 - Station identity is shared by device/panel for now.
-- Personal operator login is deferred pending business clarification.
+- Personal operator login is deferred.
 - A single backend process is acceptable for near-term deployment.
 - Station identity and audit should be implemented before personal accounts.
+- Factory decision from 2026-05-30: station actions should be blocked when attempted from the wrong station; normal production does not need cross-station action overrides.
 - Audit records are implementation evidence and operational traceability, not business validation by themselves.
 
 ## Station Identities
@@ -131,36 +132,36 @@ Implemented frontend propagation:
 
 Still open:
 
-- enforce station permissions after business validation
+- enforce confirmed station permissions in backend services/routes and hide invalid actions on frontend station panels
 
 ## Permission Direction
 
-Do not implement full role enforcement in the first slice unless needed for audit correctness.
-
-Expected future permission direction:
+Confirmed permission direction:
 
 - `OFFICE`: create/update intake, view discrepancies, manage attachments
-- `MANAGER`: assign production type, queue/reorder, view global queue
+- `MANAGER`: assign production type, queue/reorder, view global queue and discrepancies
 - `SURFACE_PREPARATION`: enter counted quantity, start/finish surface prep
 - `HANGING`: start/finish hanging
 - `AUTOMATIC_PRODUCTION`: display-only unless future policy changes
 - `MANUAL_PRODUCTION`: start/finish manual production
-- `PACKING`: enter counted/OK/correction quantities, complete packing
+- `PACKING`: enter counted/OK/correction quantities, correction reason/category, complete packing
 - `DECORAL_PRODUCTION`: start/finish Decoral production
 
-Permission enforcement needs business validation. Audit can arrive first.
+Invalid station actions should be rejected by the backend and should not be visible in normal frontend station panels.
 
 ## Known Workflow Validation Points
 
-Open questions from `docs/FACTORY_USAGE_NOTES.md`:
+Confirmed decisions from `docs/FACTORY_USAGE_NOTES.md`:
 
-- Can hanging start the next order while the previous order is still in automatic production?
-- Do any correction defect types need special review/approval before manager planning?
-- Should office-only discrepancy visibility ever be expanded to manager or station views?
+- Hanging can start the next automatic order after the previous hanging stage is finished, while automatic production remains one work order at a time.
+- Correction defect types do not need special review/approval before manager planning.
+- Office and manager should see quantity discrepancies; station operators should see only operational quantities.
+- Large discrepancies should require office/manager acknowledgement, with threshold and acknowledgement details still to define.
+- `Przemalowanka` and `Ocynk` need data-model design before implementation.
 
 Track these decisions in `docs/WORKFLOW_VALIDATION_CHECKLIST.md` before changing workflow semantics.
 
-These do not block station identity/audit infrastructure, but they do block semantic rewrites to automatic flow and correction variants.
+These decisions unblock station permission design, but automatic-flow resource changes, discrepancy holds, and new work types still need focused implementation design before code changes.
 
 ## Implementation Plan
 
@@ -171,7 +172,7 @@ These do not block station identity/audit infrastructure, but they do block sema
 5. Add frontend `X-Station-Id` propagation by panel route.
 6. Expand audit coverage across workflow-visible mutations.
 7. Display work-order-scoped audit history on the work-order detail view.
-8. Consider permission enforcement only after station audit is stable.
+8. Add station permission enforcement for confirmed station-action boundaries.
 
 ## Verification
 
