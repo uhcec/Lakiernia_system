@@ -314,6 +314,7 @@ class ManagerService:
         waiting_ok_quantity = self.process_service.get_waiting_ok_quantity(work_order)
         pending_correction_quantity = self.process_service.get_pending_correction_quantity(work_order)
         total_progress_quantity = self.process_service.get_total_progress_quantity(work_order)
+        queue_resource_block = self.process_service.get_queue_resource_block(work_order)
 
         return WorkOrderRead(
             id=work_order.id,
@@ -345,6 +346,8 @@ class ManagerService:
             paint_producer=work_order.paint_producer,
             status=WorkOrderService.build_status_view(self.process_service.get_display_status(work_order)),
             process_status=build_process_status_view(self.process_service.get_display_status(work_order)),
+            queue_blocked_by_resource=(queue_resource_block[0] if queue_resource_block is not None else None),
+            queue_blocked_reason=(queue_resource_block[1] if queue_resource_block is not None else None),
             coating_type=build_coating_type_view(work_order.coating_type),
             production_type=(
                 build_production_type_view(work_order.production_type)

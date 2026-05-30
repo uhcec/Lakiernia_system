@@ -31,6 +31,10 @@ class ProcessService:
     AUTOMATIC_PRODUCTION_MANUAL_ACTION_ERROR = (
         "Automatic production does not use manual start/finish. Finish HANGING to enter automatic production and complete from PACKING."
     )
+    QUEUE_RESOURCE_BLOCK_REASONS = {
+        "HANGING": "Zawieszanie zajęte",
+        "AUTOMATIC_LINE": "Linia automatyczna zajęta",
+    }
 
     def __init__(self, repository: ProcessRepository) -> None:
         self.repository = repository
@@ -577,6 +581,38 @@ class ProcessService:
 
     def get_display_status_label(self, work_order: WorkOrder) -> str:
         return self.get_display_status(work_order).polish_label
+
+    def get_queue_resource_block(self, work_order: WorkOrder) -> tuple[str, str] | None:
+        if (
+            self._has_incomplete_marker(work_order)
+            or self._is_complete_for_display(work_order)
+            or not self._is_planned(work_order)
+        ):
+            return None
+        if work_order.production_type != ProductionType.AUTOMATIC:
+            return None
+
+        hanging_state = self._get_stage_state(work_order, ProcessStage.HANGING)
+        if hanging_state.status == StageStatus.NOT_STARTED and self._is_stage_ready_for_next_action(
+            work_order,
+            ProcessStage.HANGING,
+        ):
+            if self._find_active_hanging_conflict(work_order.id) is not None:
+                return "HANGING", self.QUEUE_RESOURCE_BLOCK_REASONS["HANGING"]
+
+        if hanging_state.status == StageStatus.IN_PROGRESS:
+            if self._find_active_automatic_line_conflict(work_order.id) is not None:
+                return "AUTOMATIC_LINE", self.QUEUE_RESOURCE_BLOCK_REASONS["AUTOMATIC_LINE"]
+
+        return None
+
+    def _is_stage_ready_for_next_action(self, work_order: WorkOrder, stage: ProcessStage) -> bool:
+        stage_sequence = self.get_actionable_stage_sequence_for_work_order(work_order)
+        previous_stage = self._get_previous_stage(stage_sequence, stage)
+        if previous_stage is None:
+            return True
+        previous_state = self._get_stage_state(work_order, previous_stage)
+        return previous_state.status == StageStatus.DONE
 
     @staticmethod
     def build_stage_status_view(status: StageStatus) -> StageStatusView:

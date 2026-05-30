@@ -200,6 +200,8 @@ class WorkOrderRead(BaseModel):
     paint_producer: str
     status: WorkOrderStatusView = Field(description="Derived compatibility field. Lifecycle truth comes from process_status and stage_states.")
     process_status: ProcessStatusView
+    queue_blocked_by_resource: str | None = None
+    queue_blocked_reason: str | None = None
     coating_type: CoatingTypeView
     production_type: ProductionTypeView | None
     queue_namespace: QueueNamespaceView

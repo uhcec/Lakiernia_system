@@ -118,6 +118,10 @@ export function getWorkOrderAttentionBadges(workOrder: WorkOrder): DisplayBadge[
     badges.push({ label: "WYMAGA UWAGI", tone: "warning" });
   }
 
+  if (workOrder.queue_blocked_reason) {
+    badges.push({ label: `CZEKA: ${workOrder.queue_blocked_reason}`, tone: "warning" });
+  }
+
   if (workOrder.planned_pickup_date && workOrder.process_status.value !== "READY") {
     const pickupDate = new Date(workOrder.planned_pickup_date);
     if (pickupDate < today) {

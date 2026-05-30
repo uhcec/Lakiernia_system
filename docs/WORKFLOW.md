@@ -226,6 +226,7 @@ Rules:
 8. Two managers must not be able to silently overwrite each other's queue reorder using stale data.
 9. Corrections do not receive automatic priority over normal work orders.
 10. Manager views should warn when a globally high-priority item is blocked by resource or station state, without splitting the global queue.
+11. Current manager queue warnings cover the exclusive resources currently modeled by backend locks/conflict checks: `HANGING` and `AUTOMATIC_LINE`. They are read-only visibility and do not change queue order or station-action authorization.
 
 ## Station Permissions
 

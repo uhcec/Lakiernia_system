@@ -149,7 +149,7 @@ Why this matters:
 
 ### 5. Global Queue Semantics
 
-Status: `CONFIRMED`
+Status: `CONFIRMED; resource-warning first slice implemented`
 
 Confirmed factory policy from 2026-05-30:
 
@@ -163,10 +163,11 @@ Current repository behavior/evidence:
 - Planned work orders share one global queue position namespace.
 - Corrections start unplanned and join the global queue when manager-planned.
 - Station panels filter the global queue to work actionable at that station.
+- Manager planned-queue read models now expose current resource-block warnings for the exclusive resources already modeled by the backend: `HANGING` and `AUTOMATIC_LINE`.
 
 Implementation decision needed:
 
-- Add manager-facing blocked-work warnings without changing the single global queue rule.
+- Extend manager-facing blocked-work warnings if/when additional station/resource locks are modeled beyond `HANGING` and `AUTOMATIC_LINE`.
 
 ### 6. Additional Work Types
 

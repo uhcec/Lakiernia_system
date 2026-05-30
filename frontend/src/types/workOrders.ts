@@ -116,6 +116,8 @@ export interface WorkOrder {
   paint_producer: string;
   status: WorkOrderStatus;
   process_status: ProcessStatus;
+  queue_blocked_by_resource: string | null;
+  queue_blocked_reason: string | null;
   coating_type: WorkOrderOption<CoatingTypeValue>;
   production_type: WorkOrderOption<ProductionTypeValue> | null;
   queue_namespace: WorkOrderOption<QueueNamespaceValue>;

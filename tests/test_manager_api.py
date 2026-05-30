@@ -23,6 +23,17 @@ def create_work_order(test_client: TestClient, title: str, coating_type: str = "
     return test_client.post("/work-orders", json=build_create_payload(title, coating_type, **overrides)).json()
 
 
+def advance_to_hanging(test_client: TestClient, work_order_id: int) -> None:
+    start_response = test_client.post(f"/process/work-orders/{work_order_id}/stages/SURFACE_PREPARATION/start")
+    finish_response = test_client.post(
+        f"/process/work-orders/{work_order_id}/stages/SURFACE_PREPARATION/finish",
+        json={"counted_quantity": 100},
+    )
+
+    assert start_response.status_code == 200
+    assert finish_response.status_code == 200
+
+
 def get_queue_revision(test_client: TestClient) -> str:
     planned = test_client.get("/manager/work-orders")
     assert planned.status_code == 200
@@ -79,6 +90,50 @@ def test_list_planned_work_orders_sorted_by_queue_position(test_client: TestClie
 
     assert response.status_code == 200
     assert [item["queue_position"] for item in response.json()] == [10, 20, 30]
+
+
+def test_manager_queue_warns_when_hanging_resource_blocks_next_order(test_client: TestClient) -> None:
+    first = create_work_order(test_client, "Blocking hanging first")
+    second = create_work_order(test_client, "Blocking hanging second")
+    test_client.post(f"/manager/work-orders/{first['id']}/plan", json={"production_type": "AUTOMATIC", "queue_position": 1})
+    test_client.post(f"/manager/work-orders/{second['id']}/plan", json={"production_type": "AUTOMATIC", "queue_position": 2})
+    advance_to_hanging(test_client, first["id"])
+    advance_to_hanging(test_client, second["id"])
+
+    start_response = test_client.post(f"/process/work-orders/{first['id']}/stages/HANGING/start")
+    response = test_client.get("/manager/work-orders")
+
+    assert start_response.status_code == 200
+    assert response.status_code == 200
+    first_item = next(item for item in response.json() if item["id"] == first["id"])
+    second_item = next(item for item in response.json() if item["id"] == second["id"])
+    assert first_item["queue_blocked_by_resource"] is None
+    assert first_item["queue_blocked_reason"] is None
+    assert second_item["queue_blocked_by_resource"] == "HANGING"
+    assert second_item["queue_blocked_reason"] == "Zawieszanie zajęte"
+
+
+def test_manager_queue_warns_when_automatic_line_blocks_hanging_finish(test_client: TestClient) -> None:
+    first = create_work_order(test_client, "Blocking automatic line first")
+    second = create_work_order(test_client, "Blocking automatic line second")
+    test_client.post(f"/manager/work-orders/{first['id']}/plan", json={"production_type": "AUTOMATIC", "queue_position": 1})
+    test_client.post(f"/manager/work-orders/{second['id']}/plan", json={"production_type": "AUTOMATIC", "queue_position": 2})
+    advance_to_hanging(test_client, first["id"])
+    advance_to_hanging(test_client, second["id"])
+    test_client.post(f"/process/work-orders/{first['id']}/stages/HANGING/start")
+    test_client.post(f"/process/work-orders/{first['id']}/stages/HANGING/finish")
+
+    second_start_response = test_client.post(f"/process/work-orders/{second['id']}/stages/HANGING/start")
+    response = test_client.get("/manager/work-orders")
+
+    assert second_start_response.status_code == 200
+    assert response.status_code == 200
+    first_item = next(item for item in response.json() if item["id"] == first["id"])
+    second_item = next(item for item in response.json() if item["id"] == second["id"])
+    assert first_item["queue_blocked_by_resource"] is None
+    assert first_item["queue_blocked_reason"] is None
+    assert second_item["queue_blocked_by_resource"] == "AUTOMATIC_LINE"
+    assert second_item["queue_blocked_reason"] == "Linia automatyczna zajęta"
 
 
 def test_assign_plan_sets_production_type_and_queue_position(test_client: TestClient) -> None:

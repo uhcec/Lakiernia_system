@@ -34,7 +34,7 @@ Use `docs/WORKFLOW_VALIDATION_CHECKLIST.md` as the active checklist before chang
 - Manages a global queue containing work from different completion stages and production areas.
 - Confirmed policy: there is one global queue for all planned work. Do not split it by manual, automatic, Decoral, corrections, or station.
 - Corrections do not automatically receive higher priority than normal work orders.
-- Manager should see whether queued work is blocked by a resource or station state.
+- Manager should see whether queued work is blocked by a resource or station state. Current implementation shows warnings for the modeled exclusive resources `HANGING` and `AUTOMATIC_LINE`.
 - Manager should see declared-versus-counted quantity discrepancies.
 
 ### Przygotowanie Powierzchni Tablet
