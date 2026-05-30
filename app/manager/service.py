@@ -318,6 +318,7 @@ class ManagerService:
         return WorkOrderRead(
             id=work_order.id,
             order_number=work_order.order_number,
+            external_order_number=work_order.external_order_number,
             title=work_order.title,
             total_quantity=work_order.total_quantity,
             completed_quantity=work_order.completed_quantity,

@@ -1147,6 +1147,7 @@ class ProcessService:
     ) -> WorkOrder:
         correction_order = WorkOrder(
             order_number=self.number_allocator.allocate(),
+            external_order_number=parent_work_order.external_order_number,
             title=parent_work_order.title,
             total_quantity=correction_quantity,
             completed_quantity=0,

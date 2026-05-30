@@ -80,6 +80,7 @@ class WorkOrderService:
 
         work_order = WorkOrder(
             order_number=order_number,
+            external_order_number=payload.external_order_number,
             title=payload.title or order_number,
             total_quantity=payload.total_quantity,
             description=payload.description,
@@ -163,6 +164,7 @@ class WorkOrderService:
     def _validate_work_order_state(self, work_order: WorkOrder, overrides: dict[str, object] | None = None) -> WorkOrderCreate:
         merged_payload = {
             "title": work_order.title,
+            "external_order_number": work_order.external_order_number,
             "total_quantity": work_order.total_quantity,
             "description": work_order.description,
             "customer_name": work_order.customer_name,
@@ -435,6 +437,7 @@ class WorkOrderService:
             summary=f"Created work order {work_order.order_number}.",
             details={
                 "order_number": work_order.order_number,
+                "external_order_number": work_order.external_order_number,
                 "is_incomplete_on_arrival": work_order.is_incomplete_on_arrival,
             },
         )
@@ -510,6 +513,7 @@ class WorkOrderService:
         return WorkOrderRead(
             id=work_order.id,
             order_number=work_order.order_number,
+            external_order_number=work_order.external_order_number,
             title=work_order.title,
             total_quantity=work_order.total_quantity,
             completed_quantity=work_order.completed_quantity,

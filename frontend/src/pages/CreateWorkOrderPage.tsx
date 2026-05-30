@@ -7,6 +7,7 @@ import type { CoatingTypeValue } from "../types/workOrders";
 interface FormState {
   total_quantity: string;
   coating_type: CoatingTypeValue | "";
+  external_order_number: string;
   description: string;
   customer_name: string;
   ral_code: string;
@@ -25,6 +26,7 @@ interface FormState {
 const initialFormState: FormState = {
   total_quantity: "1",
   coating_type: "",
+  external_order_number: "",
   description: "",
   customer_name: "",
   ral_code: "",
@@ -160,6 +162,7 @@ export function CreateWorkOrderPage() {
       await createWorkOrder({
         total_quantity: totalQuantity,
         coating_type: formState.coating_type,
+        external_order_number: formState.external_order_number.trim() || undefined,
         description: formState.description.trim() || undefined,
         customer_name: trimmedCustomerName,
         ral_code: trimmedRalCode,
@@ -207,6 +210,17 @@ export function CreateWorkOrderPage() {
                 rows={4}
                 className="rounded-2xl border border-line bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-accent"
                 placeholder="Opis"
+              />
+            </label>
+
+            <label className="flex flex-col gap-2">
+              <span className="text-sm font-medium text-ink">Nr zewnętrzny</span>
+              <input
+                value={formState.external_order_number}
+                onChange={(event) => updateField("external_order_number", event.target.value)}
+                maxLength={128}
+                className="rounded-2xl border border-line bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-accent"
+                placeholder="Opcjonalnie"
               />
             </label>
 

@@ -101,6 +101,7 @@ class WorkOrderAttachmentRead(BaseModel):
 class WorkOrderRelationSummaryRead(BaseModel):
     id: int
     order_number: str
+    external_order_number: str | None = None
     title: str
     customer_name: str
     ral_code: str
@@ -124,6 +125,7 @@ def _validate_counting_rule(field_name: str, quantity: int | None, to_count: boo
 
 class WorkOrderCreate(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=255)
+    external_order_number: str | None = Field(default=None, min_length=1, max_length=128)
     total_quantity: int = Field(default=1, gt=0)
     description: str | None = None
     customer_name: str = Field(min_length=1, max_length=255)
@@ -158,6 +160,7 @@ class WorkOrderStatusTransitionRequest(BaseModel):
 
 class WorkOrderUpdate(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=255)
+    external_order_number: str | None = Field(default=None, min_length=1, max_length=128)
     description: str | None = None
     customer_name: str | None = Field(default=None, max_length=255)
     ral_code: str | None = Field(default=None, min_length=1, max_length=64)
@@ -177,6 +180,7 @@ class WorkOrderUpdate(BaseModel):
 class WorkOrderRead(BaseModel):
     id: int
     order_number: str
+    external_order_number: str | None = None
     title: str
     total_quantity: int
     completed_quantity: int
@@ -253,6 +257,7 @@ def build_work_order_relation_summary(work_order: "WorkOrder") -> WorkOrderRelat
     return WorkOrderRelationSummaryRead(
         id=work_order.id,
         order_number=work_order.order_number,
+        external_order_number=work_order.external_order_number,
         title=work_order.title,
         customer_name=work_order.customer_name,
         ral_code=work_order.ral_code,

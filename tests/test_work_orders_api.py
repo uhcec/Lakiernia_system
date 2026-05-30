@@ -95,6 +95,7 @@ def test_create_work_order(test_client: TestClient) -> None:
     response = create_work_order(
         test_client,
         title="New generic work order",
+        external_order_number="EXT-2026/15",
         coating_type="RAL",
         description="Initial intake",
         customer_name="ACME",
@@ -114,6 +115,7 @@ def test_create_work_order(test_client: TestClient) -> None:
     assert response.status_code == 201
     assert body["id"] == 1
     assert body["order_number"].startswith("WO-")
+    assert body["external_order_number"] == "EXT-2026/15"
     assert body["title"] == "New generic work order"
     assert body["total_quantity"] == 250
     assert body["completed_quantity"] == 0
@@ -169,8 +171,27 @@ def test_create_work_order_with_missing_optional_fields(test_client: TestClient)
     )
 
     assert response.status_code == 201
+    assert response.json()["external_order_number"] is None
     assert response.json()["planned_pickup_date"] is None
     assert response.json()["total_area_m2"] is None
+
+
+def test_external_order_number_can_be_updated_and_cleared(test_client: TestClient) -> None:
+    created = create_work_order(test_client, title="External number", external_order_number="CLIENT-1").json()
+
+    update_response = test_client.patch(
+        f"/work-orders/{created['id']}",
+        json={"external_order_number": "CLIENT-2"},
+    )
+    clear_response = test_client.patch(
+        f"/work-orders/{created['id']}",
+        json={"external_order_number": None},
+    )
+
+    assert update_response.status_code == 200
+    assert update_response.json()["external_order_number"] == "CLIENT-2"
+    assert clear_response.status_code == 200
+    assert clear_response.json()["external_order_number"] is None
 
 
 def test_create_incomplete_work_order_sets_incomplete_status(test_client: TestClient) -> None:
@@ -710,7 +731,13 @@ def test_after_packing_done_process_status_is_gotowe(test_client: TestClient) ->
 
 
 def test_work_order_detail_returns_parent_and_correction_orders(test_client: TestClient) -> None:
-    created = create_work_order(test_client, title="Correction history", coating_type="RAL", total_quantity=100).json()
+    created = create_work_order(
+        test_client,
+        title="Correction history",
+        coating_type="RAL",
+        total_quantity=100,
+        external_order_number="CLIENT-CORR-1",
+    ).json()
     test_client.post(f"/manager/work-orders/{created['id']}/plan", json={"production_type": "MANUAL", "queue_position": 1})
     for stage in ["SURFACE_PREPARATION", "HANGING", "PRODUCTION"]:
         if stage == "SURFACE_PREPARATION":
@@ -743,10 +770,12 @@ def test_work_order_detail_returns_parent_and_correction_orders(test_client: Tes
     assert len(response.json()["correction_orders"]) == 1
     assert response.json()["correction_orders"][0]["id"] == correction_order["id"]
     assert response.json()["correction_orders"][0]["total_quantity"] == 10
+    assert response.json()["correction_orders"][0]["external_order_number"] == "CLIENT-CORR-1"
     assert response.json()["correction_orders"][0]["correction_reason_category"] == "inne"
     assert response.json()["correction_orders"][0]["correction_reason_note"] == "opis od pakowania"
     assert correction_response.status_code == 200
     assert correction_response.json()["is_correction"] is True
+    assert correction_response.json()["external_order_number"] == "CLIENT-CORR-1"
     assert correction_response.json()["correction_reason_category"] == "inne"
     assert correction_response.json()["correction_reason_note"] == "opis od pakowania"
     assert correction_response.json()["parent_order"]["id"] == created["id"]

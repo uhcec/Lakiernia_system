@@ -73,6 +73,7 @@ class WorkOrder(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     order_number: Mapped[str] = mapped_column(String(32), unique=True, nullable=False)
+    external_order_number: Mapped[str | None] = mapped_column(String(128), nullable=True)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     total_quantity: Mapped[int] = mapped_column(Integer(), nullable=False, default=1)
     completed_quantity: Mapped[int] = mapped_column(Integer(), nullable=False, default=0)

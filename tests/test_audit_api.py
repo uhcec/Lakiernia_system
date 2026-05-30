@@ -41,6 +41,7 @@ def test_list_work_order_audit_events_returns_chronological_history(test_client:
     assert body[0]["station_id"] == "OFFICE"
     assert body[0]["details"] == {
         "order_number": create_response.json()["order_number"],
+        "external_order_number": None,
         "is_incomplete_on_arrival": False,
     }
     assert body[1]["details"]["updated_fields"] == ["title"]

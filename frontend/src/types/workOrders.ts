@@ -78,6 +78,7 @@ export interface WorkOrderAttachment {
 export interface WorkOrderRelationSummary {
   id: number;
   order_number: string;
+  external_order_number: string | null;
   title: string;
   customer_name: string;
   ral_code: string;
@@ -95,6 +96,7 @@ export interface WorkOrderRelationSummary {
 export interface WorkOrder {
   id: number;
   order_number: string;
+  external_order_number: string | null;
   title: string;
   total_quantity: number;
   completed_quantity: number;
@@ -142,6 +144,7 @@ export interface WorkOrdersListResponse {
 
 export interface CreateWorkOrderRequest {
   title?: string;
+  external_order_number?: string;
   coating_type: CoatingTypeValue;
   total_quantity?: number;
   customer_name: string;

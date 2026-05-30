@@ -134,6 +134,9 @@ export function WorkOrdersTable({ workOrders }: WorkOrdersTableProps) {
                 <td className="px-5 py-4 font-semibold">
                   <div className="space-y-2">
                     <div>{workOrder.order_number}</div>
+                    {workOrder.external_order_number ? (
+                      <div className="text-xs font-medium text-steel">Zewn.: {workOrder.external_order_number}</div>
+                    ) : null}
                     <div className="flex flex-wrap gap-2">
                       {[...getWorkOrderBadgeStack(workOrder), ...getWorkOrderAttentionBadges(workOrder)].map((badge) => (
                         <span

@@ -21,7 +21,7 @@ Use `docs/WORKFLOW_VALIDATION_CHECKLIST.md` as the active checklist before chang
 	- `Zlecenia`: unplanned work orders and incomplete deliveries.
 	- `Na produkcji`: all work orders currently on the factory floor.
 	- `Gotowe`: completed work orders, with the ability to mark whether the order has been issued/released.
-- Needs an additional external client/order number field separate from the internal system work-order number.
+- Needs an additional external client/order number field separate from the internal system work-order number. Current implementation captures it as optional text; uniqueness/search rules still need factory policy.
 - Should require paint stock/state information when entering a work order, once the paint inventory model exists.
 - Should see whether surface-preparation counted quantity differs from the declared client quantity.
 - Office and manager should generally have the same broad access to process information.

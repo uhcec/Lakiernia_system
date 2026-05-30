@@ -27,6 +27,7 @@ def test_alembic_check_passes_after_upgrade_head(tmp_path: Path) -> None:
     audit_event_columns = _table_columns(db_path, "audit_events")
 
     assert "due_date" not in columns
+    assert "external_order_number" in columns
     assert "correction_reason_category" in columns
     assert "correction_reason_note" in columns
     assert "ix_work_orders_queue_namespace" in work_order_indexes

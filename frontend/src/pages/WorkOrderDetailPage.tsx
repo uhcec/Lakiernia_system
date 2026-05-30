@@ -438,6 +438,10 @@ export function WorkOrderDetailPage() {
                   <dd className="mt-1 text-base font-semibold text-ink">{workOrder.order_number}</dd>
                 </div>
                 <div>
+                  <dt className="text-sm font-medium text-steel">Nr zewnętrzny</dt>
+                  <dd className="mt-1 text-base text-ink">{workOrder.external_order_number ?? "-"}</dd>
+                </div>
+                <div>
                   <dt className="text-sm font-medium text-steel">Dane główne</dt>
                   <dd className="mt-1 flex flex-wrap items-center gap-2 text-base font-semibold text-ink">
                     <span>{formatWorkOrderPrimaryInfo(workOrder)}</span>

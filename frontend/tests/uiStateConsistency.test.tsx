@@ -6,6 +6,7 @@ import { PackingWorkOrdersPage } from "../src/components/PackingWorkOrdersPage";
 import { StageWorkOrdersPage } from "../src/components/StageWorkOrdersPage";
 import { WorkOrdersTable } from "../src/components/WorkOrdersTable";
 import { ApiError } from "../src/api/apiError";
+import { CreateWorkOrderPage } from "../src/pages/CreateWorkOrderPage";
 import { ManagerPanelPage } from "../src/pages/ManagerPanelPage";
 import { WorkOrderDetailPage } from "../src/pages/WorkOrderDetailPage";
 import type { StageWorkOrder } from "../src/types/process";
@@ -29,6 +30,7 @@ vi.mock("../src/api/processApi", () => ({
 }));
 
 vi.mock("../src/api/workOrdersApi", () => ({
+  createWorkOrder: vi.fn(),
   deleteWorkOrderAttachment: vi.fn(),
   fetchWorkOrder: vi.fn(),
   fetchWorkOrderAttachments: vi.fn(),
@@ -66,6 +68,7 @@ const reorderWorkOrderQueueMock = vi.mocked(managerApi.reorderWorkOrderQueue);
 const fetchStageWorkOrdersMock = vi.mocked(processApi.fetchStageWorkOrders);
 const transitionStageMock = vi.mocked(processApi.transitionStage);
 const completePackingMock = vi.mocked(processApi.completePacking);
+const createWorkOrderMock = vi.mocked(workOrdersApi.createWorkOrder);
 const fetchWorkOrderMock = vi.mocked(workOrdersApi.fetchWorkOrder);
 const fetchWorkOrderAttachmentsMock = vi.mocked(workOrdersApi.fetchWorkOrderAttachments);
 
@@ -73,6 +76,7 @@ function buildWorkOrder(id: number, orderNumber: string, queuePosition: number, 
   return {
     id,
     order_number: orderNumber,
+    external_order_number: null,
     title: orderNumber,
     total_quantity: 10,
     completed_quantity: 0,
@@ -150,6 +154,7 @@ beforeEach(() => {
   fetchStageWorkOrdersMock.mockReset();
   transitionStageMock.mockReset();
   completePackingMock.mockReset();
+  createWorkOrderMock.mockReset();
   fetchWorkOrderMock.mockReset();
   fetchWorkOrderAttachmentsMock.mockReset();
   fetchWorkOrderAttachmentsMock.mockResolvedValue([]);
@@ -169,6 +174,35 @@ describe("frontend state consistency", () => {
       </MemoryRouter>,
     );
   }
+
+  it("submits external order number from the create form", async () => {
+    createWorkOrderMock.mockResolvedValue({ ...buildWorkOrder(90, "WO-CREATE", 1), external_order_number: "EXT-77" });
+
+    render(
+      <MemoryRouter>
+        <CreateWorkOrderPage />
+      </MemoryRouter>,
+    );
+
+    fireEvent.change(screen.getByLabelText("Nr zewnętrzny"), { target: { value: " EXT-77 " } });
+    fireEvent.change(screen.getByLabelText("Klient"), { target: { value: "ACME" } });
+    fireEvent.change(screen.getByLabelText("Technologia"), { target: { value: "RAL" } });
+    fireEvent.change(screen.getByLabelText("Kod RAL"), { target: { value: "RAL 7016" } });
+    fireEvent.change(screen.getByLabelText("Producent farby"), { target: { value: "AkzoNobel" } });
+    fireEvent.change(screen.getByLabelText("Data przyjęcia"), { target: { value: "2026-05-30" } });
+    screen.getAllByLabelText("Do policzenia na produkcji").forEach((checkbox) => fireEvent.click(checkbox));
+    fireEvent.click(screen.getByRole("button", { name: "Zapisz" }));
+
+    await waitFor(() => {
+      expect(createWorkOrderMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          external_order_number: "EXT-77",
+          customer_name: "ACME",
+          coating_type: "RAL",
+        }),
+      );
+    });
+  });
 
   it("resets manager reorder UI to backend state after save failure", async () => {
     fetchUnplannedWorkOrdersMock.mockResolvedValue([]);
