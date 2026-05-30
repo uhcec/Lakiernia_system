@@ -45,10 +45,11 @@ Configured stages:
 
 Actionable stage sequence depends on production type:
 - `MANUAL`: all configured stages are actionable
-- `AUTOMATIC`: `PRODUCTION` is preview-only (not actionable)
+- `AUTOMATIC`: `PRODUCTION` does not use manual start/finish stage actions, but the automatic production station is allowed to record paint consumption once paint inventory exists
 
 Automatic constraints:
 - Cannot start/finish `PRODUCTION` directly for `AUTOMATIC`
+- Automatic production is no longer display-only: it should allow paint-consumption entry as a separate audited inventory action.
 - `HANGING` start transitions automatic flow forward
 - Finish for automatic path is performed from `PACKING`
 - Physical resource exclusivity is enforced in the backend with persisted resource locks and controlled `409` responses.
@@ -71,7 +72,7 @@ No correction outcome:
 ### RAL + AUTOMATIC
 Flow:
 - `SURFACE_PREPARATION` -> `HANGING` -> `PACKING`
-- `PRODUCTION` is preview-only during automatic flow
+- `PRODUCTION` is not manually started/finished during automatic flow, but the automatic production station may record paint consumption
 
 No correction outcome:
 - `PACKING` full OK finalizes order
@@ -88,7 +89,7 @@ No correction outcome:
 ### DECORAL + AUTOMATIC
 Flow:
 - `SURFACE_PREPARATION` -> `HANGING` -> `PACKING` -> `DECORAL_PRODUCTION`
-- `PRODUCTION` remains preview-only
+- `PRODUCTION` is not manually started/finished during automatic flow, but the automatic production station may record paint consumption
 
 No correction outcome:
 - READY only after Decoral stage completion
@@ -274,9 +275,11 @@ Paint stock management is a required future workflow area, but it needs a dedica
 Confirmed non-conflicting needs:
 - paint stock state should be required during order intake/planning
 - production paint consumption should reduce paint stock through an audited system action
+- automatic production is allowed to enter paint consumption; it is no longer a display-only panel
 
-Open policy/design point:
-- current automatic production policy says the automatic production tablet is display-only. Letting automatic production enter paint usage would intentionally change that panel from display-only to action-capable, so this needs explicit confirmation and focused permission/audit design before code changes.
+Open implementation design:
+- define paint inventory entities, stock movement rules, audit events, and correction/undo behavior before code changes
+- keep the automatic `PRODUCTION` stage transition model separate from paint consumption: automatic production should not gain manual production start/finish unless separately decided
 
 ## Process Action Safety
 

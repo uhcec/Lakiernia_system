@@ -63,11 +63,12 @@ Use `docs/WORKFLOW_VALIDATION_CHECKLIST.md` as the active checklist before chang
 ### Automatic Production Tablet
 
 - Automatic production work orders appear here.
-- Current working policy: the automatic production tablet is display-only and does not require operator clicks.
+- Confirmed update from 2026-05-30: the automatic production tablet is no longer display-only.
+- Automatic production should be able to enter paint consumption so stock is deducted from inventory once the paint inventory model exists.
+- Automatic production still does not need manual start/finish clicks for the automatic `PRODUCTION` stage unless that is separately decided.
 - Only one work order can be in automatic production at a time.
 - Packing later handles completion of the automatic path.
 - Station list should primarily show: work-order number, square meters, paint, company/customer, and queue position. Drawings/attachments should remain accessible from details.
-- New 2026-05-30 idea: automatic production could enter paint consumption so stock is deducted from inventory. This conflicts with the current display-only policy for the automatic production tablet and needs an explicit policy/design decision before implementation.
 
 ### Manual Production Tablet
 
@@ -115,7 +116,7 @@ Use `docs/WORKFLOW_VALIDATION_CHECKLIST.md` as the active checklist before chang
 - Confirmed station permissions: station identity should remain audited, but invalid station actions should be impossible in the UI and rejected by the backend if attempted.
 - Confirmed automatic overlap: hanging can start the next automatic order after the previous hanging stage is finished, while preserving one active work order per physical station/resource.
 - Quality-control production document generation: the factory has a ready template to be filled by the program. The template and field mapping still need to be provided/checked before implementation.
-- Paint inventory: intake should require paint stock/state data and production consumption should deduct stock, but this needs a paint inventory model. Automatic-production consumption entry specifically conflicts with the current display-only automatic tablet policy and needs confirmation.
+- Paint inventory: intake should require paint stock/state data and production consumption should deduct stock, but this needs a paint inventory model. Automatic production is confirmed as allowed to enter paint consumption and is no longer display-only.
 - Completed-order issue/release marker: completed work orders should be markable as issued/released, separate from production READY state.
 
 ## Additional Work Types

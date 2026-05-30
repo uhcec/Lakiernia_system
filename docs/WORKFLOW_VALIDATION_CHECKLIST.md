@@ -30,7 +30,7 @@ Confirmed factory policy from 2026-05-30:
 Current repository behavior/evidence:
 
 - Automatic orders flow through `SURFACE_PREPARATION -> HANGING -> PACKING`.
-- Automatic `PRODUCTION` is preview-only.
+- Automatic `PRODUCTION` currently does not use manual start/finish clicks.
 - Backend resource locks currently allow only one active hanging job and one active automatic-line job.
 - Current implementation evidence may still be stricter than confirmed factory policy because it historically blocked the automatic path until packing completion.
 
@@ -136,7 +136,7 @@ Expected permission direction to validate:
 - `MANAGER`: assign production type, queue/reorder, view global queue
 - `SURFACE_PREPARATION`: enter counted quantity, start/finish surface prep
 - `HANGING`: start/finish hanging
-- `AUTOMATIC_PRODUCTION`: display-only unless future policy changes
+- `AUTOMATIC_PRODUCTION`: enter paint consumption once paint inventory exists; no manual start/finish for automatic production unless separately decided
 - `MANUAL_PRODUCTION`: start/finish manual production
 - `PACKING`: enter counted/OK/correction quantities, complete packing
 - `DECORAL_PRODUCTION`: start/finish Decoral production
@@ -245,21 +245,17 @@ Implementation decision needed:
 
 ### 10. Paint Inventory And Consumption
 
-Status: `PARTLY CONFIRMED / OPEN POLICY CONFLICT`
+Status: `CONFIRMED with implementation design needed`
 
-Non-conflicting confirmed direction from 2026-05-30:
+Confirmed direction from 2026-05-30:
 
 - Work-order intake should force paint stock/state entry once inventory exists.
 - Paint usage should be recorded so stock can be deducted.
-
-Potential conflict with previous policy:
-
-- Current automatic-production policy says the automatic production tablet is display-only.
-- Letting automatic production enter paint usage would intentionally make that station action-capable.
+- Automatic production is no longer display-only; it should be able to enter paint consumption.
+- This does not automatically mean automatic production gains manual start/finish stage actions.
 
 Implementation decision needed:
 
-- Confirm whether automatic production should remain display-only or gain a paint-consumption action.
 - Design paint inventory entities, stock movements, audit events, and correction/undo behavior before implementation.
 - Define station permissions for paint-stock entry and paint-consumption entry.
 
@@ -285,7 +281,7 @@ Implementation decision needed:
 5. Review which station can perform each action.
 6. Review which users/stations should see quantity discrepancies.
 7. Walk through `Przemalowanka` and `Ocynk` examples before implementing their data model.
-8. Review paint inventory/consumption policy, especially whether automatic production remains display-only.
+8. Review paint inventory/consumption data model and automatic-production paint-consumption screen flow.
 9. Review the quality-control document template and field mapping.
 
 ## After Decisions Are Confirmed
