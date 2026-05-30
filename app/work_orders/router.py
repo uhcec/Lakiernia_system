@@ -13,6 +13,7 @@ from app.work_orders.schemas import (
 	WorkOrderAttachmentRead,
 	WorkOrderListResponse,
 	WorkOrderRead,
+	WorkOrderReleaseUpdate,
 	WorkOrderUpdate,
 )
 from app.work_orders.service import WorkOrderService
@@ -77,6 +78,16 @@ def mark_work_order_complete_arrival(
 	station_context: Annotated[StationContext, Depends(get_station_context)],
 ) -> WorkOrderRead:
 	return service.mark_complete_arrival(work_order_id, station_context=station_context)
+
+
+@router.patch("/{work_order_id}/release-status", response_model=WorkOrderRead)
+def update_work_order_release_status(
+	work_order_id: int,
+	payload: WorkOrderReleaseUpdate,
+	service: Annotated[WorkOrderService, Depends(get_work_order_service)],
+	station_context: Annotated[StationContext, Depends(get_station_context)],
+) -> WorkOrderRead:
+	return service.update_release_status(work_order_id, payload, station_context=station_context)
 
 
 @router.post("/{work_order_id}/attachments", response_model=WorkOrderAttachmentRead, status_code=status.HTTP_201_CREATED)

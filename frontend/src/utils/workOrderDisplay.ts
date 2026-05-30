@@ -103,6 +103,13 @@ export function getWorkOrderBadgeStack(workOrder: WorkOrder): DisplayBadge[] {
     badges.push({ label: "RĘCZNA", tone: "neutral" });
   }
 
+  if (workOrder.process_status.value === "READY") {
+    badges.push({
+      label: workOrder.is_released_to_client ? "WYDANE" : "DO WYDANIA",
+      tone: workOrder.is_released_to_client ? "success" : "warning",
+    });
+  }
+
   return badges;
 }
 

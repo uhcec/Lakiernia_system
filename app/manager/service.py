@@ -384,6 +384,8 @@ class ManagerService:
             ],
             received_date=work_order.received_date,
             planned_pickup_date=work_order.planned_pickup_date,
+            is_released_to_client=work_order.released_to_client_at is not None,
+            released_to_client_at=work_order.released_to_client_at,
             total_area_m2=work_order.total_area_m2,
             is_incomplete_on_arrival=work_order.is_incomplete_on_arrival,
             profiles_quantity=work_order.profiles_quantity,

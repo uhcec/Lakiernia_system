@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { getWorkOrderAttentionBadges } from "../src/utils/workOrderDisplay";
+import { getWorkOrderAttentionBadges, getWorkOrderBadgeStack } from "../src/utils/workOrderDisplay";
 import type { WorkOrder } from "../src/types/workOrders";
 
 function buildWorkOrder(overrides: Partial<WorkOrder> = {}): WorkOrder {
@@ -37,6 +37,8 @@ function buildWorkOrder(overrides: Partial<WorkOrder> = {}): WorkOrder {
     batches: [],
     received_date: "2026-05-30",
     planned_pickup_date: null,
+    is_released_to_client: false,
+    released_to_client_at: null,
     total_area_m2: null,
     is_incomplete_on_arrival: false,
     profiles_quantity: null,
@@ -60,5 +62,24 @@ describe("work order display helpers", () => {
     );
 
     expect(badges).toContainEqual({ label: "CZEKA: Linia automatyczna zajęta", tone: "warning" });
+  });
+
+  it("shows release state badges for ready work orders", () => {
+    const unreleasedBadges = getWorkOrderBadgeStack(
+      buildWorkOrder({
+        process_status: { value: "READY", label: "Gotowe" },
+        is_released_to_client: false,
+      }),
+    );
+
+    const releasedBadges = getWorkOrderBadgeStack(
+      buildWorkOrder({
+        process_status: { value: "READY", label: "Gotowe" },
+        is_released_to_client: true,
+      }),
+    );
+
+    expect(unreleasedBadges).toContainEqual({ label: "DO WYDANIA", tone: "warning" });
+    expect(releasedBadges).toContainEqual({ label: "WYDANE", tone: "success" });
   });
 });

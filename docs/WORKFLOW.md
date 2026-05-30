@@ -160,7 +160,10 @@ Office/manager list grouping:
 - `Zlecenia`: unplanned work orders and incomplete deliveries.
 - `Na produkcji`: all work orders currently active/on the factory floor.
 - `Gotowe`: completed/READY work orders.
-- Completed work orders need an additional issued/released marker showing whether the completed order has been handed over/released to the client. This marker is logistics/dispatch state and must not change the production meaning of READY.
+- Completed work orders have an issued/released marker showing whether the completed order has been handed over/released to the client.
+- The marker is stored as `released_to_client_at`; `is_released_to_client` is derived for read models.
+- Release can be marked or cleared only for `READY` work orders. This is logistics/dispatch state and must not change the production meaning of READY.
+- Office and manager station identities may update the marker; production station identities may not.
 
 Station list display should be tailored to the station and move lower-priority data into details.
 

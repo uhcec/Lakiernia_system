@@ -25,6 +25,7 @@ from app.work_orders.schemas import (
     WorkOrderQuantityBatchRead,
     WorkOrderRelationSummaryRead,
     WorkOrderRead,
+    WorkOrderReleaseUpdate,
     WorkOrderStageStateRead,
     WorkOrderStatusOption,
     WorkOrderStatusView,
@@ -258,6 +259,46 @@ class WorkOrderService:
 
         return self._to_read_model(work_order)
 
+    def update_release_status(
+        self,
+        work_order_id: int,
+        payload: WorkOrderReleaseUpdate,
+        station_context: StationContext | None = None,
+    ) -> WorkOrderRead:
+        self._ensure_release_station_action(station_context)
+        work_order = self._get_existing_work_order(work_order_id)
+        process_status = self.process_service.get_display_status(work_order)
+        if process_status != ProcessDisplayStatus.READY:
+            raise InvalidStatusTransitionError("Only READY work orders can be marked as released to client.")
+
+        current_release_state = work_order.released_to_client_at is not None
+        if current_release_state == payload.is_released_to_client:
+            return self._to_read_model(work_order)
+
+        now = datetime.now(UTC)
+        work_order.released_to_client_at = now if payload.is_released_to_client else None
+        work_order.updated_at = now
+        self._record_audit_event(
+            event_type="work_order.release_status_updated",
+            station_context=station_context,
+            work_order=work_order,
+            target_type="work_order",
+            target_id=work_order.id,
+            summary=f"Updated release status for work order {work_order.order_number}.",
+            details={
+                "is_released_to_client": payload.is_released_to_client,
+                "released_to_client_at": work_order.released_to_client_at,
+            },
+        )
+
+        try:
+            self.repository.commit()
+        except Exception:
+            self.repository.rollback()
+            raise
+
+        return self._to_read_model(work_order)
+
     @staticmethod
     def _has_incomplete_marker(work_order: WorkOrder) -> bool:
         return work_order.is_incomplete_on_arrival or work_order.status == WorkOrderStatus.INCOMPLETE
@@ -390,6 +431,14 @@ class WorkOrderService:
             station_context,
             allowed_station_ids={StationId.OFFICE},
             action=action,
+        )
+
+    @staticmethod
+    def _ensure_release_station_action(station_context: StationContext | None) -> None:
+        ensure_station_allowed(
+            station_context,
+            allowed_station_ids={StationId.OFFICE, StationId.MANAGER},
+            action="work-order release actions",
         )
 
     @staticmethod
@@ -576,6 +625,8 @@ class WorkOrderService:
             ],
             received_date=work_order.received_date,
             planned_pickup_date=work_order.planned_pickup_date,
+            is_released_to_client=work_order.released_to_client_at is not None,
+            released_to_client_at=work_order.released_to_client_at,
             total_area_m2=work_order.total_area_m2,
             is_incomplete_on_arrival=work_order.is_incomplete_on_arrival,
             profiles_quantity=work_order.profiles_quantity,

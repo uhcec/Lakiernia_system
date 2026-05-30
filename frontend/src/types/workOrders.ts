@@ -126,6 +126,8 @@ export interface WorkOrder {
   batches: WorkOrderQuantityBatch[];
   received_date: string;
   planned_pickup_date: string | null;
+  is_released_to_client: boolean;
+  released_to_client_at: string | null;
   total_area_m2: number | null;
   is_incomplete_on_arrival: boolean;
   profiles_quantity: number | null;

@@ -8,6 +8,7 @@ import {
   fetchWorkOrderAttachments,
   getWorkOrderAttachmentDownloadUrl,
   markWorkOrderCompleteArrival,
+  updateWorkOrderReleaseStatus,
   uploadWorkOrderAttachment,
 } from "../api/workOrdersApi";
 import type { AuditEvent, AuditStationId } from "../types/audit";
@@ -184,6 +185,7 @@ export function WorkOrderDetailPage() {
   const [auditErrorMessage, setAuditErrorMessage] = useState<string | null>(null);
   const [uploadErrorMessage, setUploadErrorMessage] = useState<string | null>(null);
   const [isUpdatingArrival, setIsUpdatingArrival] = useState(false);
+  const [isUpdatingReleaseStatus, setIsUpdatingReleaseStatus] = useState(false);
   const [isUploadingAttachment, setIsUploadingAttachment] = useState(false);
   const [deletingAttachmentId, setDeletingAttachmentId] = useState<number | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -303,6 +305,32 @@ export function WorkOrderDetailPage() {
       setErrorMessage(error instanceof Error ? error.message : "Nie udało się oznaczyć zlecenia jako kompletne");
     } finally {
       setIsUpdatingArrival(false);
+    }
+  }
+
+  async function handleUpdateReleaseStatus(nextReleaseState: boolean) {
+    if (!id || !workOrder) {
+      return;
+    }
+
+    const confirmationMessage = nextReleaseState
+      ? "Czy oznaczyć to zlecenie jako wydane klientowi?"
+      : "Czy cofnąć oznaczenie wydania klientowi?";
+    const shouldContinue = window.confirm(confirmationMessage);
+    if (!shouldContinue) {
+      return;
+    }
+
+    setIsUpdatingReleaseStatus(true);
+    setErrorMessage(null);
+
+    try {
+      await updateWorkOrderReleaseStatus(Number(id), nextReleaseState);
+      await Promise.all([loadWorkOrder(Number(id)), loadAuditEvents(Number(id))]);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Nie udało się zmienić statusu wydania");
+    } finally {
+      setIsUpdatingReleaseStatus(false);
     }
   }
 
@@ -586,9 +614,32 @@ export function WorkOrderDetailPage() {
                   <p className="mt-2 text-sm text-rose-700">{getWorkOrderActiveCorrectionsText(workOrder)}</p>
                 ) : null}
                 {isHistoricalWorkOrder(workOrder) ? (
-                  <div className="mt-6 rounded-3xl border border-line/80 bg-white p-4">
-                    <p className="text-xs font-semibold uppercase tracking-[0.14em] text-steel">Wynik końcowy</p>
-                    <p className="mt-2 text-2xl font-semibold text-ink">{getHistoricalWorkOrderResultText(workOrder)}</p>
+                  <div className="mt-6 grid gap-3">
+                    <div className="rounded-3xl border border-line/80 bg-white p-4">
+                      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-steel">Wynik końcowy</p>
+                      <p className="mt-2 text-2xl font-semibold text-ink">{getHistoricalWorkOrderResultText(workOrder)}</p>
+                    </div>
+                    <div className="rounded-3xl border border-line/80 bg-white p-4">
+                      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-steel">Wydanie klientowi</p>
+                      <p className="mt-2 text-lg font-semibold text-ink">
+                        {workOrder.is_released_to_client ? "Wydane" : "Do wydania"}
+                      </p>
+                      {workOrder.released_to_client_at ? (
+                        <p className="mt-1 text-sm text-steel">{formatDateTime(workOrder.released_to_client_at)}</p>
+                      ) : null}
+                      <button
+                        type="button"
+                        onClick={() => void handleUpdateReleaseStatus(!workOrder.is_released_to_client)}
+                        disabled={isUpdatingReleaseStatus}
+                        className="mt-4 inline-flex items-center justify-center rounded-full bg-accent px-5 py-3 text-sm font-medium text-white transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:bg-teal-300"
+                      >
+                        {isUpdatingReleaseStatus
+                          ? "Zapisywanie..."
+                          : workOrder.is_released_to_client
+                            ? "Cofnij wydanie"
+                            : "Oznacz jako wydane"}
+                      </button>
+                    </div>
                   </div>
                 ) : (
                   <div className="mt-6 grid gap-3 sm:grid-cols-3">

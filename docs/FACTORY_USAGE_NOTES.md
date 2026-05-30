@@ -20,7 +20,7 @@ Use `docs/WORKFLOW_VALIDATION_CHECKLIST.md` as the active checklist before chang
 - Proposed tab/order grouping from 2026-05-30:
 	- `Zlecenia`: unplanned work orders and incomplete deliveries.
 	- `Na produkcji`: all work orders currently on the factory floor.
-	- `Gotowe`: completed work orders, with the ability to mark whether the order has been issued/released.
+	- `Gotowe`: completed work orders, with the ability to mark whether the order has been issued/released. Current implementation allows office/manager to mark or clear release only for READY orders.
 - Needs an additional external client/order number field separate from the internal system work-order number. Current implementation captures it as optional text; uniqueness/search rules still need factory policy.
 - Should require paint stock/state information when entering a work order, once the paint inventory model exists.
 - Should see whether surface-preparation counted quantity differs from the declared client quantity.
@@ -117,7 +117,7 @@ Use `docs/WORKFLOW_VALIDATION_CHECKLIST.md` as the active checklist before chang
 - Confirmed automatic overlap: hanging can start the next automatic order after the previous hanging stage is finished, while preserving one active work order per physical station/resource.
 - Quality-control production document generation: the factory has a ready template to be filled by the program. The template and field mapping still need to be provided/checked before implementation.
 - Paint inventory: intake should require paint stock/state data and production consumption should deduct stock, but this needs a paint inventory model. Automatic production is confirmed as allowed to enter paint consumption and is no longer display-only.
-- Completed-order issue/release marker: completed work orders should be markable as issued/released, separate from production READY state.
+- Completed-order issue/release marker: completed work orders are markable as issued/released, separate from production READY state.
 
 ## Additional Work Types
 

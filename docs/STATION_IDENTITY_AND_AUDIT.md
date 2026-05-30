@@ -159,13 +159,13 @@ Confirmed decisions from `docs/FACTORY_USAGE_NOTES.md`:
 - Office and manager should see quantity discrepancies; station operators should see only operational quantities.
 - Quantity discrepancies should be recorded and confirmed at surface preparation, but should not block work orders for now. Surface-preparation finish requires counted quantity; start does not.
 - `Przemalowanka` is a standalone customer work order that skips surface preparation; `Ocynk` is a strong station-visible type/marker combinable with RAL or Decoral.
-- Office/manager completed views should support an issued/released marker for completed orders, separate from production READY state.
+- Office/manager completed views support an issued/released marker for READY orders, separate from production READY state; office and manager station identities can update it.
 - Paint inventory/consumption needs station permission decisions. Intake paint-stock entry is needed, and automatic production is confirmed as an action-capable station for paint-consumption entry.
 - Quality-control production document generation should use the factory-provided template and may need audit/attachment rules depending on whether generated copies are persisted.
 
 Track these decisions in `docs/WORKFLOW_VALIDATION_CHECKLIST.md` before changing workflow semantics.
 
-These decisions unblock station permission design. Automatic-flow resource changes, backend station permission enforcement, and manager warnings for currently modeled exclusive resources were implemented on 2026-05-30; discrepancy recording, new work types, paint inventory, issued/released state, and quality-document generation still need focused implementation design before code changes.
+These decisions unblock station permission design. Automatic-flow resource changes, backend station permission enforcement, manager warnings for currently modeled exclusive resources, and completed-order release status were implemented on 2026-05-30; discrepancy recording, new work types, paint inventory, and quality-document generation still need focused implementation design before code changes.
 
 ## Implementation Plan
 

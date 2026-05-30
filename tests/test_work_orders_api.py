@@ -116,6 +116,8 @@ def test_create_work_order(test_client: TestClient) -> None:
     assert body["id"] == 1
     assert body["order_number"].startswith("WO-")
     assert body["external_order_number"] == "EXT-2026/15"
+    assert body["is_released_to_client"] is False
+    assert body["released_to_client_at"] is None
     assert body["title"] == "New generic work order"
     assert body["total_quantity"] == 250
     assert body["completed_quantity"] == 0
@@ -728,6 +730,63 @@ def test_after_packing_done_process_status_is_gotowe(test_client: TestClient) ->
 
     assert response.status_code == 200
     assert response.json()["process_status"] == {"value": "READY", "label": "Gotowe"}
+
+
+def test_ready_work_order_release_status_can_be_marked_and_cleared(test_client: TestClient) -> None:
+    created = create_work_order(test_client, title="Release ready", coating_type="RAL").json()
+    finish_ral_work_order(test_client, created["id"])
+
+    release_response = test_client.patch(
+        f"/work-orders/{created['id']}/release-status",
+        json={"is_released_to_client": True},
+        headers={"X-Station-Id": "OFFICE"},
+    )
+    clear_response = test_client.patch(
+        f"/work-orders/{created['id']}/release-status",
+        json={"is_released_to_client": False},
+        headers={"X-Station-Id": "MANAGER"},
+    )
+
+    assert release_response.status_code == 200
+    assert release_response.json()["process_status"] == {"value": "READY", "label": "Gotowe"}
+    assert release_response.json()["is_released_to_client"] is True
+    assert release_response.json()["released_to_client_at"] is not None
+    assert clear_response.status_code == 200
+    assert clear_response.json()["is_released_to_client"] is False
+    assert clear_response.json()["released_to_client_at"] is None
+
+    audit_response = test_client.get(f"/audit/work-orders/{created['id']}/events")
+    release_events = [event for event in audit_response.json() if event["event_type"] == "work_order.release_status_updated"]
+    assert [event["station_id"] for event in release_events] == ["OFFICE", "MANAGER"]
+    assert release_events[0]["details"]["is_released_to_client"] is True
+    assert release_events[0]["details"]["released_to_client_at"] is not None
+    assert release_events[1]["details"] == {"is_released_to_client": False, "released_to_client_at": None}
+
+
+def test_active_work_order_cannot_be_marked_released(test_client: TestClient) -> None:
+    created = create_work_order(test_client, title="Release active", coating_type="RAL").json()
+
+    response = test_client.patch(
+        f"/work-orders/{created['id']}/release-status",
+        json={"is_released_to_client": True},
+        headers={"X-Station-Id": "OFFICE"},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Only READY work orders can be marked as released to client."
+
+
+def test_wrong_station_cannot_update_release_status(test_client: TestClient) -> None:
+    created = create_work_order(test_client, title="Release wrong station", coating_type="RAL").json()
+    finish_ral_work_order(test_client, created["id"])
+
+    response = test_client.patch(
+        f"/work-orders/{created['id']}/release-status",
+        json={"is_released_to_client": True},
+        headers={"X-Station-Id": "PACKING"},
+    )
+
+    assert response.status_code == 403
 
 
 def test_work_order_detail_returns_parent_and_correction_orders(test_client: TestClient) -> None:

@@ -177,6 +177,12 @@ class WorkOrderUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
 
+class WorkOrderReleaseUpdate(BaseModel):
+    is_released_to_client: bool
+
+    model_config = ConfigDict(extra="forbid")
+
+
 class WorkOrderRead(BaseModel):
     id: int
     order_number: str
@@ -210,6 +216,8 @@ class WorkOrderRead(BaseModel):
     batches: list[WorkOrderQuantityBatchRead]
     received_date: date
     planned_pickup_date: date | None
+    is_released_to_client: bool = False
+    released_to_client_at: datetime | None = None
     total_area_m2: float | None
     is_incomplete_on_arrival: bool
     profiles_quantity: int | None

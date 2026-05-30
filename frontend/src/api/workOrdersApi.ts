@@ -87,6 +87,26 @@ export async function markWorkOrderCompleteArrival(workOrderId: number): Promise
   return response.json() as Promise<WorkOrder>;
 }
 
+export async function updateWorkOrderReleaseStatus(workOrderId: number, isReleasedToClient: boolean): Promise<WorkOrder> {
+  const url = createApiUrl(`/work-orders/${workOrderId}/release-status`);
+
+  const response = await fetch(url, {
+    method: "PATCH",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+      ...getCurrentStationHeaders(),
+    },
+    body: JSON.stringify({ is_released_to_client: isReleasedToClient }),
+  });
+
+  if (!response.ok) {
+    throw await createApiError(response, "Nie udało się zmienić statusu wydania");
+  }
+
+  return response.json() as Promise<WorkOrder>;
+}
+
 export async function fetchWorkOrderAttachments(workOrderId: number): Promise<WorkOrderAttachment[]> {
   const response = await fetch(createApiUrl(`/work-orders/${workOrderId}/attachments`), {
     headers: {

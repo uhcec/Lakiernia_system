@@ -36,6 +36,7 @@ vi.mock("../src/api/workOrdersApi", () => ({
   fetchWorkOrderAttachments: vi.fn(),
   getWorkOrderAttachmentDownloadUrl: vi.fn(),
   markWorkOrderCompleteArrival: vi.fn(),
+  updateWorkOrderReleaseStatus: vi.fn(),
   uploadWorkOrderAttachment: vi.fn(),
 }));
 
@@ -50,7 +51,10 @@ vi.mock("../src/utils/workOrderDisplay", () => ({
     `${workOrder.batch_quantity ?? workOrder.current_active_quantity} / ${workOrder.total_quantity} szt.`,
   getWorkOrderActiveCorrectionsText: () => null,
   getWorkOrderAttentionBadges: () => [],
-  getWorkOrderBadgeStack: () => [],
+  getWorkOrderBadgeStack: (workOrder: { process_status?: { value: string }; is_released_to_client?: boolean }) =>
+    workOrder.process_status?.value === "READY"
+      ? [{ label: workOrder.is_released_to_client ? "WYDANE" : "DO WYDANIA", tone: workOrder.is_released_to_client ? "success" : "warning" }]
+      : [],
   getWorkOrderCorrectionContextText: () => null,
   getWorkOrderProgressText: (workOrder: { total_quantity: number }) => `${workOrder.total_quantity} / ${workOrder.total_quantity} szt.`,
   getWorkOrderStatusSummary: () => "Status testowy",
@@ -71,6 +75,7 @@ const completePackingMock = vi.mocked(processApi.completePacking);
 const createWorkOrderMock = vi.mocked(workOrdersApi.createWorkOrder);
 const fetchWorkOrderMock = vi.mocked(workOrdersApi.fetchWorkOrder);
 const fetchWorkOrderAttachmentsMock = vi.mocked(workOrdersApi.fetchWorkOrderAttachments);
+const updateWorkOrderReleaseStatusMock = vi.mocked(workOrdersApi.updateWorkOrderReleaseStatus);
 
 function buildWorkOrder(id: number, orderNumber: string, queuePosition: number, customerName = "Klient"): WorkOrder {
   return {
@@ -106,6 +111,8 @@ function buildWorkOrder(id: number, orderNumber: string, queuePosition: number, 
     batches: [],
     received_date: "2026-05-27",
     planned_pickup_date: null,
+    is_released_to_client: false,
+    released_to_client_at: null,
     total_area_m2: null,
     is_incomplete_on_arrival: false,
     profiles_quantity: null,
@@ -159,6 +166,7 @@ beforeEach(() => {
   createWorkOrderMock.mockReset();
   fetchWorkOrderMock.mockReset();
   fetchWorkOrderAttachmentsMock.mockReset();
+  updateWorkOrderReleaseStatusMock.mockReset();
   fetchWorkOrderAttachmentsMock.mockResolvedValue([]);
 });
 
@@ -879,6 +887,39 @@ describe("frontend state consistency", () => {
     expect(screen.getByText("Biuro")).toBeTruthy();
     expect(screen.getByText("Kierownik")).toBeTruthy();
     expect(screen.getByText("Zmieniono: title")).toBeTruthy();
+  });
+
+  it("updates release status from a ready work order detail page", async () => {
+    const readyWorkOrder = {
+      ...buildWorkOrder(74, "WO-RELEASE", 1, "Golf"),
+      completed_quantity: 10,
+      current_active_quantity: 0,
+      total_progress_quantity: 10,
+      process_status: { value: "READY", label: "Gotowe" } as const,
+      status: { value: "FINISHED", label: "Skończone" } as const,
+      is_released_to_client: false,
+      released_to_client_at: null,
+    };
+    const releasedWorkOrder = {
+      ...readyWorkOrder,
+      is_released_to_client: true,
+      released_to_client_at: "2026-05-30T12:00:00Z",
+    };
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    fetchWorkOrderMock.mockResolvedValueOnce(readyWorkOrder).mockResolvedValueOnce(releasedWorkOrder);
+    updateWorkOrderReleaseStatusMock.mockResolvedValue(releasedWorkOrder);
+
+    try {
+      renderWorkOrderDetail(74);
+
+      fireEvent.click(await screen.findByRole("button", { name: "Oznacz jako wydane" }));
+
+      await waitFor(() => expect(updateWorkOrderReleaseStatusMock).toHaveBeenCalledWith(74, true));
+      expect(confirmSpy).toHaveBeenCalledWith("Czy oznaczyć to zlecenie jako wydane klientowi?");
+      expect(await screen.findByText("Wydane")).toBeTruthy();
+    } finally {
+      confirmSpy.mockRestore();
+    }
   });
 
   it("renders historical correction children in detail as delta only", async () => {

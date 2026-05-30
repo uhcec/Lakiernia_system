@@ -193,7 +193,7 @@ Why this matters:
 
 ### 7. Office/Manager Tabs And Completed Release
 
-Status: `CONFIRMED with implementation design needed`
+Status: `PARTIALLY IMPLEMENTED; tab grouping still needs UX work`
 
 Confirmed direction from 2026-05-30:
 
@@ -204,10 +204,15 @@ Confirmed direction from 2026-05-30:
 - Completed/READY work orders should have an additional marker for whether the order was issued/released to the client.
 - Issued/released state is logistics/dispatch state and should not change the production meaning of READY.
 
+Current repository behavior/evidence:
+
+- Completed release is stored as nullable `released_to_client_at` and exposed as `is_released_to_client` in read models.
+- Release status can be marked or cleared only while `process_status = READY`.
+- Office and manager station identities may update release status; production station identities are rejected.
+- Release-status changes create audit events.
+
 Implementation decision needed:
 
-- Define exact backend field name and API behavior for issued/released state.
-- Decide whether issuing a completed order creates an audit event and which stations can perform it.
 - Define whether manager and office share the same tab semantics or need small screen-specific differences.
 
 ### 8. Station List Information Architecture
