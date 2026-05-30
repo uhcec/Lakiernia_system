@@ -62,12 +62,14 @@ def advance_to_production(process_service: ProcessService, work_order_id: int) -
     if work_order.is_correction:
         if work_order.production_type != ProductionType.MANUAL:
             process_service.transition_stage(work_order_id, ProcessStage.HANGING, StageStatus.IN_PROGRESS)
+            process_service.finish_stage(work_order_id, ProcessStage.HANGING)
         return
 
     process_service.transition_stage(work_order_id, ProcessStage.SURFACE_PREPARATION, StageStatus.IN_PROGRESS)
     process_service.transition_stage(work_order_id, ProcessStage.SURFACE_PREPARATION, StageStatus.DONE)
     if work_order.production_type != ProductionType.MANUAL:
         process_service.transition_stage(work_order_id, ProcessStage.HANGING, StageStatus.IN_PROGRESS)
+        process_service.finish_stage(work_order_id, ProcessStage.HANGING)
 
 
 def advance_to_packing(process_service: ProcessService, work_order_id: int) -> None:
@@ -339,7 +341,7 @@ def test_automatic_path_requires_hanging_before_production(db_session: Session) 
     assert process_service.is_visible_in_stage(work_order, ProcessStage.PRODUCTION, ProductionType.AUTOMATIC) is False
 
 
-def test_automatic_hanging_start_makes_production_preview_visible(db_session: Session) -> None:
+def test_automatic_hanging_finish_makes_production_visible(db_session: Session) -> None:
     work_order_service, process_service, manager_service, _, process_repository = build_services(db_session)
 
     automatic_order = create_ral_work_order(work_order_service, "Automatic auto start")
@@ -350,6 +352,12 @@ def test_automatic_hanging_start_makes_production_preview_visible(db_session: Se
     process_service.transition_stage(automatic_order.id, ProcessStage.SURFACE_PREPARATION, StageStatus.IN_PROGRESS)
     process_service.transition_stage(automatic_order.id, ProcessStage.SURFACE_PREPARATION, StageStatus.DONE)
     process_service.transition_stage(automatic_order.id, ProcessStage.HANGING, StageStatus.IN_PROGRESS)
+    before_finish = process_repository.get_work_order_with_stage_states(automatic_order.id)
+    assert before_finish is not None
+    production_state_before_finish = next(stage for stage in before_finish.stage_states if stage.stage == ProcessStage.PRODUCTION)
+    assert production_state_before_finish.status == StageStatus.NOT_STARTED
+
+    process_service.finish_stage(automatic_order.id, ProcessStage.HANGING)
     work_order = process_repository.get_work_order_with_stage_states(automatic_order.id)
 
     assert work_order is not None
@@ -357,7 +365,7 @@ def test_automatic_hanging_start_makes_production_preview_visible(db_session: Se
     assert production_state.status == StageStatus.IN_PROGRESS
 
 
-def test_automatic_hanging_finish_is_rejected(db_session: Session) -> None:
+def test_automatic_hanging_finish_marks_hanging_done(db_session: Session) -> None:
     work_order_service, process_service, manager_service, _, _ = build_services(db_session)
 
     automatic_order = create_ral_work_order(work_order_service, "Automatic hanging blocked")
@@ -369,10 +377,10 @@ def test_automatic_hanging_finish_is_rejected(db_session: Session) -> None:
     process_service.transition_stage(automatic_order.id, ProcessStage.SURFACE_PREPARATION, StageStatus.DONE)
     process_service.transition_stage(automatic_order.id, ProcessStage.HANGING, StageStatus.IN_PROGRESS)
 
-    with pytest.raises(InvalidProcessStageTransitionError) as exc_info:
-        process_service.finish_stage(automatic_order.id, ProcessStage.HANGING)
+    response = process_service.finish_stage(automatic_order.id, ProcessStage.HANGING)
 
-    assert str(exc_info.value) == "Automatic hanging can only start painting. Finish it from PACKING."
+    assert response.stage_status.stage == ProcessStage.HANGING
+    assert response.stage_status.status.value == StageStatus.DONE
 
 
 def test_decoral_path_goes_after_packing_for_manual_orders(db_session: Session) -> None:
@@ -441,7 +449,7 @@ def test_automatic_production_preview_cannot_be_started_directly(db_session: Ses
     with pytest.raises(InvalidProcessStageTransitionError) as exc_info:
         process_service.start_stage(automatic_order.id, ProcessStage.PRODUCTION)
 
-    assert str(exc_info.value) == "Automatic production is preview-only. Start the process from HANGING and finish it from PACKING."
+    assert str(exc_info.value) == ProcessService.AUTOMATIC_PRODUCTION_MANUAL_ACTION_ERROR
 
 
 def test_corrections_create_new_unplanned_orders(db_session: Session) -> None:
@@ -1128,7 +1136,7 @@ def test_parallel_packing_completion_is_serialized_and_does_not_duplicate_child_
     assert correction_orders[0].total_quantity == 15
 
 
-def test_parallel_automatic_hanging_start_allows_only_one_order_to_acquire_line(tmp_path) -> None:
+def test_parallel_automatic_hanging_start_allows_only_one_order_to_acquire_hanging(tmp_path) -> None:
     database_path = tmp_path / "parallel_hanging_resource.db"
     engine = create_engine(
         f"sqlite:///{database_path}",
@@ -1201,7 +1209,7 @@ def test_parallel_automatic_hanging_start_allows_only_one_order_to_acquire_line(
         engine.dispose()
 
     assert "started" in results
-    assert "Automatic line is already occupied by another active job." in results
+    assert "Hanging resource is already occupied by another active job." in results
     assert first_order is not None
     assert second_order is not None
     in_progress_ids = {
@@ -1212,7 +1220,6 @@ def test_parallel_automatic_hanging_start_allows_only_one_order_to_acquire_line(
     assert len(in_progress_ids) == 1
     assert {(lock.resource_key, lock.work_order_id) for lock in resource_locks} == {
         ("HANGING", next(iter(in_progress_ids))),
-        ("AUTOMATIC_LINE", next(iter(in_progress_ids))),
     }
 
 

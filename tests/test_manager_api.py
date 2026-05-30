@@ -147,16 +147,18 @@ def test_completed_decoral_correction_preserves_correction_quantity_context_in_m
         f"/manager/work-orders/{created['id']}/plan",
         json={"production_type": "AUTOMATIC", "queue_position": 1},
     )
+    test_client.post(f"/process/work-orders/{created['id']}/stages/SURFACE_PREPARATION/start")
     test_client.post(
-        f"/process/work-orders/{created['id']}/stages/SURFACE_PREPARATION/start",
+        f"/process/work-orders/{created['id']}/stages/SURFACE_PREPARATION/finish",
         json={"counted_quantity": 10},
     )
-    test_client.post(f"/process/work-orders/{created['id']}/stages/SURFACE_PREPARATION/finish")
     test_client.post(f"/process/work-orders/{created['id']}/stages/HANGING/start")
+    test_client.post(f"/process/work-orders/{created['id']}/stages/HANGING/finish")
     parent_pack_response = test_client.post(
         f"/process/work-orders/{created['id']}/packing/complete",
         json={"counted_quantity": 10, "ok_quantity": 7, "correction_quantity": 3},
     )
+    assert parent_pack_response.status_code == 200
 
     correction_order = next(
         item
@@ -173,6 +175,7 @@ def test_completed_decoral_correction_preserves_correction_quantity_context_in_m
     test_client.post(f"/process/work-orders/{created['id']}/batches/{parent_batch_id}/stages/DECORAL_PRODUCTION/finish")
 
     test_client.post(f"/process/work-orders/{correction_order['id']}/stages/HANGING/start")
+    test_client.post(f"/process/work-orders/{correction_order['id']}/stages/HANGING/finish")
     test_client.post(
         f"/process/work-orders/{correction_order['id']}/packing/complete",
         json={"counted_quantity": 3, "ok_quantity": 3, "correction_quantity": 0},

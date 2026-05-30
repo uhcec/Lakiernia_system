@@ -77,8 +77,6 @@ def complete_packing_request(
 def advance_to_hanging(test_client: TestClient, work_order_id: int) -> None:
     detail = test_client.get(f"/work-orders/{work_order_id}").json()
     if detail["is_correction"]:
-        if detail["production_type"]["value"] == "AUTOMATIC":
-            test_client.post(f"/process/work-orders/{work_order_id}/stages/HANGING/start")
         return
 
     start_surface_preparation(test_client, work_order_id)
@@ -90,6 +88,7 @@ def advance_to_production(test_client: TestClient, work_order_id: int) -> None:
     advance_to_hanging(test_client, work_order_id)
     if detail["production_type"]["value"] != "MANUAL":
         test_client.post(f"/process/work-orders/{work_order_id}/stages/HANGING/start")
+        test_client.post(f"/process/work-orders/{work_order_id}/stages/HANGING/finish")
 
 
 def advance_to_packing(test_client: TestClient, work_order_id: int) -> None:
@@ -191,43 +190,57 @@ def test_automatic_requires_hanging_before_production_visibility(test_client: Te
     assert automatic["id"] not in [item["id"] for item in production_response.json()]
 
 
-def test_automatic_hanging_start_makes_production_preview_visible(test_client: TestClient) -> None:
-    automatic = create_planned_work_order(test_client, title="Automatic auto start", queue_position=1, production_type="AUTOMATIC")
+def test_automatic_hanging_finish_makes_production_visible(test_client: TestClient) -> None:
+    automatic = create_planned_work_order(test_client, title="Automatic auto finish", queue_position=1, production_type="AUTOMATIC")
     advance_to_hanging(test_client, automatic["id"])
 
-    response = test_client.post(f"/process/work-orders/{automatic['id']}/stages/HANGING/start")
-    production_response = test_client.get("/process/stages/PRODUCTION/work-orders", params={"production_type": "AUTOMATIC"})
+    start_response = test_client.post(f"/process/work-orders/{automatic['id']}/stages/HANGING/start")
+    before_finish_response = test_client.get("/process/stages/PRODUCTION/work-orders", params={"production_type": "AUTOMATIC"})
+    finish_response = test_client.post(f"/process/work-orders/{automatic['id']}/stages/HANGING/finish")
+    after_finish_response = test_client.get("/process/stages/PRODUCTION/work-orders", params={"production_type": "AUTOMATIC"})
 
-    assert response.status_code == 200
-    assert automatic["id"] in [item["id"] for item in production_response.json()]
-    production_item = next(item for item in production_response.json() if item["id"] == automatic["id"])
+    assert start_response.status_code == 200
+    assert automatic["id"] not in [item["id"] for item in before_finish_response.json()]
+    assert finish_response.status_code == 200
+    assert automatic["id"] in [item["id"] for item in after_finish_response.json()]
+    production_item = next(item for item in after_finish_response.json() if item["id"] == automatic["id"])
     assert production_item["stage_status"] == {
         "stage": "PRODUCTION",
         "status": {"value": "IN_PROGRESS", "label": "W trakcie"},
     }
 
 
-def test_automatic_hanging_finish_is_rejected(test_client: TestClient) -> None:
-    automatic = create_planned_work_order(test_client, title="Automatic hanging blocked", queue_position=1, production_type="AUTOMATIC")
+def test_automatic_hanging_finish_releases_hanging_capacity(test_client: TestClient) -> None:
+    automatic = create_planned_work_order(test_client, title="Automatic hanging finish", queue_position=1, production_type="AUTOMATIC")
     advance_to_hanging(test_client, automatic["id"])
     test_client.post(f"/process/work-orders/{automatic['id']}/stages/HANGING/start")
 
     response = test_client.post(f"/process/work-orders/{automatic['id']}/stages/HANGING/finish")
+    hanging_response = test_client.get("/process/stages/HANGING/work-orders")
 
-    assert response.status_code == 409
-    assert response.json()["detail"] == "Automatic hanging can only start painting. Finish it from PACKING."
+    assert response.status_code == 200
+    assert response.json()["stage_status"] == {
+        "stage": "HANGING",
+        "status": {"value": "DONE", "label": "Zakończone"},
+    }
+    assert automatic["id"] in [item["id"] for item in hanging_response.json()]
+    hanging_item = next(item for item in hanging_response.json() if item["id"] == automatic["id"])
+    assert hanging_item["stage_status"]["status"]["value"] == "DONE"
 
 
-def test_automatic_hanging_start_makes_order_visible_in_packing(test_client: TestClient) -> None:
+def test_automatic_hanging_finish_makes_order_visible_in_packing(test_client: TestClient) -> None:
     automatic = create_planned_work_order(test_client, title="Automatic packing visibility", queue_position=1, production_type="AUTOMATIC")
     advance_to_hanging(test_client, automatic["id"])
 
     test_client.post(f"/process/work-orders/{automatic['id']}/stages/HANGING/start")
+    before_finish_response = test_client.get("/process/stages/PACKING/work-orders")
+    test_client.post(f"/process/work-orders/{automatic['id']}/stages/HANGING/finish")
 
     packing_response = test_client.get("/process/stages/PACKING/work-orders")
     production_response = test_client.get("/process/stages/PRODUCTION/work-orders", params={"production_type": "AUTOMATIC"})
 
     assert packing_response.status_code == 200
+    assert automatic["id"] not in [item["id"] for item in before_finish_response.json()]
     assert automatic["id"] in [item["id"] for item in packing_response.json()]
     packing_item = next(item for item in packing_response.json() if item["id"] == automatic["id"])
     assert packing_item["stage_status"] == {
@@ -238,11 +251,12 @@ def test_automatic_hanging_start_makes_order_visible_in_packing(test_client: Tes
 
 
 # docs/WORKFLOW.md scenario S02 (RAL + AUTOMATIC + none)
-def test_automatic_packing_can_complete_after_hanging_start(test_client: TestClient) -> None:
-    automatic = create_planned_work_order(test_client, title="Automatic pack after hanging start", queue_position=1, production_type="AUTOMATIC")
+def test_automatic_packing_can_complete_after_hanging_finish(test_client: TestClient) -> None:
+    automatic = create_planned_work_order(test_client, title="Automatic pack after hanging finish", queue_position=1, production_type="AUTOMATIC")
     advance_to_hanging(test_client, automatic["id"])
 
     test_client.post(f"/process/work-orders/{automatic['id']}/stages/HANGING/start")
+    test_client.post(f"/process/work-orders/{automatic['id']}/stages/HANGING/finish")
 
     response = complete_packing_request(test_client, automatic["id"], counted_quantity=100, ok_quantity=100, correction_quantity=0)
     detail = test_client.get(f"/work-orders/{automatic['id']}")
@@ -257,6 +271,18 @@ def test_automatic_packing_can_complete_after_hanging_start(test_client: TestCli
     assert detail.json()["process_status"] == {"value": "READY", "label": "Gotowe"}
 
 
+def test_automatic_packing_rejects_completion_while_hanging_is_active(test_client: TestClient) -> None:
+    automatic = create_planned_work_order(test_client, title="Automatic pack waits for hanging finish", queue_position=1, production_type="AUTOMATIC")
+    advance_to_hanging(test_client, automatic["id"])
+
+    test_client.post(f"/process/work-orders/{automatic['id']}/stages/HANGING/start")
+
+    response = complete_packing_request(test_client, automatic["id"], counted_quantity=100, ok_quantity=100, correction_quantity=0)
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Automatic hanging must be finished before packing."
+
+
 def test_automatic_production_preview_rejects_actions_after_hanging_start(test_client: TestClient) -> None:
     automatic = create_planned_work_order(test_client, title="Automatic preview after hanging start", queue_position=1, production_type="AUTOMATIC")
     advance_to_hanging(test_client, automatic["id"])
@@ -268,7 +294,7 @@ def test_automatic_production_preview_rejects_actions_after_hanging_start(test_c
 
     assert start_response.status_code == 409
     assert finish_response.status_code == 409
-    assert start_response.json()["detail"] == "Automatic production is preview-only. Start the process from HANGING and finish it from PACKING."
+    assert start_response.json()["detail"] == "Automatic production does not use manual start/finish. Finish HANGING to enter automatic production and complete from PACKING."
 
 
 def test_automatic_production_preview_rejects_direct_start_and_finish(test_client: TestClient) -> None:
@@ -280,7 +306,7 @@ def test_automatic_production_preview_rejects_direct_start_and_finish(test_clien
 
     assert start_response.status_code == 409
     assert finish_response.status_code == 409
-    assert start_response.json()["detail"] == "Automatic production is preview-only. Start the process from HANGING and finish it from PACKING."
+    assert start_response.json()["detail"] == "Automatic production does not use manual start/finish. Finish HANGING to enter automatic production and complete from PACKING."
 
 
 def test_ral_orders_do_not_appear_in_decoral_stage(test_client: TestClient) -> None:
@@ -437,7 +463,7 @@ def test_packing_rejects_quantity_above_surface_preparation_actual_quantity(test
     assert response.status_code == 409
 
 
-def test_second_automatic_hanging_start_is_rejected_when_line_is_busy(test_client: TestClient) -> None:
+def test_second_automatic_hanging_start_is_rejected_when_hanging_is_busy(test_client: TestClient) -> None:
     first = create_planned_work_order(
         test_client,
         title="Automatic line first",
@@ -459,7 +485,7 @@ def test_second_automatic_hanging_start_is_rejected_when_line_is_busy(test_clien
 
     assert first_start_response.status_code == 200
     assert second_start_response.status_code == 409
-    assert second_start_response.json()["detail"] == "Automatic line is already occupied by another active job."
+    assert second_start_response.json()["detail"] == "Hanging resource is already occupied by another active job."
 
 
 def test_automatic_line_is_released_after_first_job_finishes(test_client: TestClient) -> None:
@@ -480,7 +506,9 @@ def test_automatic_line_is_released_after_first_job_finishes(test_client: TestCl
     advance_to_hanging(test_client, second["id"])
 
     first_start_response = test_client.post(f"/process/work-orders/{first['id']}/stages/HANGING/start")
-    blocked_response = test_client.post(f"/process/work-orders/{second['id']}/stages/HANGING/start")
+    first_hanging_finish_response = test_client.post(f"/process/work-orders/{first['id']}/stages/HANGING/finish")
+    second_start_response = test_client.post(f"/process/work-orders/{second['id']}/stages/HANGING/start")
+    blocked_second_finish_response = test_client.post(f"/process/work-orders/{second['id']}/stages/HANGING/finish")
     finish_first_response = complete_packing_request(
         test_client,
         first["id"],
@@ -488,12 +516,15 @@ def test_automatic_line_is_released_after_first_job_finishes(test_client: TestCl
         ok_quantity=100,
         correction_quantity=0,
     )
-    second_start_response = test_client.post(f"/process/work-orders/{second['id']}/stages/HANGING/start")
+    second_finish_response = test_client.post(f"/process/work-orders/{second['id']}/stages/HANGING/finish")
 
     assert first_start_response.status_code == 200
-    assert blocked_response.status_code == 409
-    assert finish_first_response.status_code == 200
+    assert first_hanging_finish_response.status_code == 200
     assert second_start_response.status_code == 200
+    assert blocked_second_finish_response.status_code == 409
+    assert blocked_second_finish_response.json()["detail"] == "Automatic line is already occupied by another active job."
+    assert finish_first_response.status_code == 200
+    assert second_finish_response.status_code == 200
 
 
 def test_correction_quantity_uses_actual_received_split_not_expected_gap(test_client: TestClient) -> None:

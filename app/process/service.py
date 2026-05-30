@@ -28,6 +28,9 @@ _RESOURCE_MUTATION_LOCKS_GUARD = RLock()
 
 class ProcessService:
     DEFAULT_CORRECTION_RETURN_STAGE = ProcessStage.PRODUCTION
+    AUTOMATIC_PRODUCTION_MANUAL_ACTION_ERROR = (
+        "Automatic production does not use manual start/finish. Finish HANGING to enter automatic production and complete from PACKING."
+    )
 
     def __init__(self, repository: ProcessRepository) -> None:
         self.repository = repository
@@ -108,19 +111,19 @@ class ProcessService:
             work_order = self.get_work_order_process(work_order_id)
             resource_keys = self._get_stage_resource_keys(work_order, stage, target_status)
             with self._serialize_stage_resources(resource_keys):
-                if target_status == StageStatus.IN_PROGRESS:
-                    self._ensure_stage_resources_available(work_order, stage)
+                if resource_keys:
+                    self._ensure_stage_resources_available(work_order, stage, target_status)
 
                 stage_state = self._get_stage_state(work_order, stage)
                 self._validate_transition(work_order, stage_state, target_status)
-                if target_status == StageStatus.IN_PROGRESS:
-                    self._acquire_stage_resource_locks(work_order, stage)
+                if resource_keys:
+                    self._acquire_stage_resource_locks(work_order, stage, target_status)
                 stage_state.status = target_status
                 stage_state.updated_at = datetime.now(UTC)
 
                 if (
                     stage == ProcessStage.HANGING
-                    and target_status == StageStatus.IN_PROGRESS
+                    and target_status == StageStatus.DONE
                     and work_order.production_type == ProductionType.AUTOMATIC
                 ):
                     production_state = self._get_stage_state(work_order, ProcessStage.PRODUCTION)
@@ -184,7 +187,7 @@ class ProcessService:
             if target_batch is not None:
                 resource_keys = self._get_stage_resource_keys(work_order, stage, StageStatus.IN_PROGRESS)
                 with self._serialize_stage_resources(resource_keys):
-                    self._ensure_stage_resources_available(work_order, stage)
+                    self._ensure_stage_resources_available(work_order, stage, StageStatus.IN_PROGRESS)
                     return self._start_tracked_batch_stage(
                         work_order,
                         target_batch,
@@ -194,9 +197,7 @@ class ProcessService:
                     )
 
             if self._is_automatic_production_preview_stage(work_order, stage):
-                raise InvalidProcessStageTransitionError(
-                    "Automatic production is preview-only. Start the process from HANGING and finish it from PACKING."
-                )
+                raise InvalidProcessStageTransitionError(self.AUTOMATIC_PRODUCTION_MANUAL_ACTION_ERROR)
 
             if self._is_correction_surface_preparation(work_order, stage):
                 raise InvalidProcessStageTransitionError("Correction orders do not go through surface preparation.")
@@ -205,18 +206,6 @@ class ProcessService:
 
             self.transition_stage(work_order_id, stage, StageStatus.IN_PROGRESS, station_context=station_context)
             work_order = self.get_work_order_process(work_order_id)
-
-            if stage == ProcessStage.HANGING and work_order.production_type == ProductionType.AUTOMATIC:
-                production_state = self._get_stage_state(work_order, ProcessStage.PRODUCTION)
-                if production_state.status == StageStatus.NOT_STARTED:
-                    production_state.status = StageStatus.IN_PROGRESS
-                    production_state.updated_at = datetime.now(UTC)
-                    try:
-                        self.repository.commit()
-                    except Exception:
-                        self.repository.rollback()
-                        raise
-                    work_order = self.get_work_order_process(work_order_id)
 
             return self._to_stage_work_order_read(work_order, stage)
 
@@ -241,9 +230,7 @@ class ProcessService:
                 )
 
             if self._is_automatic_production_preview_stage(work_order, stage):
-                raise InvalidProcessStageTransitionError(
-                    "Automatic production is preview-only. Start the process from HANGING and finish it from PACKING."
-                )
+                raise InvalidProcessStageTransitionError(self.AUTOMATIC_PRODUCTION_MANUAL_ACTION_ERROR)
 
             stage_state = self._get_stage_state(work_order, stage)
             if stage_state.status == StageStatus.DONE:
@@ -299,9 +286,7 @@ class ProcessService:
             return self._reopen_tracked_batch_stage(work_order, target_batch, stage, station_context=station_context)
 
         if self._is_automatic_production_preview_stage(work_order, stage):
-            raise InvalidProcessStageTransitionError(
-                "Automatic production is preview-only. Start the process from HANGING and finish it from PACKING."
-            )
+            raise InvalidProcessStageTransitionError(self.AUTOMATIC_PRODUCTION_MANUAL_ACTION_ERROR)
 
         if self._is_correction_surface_preparation(work_order, stage):
             raise InvalidProcessStageTransitionError("Correction orders do not go through surface preparation.")
@@ -355,6 +340,9 @@ class ProcessService:
             if packing_state.status == StageStatus.DONE:
                 return self._to_idempotent_packing_response(work_order)
 
+            if work_order.production_type == ProductionType.AUTOMATIC and hanging_state.status == StageStatus.IN_PROGRESS:
+                raise InvalidProcessStageTransitionError("Automatic hanging must be finished before packing.")
+
             if packing_state.status != StageStatus.IN_PROGRESS:
                 raise InvalidProcessStageTransitionError("Packing can be completed only from IN_PROGRESS state.")
 
@@ -384,9 +372,6 @@ class ProcessService:
             packing_state.updated_at = datetime.now(UTC)
 
             production_state = self._get_stage_state(work_order, ProcessStage.PRODUCTION)
-            if work_order.production_type == ProductionType.AUTOMATIC and hanging_state.status == StageStatus.IN_PROGRESS:
-                hanging_state.status = StageStatus.DONE
-                hanging_state.updated_at = datetime.now(UTC)
 
             if correction_quantity > 0:
                 response_stage, response_batch = self._complete_packing_with_correction_order(
@@ -627,21 +612,10 @@ class ProcessService:
             )
 
         if self._is_automatic_production_preview_stage(work_order, stage_state.stage):
-            raise InvalidProcessStageTransitionError(
-                "Automatic production is preview-only. Start the process from HANGING and finish it from PACKING."
-            )
+            raise InvalidProcessStageTransitionError(self.AUTOMATIC_PRODUCTION_MANUAL_ACTION_ERROR)
 
         if self._is_correction_surface_preparation(work_order, stage_state.stage):
             raise InvalidProcessStageTransitionError("Correction orders do not go through surface preparation.")
-
-        if (
-            work_order.production_type == ProductionType.AUTOMATIC
-            and stage_state.stage == ProcessStage.HANGING
-            and target_status == StageStatus.DONE
-        ):
-            raise InvalidProcessStageTransitionError(
-                "Automatic hanging can only start painting. Finish it from PACKING."
-            )
 
         allowed_transitions = {
             StageStatus.NOT_STARTED: {StageStatus.IN_PROGRESS},
@@ -734,7 +708,7 @@ class ProcessService:
             return False
 
         hanging_state = self._get_stage_state(work_order, ProcessStage.HANGING)
-        return hanging_state.status == StageStatus.IN_PROGRESS
+        return hanging_state.status == StageStatus.DONE
 
     def _get_batches_visible_in_stage(
         self,
@@ -775,8 +749,8 @@ class ProcessService:
             return None
 
         if stage == ProcessStage.PACKING and work_order.production_type == ProductionType.AUTOMATIC:
-            if batch.current_stage == ProcessStage.HANGING and batch.current_stage_status == StageStatus.IN_PROGRESS:
-                return StageStatus.IN_PROGRESS
+            if batch.current_stage == ProcessStage.HANGING:
+                return None
 
         if batch.current_stage != stage:
             return None
@@ -810,16 +784,14 @@ class ProcessService:
         station_context: StationContext | None = None,
     ) -> ProcessStageWorkOrderRead:
         if stage == ProcessStage.PRODUCTION and work_order.production_type == ProductionType.AUTOMATIC:
-            raise InvalidProcessStageTransitionError(
-                "Automatic production is preview-only. Start the process from HANGING and finish it from PACKING."
-            )
+            raise InvalidProcessStageTransitionError(self.AUTOMATIC_PRODUCTION_MANUAL_ACTION_ERROR)
         if batch.current_stage != stage or batch.current_stage_status != StageStatus.NOT_STARTED:
             raise InvalidProcessStageTransitionError(
                 f"Cannot transition stage {stage.value} from {batch.current_stage_status.value if batch.current_stage_status else 'UNKNOWN'} to IN_PROGRESS."
             )
 
         self._store_stage_start_data(work_order, stage, counted_quantity)
-        self._acquire_stage_resource_locks(work_order, stage)
+        self._acquire_stage_resource_locks(work_order, stage, StageStatus.IN_PROGRESS)
         batch.current_stage_status = StageStatus.IN_PROGRESS
         self._sync_legacy_current_active_batch(work_order)
         self._record_stage_audit_event(
@@ -846,14 +818,8 @@ class ProcessService:
             raise InvalidProcessStageTransitionError(
                 "Tracked batch packing must be completed with explicit counted quantity."
             )
-        if stage == ProcessStage.HANGING and work_order.production_type == ProductionType.AUTOMATIC:
-            raise InvalidProcessStageTransitionError(
-                "Automatic hanging can only start painting. Finish it from PACKING."
-            )
         if stage == ProcessStage.PRODUCTION and work_order.production_type == ProductionType.AUTOMATIC:
-            raise InvalidProcessStageTransitionError(
-                "Automatic production is preview-only. Start the process from HANGING and finish it from PACKING."
-            )
+            raise InvalidProcessStageTransitionError(self.AUTOMATIC_PRODUCTION_MANUAL_ACTION_ERROR)
         if self._has_tracked_batch_already_finished_stage(work_order, batch, stage):
             response_stage = batch.current_stage or stage
             return self._to_stage_work_order_read(work_order, response_stage, batch=batch)
@@ -872,6 +838,11 @@ class ProcessService:
             batch.current_stage_status = StageStatus.NOT_STARTED
             response_stage = batch.current_stage
         elif stage == ProcessStage.HANGING:
+            if work_order.production_type == ProductionType.AUTOMATIC:
+                resource_keys = self._get_stage_resource_keys(work_order, stage, StageStatus.DONE)
+                with self._serialize_stage_resources(resource_keys):
+                    self._ensure_stage_resources_available(work_order, stage, StageStatus.DONE)
+                    self._acquire_stage_resource_locks(work_order, stage, StageStatus.DONE)
             batch.current_stage = ProcessStage.PACKING if work_order.production_type == ProductionType.AUTOMATIC else ProcessStage.PRODUCTION
             batch.current_stage_status = (
                 StageStatus.IN_PROGRESS if work_order.production_type == ProductionType.AUTOMATIC else StageStatus.NOT_STARTED
@@ -959,15 +930,7 @@ class ProcessService:
         if batch.current_stage == ProcessStage.PACKING and batch.current_stage_status == StageStatus.DONE:
             return self._to_stage_work_order_read(work_order, ProcessStage.PACKING, batch=batch)
 
-        is_automatic_hanging_in_progress = (
-            work_order.production_type == ProductionType.AUTOMATIC
-            and batch.current_stage == ProcessStage.HANGING
-            and batch.current_stage_status == StageStatus.IN_PROGRESS
-        )
-        if (
-            not is_automatic_hanging_in_progress
-            and (batch.current_stage != ProcessStage.PACKING or batch.current_stage_status != StageStatus.IN_PROGRESS)
-        ):
+        if batch.current_stage != ProcessStage.PACKING or batch.current_stage_status != StageStatus.IN_PROGRESS:
             raise InvalidProcessStageTransitionError("Packing can be completed only from IN_PROGRESS state.")
         if ok_quantity < 0 or correction_quantity < 0:
             raise InvalidProcessStageTransitionError("Packing quantities cannot be negative.")
@@ -1477,13 +1440,16 @@ class ProcessService:
         stage: ProcessStage,
         target_status: StageStatus,
     ) -> tuple[str, ...]:
-        if stage != ProcessStage.HANGING or target_status != StageStatus.IN_PROGRESS:
+        if stage != ProcessStage.HANGING:
             return ()
 
-        resource_keys = ["HANGING"]
-        if work_order.production_type == ProductionType.AUTOMATIC:
-            resource_keys.append("AUTOMATIC_LINE")
-        return tuple(sorted(resource_keys))
+        if target_status == StageStatus.IN_PROGRESS:
+            return ("HANGING",)
+
+        if target_status == StageStatus.DONE and work_order.production_type == ProductionType.AUTOMATIC:
+            return ("AUTOMATIC_LINE",)
+
+        return ()
 
     @contextmanager
     def _serialize_stage_resources(self, resource_keys: Sequence[str]):
@@ -1501,21 +1467,30 @@ class ProcessService:
         finally:
             lock.release()
 
-    def _ensure_stage_resources_available(self, work_order: WorkOrder, stage: ProcessStage) -> None:
+    def _ensure_stage_resources_available(
+        self,
+        work_order: WorkOrder,
+        stage: ProcessStage,
+        target_status: StageStatus,
+    ) -> None:
         if stage != ProcessStage.HANGING:
             return
 
-        if work_order.production_type == ProductionType.AUTOMATIC:
+        if target_status == StageStatus.DONE and work_order.production_type == ProductionType.AUTOMATIC:
             automatic_line_conflict = self._find_active_automatic_line_conflict(work_order.id)
             if automatic_line_conflict is not None:
                 raise InvalidProcessStageTransitionError("Automatic line is already occupied by another active job.")
+            return
+
+        if target_status != StageStatus.IN_PROGRESS:
+            return
 
         hanging_conflict = self._find_active_hanging_conflict(work_order.id)
         if hanging_conflict is not None:
             raise InvalidProcessStageTransitionError("Hanging resource is already occupied by another active job.")
 
-    def _acquire_stage_resource_locks(self, work_order: WorkOrder, stage: ProcessStage) -> None:
-        resource_keys = self._get_stage_resource_keys(work_order, stage, StageStatus.IN_PROGRESS)
+    def _acquire_stage_resource_locks(self, work_order: WorkOrder, stage: ProcessStage, target_status: StageStatus) -> None:
+        resource_keys = self._get_stage_resource_keys(work_order, stage, target_status)
         for resource_key in resource_keys:
             try:
                 self.repository.acquire_resource_lock(resource_key, work_order.id)
@@ -1571,13 +1546,14 @@ class ProcessService:
             return False
 
         hanging_state = self._get_stage_state(work_order, ProcessStage.HANGING)
+        production_state = self._get_stage_state(work_order, ProcessStage.PRODUCTION)
         packing_state = self._get_stage_state(work_order, ProcessStage.PACKING)
-        if hanging_state.status == StageStatus.IN_PROGRESS and packing_state.status != StageStatus.DONE:
+        if hanging_state.status == StageStatus.DONE and production_state.status == StageStatus.IN_PROGRESS and packing_state.status != StageStatus.DONE:
             return True
 
         return any(
             batch.is_active
-            and batch.current_stage in {ProcessStage.HANGING, ProcessStage.PACKING}
+            and batch.current_stage == ProcessStage.PACKING
             and batch.current_stage_status == StageStatus.IN_PROGRESS
             for batch in work_order.quantity_batches
         )

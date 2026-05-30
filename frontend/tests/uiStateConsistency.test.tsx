@@ -310,6 +310,42 @@ describe("frontend state consistency", () => {
     });
   });
 
+  it("allows finishing automatic hanging from hanging station", async () => {
+    fetchStageWorkOrdersMock
+      .mockResolvedValueOnce([
+        buildStageWorkOrder({
+          id: 12,
+          order_number: "WO-AUTO-HANG",
+          production_type: { value: "AUTOMATIC", label: "Automatyczna" },
+          stage_status: { stage: "HANGING", status: { value: "IN_PROGRESS", label: "W toku" } },
+        }),
+      ])
+      .mockResolvedValueOnce([
+        buildStageWorkOrder({
+          id: 12,
+          order_number: "WO-AUTO-HANG",
+          production_type: { value: "AUTOMATIC", label: "Automatyczna" },
+          stage_status: { stage: "HANGING", status: { value: "DONE", label: "Zakończone" } },
+        }),
+      ]);
+    transitionStageMock.mockResolvedValue({} as never);
+
+    render(
+      <StageWorkOrdersPage
+        stage="HANGING"
+        title="Zawieszanie"
+        emptyMessage="Brak zleceń"
+      />,
+    );
+
+    await screen.findByText("WO-AUTO-HANG :: Klient");
+    fireEvent.click(screen.getByRole("button", { name: "Zakończ" }));
+
+    await waitFor(() => {
+      expect(transitionStageMock).toHaveBeenCalledWith(12, "HANGING", "finish", undefined, undefined);
+    });
+  });
+
   it("reloads packing view and discards local draft after submit failure", async () => {
     fetchStageWorkOrdersMock
       .mockResolvedValueOnce([

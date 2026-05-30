@@ -233,14 +233,6 @@ export function StageWorkOrdersPage({
     }
 
     if (
-      stage === "HANGING" &&
-      workOrder.production_type?.value === "AUTOMATIC" &&
-      workOrder.stage_status.status.value === "IN_PROGRESS"
-    ) {
-      return false;
-    }
-
-    if (
       stage === "PRODUCTION" &&
       productionType === "AUTOMATIC" &&
       workOrder.stage_status.status.value === "NOT_STARTED" &&
@@ -267,14 +259,6 @@ export function StageWorkOrdersPage({
   function getUnavailableLabel(workOrder: StageWorkOrder): string {
     if (readOnly) {
       return readOnlyLabel;
-    }
-
-    if (
-      stage === "HANGING" &&
-      workOrder.production_type?.value === "AUTOMATIC" &&
-      workOrder.stage_status.status.value === "IN_PROGRESS"
-    ) {
-      return "Dokończ w pakowaniu";
     }
 
     return "Start po zawieszaniu";
@@ -458,7 +442,7 @@ export function StageWorkOrdersPage({
             <h2 className="text-3xl font-semibold text-ink sm:text-4xl">{title}</h2>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-steel sm:text-base">
               {readOnly
-                ? "Widok podglądowy dla automatu. Malowanie uruchamia Zawieszanie, a wynik zapisuje Pakowanie."
+                ? "Automat przejmuje zlecenie po zakończeniu zawieszania, a pakowanie zamyka wynik."
                 : "Lista zaplanowanych zleceń gotowych do rozpoczęcia, kontynuacji albo cofnięcia na wybranym etapie."}
             </p>
             <div className="mt-3 inline-flex rounded-full border border-line bg-mist p-1">

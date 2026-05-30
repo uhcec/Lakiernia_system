@@ -7,7 +7,7 @@ export function AutomaticProductionPage() {
       productionType="AUTOMATIC"
       allowManualStart={false}
       readOnly
-      readOnlyLabel="Podgląd automatu"
+      readOnlyLabel="Status automatu"
       title="Produkcja: Automat"
       emptyMessage="Brak zleceń dla automatu"
     />
