@@ -138,11 +138,11 @@ Still open:
 
 Confirmed permission direction:
 
-- `OFFICE`: create/update intake, view discrepancies, manage attachments
-- `MANAGER`: assign production type, queue/reorder, view global queue and discrepancies
+- `OFFICE`: create/update intake, enter external work-order number, enter/select paint stock state once inventory exists, view discrepancies, manage attachments, mark completed order as issued/released if policy allows office dispatch
+- `MANAGER`: assign production type, queue/reorder, view global queue and discrepancies, view paint/inventory warnings, mark completed order as issued/released if policy assigns dispatch to manager
 - `SURFACE_PREPARATION`: start surface prep, enter counted quantity, confirm quantity discrepancy, finish surface prep after counted quantity exists
 - `HANGING`: start/finish hanging
-- `AUTOMATIC_PRODUCTION`: display-only unless future policy changes
+- `AUTOMATIC_PRODUCTION`: display-only unless future policy changes; proposed paint-consumption entry would require changing this permission and adding audit/stock-movement rules
 - `MANUAL_PRODUCTION`: start/finish manual production
 - `PACKING`: enter counted/OK/correction quantities, correction reason/category, complete packing
 - `DECORAL_PRODUCTION`: start/finish Decoral production
@@ -158,10 +158,13 @@ Confirmed decisions from `docs/FACTORY_USAGE_NOTES.md`:
 - Office and manager should see quantity discrepancies; station operators should see only operational quantities.
 - Quantity discrepancies should be recorded and confirmed at surface preparation, but should not block work orders for now. Surface-preparation finish requires counted quantity; start does not.
 - `Przemalowanka` is a standalone customer work order that skips surface preparation; `Ocynk` is a strong station-visible type/marker combinable with RAL or Decoral.
+- Office/manager completed views should support an issued/released marker for completed orders, separate from production READY state.
+- Paint inventory/consumption needs station permission decisions. Intake paint-stock entry is non-conflicting; automatic-production paint-consumption entry conflicts with the current display-only automatic panel policy until explicitly confirmed.
+- Quality-control production document generation should use the factory-provided template and may need audit/attachment rules depending on whether generated copies are persisted.
 
 Track these decisions in `docs/WORKFLOW_VALIDATION_CHECKLIST.md` before changing workflow semantics.
 
-These decisions unblock station permission design, but automatic-flow resource changes, discrepancy recording, and new work types still need focused implementation design before code changes.
+These decisions unblock station permission design, but automatic-flow resource changes, discrepancy recording, new work types, paint inventory, issued/released state, and quality-document generation still need focused implementation design before code changes.
 
 ## Implementation Plan
 

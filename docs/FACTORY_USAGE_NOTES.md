@@ -17,6 +17,12 @@ Use `docs/WORKFLOW_VALIDATION_CHECKLIST.md` as the active checklist before chang
 - Used by an office worker who communicates with clients.
 - Creates new work orders using declared client quantities.
 - Needs a fast/easy overview and a more detailed work-order view.
+- Proposed tab/order grouping from 2026-05-30:
+	- `Zlecenia`: unplanned work orders and incomplete deliveries.
+	- `Na produkcji`: all work orders currently on the factory floor.
+	- `Gotowe`: completed work orders, with the ability to mark whether the order has been issued/released.
+- Needs an additional external client/order number field separate from the internal system work-order number.
+- Should require paint stock/state information when entering a work order, once the paint inventory model exists.
 - Should see whether surface-preparation counted quantity differs from the declared client quantity.
 - Office and manager should generally have the same broad access to process information.
 
@@ -52,6 +58,7 @@ Use `docs/WORKFLOW_VALIDATION_CHECKLIST.md` as the active checklist before chang
 - Only one work order can be in hanging at a time.
 - No physical station may process multiple work orders at the same time.
 - Implementation note: this differs from the earlier conservative implementation assumption, where one automatic job could block the path until packing completion.
+- Station list should primarily show: work-order number, square meters, paint, company/customer, and queue position. Drawings/attachments should remain accessible from details.
 
 ### Automatic Production Tablet
 
@@ -59,12 +66,15 @@ Use `docs/WORKFLOW_VALIDATION_CHECKLIST.md` as the active checklist before chang
 - Current working policy: the automatic production tablet is display-only and does not require operator clicks.
 - Only one work order can be in automatic production at a time.
 - Packing later handles completion of the automatic path.
+- Station list should primarily show: work-order number, square meters, paint, company/customer, and queue position. Drawings/attachments should remain accessible from details.
+- New 2026-05-30 idea: automatic production could enter paint consumption so stock is deducted from inventory. This conflicts with the current display-only policy for the automatic production tablet and needs an explicit policy/design decision before implementation.
 
 ### Manual Production Tablet
 
 - Used by manual production operators.
 - Manual production work orders appear here.
 - Operators start varnishing, then finish varnishing to pass the work order onward.
+- Station list should primarily show: work-order number, square meters, paint, company/customer, and queue position. Drawings/attachments should remain accessible from details.
 
 ### Packing Tablet
 
@@ -76,6 +86,7 @@ Use `docs/WORKFLOW_VALIDATION_CHECKLIST.md` as the active checklist before chang
 - Initial coating-defect reason/category list: `niedomalowanie`, `za grubo`, `wtrącenia`, `inne`. This list is not final.
 - RAL OK elements are packed here; RAL/manual work orders end their journey here when no further correction/decoral work remains.
 - Decoral elements are not packed here; they continue to Decoral production.
+- Station list should primarily show: work-order number, profile pieces to verify, accessory pieces to verify, paint, company/customer, and queue position.
 
 ### Decoral Production Tablet
 
@@ -83,6 +94,13 @@ Use `docs/WORKFLOW_VALIDATION_CHECKLIST.md` as the active checklist before chang
 - Decoral work orders arrive here after packing split/quality check.
 - Operators start Decoral work, perform the additional Decoral layer/process, pack the elements, then finish the work order.
 - Decoral type work orders end their journey here when no further correction work remains.
+- Station list should primarily show: work-order number, profile pieces to verify, accessory pieces to verify, paint, company/customer, and queue position.
+
+## Station List Display Notes
+
+- Surface preparation list should primarily show: work-order number, profile pieces to verify, accessory pieces to verify, company/customer, and queue position.
+- Production-oriented station lists should prioritize the data needed to decide and execute work at that station, with less-used data moved into work-order details.
+- Drawings and attachments must remain reachable from details on production and hanging/automatic screens.
 
 ## Known Gaps To Clarify
 
@@ -96,6 +114,9 @@ Use `docs/WORKFLOW_VALIDATION_CHECKLIST.md` as the active checklist before chang
 - Confirmed discrepancy handling: discrepancy is recorded and confirmed by surface preparation, but does not block the work order for now. Surface preparation start does not require counted quantity; finish does require counted quantity.
 - Confirmed station permissions: station identity should remain audited, but invalid station actions should be impossible in the UI and rejected by the backend if attempted.
 - Confirmed automatic overlap: hanging can start the next automatic order after the previous hanging stage is finished, while preserving one active work order per physical station/resource.
+- Quality-control production document generation: the factory has a ready template to be filled by the program. The template and field mapping still need to be provided/checked before implementation.
+- Paint inventory: intake should require paint stock/state data and production consumption should deduct stock, but this needs a paint inventory model. Automatic-production consumption entry specifically conflicts with the current display-only automatic tablet policy and needs confirmation.
+- Completed-order issue/release marker: completed work orders should be markable as issued/released, separate from production READY state.
 
 ## Additional Work Types
 

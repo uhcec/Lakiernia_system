@@ -189,6 +189,93 @@ Why this matters:
 - Queue semantics shape what operators believe they should do next.
 - If the global queue is only a manager priority model, station panels must remain explicit about what is actionable now.
 
+### 7. Office/Manager Tabs And Completed Release
+
+Status: `CONFIRMED with implementation design needed`
+
+Confirmed direction from 2026-05-30:
+
+- Office/manager navigation should be organized around practical work buckets:
+	- `Zlecenia`: unplanned work orders and incomplete deliveries.
+	- `Na produkcji`: all active work orders currently on the factory floor.
+	- `Gotowe`: completed/READY work orders.
+- Completed/READY work orders should have an additional marker for whether the order was issued/released to the client.
+- Issued/released state is logistics/dispatch state and should not change the production meaning of READY.
+
+Implementation decision needed:
+
+- Define exact backend field name and API behavior for issued/released state.
+- Decide whether issuing a completed order creates an audit event and which stations can perform it.
+- Define whether manager and office share the same tab semantics or need small screen-specific differences.
+
+### 8. Station List Information Architecture
+
+Status: `CONFIRMED with frontend implementation design needed`
+
+Confirmed direction from 2026-05-30:
+
+- Station lists should show only the most operationally useful columns and move less-used data into details.
+- Surface preparation: work-order number, profile pieces to verify, accessory pieces to verify, company/customer, queue position.
+- Manual production: work-order number, square meters, paint, company/customer, queue position, details access for drawings.
+- Hanging: work-order number, square meters, paint, company/customer, queue position, details access for drawings.
+- Automatic production: work-order number, square meters, paint, company/customer, queue position, details access for drawings.
+- Packing: work-order number, profile pieces to verify, accessory pieces to verify, paint, company/customer, queue position.
+- Decoral production: work-order number, profile pieces to verify, accessory pieces to verify, paint, company/customer, queue position.
+
+Implementation decision needed:
+
+- Check current read models expose all listed fields without station-side inference.
+- Define the details panel/drawer behavior for drawings and attachments on station screens.
+- Add frontend regression coverage so completed/history state and operational station columns do not drift.
+
+### 9. Quality-Control Production Document
+
+Status: `CONFIRMED with template/design needed`
+
+Confirmed direction from 2026-05-30:
+
+- The system should automatically generate a production quality-control document.
+- The factory already has a ready document template that should be filled by the program.
+
+Implementation decision needed:
+
+- Obtain and store the actual template format.
+- Map each template field to backend work-order/process data or mark it as manually entered.
+- Decide when the document is generated and whether generated copies are stored as attachments/audit evidence.
+
+### 10. Paint Inventory And Consumption
+
+Status: `PARTLY CONFIRMED / OPEN POLICY CONFLICT`
+
+Non-conflicting confirmed direction from 2026-05-30:
+
+- Work-order intake should force paint stock/state entry once inventory exists.
+- Paint usage should be recorded so stock can be deducted.
+
+Potential conflict with previous policy:
+
+- Current automatic-production policy says the automatic production tablet is display-only.
+- Letting automatic production enter paint usage would intentionally make that station action-capable.
+
+Implementation decision needed:
+
+- Confirm whether automatic production should remain display-only or gain a paint-consumption action.
+- Design paint inventory entities, stock movements, audit events, and correction/undo behavior before implementation.
+- Define station permissions for paint-stock entry and paint-consumption entry.
+
+### 11. External Work-Order Number
+
+Status: `CONFIRMED with implementation design needed`
+
+Confirmed direction from 2026-05-30:
+
+- Add an external client/order number field separate from the system-generated internal work-order number.
+
+Implementation decision needed:
+
+- Decide uniqueness rules, search/filter behavior, and where the field is displayed.
+- Decide whether the external number is optional or required for all office-created orders.
+
 ## Recommended Validation Session
 
 1. Walk through one normal RAL manual order.
@@ -198,6 +285,8 @@ Why this matters:
 5. Review which station can perform each action.
 6. Review which users/stations should see quantity discrepancies.
 7. Walk through `Przemalowanka` and `Ocynk` examples before implementing their data model.
+8. Review paint inventory/consumption policy, especially whether automatic production remains display-only.
+9. Review the quality-control document template and field mapping.
 
 ## After Decisions Are Confirmed
 

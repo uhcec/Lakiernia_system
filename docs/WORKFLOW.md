@@ -24,6 +24,19 @@ Scope:
 8. Correction is represented as a new child work order (`is_correction=true`, `parent_order_id` set).
 9. Parent waits for open corrections; merge/finalization propagates upward when descendants close.
 
+## Work Order Intake Fields
+
+Office intake should support operational and traceability fields needed later by production, manager, and documents.
+
+Confirmed needs:
+- client-facing/external work-order number (`external_order_number`) should be captured separately from the internal system work-order number
+- paint identity and paint stock state should be captured or selected at intake before planning/production
+- paint stock data must not be free-floating display text only; it needs a future inventory model so production consumption can be audited and deducted safely
+
+Open implementation design:
+- whether paint stock is stored as a snapshot on the work order, a link to an inventory batch/item, or both
+- how to handle intake when the required paint exists physically but is not yet represented in the inventory module
+
 ## Stage Model
 
 Configured stages:
@@ -140,6 +153,61 @@ Active views:
 - Continue to show in-progress batch progress while the backend still marks the row as active/in-progress.
 - A correction row may still show batch progress in a completed tab until the backend marks it as historical via `is_historical_correction`.
 
+Office/manager list grouping:
+- `Zlecenia`: unplanned work orders and incomplete deliveries.
+- `Na produkcji`: all work orders currently active/on the factory floor.
+- `Gotowe`: completed/READY work orders.
+- Completed work orders need an additional issued/released marker showing whether the completed order has been handed over/released to the client. This marker is logistics/dispatch state and must not change the production meaning of READY.
+
+Station list display should be tailored to the station and move lower-priority data into details.
+
+Surface preparation list columns:
+- work-order number
+- profile pieces to verify
+- accessory pieces to verify
+- company/customer
+- queue position
+
+Manual production list columns:
+- work-order number
+- square meters
+- paint
+- company/customer
+- queue position
+- details access for drawings/attachments
+
+Hanging list columns:
+- work-order number
+- square meters
+- paint
+- company/customer
+- queue position
+- details access for drawings/attachments
+
+Automatic production list columns:
+- work-order number
+- square meters
+- paint
+- company/customer
+- queue position
+- details access for drawings/attachments
+
+Packing list columns:
+- work-order number
+- profile pieces to verify
+- accessory pieces to verify
+- paint
+- company/customer
+- queue position
+
+Decoral production list columns:
+- work-order number
+- profile pieces to verify
+- accessory pieces to verify
+- paint
+- company/customer
+- queue position
+
 ## Shared Queue Rule (Global)
 
 Queue position is global for all planned work orders.
@@ -184,6 +252,31 @@ Confirmed concepts:
 - Both may follow RAL or Decoral downstream paths.
 
 These concepts need data-model design before implementation so they can coexist with existing RAL/Decoral route semantics.
+
+## Quality Control Production Document
+
+The system should generate a production quality-control document from a provided factory template.
+
+Confirmed need:
+- the document should be generated automatically from work-order/process data where possible
+- the factory already has a document template that should drive the generated output instead of inventing a new format
+
+Open implementation design:
+- template file format and storage location
+- exact data fields to fill from the system
+- whether generation happens at intake, production start, completion, or on demand
+- whether generated documents are stored as attachments/audit evidence or regenerated from current data
+
+## Paint Inventory And Consumption
+
+Paint stock management is a required future workflow area, but it needs a dedicated data model before implementation.
+
+Confirmed non-conflicting needs:
+- paint stock state should be required during order intake/planning
+- production paint consumption should reduce paint stock through an audited system action
+
+Open policy/design point:
+- current automatic production policy says the automatic production tablet is display-only. Letting automatic production enter paint usage would intentionally change that panel from display-only to action-capable, so this needs explicit confirmation and focused permission/audit design before code changes.
 
 ## Process Action Safety
 
