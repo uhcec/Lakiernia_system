@@ -110,7 +110,7 @@ Use `docs/WORKFLOW_VALIDATION_CHECKLIST.md` as the active checklist before chang
 - Defect/correction type does not require office, manager, quality-control, or customer approval before planning.
 - Correction reason/category is needed for statistics/audit, not for workflow routing.
 - Correction-chain completion races should reconcile or behave idempotently when the final persisted state is already valid; otherwise the stale action should fail with a controlled conflict.
-- Remaining correction implementation detail: choose flexible storage/display for the not-final reason/category list.
+- Implemented correction detail: packing-created correction work orders store a flexible reason/category and optional note because the category list is not final. Remaining reporting/export surfaces can be designed later.
 - Confirmed quantity visibility: counted quantity entry belongs on the surface-preparation tablet; declared quantity and discrepancy visibility belong to office and manager; production/station operators see only operational quantity.
 - Confirmed discrepancy handling: discrepancy is recorded and confirmed by surface preparation, but does not block the work order for now. Surface preparation start does not require counted quantity; finish does require counted quantity.
 - Confirmed station permissions: station identity should remain audited, but invalid station actions should be impossible in the UI and rejected by the backend if attempted.

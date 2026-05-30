@@ -82,6 +82,8 @@ function buildWorkOrder(id: number, orderNumber: string, queuePosition: number, 
     total_progress_quantity: 0,
     is_correction: false,
     is_historical_correction: false,
+    correction_reason_category: null,
+    correction_reason_note: null,
     parent_order: null,
     correction_orders: [],
     description: null,
@@ -381,6 +383,7 @@ describe("frontend state consistency", () => {
     fireEvent.change(inputs[0], { target: { value: "4" } });
     fireEvent.change(inputs[1], { target: { value: "3" } });
     fireEvent.change(inputs[2], { target: { value: "1" } });
+    fireEvent.change(screen.getByRole("combobox"), { target: { value: "niedomalowanie" } });
     fireEvent.click(screen.getByRole("button", { name: "Zatwierdź pakowanie" }));
 
     await screen.findByText("Nieprawidłowa ilość pakowania");
@@ -389,6 +392,50 @@ describe("frontend state consistency", () => {
     await waitFor(() => {
       const reloadedInputs = screen.getAllByRole("spinbutton") as HTMLInputElement[];
       expect(reloadedInputs.map((input) => input.value)).toEqual(["5", "5", "0"]);
+    });
+  });
+
+  it("requires a correction reason before submitting packing corrections", async () => {
+    fetchStageWorkOrdersMock.mockResolvedValue([
+      buildStageWorkOrder({
+        id: 31,
+        order_number: "WO-PACK-REASON",
+        current_active_quantity: 4,
+        planned_quantity: 4,
+        stage_status: { stage: "PACKING", status: { value: "IN_PROGRESS", label: "W toku" } },
+      }),
+    ]);
+    completePackingMock.mockResolvedValue({} as never);
+
+    render(<PackingWorkOrdersPage />);
+
+    await screen.findByText("WO-PACK-REASON :: Klient");
+
+    const inputs = screen.getAllByRole("spinbutton");
+    fireEvent.change(inputs[0], { target: { value: "4" } });
+    fireEvent.change(inputs[1], { target: { value: "3" } });
+    fireEvent.change(inputs[2], { target: { value: "1" } });
+
+    const submitButton = screen.getByRole("button", { name: "Zatwierdź pakowanie" }) as HTMLButtonElement;
+    expect(submitButton.disabled).toBe(true);
+
+    fireEvent.change(screen.getByRole("combobox"), { target: { value: "inne" } });
+    fireEvent.change(screen.getByPlaceholderText("Notatka"), { target: { value: "ryska przy profilu" } });
+    await waitFor(() => expect(submitButton.disabled).toBe(false));
+    fireEvent.click(submitButton);
+
+    await waitFor(() => {
+      expect(completePackingMock).toHaveBeenCalledWith(
+        31,
+        {
+          counted_quantity: 4,
+          ok_quantity: 3,
+          correction_quantity: 1,
+          correction_reason_category: "inne",
+          correction_reason_note: "ryska przy profilu",
+        },
+        undefined,
+      );
     });
   });
 

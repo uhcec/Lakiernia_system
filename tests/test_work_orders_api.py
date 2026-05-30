@@ -66,15 +66,19 @@ def complete_packing_request(
     counted_quantity: int,
     ok_quantity: int,
     correction_quantity: int,
+    correction_reason_category: str | None = None,
+    correction_reason_note: str | None = None,
 ) -> None:
-    test_client.post(
-        f"/process/work-orders/{work_order_id}/packing/complete",
-        json={
-            "counted_quantity": counted_quantity,
-            "ok_quantity": ok_quantity,
-            "correction_quantity": correction_quantity,
-        },
-    )
+    payload = {
+        "counted_quantity": counted_quantity,
+        "ok_quantity": ok_quantity,
+        "correction_quantity": correction_quantity,
+    }
+    if correction_quantity > 0:
+        payload["correction_reason_category"] = correction_reason_category or "niedomalowanie"
+        if correction_reason_note is not None:
+            payload["correction_reason_note"] = correction_reason_note
+    test_client.post(f"/process/work-orders/{work_order_id}/packing/complete", json=payload)
 
 
 def finish_ral_work_order(test_client: TestClient, work_order_id: int) -> None:
@@ -715,7 +719,15 @@ def test_work_order_detail_returns_parent_and_correction_orders(test_client: Tes
             test_client.post(f"/process/work-orders/{created['id']}/stages/{stage}/start")
         test_client.post(f"/process/work-orders/{created['id']}/stages/{stage}/finish")
     test_client.post(f"/process/work-orders/{created['id']}/stages/PACKING/start")
-    complete_packing_request(test_client, created["id"], counted_quantity=100, ok_quantity=90, correction_quantity=10)
+    complete_packing_request(
+        test_client,
+        created["id"],
+        counted_quantity=100,
+        ok_quantity=90,
+        correction_quantity=10,
+        correction_reason_category="inne",
+        correction_reason_note="opis od pakowania",
+    )
     correction_order = next(
         item
         for item in test_client.get("/manager/work-orders/unplanned").json()
@@ -731,7 +743,11 @@ def test_work_order_detail_returns_parent_and_correction_orders(test_client: Tes
     assert len(response.json()["correction_orders"]) == 1
     assert response.json()["correction_orders"][0]["id"] == correction_order["id"]
     assert response.json()["correction_orders"][0]["total_quantity"] == 10
+    assert response.json()["correction_orders"][0]["correction_reason_category"] == "inne"
+    assert response.json()["correction_orders"][0]["correction_reason_note"] == "opis od pakowania"
     assert correction_response.status_code == 200
     assert correction_response.json()["is_correction"] is True
+    assert correction_response.json()["correction_reason_category"] == "inne"
+    assert correction_response.json()["correction_reason_note"] == "opis od pakowania"
     assert correction_response.json()["parent_order"]["id"] == created["id"]
     assert correction_response.json()["correction_orders"] == []

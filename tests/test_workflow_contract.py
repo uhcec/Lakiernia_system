@@ -91,6 +91,7 @@ def complete_packing(
         counted_quantity=ok_quantity + correction_quantity,
         ok_quantity=ok_quantity,
         correction_quantity=correction_quantity,
+        correction_reason_category="niedomalowanie" if correction_quantity > 0 else None,
     )
 
 

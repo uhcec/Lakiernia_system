@@ -330,7 +330,7 @@ def scenario_correction_planning_collides_with_parent_completion(env: ChaosEnvir
     advance_to_packing(seeder, parent["id"])
     split_response = seeder.post(
         f"/process/work-orders/{parent['id']}/packing/complete",
-        json={"counted_quantity": 100, "ok_quantity": 70, "correction_quantity": 30},
+        json={"counted_quantity": 100, "ok_quantity": 70, "correction_quantity": 30, "correction_reason_category": "niedomalowanie"},
     )
     assert split_response.status_code == 200
     batch_id = split_response.json()["batch_id"]
@@ -375,7 +375,7 @@ def scenario_correction_completion_races_parent_duplicate_packing(env: ChaosEnvi
     advance_to_packing(seeder, parent["id"])
     split_response = seeder.post(
         f"/process/work-orders/{parent['id']}/packing/complete",
-        json={"counted_quantity": 100, "ok_quantity": 90, "correction_quantity": 10},
+        json={"counted_quantity": 100, "ok_quantity": 90, "correction_quantity": 10, "correction_reason_category": "niedomalowanie"},
     )
     assert split_response.status_code == 200
     correction_order = get_direct_correction_children(seeder, parent["id"])[0]

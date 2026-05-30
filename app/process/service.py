@@ -322,12 +322,19 @@ class ProcessService:
         counted_quantity: int,
         ok_quantity: int,
         correction_quantity: int,
+        correction_reason_category: str | None = None,
+        correction_reason_note: str | None = None,
         batch_id: int | None = None,
         station_context: StationContext | None = None,
     ) -> ProcessStageWorkOrderRead:
         with self._serialize_process_mutation(work_order_id):
             work_order = self.get_work_order_process(work_order_id)
             self._ensure_packing_station_action(station_context)
+            normalized_correction_reason_category, normalized_correction_reason_note = self._validate_correction_reason(
+                correction_quantity,
+                correction_reason_category,
+                correction_reason_note,
+            )
             target_batch = self._resolve_batch_for_stage(work_order, ProcessStage.PACKING, batch_id)
             if target_batch is not None:
                 return self._complete_tracked_batch_packing(
@@ -336,6 +343,8 @@ class ProcessService:
                     counted_quantity=counted_quantity,
                     ok_quantity=ok_quantity,
                     correction_quantity=correction_quantity,
+                    correction_reason_category=normalized_correction_reason_category,
+                    correction_reason_note=normalized_correction_reason_note,
                     station_context=station_context,
                 )
 
@@ -387,6 +396,8 @@ class ProcessService:
                     planned_quantity=planned_quantity,
                     ok_quantity=ok_quantity,
                     correction_quantity=correction_quantity,
+                    correction_reason_category=normalized_correction_reason_category,
+                    correction_reason_note=normalized_correction_reason_note,
                     station_context=station_context,
                 )
                 self._release_inactive_resource_locks(work_order)
@@ -661,6 +672,32 @@ class ProcessService:
             allowed_station_ids={StationId.PACKING},
             action="PACKING actions",
         )
+
+    @classmethod
+    def _validate_correction_reason(
+        cls,
+        correction_quantity: int,
+        correction_reason_category: str | None,
+        correction_reason_note: str | None,
+    ) -> tuple[str | None, str | None]:
+        normalized_category = cls._normalize_optional_text(correction_reason_category)
+        normalized_note = cls._normalize_optional_text(correction_reason_note)
+        if normalized_category is not None and len(normalized_category) > 64:
+            raise InvalidProcessStageTransitionError("Correction reason category must be at most 64 characters.")
+        if normalized_note is not None and len(normalized_note) > 500:
+            raise InvalidProcessStageTransitionError("Correction reason note must be at most 500 characters.")
+        if correction_quantity > 0 and normalized_category is None:
+            raise InvalidProcessStageTransitionError("Correction reason is required when correction quantity is greater than zero.")
+        if correction_quantity == 0 and (normalized_category is not None or normalized_note is not None):
+            raise InvalidProcessStageTransitionError("Correction reason can only be set when correction quantity is greater than zero.")
+        return normalized_category, normalized_note
+
+    @staticmethod
+    def _normalize_optional_text(value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized_value = value.strip()
+        return normalized_value or None
 
     @staticmethod
     def _get_allowed_stage_station_ids(work_order: WorkOrder, stage: ProcessStage) -> set[StationId]:
@@ -966,6 +1003,8 @@ class ProcessService:
         counted_quantity: int,
         ok_quantity: int,
         correction_quantity: int,
+        correction_reason_category: str | None,
+        correction_reason_note: str | None,
         station_context: StationContext | None = None,
     ) -> ProcessStageWorkOrderRead:
         if batch.current_stage == ProcessStage.PACKING and batch.current_stage_status == StageStatus.DONE:
@@ -1009,7 +1048,13 @@ class ProcessService:
             created_batches.append(ok_batch)
 
         if correction_quantity > 0:
-            self._create_correction_work_order(work_order, correction_quantity, station_context=station_context)
+            self._create_correction_work_order(
+                work_order,
+                correction_quantity,
+                correction_reason_category=correction_reason_category,
+                correction_reason_note=correction_reason_note,
+                station_context=station_context,
+            )
         elif ok_quantity > 0:
             work_order.completed_quantity += ok_quantity
 
@@ -1048,6 +1093,8 @@ class ProcessService:
         planned_quantity: int,
         ok_quantity: int,
         correction_quantity: int,
+        correction_reason_category: str | None,
+        correction_reason_note: str | None,
         station_context: StationContext | None = None,
     ) -> tuple[ProcessStage, WorkOrderQuantityBatch | None]:
         _ = planned_quantity
@@ -1074,7 +1121,13 @@ class ProcessService:
             self.repository.add_quantity_batch(response_batch)
             response_stage = ProcessStage.DECORAL_PRODUCTION
 
-        self._create_correction_work_order(work_order, correction_quantity, station_context=station_context)
+        self._create_correction_work_order(
+            work_order,
+            correction_quantity,
+            correction_reason_category=correction_reason_category,
+            correction_reason_note=correction_reason_note,
+            station_context=station_context,
+        )
 
         if work_order.production_type == ProductionType.AUTOMATIC:
             production_state.status = StageStatus.DONE
@@ -1087,6 +1140,9 @@ class ProcessService:
         self,
         parent_work_order: WorkOrder,
         correction_quantity: int,
+        *,
+        correction_reason_category: str | None,
+        correction_reason_note: str | None,
         station_context: StationContext | None = None,
     ) -> WorkOrder:
         correction_order = WorkOrder(
@@ -1097,6 +1153,8 @@ class ProcessService:
             current_active_batch_id=None,
             parent_order_id=parent_work_order.id,
             is_correction=True,
+            correction_reason_category=correction_reason_category,
+            correction_reason_note=correction_reason_note,
             description=parent_work_order.description,
             customer_name=parent_work_order.customer_name,
             ral_code=parent_work_order.ral_code,
@@ -1130,6 +1188,8 @@ class ProcessService:
                 "parent_work_order_id": parent_work_order.id,
                 "parent_order_number": parent_work_order.order_number,
                 "correction_quantity": correction_quantity,
+                "correction_reason_category": correction_reason_category,
+                "correction_reason_note": correction_reason_note,
             },
         )
         return persisted_correction_order

@@ -96,12 +96,16 @@ def complete_packing(
     *,
     ok_quantity: int,
     correction_quantity: int,
+    correction_reason_category: str | None = None,
+    correction_reason_note: str | None = None,
 ):
     return process_service.complete_packing(
         work_order_id,
         counted_quantity=ok_quantity + correction_quantity,
         ok_quantity=ok_quantity,
         correction_quantity=correction_quantity,
+        correction_reason_category=(correction_reason_category or "niedomalowanie") if correction_quantity > 0 else None,
+        correction_reason_note=correction_reason_note if correction_quantity > 0 else None,
     )
 
 
@@ -200,6 +204,8 @@ def test_packing_correction_records_packing_and_correction_audit_events(db_sessi
         counted_quantity=100,
         ok_quantity=70,
         correction_quantity=30,
+        correction_reason_category="wtrącenia",
+        correction_reason_note="widoczne punkty",
         station_context=StationContext(station_id=StationId.PACKING),
     )
 
@@ -213,6 +219,7 @@ def test_packing_correction_records_packing_and_correction_audit_events(db_sessi
     assert "work_order.correction_created" in event_types
     assert "process.packing.completed" in event_types
     packing_event = next(event for event in events if event.event_type == "process.packing.completed")
+    correction_event = next(event for event in events if event.event_type == "work_order.correction_created")
     assert json.loads(packing_event.details_json or "{}") == {
         "stage": "PACKING",
         "batch_id": 1,
@@ -220,6 +227,9 @@ def test_packing_correction_records_packing_and_correction_audit_events(db_sessi
         "ok_quantity": 70,
         "correction_quantity": 30,
     }
+    correction_details = json.loads(correction_event.details_json or "{}")
+    assert correction_details["correction_reason_category"] == "wtrącenia"
+    assert correction_details["correction_reason_note"] == "widoczne punkty"
 
 
 def test_stage_transitions_forward(db_session: Session) -> None:
@@ -504,7 +514,14 @@ def test_decoral_automatic_mixed_split_waits_for_correction_child(db_session: Se
     )
     advance_to_packing(process_service, created.id)
 
-    complete_packing(process_service, created.id, ok_quantity=7, correction_quantity=3)
+    complete_packing(
+        process_service,
+        created.id,
+        ok_quantity=7,
+        correction_quantity=3,
+        correction_reason_category="za grubo",
+        correction_reason_note="pomiar na końcu partii",
+    )
 
     work_order = process_repository.get_work_order_with_stage_states(created.id)
     hanging_rows = process_service.list_stage_work_orders(ProcessStage.HANGING)
@@ -523,6 +540,8 @@ def test_decoral_automatic_mixed_split_waits_for_correction_child(db_session: Se
     assert len(correction_orders) == 1
     assert correction_orders[0].parent_order_id == created.id
     assert correction_orders[0].total_quantity == 3
+    assert correction_orders[0].correction_reason_category == "za grubo"
+    assert correction_orders[0].correction_reason_note == "pomiar na końcu partii"
 
 
 def test_decoral_split_moves_ok_quantity_to_decoral_and_child_to_painting_flow(db_session: Session) -> None:

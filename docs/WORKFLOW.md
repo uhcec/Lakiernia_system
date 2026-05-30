@@ -104,8 +104,9 @@ When packing has correction quantity (`correction_quantity > 0`):
 - `queue_namespace = CORRECTIONS`
 - `production_type = null`, `queue_position = null` (unplanned)
 3. Parent enters waiting state until all open correction descendants are completed.
-4. Packing should record a correction reason/category for statistics and audit. The reason/category does not change the workflow path and does not require approval before planning.
-5. Initial coating-defect reason/category values are `niedomalowanie`, `za grubo`, `wtrącenia`, and `inne`; the list is not final and should remain changeable.
+4. Packing must record a correction reason/category when a correction child is created. The optional note can hold additional context from packing.
+5. The reason/category is stored on the child correction work order for statistics, read models, and audit; it does not change the workflow path and does not require approval before planning.
+6. Initial coating-defect reason/category values are `niedomalowanie`, `za grubo`, `wtrącenia`, and `inne`; the list is not final, so storage remains flexible rather than a strict database enum.
 
 Correction planning return stage:
 - Correction orders do not go through `SURFACE_PREPARATION`.

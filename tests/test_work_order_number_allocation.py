@@ -80,7 +80,13 @@ def test_correction_child_uses_same_yearly_sequence(db_session: Session) -> None
 
     parent = work_order_service.create_work_order(build_work_order_create("Parent order"))
     move_to_packing(process_service, manager_service, parent.id)
-    process_service.complete_packing(parent.id, counted_quantity=100, ok_quantity=80, correction_quantity=20)
+    process_service.complete_packing(
+        parent.id,
+        counted_quantity=100,
+        ok_quantity=80,
+        correction_quantity=20,
+        correction_reason_category="niedomalowanie",
+    )
     correction_orders = [order for order in work_order_repository.list(limit=20, offset=0) if order.parent_order_id == parent.id]
 
     assert parent.order_number.endswith("0001")
@@ -155,7 +161,13 @@ def test_mixed_normal_and_correction_creation_produces_unique_numbers(tmp_path) 
             session = session_factory()
             try:
                 process_service = ProcessService(ProcessRepository(session))
-                process_service.complete_packing(parent.id, counted_quantity=100, ok_quantity=85, correction_quantity=15)
+                process_service.complete_packing(
+                    parent.id,
+                    counted_quantity=100,
+                    ok_quantity=85,
+                    correction_quantity=15,
+                    correction_reason_category="niedomalowanie",
+                )
                 correction_order = session.scalars(
                     select(WorkOrder).where(WorkOrder.parent_order_id == parent.id).order_by(WorkOrder.id.desc())
                 ).first()

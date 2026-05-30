@@ -61,6 +61,7 @@ Confirmed factory policy from 2026-05-30:
 Current repository behavior/evidence:
 
 - Packing with `correction_quantity > 0` automatically creates an unplanned correction work order.
+- Packing completion now requires `correction_reason_category` when `correction_quantity > 0`, rejects correction reasons when no correction is created, and stores the optional correction note on the child correction work order.
 - Manager later assigns manual or automatic production and queue position.
 - Correction children may themselves create further correction children.
 - Correction orders do not go through surface preparation; after manager planning, manual corrections start at production and automatic corrections start at hanging.
@@ -69,8 +70,8 @@ Current repository behavior/evidence:
 
 Implementation decision needed:
 
-- Decide whether reason/category should be stored as a flexible text/code list or a strict enum, given that the list is not final.
-- Decide where the statistical reason/category is displayed/exported.
+- Done for storage/capture: use flexible nullable text fields for category and note rather than a strict enum, because the category list is not final.
+- Still open: decide where the statistical reason/category is displayed beyond work-order/read-model data and how it is exported for reporting.
 
 Why this matters:
 

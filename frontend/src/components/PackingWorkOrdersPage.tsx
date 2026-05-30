@@ -18,7 +18,16 @@ interface PackingDraft {
   countedQuantity: string;
   okQuantity: string;
   correctionQuantity: string;
+  correctionReasonCategory: string;
+  correctionReasonNote: string;
 }
+
+const correctionReasonOptions = [
+  { value: "niedomalowanie", label: "Niedomalowanie" },
+  { value: "za grubo", label: "Za grubo" },
+  { value: "wtrącenia", label: "Wtrącenia" },
+  { value: "inne", label: "Inne" },
+];
 
 function getActionLabel(status: StageStatusValue): string {
   switch (status) {
@@ -37,6 +46,16 @@ function parseQuantity(value: string): number {
   }
 
   return Number(value);
+}
+
+function buildEmptyPackingDraft(): PackingDraft {
+  return {
+    countedQuantity: "",
+    okQuantity: "0",
+    correctionQuantity: "0",
+    correctionReasonCategory: "",
+    correctionReasonNote: "",
+  };
 }
 
 function formatDifference(difference: number): string {
@@ -141,6 +160,8 @@ export function PackingWorkOrdersPage() {
             countedQuantity: item.counted_quantity?.toString() ?? "",
             okQuantity: String(item.counted_quantity ?? item.current_active_quantity),
             correctionQuantity: "0",
+            correctionReasonCategory: "",
+            correctionReasonNote: "",
           };
         }
         return nextDrafts;
@@ -162,7 +183,7 @@ export function PackingWorkOrdersPage() {
     setDrafts((current) => ({
       ...current,
       [workOrderId]: {
-        ...(current[workOrderId] ?? { countedQuantity: "", okQuantity: "0", correctionQuantity: "0" }),
+        ...(current[workOrderId] ?? buildEmptyPackingDraft()),
         [fieldName]: value,
       },
     }));
@@ -197,10 +218,12 @@ export function PackingWorkOrdersPage() {
 
   async function handlePackingSubmit(workOrder: StageWorkOrder) {
     const draftKey = getDraftKey(workOrder);
-    const draft = drafts[draftKey] ?? { countedQuantity: "", okQuantity: "0", correctionQuantity: "0" };
+    const draft = drafts[draftKey] ?? buildEmptyPackingDraft();
     const countedQuantity = parseQuantity(draft.countedQuantity);
     const okQuantity = parseQuantity(draft.okQuantity);
     const correctionQuantity = parseQuantity(draft.correctionQuantity);
+    const correctionReasonCategory = draft.correctionReasonCategory.trim();
+    const correctionReasonNote = draft.correctionReasonNote.trim();
 
     if (
       !Number.isInteger(countedQuantity) ||
@@ -219,17 +242,30 @@ export function PackingWorkOrdersPage() {
       return;
     }
 
+    if (correctionQuantity > 0 && correctionReasonCategory === "") {
+      setErrorMessage("Wybierz powód poprawki przed zatwierdzeniem pakowania");
+      return;
+    }
+
     setActiveWorkOrderId(draftKey);
     setErrorMessage(null);
+
+    const payload = {
+      counted_quantity: countedQuantity,
+      ok_quantity: okQuantity,
+      correction_quantity: correctionQuantity,
+      ...(correctionQuantity > 0
+        ? {
+            correction_reason_category: correctionReasonCategory,
+            ...(correctionReasonNote ? { correction_reason_note: correctionReasonNote } : {}),
+          }
+        : {}),
+    };
 
     try {
       await completePacking(
         workOrder.id,
-        {
-          counted_quantity: countedQuantity,
-          ok_quantity: okQuantity,
-          correction_quantity: correctionQuantity,
-        },
+        payload,
         workOrder.batch_id ?? undefined,
       );
       await loadWorkOrders();
@@ -263,6 +299,7 @@ export function PackingWorkOrdersPage() {
                 <th className="px-5 py-4 font-semibold">Różnica</th>
                 <th className="px-5 py-4 font-semibold">OK</th>
                 <th className="px-5 py-4 font-semibold">Poprawki</th>
+                <th className="px-5 py-4 font-semibold">Powód</th>
                 <th className="px-5 py-4 font-semibold">Status etapu</th>
                 <th className="px-5 py-4 font-semibold text-right">Akcje</th>
               </tr>
@@ -272,10 +309,11 @@ export function PackingWorkOrdersPage() {
                 const status = workOrder.stage_status.status.value;
                 const draftKey = getDraftKey(workOrder);
                 const isSubmitting = activeWorkOrderId === draftKey;
-                const draft = drafts[draftKey] ?? { countedQuantity: "", okQuantity: "0", correctionQuantity: "0" };
+                const draft = drafts[draftKey] ?? buildEmptyPackingDraft();
                 const countedQuantity = parseQuantity(draft.countedQuantity);
                 const okQuantity = parseQuantity(draft.okQuantity);
                 const correctionQuantity = parseQuantity(draft.correctionQuantity);
+                const hasRequiredCorrectionReason = correctionQuantity === 0 || draft.correctionReasonCategory.trim() !== "";
                 const difference =
                   Number.isInteger(countedQuantity) && countedQuantity > 0
                     ? countedQuantity - workOrder.planned_quantity
@@ -287,7 +325,8 @@ export function PackingWorkOrdersPage() {
                   Number.isInteger(correctionQuantity) &&
                   okQuantity >= 0 &&
                   correctionQuantity >= 0 &&
-                  okQuantity + correctionQuantity === countedQuantity;
+                  okQuantity + correctionQuantity === countedQuantity &&
+                  hasRequiredCorrectionReason;
                 const correctionContext = correctionContextByOrderId[workOrder.id];
                 const isMergedHistoricalCorrection = workOrder.is_historical_correction;
                 const showHistoricalResult = status === "DONE" && !workOrder.is_correction;
@@ -397,6 +436,36 @@ export function PackingWorkOrdersPage() {
                       )}
                     </td>
                     <td className="px-5 py-4">
+                      {status === "IN_PROGRESS" && correctionQuantity > 0 ? (
+                        <div className="flex min-w-[12rem] flex-col gap-2">
+                          <select
+                            value={draft.correctionReasonCategory}
+                            onChange={(event) => updateDraft(draftKey, "correctionReasonCategory", event.target.value)}
+                            className="rounded-2xl border border-line bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-accent"
+                          >
+                            <option value="">Wybierz</option>
+                            {correctionReasonOptions.map((option) => (
+                              <option key={option.value} value={option.value}>
+                                {option.label}
+                              </option>
+                            ))}
+                          </select>
+                          {draft.correctionReasonCategory === "inne" ? (
+                            <input
+                              type="text"
+                              maxLength={500}
+                              value={draft.correctionReasonNote}
+                              onChange={(event) => updateDraft(draftKey, "correctionReasonNote", event.target.value)}
+                              placeholder="Notatka"
+                              className="rounded-2xl border border-line bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-accent"
+                            />
+                          ) : null}
+                        </div>
+                      ) : (
+                        <span className="text-steel">-</span>
+                      )}
+                    </td>
+                    <td className="px-5 py-4">
                       <span className="inline-flex rounded-full bg-mist px-3 py-1 text-xs font-semibold text-ink">
                         {workOrder.stage_status.status.label}
                       </span>
@@ -447,7 +516,7 @@ export function PackingWorkOrdersPage() {
           <div>
             <h2 className="text-3xl font-semibold text-ink sm:text-4xl">Pakowanie</h2>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-steel sm:text-base">
-              Najpierw potwierdź policzoną ilość, potem rozdziel ją na OK i poprawki. Korekta wraca do produkcji jako nowa aktywna partia.
+              Pakowanie i kontrola jakości po zakończonej produkcji.
             </p>
             <div className="mt-3 inline-flex rounded-full border border-line bg-mist p-1">
               <button

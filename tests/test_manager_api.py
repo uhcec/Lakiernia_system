@@ -126,7 +126,13 @@ def test_packing_correction_creates_new_unplanned_work_order(test_client: TestCl
     test_client.post(f"/process/work-orders/{created['id']}/stages/PACKING/start")
     packing_response = test_client.post(
         f"/process/work-orders/{created['id']}/packing/complete",
-        json={"counted_quantity": 100, "ok_quantity": 92, "correction_quantity": 8},
+        json={
+            "counted_quantity": 100,
+            "ok_quantity": 92,
+            "correction_quantity": 8,
+            "correction_reason_category": "niedomalowanie",
+            "correction_reason_note": "dolna listwa",
+        },
     )
 
     response = test_client.get("/manager/work-orders/unplanned")
@@ -135,6 +141,8 @@ def test_packing_correction_creates_new_unplanned_work_order(test_client: TestCl
     assert response.status_code == 200
     correction_order = next(item for item in response.json() if item["is_correction"] is True)
     assert correction_order["total_quantity"] == 8
+    assert correction_order["correction_reason_category"] == "niedomalowanie"
+    assert correction_order["correction_reason_note"] == "dolna listwa"
     assert correction_order["parent_order"]["id"] == created["id"]
     assert correction_order["queue_namespace"] == {"value": "CORRECTIONS", "label": "Corrections"}
     assert correction_order["queue_position"] is None
@@ -156,7 +164,7 @@ def test_completed_decoral_correction_preserves_correction_quantity_context_in_m
     test_client.post(f"/process/work-orders/{created['id']}/stages/HANGING/finish")
     parent_pack_response = test_client.post(
         f"/process/work-orders/{created['id']}/packing/complete",
-        json={"counted_quantity": 10, "ok_quantity": 7, "correction_quantity": 3},
+        json={"counted_quantity": 10, "ok_quantity": 7, "correction_quantity": 3, "correction_reason_category": "wtrącenia"},
     )
     assert parent_pack_response.status_code == 200
 
@@ -221,7 +229,7 @@ def test_corrections_are_listed_in_shared_unplanned_queue(test_client: TestClien
     test_client.post(f"/process/work-orders/{created['id']}/stages/PACKING/start")
     test_client.post(
         f"/process/work-orders/{created['id']}/packing/complete",
-        json={"counted_quantity": 100, "ok_quantity": 90, "correction_quantity": 10},
+        json={"counted_quantity": 100, "ok_quantity": 90, "correction_quantity": 10, "correction_reason_category": "niedomalowanie"},
     )
 
     response = test_client.get("/manager/work-orders/unplanned")
@@ -254,7 +262,7 @@ def test_same_queue_position_is_not_allowed_between_normal_and_correction_orders
     test_client.post(f"/process/work-orders/{correction_parent['id']}/stages/PACKING/start")
     test_client.post(
         f"/process/work-orders/{correction_parent['id']}/packing/complete",
-        json={"counted_quantity": 100, "ok_quantity": 95, "correction_quantity": 5},
+        json={"counted_quantity": 100, "ok_quantity": 95, "correction_quantity": 5, "correction_reason_category": "niedomalowanie"},
     )
 
     correction_order = next(
@@ -295,7 +303,7 @@ def test_reorder_accepts_mixed_normal_and_correction_orders(test_client: TestCli
     test_client.post(f"/process/work-orders/{correction_parent['id']}/stages/PACKING/start")
     test_client.post(
         f"/process/work-orders/{correction_parent['id']}/packing/complete",
-        json={"counted_quantity": 100, "ok_quantity": 95, "correction_quantity": 5},
+        json={"counted_quantity": 100, "ok_quantity": 95, "correction_quantity": 5, "correction_reason_category": "niedomalowanie"},
     )
 
     correction_order = next(
@@ -522,7 +530,7 @@ def test_reorder_mixed_normal_and_correction_orders_preserves_global_queue_posit
     test_client.post(f"/process/work-orders/{correction_parent['id']}/stages/PACKING/start")
     test_client.post(
         f"/process/work-orders/{correction_parent['id']}/packing/complete",
-        json={"counted_quantity": 100, "ok_quantity": 95, "correction_quantity": 5},
+        json={"counted_quantity": 100, "ok_quantity": 95, "correction_quantity": 5, "correction_reason_category": "niedomalowanie"},
     )
 
     correction_order = next(

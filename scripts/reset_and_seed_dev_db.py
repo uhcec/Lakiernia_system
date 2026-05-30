@@ -339,7 +339,13 @@ def seed_all_use_cases(session: Session) -> list[SeededScenario]:
     assign_plan(manager_service, correction_parent.id, ProductionType.MANUAL, queue_position)
     queue_position += 10
     advance_to_packing(process_service, correction_parent.id, counted_quantity=10)
-    process_service.complete_packing(correction_parent.id, counted_quantity=10, ok_quantity=7, correction_quantity=3)
+    process_service.complete_packing(
+        correction_parent.id,
+        counted_quantity=10,
+        ok_quantity=7,
+        correction_quantity=3,
+        correction_reason_category="niedomalowanie",
+    )
     correction_child = get_latest_correction_child(work_order_repository, correction_parent.id)
     assign_plan(manager_service, correction_child.id, ProductionType.MANUAL, queue_position)
     queue_position += 10
@@ -498,7 +504,13 @@ def seed_all_use_cases(session: Session) -> list[SeededScenario]:
     assign_plan(manager_service, multi_round_parent.id, ProductionType.MANUAL, queue_position)
     queue_position += 10
     advance_to_packing(process_service, multi_round_parent.id, counted_quantity=10)
-    process_service.complete_packing(multi_round_parent.id, counted_quantity=10, ok_quantity=7, correction_quantity=3)
+    process_service.complete_packing(
+        multi_round_parent.id,
+        counted_quantity=10,
+        ok_quantity=7,
+        correction_quantity=3,
+        correction_reason_category="niedomalowanie",
+    )
 
     multi_round_first_child = get_latest_correction_child(work_order_repository, multi_round_parent.id)
     multi_round_first_child.notes = (
@@ -509,7 +521,14 @@ def seed_all_use_cases(session: Session) -> list[SeededScenario]:
     assign_plan(manager_service, multi_round_first_child.id, ProductionType.MANUAL, queue_position)
     queue_position += 10
     advance_to_packing(process_service, multi_round_first_child.id, counted_quantity=3)
-    process_service.complete_packing(multi_round_first_child.id, counted_quantity=3, ok_quantity=2, correction_quantity=1)
+    process_service.complete_packing(
+        multi_round_first_child.id,
+        counted_quantity=3,
+        ok_quantity=2,
+        correction_quantity=1,
+        correction_reason_category="inne",
+        correction_reason_note="Druga runda poprawki w danych testowych.",
+    )
 
     multi_round_last_child = get_latest_correction_child(work_order_repository, multi_round_first_child.id)
     multi_round_last_child.notes = (
@@ -562,7 +581,13 @@ def seed_all_use_cases(session: Session) -> list[SeededScenario]:
     assign_plan(manager_service, automatic_parent.id, ProductionType.AUTOMATIC, queue_position)
     queue_position += 10
     advance_to_packing(process_service, automatic_parent.id, counted_quantity=10)
-    process_service.complete_packing(automatic_parent.id, counted_quantity=10, ok_quantity=8, correction_quantity=2)
+    process_service.complete_packing(
+        automatic_parent.id,
+        counted_quantity=10,
+        ok_quantity=8,
+        correction_quantity=2,
+        correction_reason_category="wtrącenia",
+    )
 
     automatic_child = get_latest_correction_child(work_order_repository, automatic_parent.id)
     automatic_child.notes = (
@@ -684,7 +709,13 @@ def seed_all_use_cases(session: Session) -> list[SeededScenario]:
     assign_plan(manager_service, history_parent.id, ProductionType.MANUAL, queue_position)
     queue_position += 10
     advance_to_packing(process_service, history_parent.id, counted_quantity=10)
-    process_service.complete_packing(history_parent.id, counted_quantity=10, ok_quantity=7, correction_quantity=3)
+    process_service.complete_packing(
+        history_parent.id,
+        counted_quantity=10,
+        ok_quantity=7,
+        correction_quantity=3,
+        correction_reason_category="niedomalowanie",
+    )
 
     history_first_child = get_latest_correction_child(work_order_repository, history_parent.id)
     history_first_child.notes = (
@@ -695,7 +726,14 @@ def seed_all_use_cases(session: Session) -> list[SeededScenario]:
     assign_plan(manager_service, history_first_child.id, ProductionType.MANUAL, queue_position)
     queue_position += 10
     advance_to_packing(process_service, history_first_child.id, counted_quantity=3)
-    process_service.complete_packing(history_first_child.id, counted_quantity=3, ok_quantity=2, correction_quantity=1)
+    process_service.complete_packing(
+        history_first_child.id,
+        counted_quantity=3,
+        ok_quantity=2,
+        correction_quantity=1,
+        correction_reason_category="inne",
+        correction_reason_note="Powtorna poprawka w historii testowej.",
+    )
 
     history_second_child = get_latest_correction_child(work_order_repository, history_first_child.id)
     history_second_child.notes = (

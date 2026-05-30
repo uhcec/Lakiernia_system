@@ -519,6 +519,8 @@ class WorkOrderService:
             total_progress_quantity=total_progress_quantity,
             is_correction=work_order.is_correction,
             is_historical_correction=self.process_service.is_historical_correction(work_order),
+            correction_reason_category=work_order.correction_reason_category,
+            correction_reason_note=work_order.correction_reason_note,
             parent_order=(
                 self._build_relation_summary(work_order.parent_order)
                 if work_order.parent_order is not None

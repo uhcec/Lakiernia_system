@@ -154,20 +154,21 @@ class PackingAgent:
         ok_quantity: int,
         correction_quantity: int,
         batch_id: int | None = None,
+        correction_reason_category: str | None = None,
     ):
         path = (
             f"/process/work-orders/{work_order_id}/batches/{batch_id}/packing/complete"
             if batch_id is not None
             else f"/process/work-orders/{work_order_id}/packing/complete"
         )
-        return self.client.post(
-            path,
-            json={
-                "counted_quantity": counted_quantity,
-                "ok_quantity": ok_quantity,
-                "correction_quantity": correction_quantity,
-            },
-        )
+        payload = {
+            "counted_quantity": counted_quantity,
+            "ok_quantity": ok_quantity,
+            "correction_quantity": correction_quantity,
+        }
+        if correction_quantity > 0:
+            payload["correction_reason_category"] = correction_reason_category or "niedomalowanie"
+        return self.client.post(path, json=payload)
 
     def synchronized_complete_packing(
         self,
@@ -178,6 +179,7 @@ class PackingAgent:
         ok_quantity: int,
         correction_quantity: int,
         batch_id: int | None = None,
+        correction_reason_category: str | None = None,
     ):
         barrier.wait()
         return self.complete_packing(
@@ -186,4 +188,5 @@ class PackingAgent:
             ok_quantity=ok_quantity,
             correction_quantity=correction_quantity,
             batch_id=batch_id,
+            correction_reason_category=correction_reason_category,
         )

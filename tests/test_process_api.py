@@ -58,19 +58,26 @@ def complete_packing_request(
     ok_quantity: int,
     correction_quantity: int,
     batch_id: int | None = None,
+    correction_reason_category: str | None = None,
+    correction_reason_note: str | None = None,
 ):
     path = (
         f"/process/work-orders/{work_order_id}/batches/{batch_id}/packing/complete"
         if batch_id is not None
         else f"/process/work-orders/{work_order_id}/packing/complete"
     )
+    payload = {
+        "counted_quantity": counted_quantity,
+        "ok_quantity": ok_quantity,
+        "correction_quantity": correction_quantity,
+    }
+    if correction_quantity > 0:
+        payload["correction_reason_category"] = correction_reason_category or "niedomalowanie"
+        if correction_reason_note is not None:
+            payload["correction_reason_note"] = correction_reason_note
     return test_client.post(
         path,
-        json={
-            "counted_quantity": counted_quantity,
-            "ok_quantity": ok_quantity,
-            "correction_quantity": correction_quantity,
-        },
+        json=payload,
     )
 
 
@@ -584,7 +591,15 @@ def test_packing_complete_splits_quantities_and_marks_parent_waiting_for_correct
     created = create_planned_work_order(test_client, title="Packing split", queue_position=1)
     advance_to_packing(test_client, created["id"])
 
-    response = complete_packing_request(test_client, created["id"], counted_quantity=100, ok_quantity=90, correction_quantity=10)
+    response = complete_packing_request(
+        test_client,
+        created["id"],
+        counted_quantity=100,
+        ok_quantity=90,
+        correction_quantity=10,
+        correction_reason_category="wtrącenia",
+        correction_reason_note="pył na powierzchni",
+    )
     detail = test_client.get(f"/work-orders/{created['id']}")
     work_orders = test_client.get("/work-orders")
     correction_order = next(item for item in work_orders.json()["items"] if item["is_correction"] is True)
@@ -602,8 +617,41 @@ def test_packing_complete_splits_quantities_and_marks_parent_waiting_for_correct
     assert detail.json()["total_progress_quantity"] == 90
     assert detail.json()["process_status"] == {"value": "WAITING_FOR_CORRECTIONS", "label": "Czeka na poprawki"}
     assert correction_order["total_quantity"] == 10
+    assert correction_order["correction_reason_category"] == "wtrącenia"
+    assert correction_order["correction_reason_note"] == "pył na powierzchni"
     assert correction_order["parent_order"]["id"] == created["id"]
     assert correction_order["process_status"] == {"value": "TO_BE_PLANNED", "label": "Do zaplanowania"}
+
+
+def test_packing_complete_requires_correction_reason_for_corrections(test_client: TestClient) -> None:
+    created = create_planned_work_order(test_client, title="Packing split reason required", queue_position=1)
+    advance_to_packing(test_client, created["id"])
+
+    response = test_client.post(
+        f"/process/work-orders/{created['id']}/packing/complete",
+        json={"counted_quantity": 100, "ok_quantity": 90, "correction_quantity": 10},
+    )
+
+    assert response.status_code == 422
+    assert test_client.get(f"/work-orders/{created['id']}").json()["correction_orders"] == []
+
+
+def test_packing_complete_rejects_reason_without_correction_quantity(test_client: TestClient) -> None:
+    created = create_planned_work_order(test_client, title="Packing reason without split", queue_position=1)
+    advance_to_packing(test_client, created["id"])
+
+    response = test_client.post(
+        f"/process/work-orders/{created['id']}/packing/complete",
+        json={
+            "counted_quantity": 100,
+            "ok_quantity": 100,
+            "correction_quantity": 0,
+            "correction_reason_category": "niedomalowanie",
+        },
+    )
+
+    assert response.status_code == 422
+    assert test_client.get(f"/work-orders/{created['id']}").json()["process_status"] == {"value": "PACKING", "label": "Pakowanie"}
 
 
 def test_decoral_ok_quantity_goes_to_decoral_production_after_packing(test_client: TestClient) -> None:

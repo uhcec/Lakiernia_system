@@ -79,6 +79,8 @@ class WorkOrder(Base):
     current_active_batch_id: Mapped[int | None] = mapped_column(Integer(), nullable=True)
     parent_order_id: Mapped[int | None] = mapped_column(ForeignKey("work_orders.id", ondelete="SET NULL"), nullable=True)
     is_correction: Mapped[bool] = mapped_column(Boolean(), nullable=False, default=False)
+    correction_reason_category: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    correction_reason_note: Mapped[str | None] = mapped_column(Text(), nullable=True)
     description: Mapped[str | None] = mapped_column(Text(), nullable=True)
     customer_name: Mapped[str] = mapped_column(String(255), nullable=False)
     ral_code: Mapped[str] = mapped_column(String(64), nullable=False)
