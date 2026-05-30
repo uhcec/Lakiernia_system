@@ -217,7 +217,7 @@ Implementation decision needed:
 
 ### 8. Station List Information Architecture
 
-Status: `CONFIRMED with frontend implementation design needed`
+Status: `IMPLEMENTED for station table columns; details drawer still optional`
 
 Confirmed direction from 2026-05-30:
 
@@ -229,11 +229,16 @@ Confirmed direction from 2026-05-30:
 - Packing: work-order number, profile pieces to verify, accessory pieces to verify, paint, company/customer, queue position; it also needs read-only visibility into active automatic hanging rows, while completion stays blocked until hanging is finished.
 - Decoral production: work-order number, profile pieces to verify, accessory pieces to verify, paint, company/customer, queue position.
 
-Implementation decision needed:
+Implemented in session A on 2026-05-30:
 
-- Check current read models expose all listed fields without station-side inference.
-- Define the details panel/drawer behavior for drawings and attachments on station screens.
-- Add frontend regression coverage so completed/history state and operational station columns do not drift.
+- Process stage read models expose paint producer, profile/accessory quantities, and profile/accessory count flags for station lists.
+- Station tables use narrower operational columns per station family instead of broad generic metadata columns.
+- Station rows link to work-order details so drawings and attachments remain reachable without putting them into the main list.
+- Frontend regression coverage checks station-specific columns and completed/history display safeguards.
+
+Remaining design option:
+
+- A dedicated station-side details drawer could still replace the details link if operators need faster attachment access from tablets.
 
 ### 9. Quality-Control Production Document
 

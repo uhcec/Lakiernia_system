@@ -27,6 +27,7 @@ export interface StageWorkOrder {
   order_number: string;
   title: string;
   ral_code: string;
+  paint_producer: string;
   total_area_m2: number | null;
   total_quantity: number;
   current_active_quantity: number;
@@ -35,6 +36,10 @@ export interface StageWorkOrder {
   counted_quantity: number | null;
   quantity_difference: number | null;
   customer_name: string | null;
+  profiles_quantity: number | null;
+  profiles_to_count: boolean;
+  accessories_quantity: number | null;
+  accessories_to_count: boolean;
   queue_position: number | null;
   queue_namespace: WorkOrderOption<QueueNamespaceValue>;
   production_type: WorkOrderOption<ProductionTypeValue> | null;

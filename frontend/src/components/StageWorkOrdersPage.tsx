@@ -47,16 +47,6 @@ function getStageAction(status: StageStatusValue): "start" | "finish" | "reopen"
   }
 }
 
-function getBatchTypeLabel(batchType: StageWorkOrder["batch_type"]): string {
-  if (batchType === "CORRECTION") {
-    return "Poprawka";
-  }
-  if (batchType === "MAIN") {
-    return "Partia";
-  }
-  return "-";
-}
-
 function buildCorrectionReference(workOrder: StageWorkOrder, context: CorrectionContext | undefined): string {
   if (!workOrder.is_correction) {
     return "";
@@ -195,6 +185,25 @@ export function StageWorkOrdersPage({
     return value.toString();
   }
 
+  function formatArea(value: number | null): string {
+    return typeof value === "number" ? `${value} m2` : "-";
+  }
+
+  function formatPaint(workOrder: StageWorkOrder): string {
+    return `${workOrder.paint_producer} / ${workOrder.ral_code}`;
+  }
+
+  function formatCountRequirement(quantity: number | null, shouldCount: boolean): string {
+    if (typeof quantity === "number") {
+      return `${quantity} szt.`;
+    }
+    return shouldCount ? "Do policzenia" : "-";
+  }
+
+  function usesVerificationColumns(): boolean {
+    return stage === "SURFACE_PREPARATION" || stage === "DECORAL_PRODUCTION";
+  }
+
   async function handleAction(workOrder: StageWorkOrder) {
     setActiveWorkOrderId(workOrder.id);
     setErrorMessage(null);
@@ -265,6 +274,8 @@ export function StageWorkOrdersPage({
   }
 
   function renderWorkOrdersTable(items: StageWorkOrder[]) {
+    const showVerificationColumns = usesVerificationColumns();
+
     return (
       <div className="overflow-hidden rounded-3xl border border-line bg-white shadow-panel">
         <div className="overflow-x-auto">
@@ -273,13 +284,13 @@ export function StageWorkOrdersPage({
               <tr>
                 <th className="px-5 py-4 font-semibold">Pozycja</th>
                 <th className="px-5 py-4 font-semibold">Nr zlecenia</th>
-                <th className="px-5 py-4 font-semibold">Dane główne</th>
-                <th className="px-5 py-4 font-semibold">Partia</th>
+                <th className="px-5 py-4 font-semibold">Firma / klient</th>
+                {showVerificationColumns ? <th className="px-5 py-4 font-semibold">Profile</th> : <th className="px-5 py-4 font-semibold">Metraż</th>}
+                {showVerificationColumns ? <th className="px-5 py-4 font-semibold">Akcesoria</th> : null}
+                <th className="px-5 py-4 font-semibold">Farba</th>
                 <th className="px-5 py-4 font-semibold">Plan</th>
                 {isSurfacePreparationStage ? <th className="px-5 py-4 font-semibold">Policzono</th> : null}
                 {isSurfacePreparationStage ? <th className="px-5 py-4 font-semibold">Różnica</th> : null}
-                <th className="px-5 py-4 font-semibold">Technologia</th>
-                <th className="px-5 py-4 font-semibold">Typ produkcji</th>
                 <th className="px-5 py-4 font-semibold">Status etapu</th>
                 <th className="px-5 py-4 font-semibold text-right">Akcje</th>
               </tr>
@@ -313,19 +324,26 @@ export function StageWorkOrdersPage({
                     ].join(" ")}
                   >
                     <td className="px-5 py-4 font-semibold">{workOrder.queue_position ?? "-"}</td>
-                    <td className="px-5 py-4 font-semibold">
-                      <div className="space-y-1">
-                        <div>{workOrder.order_number}</div>
+                    <td className="px-5 py-4 font-semibold align-top">
+                      <div className="space-y-2">
+                        <div className="text-base text-ink">{workOrder.order_number}</div>
+                        <p className="text-sm font-normal text-steel">{formatWorkOrderPrimaryInfo(workOrder)}</p>
+                        <a
+                          href={`/zlecenia/${workOrder.id}`}
+                          className="inline-flex text-sm font-medium text-accent transition hover:text-teal-700"
+                        >
+                          Szczegóły / załączniki
+                        </a>
+                        {workOrder.batch_is_partial ? (
+                          <span className="inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800">
+                            Niepełne
+                          </span>
+                        ) : null}
                         {workOrder.is_correction ? (
                           <span className="inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-amber-800">
                             POPRAWKA
                           </span>
                         ) : null}
-                      </div>
-                    </td>
-                    <td className="px-5 py-4 text-steel">
-                      <div className="space-y-1">
-                        <p>{formatWorkOrderPrimaryInfo(workOrder)}</p>
                         <div className="flex flex-wrap gap-2">
                           {getStageWorkOrderBadgeStack(workOrder).map((badge) => (
                             <span
@@ -355,16 +373,16 @@ export function StageWorkOrdersPage({
                         ) : null}
                       </div>
                     </td>
-                    <td className="px-5 py-4 text-steel">
-                      <div className="flex flex-wrap gap-2">
-                        <span>{getBatchTypeLabel(workOrder.batch_type)}</span>
-                        {workOrder.batch_is_partial ? (
-                          <span className="inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800">
-                            Niepełne
-                          </span>
-                        ) : null}
-                      </div>
-                    </td>
+                    <td className="px-5 py-4 text-steel">{workOrder.customer_name ?? "-"}</td>
+                    {showVerificationColumns ? (
+                      <td className="px-5 py-4 font-semibold">{formatCountRequirement(workOrder.profiles_quantity, workOrder.profiles_to_count)}</td>
+                    ) : (
+                      <td className="px-5 py-4 font-semibold">{formatArea(workOrder.total_area_m2)}</td>
+                    )}
+                    {showVerificationColumns ? (
+                      <td className="px-5 py-4 font-semibold">{formatCountRequirement(workOrder.accessories_quantity, workOrder.accessories_to_count)}</td>
+                    ) : null}
+                    <td className="px-5 py-4 text-steel">{formatPaint(workOrder)}</td>
                     <td className="px-5 py-4 font-semibold">{workOrder.planned_quantity}</td>
                     {isSurfacePreparationStage ? (
                       <td className="px-5 py-4">
@@ -400,8 +418,6 @@ export function StageWorkOrdersPage({
                         )}
                       </td>
                     ) : null}
-                    <td className="px-5 py-4 text-steel">{workOrder.coating_type.label}</td>
-                    <td className="px-5 py-4 text-steel">{workOrder.production_type?.label ?? "-"}</td>
                     <td className="px-5 py-4">
                       <span className="inline-flex rounded-full bg-mist px-3 py-1 text-xs font-semibold text-ink">
                         {workOrder.stage_status.status.label}

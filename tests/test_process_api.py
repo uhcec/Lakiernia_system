@@ -149,16 +149,22 @@ def test_list_stage_work_orders_returns_only_visible_planned_orders(test_client:
     response = test_client.get("/process/stages/SURFACE_PREPARATION/work-orders")
 
     assert response.status_code == 200
-    assert [item["id"] for item in response.json()] == [completed["id"], visible["id"]]
-    assert response.json()[0]["stage_status"] == {
+    stage_rows = response.json()
+    assert [item["id"] for item in stage_rows] == [completed["id"], visible["id"]]
+    assert stage_rows[0]["stage_status"] == {
         "stage": "SURFACE_PREPARATION",
         "status": {"value": "DONE", "label": "Zakończone"},
     }
-    assert response.json()[1]["stage_status"] == {
+    assert stage_rows[1]["stage_status"] == {
         "stage": "SURFACE_PREPARATION",
         "status": {"value": "NOT_STARTED", "label": "Nie rozpoczęte"},
     }
-    assert unplanned["id"] not in [item["id"] for item in response.json()]
+    assert stage_rows[1]["paint_producer"] == "AkzoNobel"
+    assert stage_rows[1]["profiles_to_count"] is True
+    assert stage_rows[1]["profiles_quantity"] is None
+    assert stage_rows[1]["accessories_to_count"] is True
+    assert stage_rows[1]["accessories_quantity"] is None
+    assert unplanned["id"] not in [item["id"] for item in stage_rows]
 
 
 def test_list_stage_work_orders_filters_production_by_production_type(test_client: TestClient) -> None:

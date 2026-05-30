@@ -62,6 +62,17 @@ function formatDifference(difference: number): string {
   return difference > 0 ? `+${difference}` : String(difference);
 }
 
+function formatPaint(workOrder: StageWorkOrder): string {
+  return `${workOrder.paint_producer} / ${workOrder.ral_code}`;
+}
+
+function formatCountRequirement(quantity: number | null, shouldCount: boolean): string {
+  if (typeof quantity === "number") {
+    return `${quantity} szt.`;
+  }
+  return shouldCount ? "Do policzenia" : "-";
+}
+
 function getPackingRowSummary(workOrder: StageWorkOrder): string {
   if (workOrder.stage_status.stage === "HANGING") {
     return "W zawieszaniu - oczekuje na pakowanie";
@@ -301,7 +312,10 @@ export function PackingWorkOrdersPage() {
               <tr>
                 <th className="px-5 py-4 font-semibold">Pozycja</th>
                 <th className="px-5 py-4 font-semibold">Nr zlecenia</th>
-                <th className="px-5 py-4 font-semibold">Dane główne</th>
+                <th className="px-5 py-4 font-semibold">Firma / klient</th>
+                <th className="px-5 py-4 font-semibold">Profile</th>
+                <th className="px-5 py-4 font-semibold">Akcesoria</th>
+                <th className="px-5 py-4 font-semibold">Farba</th>
                 <th className="px-5 py-4 font-semibold">Plan</th>
                 <th className="px-5 py-4 font-semibold">Policzono</th>
                 <th className="px-5 py-4 font-semibold">Różnica</th>
@@ -351,19 +365,21 @@ export function PackingWorkOrdersPage() {
                     ].join(" ")}
                   >
                     <td className="px-5 py-4 font-semibold">{workOrder.queue_position ?? "-"}</td>
-                    <td className="px-5 py-4 font-semibold">
-                      <div className="space-y-1">
-                        <div>{workOrder.order_number}</div>
+                    <td className="px-5 py-4 font-semibold align-top">
+                      <div className="space-y-2">
+                        <div className="text-base text-ink">{workOrder.order_number}</div>
+                        <p className="text-sm font-normal text-steel">{formatWorkOrderPrimaryInfo(workOrder)}</p>
+                        <a
+                          href={`/zlecenia/${workOrder.id}`}
+                          className="inline-flex text-sm font-medium text-accent transition hover:text-teal-700"
+                        >
+                          Szczegóły / załączniki
+                        </a>
                         {workOrder.is_correction ? (
                           <span className="inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-amber-800">
                             POPRAWKA
                           </span>
                         ) : null}
-                      </div>
-                    </td>
-                    <td className="px-5 py-4 text-steel">
-                      <div className="space-y-1">
-                        <p>{formatWorkOrderPrimaryInfo(workOrder)}</p>
                         <div className="flex flex-wrap gap-2">
                           {getStageWorkOrderBadgeStack(workOrder).map((badge) => (
                             <span
@@ -393,6 +409,10 @@ export function PackingWorkOrdersPage() {
                         ) : null}
                       </div>
                     </td>
+                    <td className="px-5 py-4 text-steel">{workOrder.customer_name ?? "-"}</td>
+                    <td className="px-5 py-4 font-semibold">{formatCountRequirement(workOrder.profiles_quantity, workOrder.profiles_to_count)}</td>
+                    <td className="px-5 py-4 font-semibold">{formatCountRequirement(workOrder.accessories_quantity, workOrder.accessories_to_count)}</td>
+                    <td className="px-5 py-4 text-steel">{formatPaint(workOrder)}</td>
                     <td className="px-5 py-4 font-semibold">{workOrder.planned_quantity}</td>
                     <td className="px-5 py-4">
                       {isPackingInProgress ? (

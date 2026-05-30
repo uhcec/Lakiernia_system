@@ -1519,6 +1519,7 @@ class ProcessService:
             order_number=work_order.order_number,
             title=work_order.title,
             ral_code=work_order.ral_code,
+            paint_producer=work_order.paint_producer,
             total_area_m2=work_order.total_area_m2,
             total_quantity=work_order.total_quantity,
             current_active_quantity=current_active_quantity,
@@ -1527,6 +1528,10 @@ class ProcessService:
             counted_quantity=counted_quantity,
             quantity_difference=quantity_difference,
             customer_name=work_order.customer_name,
+            profiles_quantity=work_order.profiles_quantity,
+            profiles_to_count=work_order.profiles_to_count,
+            accessories_quantity=work_order.accessories_quantity,
+            accessories_to_count=work_order.accessories_to_count,
             queue_position=work_order.queue_position,
             queue_namespace=build_queue_namespace_view(work_order.queue_namespace),
             production_type=(

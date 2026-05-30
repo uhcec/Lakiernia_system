@@ -137,6 +137,7 @@ function buildStageWorkOrder(
     order_number: overrides.order_number,
     title: overrides.title ?? overrides.order_number,
     ral_code: overrides.ral_code ?? "RAL 9005",
+    paint_producer: overrides.paint_producer ?? "Test",
     total_area_m2: overrides.total_area_m2 ?? null,
     total_quantity: overrides.total_quantity ?? 10,
     current_active_quantity: overrides.current_active_quantity ?? 10,
@@ -145,6 +146,10 @@ function buildStageWorkOrder(
     counted_quantity: overrides.counted_quantity ?? null,
     quantity_difference: overrides.quantity_difference ?? null,
     customer_name: overrides.customer_name ?? "Klient",
+    profiles_quantity: overrides.profiles_quantity ?? null,
+    profiles_to_count: overrides.profiles_to_count ?? false,
+    accessories_quantity: overrides.accessories_quantity ?? null,
+    accessories_to_count: overrides.accessories_to_count ?? false,
     queue_position: overrides.queue_position ?? 1,
     queue_namespace: overrides.queue_namespace ?? { value: "MAIN", label: "Główna" },
     production_type: overrides.production_type ?? { value: "MANUAL", label: "Ręczna" },
@@ -357,6 +362,72 @@ describe("frontend state consistency", () => {
     });
   });
 
+  it("shows verification columns on surface preparation without generic metadata columns", async () => {
+    fetchStageWorkOrdersMock.mockResolvedValueOnce([
+      buildStageWorkOrder({
+        id: 31,
+        order_number: "WO-VERIFY",
+        customer_name: "ACME",
+        profiles_quantity: 42,
+        accessories_quantity: null,
+        accessories_to_count: true,
+        stage_status: { stage: "SURFACE_PREPARATION", status: { value: "NOT_STARTED", label: "Nie rozpoczęto" } },
+      }),
+    ]);
+
+    render(
+      <StageWorkOrdersPage
+        stage="SURFACE_PREPARATION"
+        title="Przygotowanie"
+        emptyMessage="Brak zleceń"
+      />,
+    );
+
+    expect(await screen.findByText("WO-VERIFY :: ACME")).toBeTruthy();
+    expect(screen.getByText("Profile")).toBeTruthy();
+    expect(screen.getByText("Akcesoria")).toBeTruthy();
+    expect(screen.getByText("42 szt.")).toBeTruthy();
+    expect(screen.getByText("Do policzenia")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Szczegóły / załączniki" }).getAttribute("href")).toBe("/zlecenia/31");
+    expect(screen.queryByText("Metraż")).toBeNull();
+    expect(screen.queryByText("Technologia")).toBeNull();
+    expect(screen.queryByText("Typ produkcji")).toBeNull();
+    expect(screen.queryByText("Partia")).toBeNull();
+  });
+
+  it("shows area and paint columns on production stations", async () => {
+    fetchStageWorkOrdersMock.mockResolvedValueOnce([
+      buildStageWorkOrder({
+        id: 32,
+        order_number: "WO-PROD-READ",
+        customer_name: "ACME",
+        total_area_m2: 12.5,
+        paint_producer: "Tiger",
+        ral_code: "RAL 7016",
+        stage_status: { stage: "PRODUCTION", status: { value: "NOT_STARTED", label: "Nie rozpoczęto" } },
+      }),
+    ]);
+
+    render(
+      <StageWorkOrdersPage
+        stage="PRODUCTION"
+        productionType="MANUAL"
+        title="Produkcja ręczna"
+        emptyMessage="Brak zleceń"
+      />,
+    );
+
+    expect(await screen.findByText("WO-PROD-READ :: ACME")).toBeTruthy();
+    expect(screen.getByText("Metraż")).toBeTruthy();
+    expect(screen.getByText("12.5 m2")).toBeTruthy();
+    expect(screen.getByText("Farba")).toBeTruthy();
+    expect(screen.getByText("Tiger / RAL 7016")).toBeTruthy();
+    expect(screen.queryByText("Profile")).toBeNull();
+    expect(screen.queryByText("Technologia")).toBeNull();
+    expect(screen.queryByText("Typ produkcji")).toBeNull();
+    expect(screen.queryByText("Partia")).toBeNull();
+  });
+
   it("allows finishing automatic hanging from hanging station", async () => {
     fetchStageWorkOrdersMock
       .mockResolvedValueOnce([
@@ -418,6 +489,11 @@ describe("frontend state consistency", () => {
       buildStageWorkOrder({
         id: 14,
         order_number: "WO-AUTO-PACK-PREVIEW",
+        customer_name: "ACME",
+        profiles_quantity: 17,
+        accessories_to_count: true,
+        paint_producer: "Tiger",
+        ral_code: "RAL 7016",
         production_type: { value: "AUTOMATIC", label: "Automatyczna" },
         stage_status: { stage: "HANGING", status: { value: "IN_PROGRESS", label: "W toku" } },
       }),
@@ -425,8 +501,14 @@ describe("frontend state consistency", () => {
 
     render(<PackingWorkOrdersPage />);
 
-    expect(await screen.findByText("WO-AUTO-PACK-PREVIEW :: Klient")).toBeTruthy();
+    expect(await screen.findByText("WO-AUTO-PACK-PREVIEW :: ACME")).toBeTruthy();
     expect(fetchStageWorkOrdersMock).toHaveBeenCalledWith("PACKING");
+    expect(screen.getByText("Profile")).toBeTruthy();
+    expect(screen.getByText("Akcesoria")).toBeTruthy();
+    expect(screen.getByText("17 szt.")).toBeTruthy();
+    expect(screen.getByText("Do policzenia")).toBeTruthy();
+    expect(screen.getByText("Tiger / RAL 7016")).toBeTruthy();
+    expect(screen.queryByText("Dane główne")).toBeNull();
     expect(screen.getByText("W zawieszaniu - oczekuje na pakowanie")).toBeTruthy();
     expect(screen.getByText("Czeka na koniec zawieszania")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Zatwierdź pakowanie" })).toBeNull();

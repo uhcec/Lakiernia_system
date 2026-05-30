@@ -22,6 +22,7 @@ class ProcessStageWorkOrderRead(BaseModel):
     order_number: str
     title: str
     ral_code: str
+    paint_producer: str
     total_area_m2: float | None = None
     total_quantity: int
     current_active_quantity: int
@@ -30,6 +31,10 @@ class ProcessStageWorkOrderRead(BaseModel):
     counted_quantity: int | None = None
     quantity_difference: int | None = None
     customer_name: str | None
+    profiles_quantity: int | None = None
+    profiles_to_count: bool = False
+    accessories_quantity: int | None = None
+    accessories_to_count: bool = False
     queue_position: int | None
     queue_namespace: QueueNamespaceView
     production_type: ProductionTypeView | None
