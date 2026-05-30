@@ -52,6 +52,7 @@ Automatic constraints:
 - Cannot start/finish `PRODUCTION` directly for `AUTOMATIC`
 - Automatic production is no longer display-only: it should allow paint-consumption entry as a separate audited inventory action.
 - `HANGING` start transitions automatic flow forward
+- The automatic production panel must show upcoming and active automatic flow from the moment a work order is ready for `HANGING`, including `HANGING` not-started/in-progress rows, so the automatic operator sees the day's workflow before the line is occupied.
 - Finish for automatic path is performed from `PACKING`
 - Physical resource exclusivity is enforced in the backend with persisted resource locks and controlled `409` responses.
 - Only one `HANGING` job may be active at a time.

@@ -334,7 +334,7 @@ def test_manual_path_skips_hanging_stage_visibility(db_session: Session) -> None
     assert process_service.is_visible_in_stage(work_order, ProcessStage.PRODUCTION, ProductionType.MANUAL) is True
 
 
-def test_automatic_path_requires_hanging_before_production(db_session: Session) -> None:
+def test_automatic_path_is_visible_in_production_preview_when_ready_for_hanging(db_session: Session) -> None:
     work_order_service, process_service, manager_service, _, process_repository = build_services(db_session)
 
     automatic_order = create_ral_work_order(work_order_service, "Automatic requires hanging")
@@ -348,7 +348,7 @@ def test_automatic_path_requires_hanging_before_production(db_session: Session) 
 
     assert work_order is not None
     assert process_service.is_visible_in_stage(work_order, ProcessStage.HANGING) is True
-    assert process_service.is_visible_in_stage(work_order, ProcessStage.PRODUCTION, ProductionType.AUTOMATIC) is False
+    assert process_service.is_visible_in_stage(work_order, ProcessStage.PRODUCTION, ProductionType.AUTOMATIC) is True
 
 
 def test_automatic_hanging_finish_makes_production_visible(db_session: Session) -> None:
@@ -364,6 +364,7 @@ def test_automatic_hanging_finish_makes_production_visible(db_session: Session) 
     process_service.transition_stage(automatic_order.id, ProcessStage.HANGING, StageStatus.IN_PROGRESS)
     before_finish = process_repository.get_work_order_with_stage_states(automatic_order.id)
     assert before_finish is not None
+    assert process_service.is_visible_in_stage(before_finish, ProcessStage.PRODUCTION, ProductionType.AUTOMATIC) is True
     production_state_before_finish = next(stage for stage in before_finish.stage_states if stage.stage == ProcessStage.PRODUCTION)
     assert production_state_before_finish.status == StageStatus.NOT_STARTED
 

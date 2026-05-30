@@ -442,7 +442,7 @@ export function StageWorkOrdersPage({
             <h2 className="text-3xl font-semibold text-ink sm:text-4xl">{title}</h2>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-steel sm:text-base">
               {readOnly
-                ? "Automat przejmuje zlecenie po zakończeniu zawieszania, a pakowanie zamyka wynik."
+                ? "Kolejka automatu obejmuje zlecenia do zawieszania, w zawieszaniu i na linii automatycznej."
                 : "Lista zaplanowanych zleceń gotowych do rozpoczęcia, kontynuacji albo cofnięcia na wybranym etapie."}
             </p>
             <div className="mt-3 inline-flex rounded-full border border-line bg-mist p-1">

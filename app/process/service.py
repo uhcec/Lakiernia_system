@@ -801,13 +801,22 @@ class ProcessService:
         packing_state = self._get_stage_state(work_order, ProcessStage.PACKING)
         production_state = self._get_stage_state(work_order, ProcessStage.PRODUCTION)
 
-        if hanging_state.status == StageStatus.NOT_STARTED:
-            return False
-
         if packing_state.status == StageStatus.DONE:
             return False
 
+        if hanging_state.status == StageStatus.NOT_STARTED:
+            return self._is_stage_ready_for_next_action(work_order, ProcessStage.HANGING)
+
+        if hanging_state.status == StageStatus.IN_PROGRESS:
+            return True
+
         return production_state.status == StageStatus.IN_PROGRESS
+
+    def _get_automatic_production_preview_display_stage(self, work_order: WorkOrder) -> ProcessStage:
+        hanging_state = self._get_stage_state(work_order, ProcessStage.HANGING)
+        if hanging_state.status != StageStatus.DONE:
+            return ProcessStage.HANGING
+        return ProcessStage.PRODUCTION
 
     def _is_visible_in_automatic_packing(
         self,
@@ -1467,6 +1476,9 @@ class ProcessService:
         stage: ProcessStage,
         batch: WorkOrderQuantityBatch | None = None,
     ) -> ProcessStageWorkOrderRead:
+        if batch is None and self._is_automatic_production_preview_stage(work_order, stage):
+            stage = self._get_automatic_production_preview_display_stage(work_order)
+
         stage_state = self._get_stage_state(work_order, stage)
         if batch is None:
             current_active_quantity = work_order.current_active_quantity

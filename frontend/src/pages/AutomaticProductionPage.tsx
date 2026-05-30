@@ -9,7 +9,7 @@ export function AutomaticProductionPage() {
       readOnly
       readOnlyLabel="Status automatu"
       title="Produkcja: Automat"
-      emptyMessage="Brak zleceń dla automatu"
+      emptyMessage="Brak zleceń do zawieszania lub na automacie"
     />
   );
 }

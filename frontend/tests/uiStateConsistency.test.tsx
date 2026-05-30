@@ -6,6 +6,7 @@ import { PackingWorkOrdersPage } from "../src/components/PackingWorkOrdersPage";
 import { StageWorkOrdersPage } from "../src/components/StageWorkOrdersPage";
 import { WorkOrdersTable } from "../src/components/WorkOrdersTable";
 import { ApiError } from "../src/api/apiError";
+import { AutomaticProductionPage } from "../src/pages/AutomaticProductionPage";
 import { CreateWorkOrderPage } from "../src/pages/CreateWorkOrderPage";
 import { ManagerPanelPage } from "../src/pages/ManagerPanelPage";
 import { WorkOrderDetailPage } from "../src/pages/WorkOrderDetailPage";
@@ -390,6 +391,26 @@ describe("frontend state consistency", () => {
     await waitFor(() => {
       expect(transitionStageMock).toHaveBeenCalledWith(12, "HANGING", "finish", undefined, undefined);
     });
+  });
+
+  it("shows the hanging queue in the automatic production panel without stage actions", async () => {
+    fetchStageWorkOrdersMock.mockResolvedValueOnce([
+      buildStageWorkOrder({
+        id: 13,
+        order_number: "WO-AUTO-QUEUE",
+        production_type: { value: "AUTOMATIC", label: "Automatyczna" },
+        stage_status: { stage: "HANGING", status: { value: "NOT_STARTED", label: "Nie rozpoczęte" } },
+      }),
+    ]);
+
+    render(<AutomaticProductionPage />);
+
+    expect(await screen.findByText("WO-AUTO-QUEUE :: Klient")).toBeTruthy();
+    expect(fetchStageWorkOrdersMock).toHaveBeenCalledWith("PRODUCTION", "AUTOMATIC");
+    expect(screen.getByText("Kolejka automatu obejmuje zlecenia do zawieszania, w zawieszaniu i na linii automatycznej.")).toBeTruthy();
+    expect(screen.getByText("Nie rozpoczęte")).toBeTruthy();
+    expect(screen.getByText("Status automatu")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Rozpocznij" })).toBeNull();
   });
 
   it("reloads packing view and discards local draft after submit failure", async () => {

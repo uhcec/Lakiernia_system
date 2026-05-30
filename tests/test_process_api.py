@@ -186,7 +186,7 @@ def test_manual_skips_hanging_and_goes_directly_to_manual_production(test_client
     assert manual["id"] in [item["id"] for item in production_response.json()]
 
 
-def test_automatic_requires_hanging_before_production_visibility(test_client: TestClient) -> None:
+def test_automatic_ready_for_hanging_is_visible_in_production_preview(test_client: TestClient) -> None:
     automatic = create_planned_work_order(test_client, title="Automatic path", queue_position=1, production_type="AUTOMATIC")
     advance_to_hanging(test_client, automatic["id"])
 
@@ -194,7 +194,12 @@ def test_automatic_requires_hanging_before_production_visibility(test_client: Te
     production_response = test_client.get("/process/stages/PRODUCTION/work-orders", params={"production_type": "AUTOMATIC"})
 
     assert automatic["id"] in [item["id"] for item in hanging_response.json()]
-    assert automatic["id"] not in [item["id"] for item in production_response.json()]
+    assert automatic["id"] in [item["id"] for item in production_response.json()]
+    production_item = next(item for item in production_response.json() if item["id"] == automatic["id"])
+    assert production_item["stage_status"] == {
+        "stage": "HANGING",
+        "status": {"value": "NOT_STARTED", "label": "Nie rozpoczęte"},
+    }
 
 
 def test_automatic_hanging_finish_makes_production_visible(test_client: TestClient) -> None:
@@ -207,7 +212,12 @@ def test_automatic_hanging_finish_makes_production_visible(test_client: TestClie
     after_finish_response = test_client.get("/process/stages/PRODUCTION/work-orders", params={"production_type": "AUTOMATIC"})
 
     assert start_response.status_code == 200
-    assert automatic["id"] not in [item["id"] for item in before_finish_response.json()]
+    assert automatic["id"] in [item["id"] for item in before_finish_response.json()]
+    before_finish_item = next(item for item in before_finish_response.json() if item["id"] == automatic["id"])
+    assert before_finish_item["stage_status"] == {
+        "stage": "HANGING",
+        "status": {"value": "IN_PROGRESS", "label": "W trakcie"},
+    }
     assert finish_response.status_code == 200
     assert automatic["id"] in [item["id"] for item in after_finish_response.json()]
     production_item = next(item for item in after_finish_response.json() if item["id"] == automatic["id"])

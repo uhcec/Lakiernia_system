@@ -64,6 +64,7 @@ Use `docs/WORKFLOW_VALIDATION_CHECKLIST.md` as the active checklist before chang
 
 - Automatic production work orders appear here.
 - Confirmed update from 2026-05-30: the automatic production tablet is no longer display-only.
+- Confirmed update from 2026-05-30: this tablet should also show the automatic hanging queue from the moment work is ready for hanging, so the automatic operator can see the day's workflow before the line is physically occupied.
 - Automatic production should be able to enter paint consumption so stock is deducted from inventory once the paint inventory model exists.
 - Automatic production still does not need manual start/finish clicks for the automatic `PRODUCTION` stage unless that is separately decided.
 - Only one work order can be in automatic production at a time.
