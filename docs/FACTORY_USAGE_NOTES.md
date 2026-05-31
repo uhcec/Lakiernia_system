@@ -30,10 +30,14 @@ Use `docs/WORKFLOW_VALIDATION_CHECKLIST.md` as the active checklist before chang
 
 - Used by a manager.
 - Assigns new work orders and correction work orders to manual or automatic production.
+- The manual/automatic control in planning is an assignment control, not a separate queue selector.
 - Inserts work orders into the queue.
 - Manages a global queue containing work from different completion stages and production areas.
 - Confirmed policy: there is one global queue for all planned work. Do not split it by manual, automatic, Decoral, corrections, or station.
 - Corrections do not automatically receive higher priority than normal work orders.
+- When planning a correction, the manager should be able to open the original work order and see the original planned pickup date. Correction orders currently mirror that original planned pickup date.
+- Parent work-order details should make linked correction orders and their current status/location easy to see.
+- New planning should propose the next queue position after currently active planned work. Whether completed/READY rows should permanently keep their old queue positions or be moved out of the active planning range remains an explicit design question.
 - Manager should see whether queued work is blocked by a resource or station state. Current implementation shows warnings for the modeled exclusive resources `HANGING` and `AUTOMATIC_LINE`.
 - Manager should see declared-versus-counted quantity discrepancies.
 
@@ -123,6 +127,8 @@ Use `docs/WORKFLOW_VALIDATION_CHECKLIST.md` as the active checklist before chang
 - Quality-control production document generation: the factory has a ready template to be filled by the program. The template and field mapping still need to be provided/checked before implementation.
 - Paint inventory: intake should require paint stock/state data and production consumption should deduct stock, but this needs a paint inventory model. Automatic production is confirmed as allowed to enter paint used/consumed and is no longer display-only; units, container/batch tracking, deduction timing, and additional fields still need factory clarification.
 - Completed-order issue/release marker: completed work orders are markable as issued/released, separate from production READY state.
+- Manager queue history: decide whether completed/READY work orders should keep their persisted queue positions forever or release/trail out of the active planning range when new work is planned.
+- Packing exclusivity: user wants to clarify with a factory friend whether packing can have only one physically started work order at a time, and how that applies to automatic work that is visible in packing while hanging/automatic flow is still active.
 
 ## Additional Work Types
 

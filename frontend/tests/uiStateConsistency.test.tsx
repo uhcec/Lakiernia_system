@@ -80,6 +80,7 @@ const workOrdersApi = await import("../src/api/workOrdersApi");
 const fetchWorkOrderAuditEventsMock = vi.mocked(auditApi.fetchWorkOrderAuditEvents);
 const fetchUnplannedWorkOrdersMock = vi.mocked(managerApi.fetchUnplannedWorkOrders);
 const fetchPlannedWorkOrdersMock = vi.mocked(managerApi.fetchPlannedWorkOrders);
+const assignWorkOrderPlanMock = vi.mocked(managerApi.assignWorkOrderPlan);
 const reorderWorkOrderQueueMock = vi.mocked(managerApi.reorderWorkOrderQueue);
 const fetchStageWorkOrdersMock = vi.mocked(processApi.fetchStageWorkOrders);
 const transitionStageMock = vi.mocked(processApi.transitionStage);
@@ -183,6 +184,7 @@ beforeEach(() => {
   fetchWorkOrderAuditEventsMock.mockResolvedValue([]);
   fetchUnplannedWorkOrdersMock.mockReset();
   fetchPlannedWorkOrdersMock.mockReset();
+  assignWorkOrderPlanMock.mockReset();
   reorderWorkOrderQueueMock.mockReset();
   fetchStageWorkOrdersMock.mockReset();
   transitionStageMock.mockReset();
@@ -984,6 +986,7 @@ describe("frontend state consistency", () => {
           total_quantity: 10,
           completed_quantity: 6,
           current_active_quantity: 0,
+          planned_pickup_date: null,
           is_correction: false,
           is_historical_correction: false,
           work_order_kind: { value: "STANDARD", label: "Standardowe" },
@@ -999,6 +1002,70 @@ describe("frontend state consistency", () => {
     await screen.findByText("WO-CORR-ACTIVE-MGR :: Juliet");
     expect(screen.getByText("Postęp: 4 / 4 szt.")).toBeTruthy();
     expect(screen.queryByText(/Poprawiono/)).toBeNull();
+  });
+
+  it("shows original pickup context and active-queue default while planning corrections", async () => {
+    const correction = {
+      ...buildWorkOrder(91, "WO-CORR-PLAN", 0, "Hotel"),
+      total_quantity: 4,
+      is_correction: true,
+      queue_namespace: { value: "CORRECTIONS", label: "Corrections" },
+      process_status: { value: "TO_BE_PLANNED", label: "Do zaplanowania" },
+      production_type: null,
+      queue_position: null,
+      planned_pickup_date: "2026-06-18",
+      parent_order: {
+        id: 90,
+        order_number: "WO-PARENT-PLAN",
+        title: "WO-PARENT-PLAN",
+        customer_name: "Hotel",
+        ral_code: "RAL 9005",
+        total_area_m2: null,
+        total_quantity: 10,
+        completed_quantity: 6,
+        current_active_quantity: 0,
+        planned_pickup_date: "2026-06-18",
+        is_correction: false,
+        is_historical_correction: false,
+        work_order_kind: { value: "STANDARD", label: "Standardowe" },
+        is_ocynk: false,
+        correction_reason_category: null,
+        correction_reason_note: null,
+        process_status: { value: "WAITING_FOR_CORRECTIONS", label: "Czeka na poprawki" },
+      },
+    } satisfies WorkOrder;
+    fetchUnplannedWorkOrdersMock.mockResolvedValueOnce([correction]).mockResolvedValueOnce([]);
+    fetchPlannedWorkOrdersMock
+      .mockResolvedValueOnce([
+        buildWorkOrder(1, "WO-ACTIVE-1", 1, "Alpha"),
+        buildWorkOrder(2, "WO-ACTIVE-2", 2, "Beta"),
+      ])
+      .mockResolvedValueOnce([
+        buildWorkOrder(1, "WO-ACTIVE-1", 1, "Alpha"),
+        buildWorkOrder(2, "WO-ACTIVE-2", 2, "Beta"),
+      ]);
+    assignWorkOrderPlanMock.mockResolvedValue({
+      ...correction,
+      production_type: { value: "AUTOMATIC", label: "Automatyczna" },
+      queue_position: 3,
+    });
+
+    render(<ManagerPanelPage />);
+
+    await screen.findByText("WO-CORR-PLAN :: Hotel");
+    expect(screen.getByText("Termin oryginału: 18.06.2026")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Poprawka do WO-PARENT-PLAN" }).getAttribute("href")).toBe("/zlecenia/90");
+    expect((screen.getByLabelText("Pozycja") as HTMLInputElement).value).toBe("3");
+
+    fireEvent.click(screen.getByRole("button", { name: "Automat" }));
+    fireEvent.click(screen.getByRole("button", { name: "Zaplanuj" }));
+
+    await waitFor(() => {
+      expect(assignWorkOrderPlanMock).toHaveBeenCalledWith(91, {
+        production_type: "AUTOMATIC",
+        queue_position: 3,
+      });
+    });
   });
 
   it("shows backend discrepancy signal in the active manager queue", async () => {
@@ -1039,6 +1106,7 @@ describe("frontend state consistency", () => {
             total_quantity: 3,
             completed_quantity: 3,
             current_active_quantity: 0,
+            planned_pickup_date: null,
             is_correction: true,
             is_historical_correction: true,
             work_order_kind: { value: "STANDARD", label: "Standardowe" },
@@ -1067,6 +1135,7 @@ describe("frontend state consistency", () => {
           total_quantity: 10,
           completed_quantity: 10,
           current_active_quantity: 0,
+          planned_pickup_date: null,
           is_correction: false,
           is_historical_correction: false,
           work_order_kind: { value: "STANDARD", label: "Standardowe" },
@@ -1230,6 +1299,7 @@ describe("frontend state consistency", () => {
           total_quantity: 3,
           completed_quantity: 3,
           current_active_quantity: 0,
+          planned_pickup_date: null,
           is_correction: true,
           is_historical_correction: true,
           work_order_kind: { value: "STANDARD", label: "Standardowe" },
@@ -1262,6 +1332,7 @@ describe("frontend state consistency", () => {
           total_quantity: 4,
           completed_quantity: 1,
           current_active_quantity: 3,
+          planned_pickup_date: null,
           is_correction: true,
           is_historical_correction: false,
           work_order_kind: { value: "STANDARD", label: "Standardowe" },

@@ -57,14 +57,27 @@ function getProductionTypeLabel(value: ProductionTypeValue | null | undefined): 
   return "-";
 }
 
-function createPlanDrafts(workOrders: WorkOrder[]): Record<number, PlanDraft> {
+function createPlanDrafts(workOrders: WorkOrder[], nextQueuePosition: number): Record<number, PlanDraft> {
   return workOrders.reduce<Record<number, PlanDraft>>((drafts, workOrder, index) => {
     drafts[workOrder.id] = {
       productionType: "MANUAL",
-      queuePosition: String(index + 1),
+      queuePosition: String(nextQueuePosition + index),
     };
     return drafts;
   }, {});
+}
+
+function formatDate(value: string | null | undefined): string {
+  if (!value) {
+    return "-";
+  }
+
+  const [year, month, day] = value.split("-").map(Number);
+  if (year && month && day) {
+    return new Intl.DateTimeFormat("pl-PL").format(new Date(year, month - 1, day));
+  }
+
+  return new Intl.DateTimeFormat("pl-PL").format(new Date(value));
 }
 
 function splitPlannedWorkOrders(workOrders: WorkOrder[]) {
@@ -131,6 +144,14 @@ function buildCorrectionQuantityContext(workOrder: WorkOrder): string {
   }
 
   return `Poprawiono ${workOrder.total_quantity} szt.`;
+}
+
+function buildOriginalPickupContext(workOrder: WorkOrder): string {
+  if (!workOrder.is_correction) {
+    return "";
+  }
+
+  return `Termin oryginału: ${formatDate(workOrder.parent_order?.planned_pickup_date ?? workOrder.planned_pickup_date)}`;
 }
 
 function badgeClasses(tone: DisplayBadge["tone"]): string {
@@ -208,7 +229,7 @@ export function ManagerPanelPage() {
       setActivePlannedWorkOrders(normalizedActivePlanned);
       setCompletedPlannedWorkOrders(normalizedCompletedPlanned);
       setQueueRevision(nextQueueRevision);
-      setPlanDrafts(createPlanDrafts(unplanned));
+      setPlanDrafts(createPlanDrafts(unplanned, normalizedActivePlanned.length + 1));
       setHasPendingQueueChanges(false);
       authoritativeQueueRef.current = {
         active: normalizedActivePlanned,
@@ -448,8 +469,17 @@ export function ManagerPanelPage() {
                   ) : null}
                   {workOrder.is_correction ? (
                     <div className="space-y-1 text-sm">
-                      <p className="font-medium text-amber-800">{buildCorrectionReference(workOrder)}</p>
+                      <p className="font-medium text-amber-800">
+                        {workOrder.parent_order ? (
+                          <a href={`/zlecenia/${workOrder.parent_order.id}`} className="text-amber-800 underline-offset-2 hover:underline">
+                            {buildCorrectionReference(workOrder)}
+                          </a>
+                        ) : (
+                          buildCorrectionReference(workOrder)
+                        )}
+                      </p>
                       <p className="text-amber-700">{buildCorrectionQuantityContext(workOrder)}</p>
+                      <p className="text-amber-700">{buildOriginalPickupContext(workOrder)}</p>
                     </div>
                   ) : null}
                   {getWorkOrderActiveCorrectionsText(workOrder) ? (
@@ -462,6 +492,12 @@ export function ManagerPanelPage() {
                 <span className="inline-flex rounded-full bg-mist px-3 py-1 font-medium text-ink">
                   {getProductionTypeLabel(workOrder.production_type?.value)}
                 </span>
+                <a
+                  href={`/zlecenia/${workOrder.id}`}
+                  className="inline-flex rounded-full border border-line bg-white px-3 py-1 font-medium text-accent transition hover:border-accent/50"
+                >
+                  Szczegóły
+                </a>
                 {workOrder.is_correction ? (
                   <span className="inline-flex rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800">
                     POPRAWKA
@@ -644,8 +680,17 @@ export function ManagerPanelPage() {
                             <span className="inline-flex rounded-full bg-amber-100 px-2 py-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-amber-800">
                               POPRAWKA
                             </span>
-                            <p className="font-medium text-amber-800">{buildCorrectionReference(workOrder)}</p>
+                            <p className="font-medium text-amber-800">
+                              {workOrder.parent_order ? (
+                                <a href={`/zlecenia/${workOrder.parent_order.id}`} className="text-amber-800 underline-offset-2 hover:underline">
+                                  {buildCorrectionReference(workOrder)}
+                                </a>
+                              ) : (
+                                buildCorrectionReference(workOrder)
+                              )}
+                            </p>
                             <p className="text-amber-700">{buildCorrectionQuantityContext(workOrder)}</p>
+                            <p className="text-amber-700">{buildOriginalPickupContext(workOrder)}</p>
                           </div>
                         ) : null}
                         {getWorkOrderActiveCorrectionsText(workOrder) ? (
@@ -654,20 +699,28 @@ export function ManagerPanelPage() {
                       </div>
 
                       <div className="grid gap-4 md:grid-cols-[1fr_160px]">
-                        <label className="flex flex-col gap-2">
-                          <span className="text-sm font-medium text-ink">Typ produkcji</span>
-                          <select
-                            value={draft.productionType}
-                            onChange={(event) => updatePlanDraft(workOrder.id, { productionType: event.target.value as ProductionTypeValue })}
-                            className="rounded-2xl border border-line bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-accent"
-                          >
-                            {productionTypeOptions.map((option) => (
-                              <option key={option.value} value={option.value}>
-                                {option.label}
-                              </option>
-                            ))}
-                          </select>
-                        </label>
+                        <fieldset className="flex flex-col gap-2">
+                          <legend className="text-sm font-medium text-ink">Typ produkcji</legend>
+                          <div className="grid grid-cols-2 rounded-2xl border border-line bg-mist p-1">
+                            {productionTypeOptions.map((option) => {
+                              const isSelected = draft.productionType === option.value;
+                              return (
+                                <button
+                                  key={option.value}
+                                  type="button"
+                                  aria-pressed={isSelected}
+                                  onClick={() => updatePlanDraft(workOrder.id, { productionType: option.value })}
+                                  className={[
+                                    "rounded-xl px-4 py-2 text-sm font-semibold transition",
+                                    isSelected ? "bg-white text-ink shadow-sm" : "text-steel hover:text-accent",
+                                  ].join(" ")}
+                                >
+                                  {option.label}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </fieldset>
 
                         <label className="flex flex-col gap-2">
                           <span className="text-sm font-medium text-ink">Pozycja</span>
@@ -682,6 +735,12 @@ export function ManagerPanelPage() {
                       </div>
 
                       <div className="flex justify-end">
+                        <a
+                          href={`/zlecenia/${workOrder.id}`}
+                          className="mr-3 inline-flex items-center justify-center rounded-full border border-line bg-white px-5 py-3 text-sm font-medium text-accent transition hover:border-accent/50"
+                        >
+                          Szczegóły
+                        </a>
                         <button
                           type="submit"
                           disabled={isSubmitting}

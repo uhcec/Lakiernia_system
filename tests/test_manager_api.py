@@ -162,7 +162,13 @@ def test_cannot_plan_incomplete_order(test_client: TestClient) -> None:
 
 
 def test_packing_correction_creates_new_unplanned_work_order(test_client: TestClient) -> None:
-    created = create_work_order(test_client, title="Correction planning", coating_type="RAL", total_quantity=100)
+    created = create_work_order(
+        test_client,
+        title="Correction planning",
+        coating_type="RAL",
+        total_quantity=100,
+        planned_pickup_date="2026-06-18",
+    )
 
     test_client.post(
         f"/manager/work-orders/{created['id']}/plan",
@@ -199,6 +205,8 @@ def test_packing_correction_creates_new_unplanned_work_order(test_client: TestCl
     assert correction_order["correction_reason_category"] == "niedomalowanie"
     assert correction_order["correction_reason_note"] == "dolna listwa"
     assert correction_order["parent_order"]["id"] == created["id"]
+    assert correction_order["planned_pickup_date"] == "2026-06-18"
+    assert correction_order["parent_order"]["planned_pickup_date"] == "2026-06-18"
     assert correction_order["queue_namespace"] == {"value": "CORRECTIONS", "label": "Corrections"}
     assert correction_order["queue_position"] is None
 

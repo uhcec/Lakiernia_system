@@ -153,7 +153,7 @@ Why this matters:
 
 ### 5. Global Queue Semantics
 
-Status: `CONFIRMED; resource-warning first slice implemented`
+Status: `CONFIRMED for one global active queue; completed-position release policy OPEN`
 
 Confirmed factory policy from 2026-05-30:
 
@@ -168,10 +168,17 @@ Current repository behavior/evidence:
 - Corrections start unplanned and join the global queue when manager-planned.
 - Station panels filter the global queue to work actionable at that station.
 - Manager planned-queue read models now expose current resource-block warnings for the exclusive resources already modeled by the backend: `HANGING` and `AUTOMATIC_LINE`.
+- Manager planning should propose the next free active queue position after currently active planned work.
 
 Implementation decision needed:
 
 - Extend manager-facing blocked-work warnings if/when additional station/resource locks are modeled beyond `HANGING` and `AUTOMATIC_LINE`.
+- Decide whether completed/READY orders should keep their persisted queue positions permanently or be moved/released out of the active queue namespace when new work is planned. The user's current instinct is that defaulting after active work is correct, but the durability/history implications still need review.
+
+Why this matters:
+
+- Keeping completed rows in the same persisted queue positions preserves historical evidence but makes the daily active queue awkward.
+- Releasing or trailing completed rows improves manager planning, but changes the meaning of `queue_position` after completion and needs explicit tests/docs.
 
 ### 6. Additional Work Types
 
@@ -234,6 +241,23 @@ Remaining design option:
 
 - If manager and office later need different small-screen workflows, split the shared bucket labels into role-specific layouts without changing backend workflow semantics.
 
+### 7a. Manager Planning Ergonomics And Correction Traceability
+
+Status: `CONFIRMED for production-type assignment and correction context; queue-position release policy linked to section 5`
+
+Confirmed direction from 2026-05-31:
+
+- The manager's production-type control is for assigning manual versus automatic production during planning.
+- Correction planning should expose a link to the parent/original work-order detail.
+- Parent work-order detail should clearly expose linked correction orders and their current location/status.
+- While planning a correction, show the original order's planned pickup date.
+- Correction orders mirror the original order's planned pickup date for now.
+
+Implementation decision needed:
+
+- No separate correction deadline field unless the factory later wants correction deadlines to diverge from the original order.
+- Keep the production-type control as assignment UI only; do not split the global queue by production type.
+
 ### 8. Station List Information Architecture
 
 Status: `IMPLEMENTED for station table columns; details drawer still optional`
@@ -261,7 +285,31 @@ Remaining design option:
 
 - A dedicated station-side details drawer could still replace the details link if operators need faster attachment access from tablets.
 
-### 9. Quality-Control Production Document
+### 9. Packing Station Exclusivity
+
+Status: `OPEN`
+
+User note from 2026-05-31:
+
+- Packing may need to allow only one physically started work order at a time.
+- The user wants to clarify this with a factory friend before implementation.
+
+Current repository behavior/evidence:
+
+- Packing actions are station-authorized, but there is no dedicated `PACKING` resource lock.
+- Automatic orders can be visible in packing while hanging is still in progress, but those rows are read-only and cannot be completed until hanging is finished.
+
+Implementation decision needed:
+
+- Decide whether a `PACKING` resource lock should be added.
+- Decide whether automatic rows shown in packing before completion eligibility count as occupying packing, automatic line, neither, or a separate waiting state.
+
+Why this matters:
+
+- Treating packing as an exclusive resource would change backend conflicts, station UI availability, and chaos/concurrency coverage.
+- Implementing it before clarifying automatic waiting visibility could block legitimate work or hide useful station context.
+
+### 10. Quality-Control Production Document
 
 Status: `CONFIRMED with template/design needed`
 
@@ -276,7 +324,7 @@ Implementation decision needed:
 - Map each template field to backend work-order/process data or mark it as manually entered.
 - Decide when the document is generated and whether generated copies are stored as attachments/audit evidence.
 
-### 10. Paint Inventory And Consumption
+### 11. Paint Inventory And Consumption
 
 Status: `CONFIRMED with implementation design needed`
 
@@ -293,7 +341,7 @@ Implementation decision needed:
 - Define station permissions for paint-stock entry and paint-consumption entry.
 - Clarify stock units, container/batch tracking, deduction timing, and any non-paint fields before implementing inventory semantics.
 
-### 11. External Work-Order Number
+### 12. External Work-Order Number
 
 Status: `PARTIALLY IMPLEMENTED; search/uniqueness policy still needed`
 
@@ -321,9 +369,10 @@ Implementation decision needed:
 4. Walk through one packing correction and one repeated correction.
 5. Review which station can perform each action.
 6. Review which users/stations should see quantity discrepancies.
-7. Walk through `Przemalowanka` and `Ocynk` examples before implementing their data model.
-8. Review paint inventory/consumption data model and automatic-production paint-consumption screen flow.
-9. Review the quality-control document template and field mapping.
+7. Walk through `Przemalowanka` and `Ocynk` examples before extending their reporting/document surfaces.
+8. Clarify packing station exclusivity and automatic waiting visibility.
+9. Review paint inventory/consumption data model and automatic-production paint-consumption screen flow.
+10. Review the quality-control document template and field mapping.
 
 ## After Decisions Are Confirmed
 

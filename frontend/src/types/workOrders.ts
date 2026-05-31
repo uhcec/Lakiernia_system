@@ -87,6 +87,7 @@ export interface WorkOrderRelationSummary {
   total_quantity: number;
   completed_quantity: number;
   current_active_quantity: number;
+  planned_pickup_date: string | null;
   is_correction: boolean;
   is_historical_correction: boolean;
   work_order_kind: WorkOrderOption<WorkOrderKindValue>;

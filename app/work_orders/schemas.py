@@ -114,6 +114,7 @@ class WorkOrderRelationSummaryRead(BaseModel):
     total_quantity: int
     completed_quantity: int
     current_active_quantity: int
+    planned_pickup_date: date | None = None
     is_correction: bool
     is_historical_correction: bool = False
     work_order_kind: WorkOrderKindView
@@ -292,6 +293,7 @@ def build_work_order_relation_summary(work_order: "WorkOrder") -> WorkOrderRelat
         total_quantity=work_order.total_quantity,
         completed_quantity=work_order.completed_quantity,
         current_active_quantity=work_order.current_active_quantity,
+        planned_pickup_date=work_order.planned_pickup_date,
         is_correction=work_order.is_correction,
         work_order_kind=build_work_order_kind_view(work_order.work_order_kind),
         is_ocynk=work_order.is_ocynk,
