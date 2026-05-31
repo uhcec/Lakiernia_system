@@ -62,6 +62,7 @@ Current repository behavior/evidence:
 
 - Packing with `correction_quantity > 0` automatically creates an unplanned correction work order.
 - Packing completion now requires `correction_reason_category` when `correction_quantity > 0`, rejects correction reasons when no correction is created, and stores the optional correction note on the child correction work order.
+- Manager correction-reason reporting aggregates correction child orders by stored reason/category and exports the same aggregate as CSV; uncategorized legacy rows remain visible.
 - Manager later assigns manual or automatic production and queue position.
 - Correction children may themselves create further correction children.
 - Correction orders do not go through surface preparation; after manager planning, manual corrections start at production and automatic corrections start at hanging.
@@ -71,7 +72,8 @@ Current repository behavior/evidence:
 Implementation decision needed:
 
 - Done for storage/capture: use flexible nullable text fields for category and note rather than a strict enum, because the category list is not final.
-- Still open: decide where the statistical reason/category is displayed beyond work-order/read-model data and how it is exported for reporting.
+- Done for current reporting surface: manager panel displays and exports the aggregate correction-reason statistics.
+- Still open: decide whether future reports need date ranges, customer/order filters, or a controlled final category list.
 
 Why this matters:
 

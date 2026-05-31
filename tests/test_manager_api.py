@@ -56,6 +56,55 @@ def complete_manual_ral_order(test_client: TestClient, work_order_id: int, *, qu
     assert complete_packing_response.status_code == 200
 
 
+def create_packing_correction(
+    test_client: TestClient,
+    title: str,
+    *,
+    queue_position: int,
+    correction_quantity: int,
+    correction_reason_category: str,
+) -> dict:
+    created = create_work_order(test_client, title=title, coating_type="RAL", total_quantity=100)
+
+    plan_response = test_client.post(
+        f"/manager/work-orders/{created['id']}/plan",
+        json={"production_type": "MANUAL", "queue_position": queue_position},
+    )
+    start_surface_response = test_client.post(f"/process/work-orders/{created['id']}/stages/SURFACE_PREPARATION/start")
+    finish_surface_response = test_client.post(
+        f"/process/work-orders/{created['id']}/stages/SURFACE_PREPARATION/finish",
+        json={"counted_quantity": 100},
+    )
+    start_production_response = test_client.post(f"/process/work-orders/{created['id']}/stages/PRODUCTION/start")
+    finish_production_response = test_client.post(f"/process/work-orders/{created['id']}/stages/PRODUCTION/finish")
+    start_packing_response = test_client.post(f"/process/work-orders/{created['id']}/stages/PACKING/start")
+    packing_response = test_client.post(
+        f"/process/work-orders/{created['id']}/packing/complete",
+        json={
+            "counted_quantity": 100,
+            "ok_quantity": 100 - correction_quantity,
+            "correction_quantity": correction_quantity,
+            "correction_reason_category": correction_reason_category,
+        },
+    )
+
+    assert plan_response.status_code == 200
+    assert start_surface_response.status_code == 200
+    assert finish_surface_response.status_code == 200
+    assert start_production_response.status_code == 200
+    assert finish_production_response.status_code == 200
+    assert start_packing_response.status_code == 200
+    assert packing_response.status_code == 200
+
+    correction_orders = [
+        item
+        for item in test_client.get("/manager/work-orders/unplanned").json()
+        if item["parent_order"] and item["parent_order"]["id"] == created["id"]
+    ]
+    assert len(correction_orders) == 1
+    return correction_orders[0]
+
+
 def get_queue_revision(test_client: TestClient) -> str:
     planned = test_client.get("/manager/work-orders")
     assert planned.status_code == 200
@@ -231,6 +280,65 @@ def test_packing_correction_creates_new_unplanned_work_order(test_client: TestCl
     assert correction_order["parent_order"]["planned_pickup_date"] == "2026-06-18"
     assert correction_order["queue_namespace"] == {"value": "CORRECTIONS", "label": "Corrections"}
     assert correction_order["queue_position"] is None
+
+
+def test_correction_reason_report_aggregates_correction_children(test_client: TestClient) -> None:
+    create_packing_correction(
+        test_client,
+        "Correction report first",
+        queue_position=1,
+        correction_quantity=8,
+        correction_reason_category="niedomalowanie",
+    )
+    create_packing_correction(
+        test_client,
+        "Correction report second",
+        queue_position=2,
+        correction_quantity=3,
+        correction_reason_category="niedomalowanie",
+    )
+    create_packing_correction(
+        test_client,
+        "Correction report third",
+        queue_position=3,
+        correction_quantity=4,
+        correction_reason_category="za grubo",
+    )
+
+    response = test_client.get("/manager/corrections/reason-report")
+
+    assert response.status_code == 200
+    assert response.json() == [
+        {
+            "correction_reason_category": "niedomalowanie",
+            "work_order_count": 2,
+            "total_correction_quantity": 11,
+        },
+        {
+            "correction_reason_category": "za grubo",
+            "work_order_count": 1,
+            "total_correction_quantity": 4,
+        },
+    ]
+
+
+def test_correction_reason_report_exports_csv(test_client: TestClient) -> None:
+    create_packing_correction(
+        test_client,
+        "Correction CSV",
+        queue_position=1,
+        correction_quantity=5,
+        correction_reason_category="wtrącenia",
+    )
+
+    response = test_client.get("/manager/corrections/reason-report/export.csv")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/csv")
+    assert response.text == (
+        "correction_reason_category,work_order_count,total_correction_quantity\n"
+        "wtrącenia,1,5\n"
+    )
 
 
 def test_completed_decoral_correction_preserves_correction_quantity_context_in_manager_queue(test_client: TestClient) -> None:

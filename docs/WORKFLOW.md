@@ -110,7 +110,8 @@ When packing has correction quantity (`correction_quantity > 0`):
 3. Parent enters waiting state until all open correction descendants are completed.
 4. Packing must record a correction reason/category when a correction child is created. The optional note can hold additional context from packing.
 5. The reason/category is stored on the child correction work order for statistics, read models, and audit; it does not change the workflow path and does not require approval before planning.
-6. Initial coating-defect reason/category values are `niedomalowanie`, `za grubo`, `wtrącenia`, and `inne`; the list is not final, so storage remains flexible rather than a strict database enum.
+6. Manager reporting aggregates correction child orders by stored reason/category, counting correction orders and summing their correction quantities. Legacy/uncategorized correction children remain visible as an uncategorized reporting row rather than being hidden.
+7. Initial coating-defect reason/category values are `niedomalowanie`, `za grubo`, `wtrącenia`, and `inne`; the list is not final, so storage remains flexible rather than a strict database enum.
 
 Correction planning return stage:
 - Correction orders do not go through `SURFACE_PREPARATION`.

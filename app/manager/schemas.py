@@ -30,3 +30,9 @@ class WorkOrderQueueReorderBatchRequest(BaseModel):
     items: list[WorkOrderQueueReorderRequest]
 
     model_config = ConfigDict(extra="forbid")
+
+
+class CorrectionReasonReportItem(BaseModel):
+    correction_reason_category: str | None
+    work_order_count: int = Field(ge=0)
+    total_correction_quantity: int = Field(ge=0)

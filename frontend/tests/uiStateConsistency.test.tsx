@@ -16,8 +16,10 @@ import type { WorkOrder } from "../src/types/workOrders";
 
 vi.mock("../src/api/managerApi", () => ({
   assignWorkOrderPlan: vi.fn(),
+  fetchCorrectionReasonReport: vi.fn(),
   fetchPlannedWorkOrders: vi.fn(),
   fetchUnplannedWorkOrders: vi.fn(),
+  getCorrectionReasonReportExportUrl: vi.fn(() => "/manager/corrections/reason-report/export.csv"),
   reorderWorkOrderQueue: vi.fn(),
 }));
 
@@ -78,6 +80,7 @@ const processApi = await import("../src/api/processApi");
 const workOrdersApi = await import("../src/api/workOrdersApi");
 
 const fetchWorkOrderAuditEventsMock = vi.mocked(auditApi.fetchWorkOrderAuditEvents);
+const fetchCorrectionReasonReportMock = vi.mocked(managerApi.fetchCorrectionReasonReport);
 const fetchUnplannedWorkOrdersMock = vi.mocked(managerApi.fetchUnplannedWorkOrders);
 const fetchPlannedWorkOrdersMock = vi.mocked(managerApi.fetchPlannedWorkOrders);
 const assignWorkOrderPlanMock = vi.mocked(managerApi.assignWorkOrderPlan);
@@ -182,6 +185,8 @@ function buildStageWorkOrder(
 beforeEach(() => {
   fetchWorkOrderAuditEventsMock.mockReset();
   fetchWorkOrderAuditEventsMock.mockResolvedValue([]);
+  fetchCorrectionReasonReportMock.mockReset();
+  fetchCorrectionReasonReportMock.mockResolvedValue([]);
   fetchUnplannedWorkOrdersMock.mockReset();
   fetchPlannedWorkOrdersMock.mockReset();
   assignWorkOrderPlanMock.mockReset();
@@ -281,6 +286,33 @@ describe("frontend state consistency", () => {
 
     expect(getQueueOrder()[0]).toContain("WO-1");
     expect(getQueueOrder()[1]).toContain("WO-2");
+  });
+
+  it("shows correction reason report in the manager panel", async () => {
+    fetchUnplannedWorkOrdersMock.mockResolvedValue([]);
+    fetchPlannedWorkOrdersMock.mockResolvedValue([]);
+    fetchCorrectionReasonReportMock.mockResolvedValue([
+      {
+        correction_reason_category: "niedomalowanie",
+        work_order_count: 2,
+        total_correction_quantity: 7,
+      },
+      {
+        correction_reason_category: null,
+        work_order_count: 1,
+        total_correction_quantity: 3,
+      },
+    ]);
+
+    render(<ManagerPanelPage />);
+
+    await screen.findByText("Statystyka poprawek");
+    expect(await screen.findByText("niedomalowanie")).toBeTruthy();
+    expect(screen.getByText("Bez kategorii")).toBeTruthy();
+    expect(screen.getByText("7 szt.")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Eksport CSV" }).getAttribute("href")).toBe(
+      "/manager/corrections/reason-report/export.csv",
+    );
   });
 
   it("reloads stage view after action failure", async () => {

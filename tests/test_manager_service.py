@@ -10,7 +10,8 @@ from app.manager.repository import ManagerRepository
 from app.manager.schemas import WorkOrderPlanAssignRequest, WorkOrderQueueReorderBatchRequest, WorkOrderQueueReorderRequest
 from app.manager.service import ManagerService
 from app.process.enums import CoatingType, ProductionType
-from app.shared.enums import StationId
+from app.shared.enums import QueueNamespace, StationId
+from app.work_orders.models import WorkOrder
 from app.work_orders.repository import WorkOrderRepository
 from app.work_orders.schemas import WorkOrderCreate
 from app.work_orders.service import WorkOrderService
@@ -57,6 +58,52 @@ def test_assign_plan_records_manager_audit_event(db_session: Session) -> None:
         "production_type": "MANUAL",
         "queue_position": 1,
     }
+
+
+def test_correction_reason_report_keeps_uncategorized_rows(db_session: Session) -> None:
+    work_order_service, manager_service, _ = build_services(db_session)
+    parent = work_order_service.create_work_order(build_work_order_payload("Legacy correction parent"))
+    db_session.add_all(
+        [
+            WorkOrder(
+                order_number="LEGACY-CORR-1",
+                title="Legacy uncategorized correction",
+                total_quantity=4,
+                parent_order_id=parent.id,
+                is_correction=True,
+                queue_namespace=QueueNamespace.CORRECTIONS,
+                customer_name="ACME",
+                ral_code="RAL 7016",
+                paint_producer="AkzoNobel",
+                received_date=date(2026, 5, 27),
+                profiles_quantity=4,
+                accessories_quantity=0,
+            ),
+            WorkOrder(
+                order_number="LEGACY-CORR-2",
+                title="Categorized correction",
+                total_quantity=6,
+                parent_order_id=parent.id,
+                is_correction=True,
+                correction_reason_category="inne",
+                queue_namespace=QueueNamespace.CORRECTIONS,
+                customer_name="ACME",
+                ral_code="RAL 7016",
+                paint_producer="AkzoNobel",
+                received_date=date(2026, 5, 27),
+                profiles_quantity=6,
+                accessories_quantity=0,
+            ),
+        ]
+    )
+    db_session.commit()
+
+    report = manager_service.get_correction_reason_report()
+
+    assert [(item.correction_reason_category, item.work_order_count, item.total_correction_quantity) for item in report] == [
+        ("inne", 1, 6),
+        (None, 1, 4),
+    ]
 
 
 def test_reorder_queue_swaps_positions_under_sqlite_unique_index(db_session: Session) -> None:

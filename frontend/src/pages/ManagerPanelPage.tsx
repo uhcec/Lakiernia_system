@@ -2,10 +2,13 @@ import { DragEvent, FormEvent, useEffect, useRef, useState } from "react";
 
 import {
   assignWorkOrderPlan,
+  fetchCorrectionReasonReport,
   fetchPlannedWorkOrders,
   fetchUnplannedWorkOrders,
+  getCorrectionReasonReportExportUrl,
   reorderWorkOrderQueue,
 } from "../api/managerApi";
+import type { CorrectionReasonReportItem } from "../types/manager";
 import type { ProductionTypeValue, WorkOrder } from "../types/workOrders";
 import { isApiError } from "../api/apiError";
 import { getMutationErrorMessage } from "../utils/mutationError";
@@ -154,6 +157,10 @@ function buildOriginalPickupContext(workOrder: WorkOrder): string {
   return `Termin oryginału: ${formatDate(workOrder.parent_order?.planned_pickup_date ?? workOrder.planned_pickup_date)}`;
 }
 
+function formatCorrectionReasonCategory(category: string | null): string {
+  return category?.trim() || "Bez kategorii";
+}
+
 function badgeClasses(tone: DisplayBadge["tone"]): string {
   switch (tone) {
     case "info":
@@ -176,6 +183,7 @@ export function ManagerPanelPage() {
   const [unplannedWorkOrders, setUnplannedWorkOrders] = useState<WorkOrder[]>([]);
   const [activePlannedWorkOrders, setActivePlannedWorkOrders] = useState<WorkOrder[]>([]);
   const [completedPlannedWorkOrders, setCompletedPlannedWorkOrders] = useState<WorkOrder[]>([]);
+  const [correctionReasonReport, setCorrectionReasonReport] = useState<CorrectionReasonReportItem[]>([]);
   const [planDrafts, setPlanDrafts] = useState<Record<number, PlanDraft>>({});
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -192,6 +200,7 @@ export function ManagerPanelPage() {
   const filteredActivePlannedWorkOrders = filterQueueByType(activePlannedWorkOrders, queueFilter);
   const filteredCompletedPlannedWorkOrders = filterQueueByType(completedPlannedWorkOrders, queueFilter);
   const isAllQueueFilter = queueFilter === "ALL";
+  const correctionReasonReportExportUrl = getCorrectionReasonReportExportUrl();
 
   function restoreAuthoritativeQueueSnapshot() {
     const authoritativeQueue = authoritativeQueueRef.current;
@@ -212,7 +221,11 @@ export function ManagerPanelPage() {
     }
 
     try {
-      const [unplanned, planned] = await Promise.all([fetchUnplannedWorkOrders(), fetchPlannedWorkOrders()]);
+      const [unplanned, planned, nextCorrectionReasonReport] = await Promise.all([
+        fetchUnplannedWorkOrders(),
+        fetchPlannedWorkOrders(),
+        fetchCorrectionReasonReport(),
+      ]);
       const splitPlanned = splitPlannedWorkOrders(planned);
       const normalizedActivePlanned = assignSequentialQueuePositions(splitPlanned.active);
       const normalizedCompletedPlanned = assignSequentialQueuePositions(
@@ -228,6 +241,7 @@ export function ManagerPanelPage() {
       setUnplannedWorkOrders(unplanned);
       setActivePlannedWorkOrders(normalizedActivePlanned);
       setCompletedPlannedWorkOrders(normalizedCompletedPlanned);
+      setCorrectionReasonReport(nextCorrectionReasonReport);
       setQueueRevision(nextQueueRevision);
       setPlanDrafts(createPlanDrafts(unplanned, normalizedActivePlanned.length + 1));
       setHasPendingQueueChanges(false);
@@ -629,6 +643,50 @@ export function ManagerPanelPage() {
           {successMessage}
         </section>
       ) : null}
+
+      <section className="rounded-[2rem] border border-white/70 bg-white/80 p-6 shadow-panel backdrop-blur sm:p-8">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h3 className="text-2xl font-semibold text-ink">Statystyka poprawek</h3>
+          </div>
+          <a
+            href={correctionReasonReportExportUrl}
+            className="inline-flex items-center justify-center rounded-full border border-line bg-white px-5 py-3 text-sm font-medium text-accent transition hover:border-accent/50"
+          >
+            Eksport CSV
+          </a>
+        </div>
+
+        {isLoading ? (
+          <div className="mt-5 rounded-3xl border border-dashed border-line bg-mist px-6 py-10 text-center text-base text-steel">
+            Ładowanie...
+          </div>
+        ) : correctionReasonReport.length === 0 ? (
+          <div className="mt-5 rounded-3xl border border-dashed border-line bg-mist px-6 py-10 text-center text-base text-steel">
+            Brak poprawek
+          </div>
+        ) : (
+          <div className="mt-5 overflow-hidden rounded-3xl border border-line bg-white">
+            <div className="hidden grid-cols-[minmax(160px,1fr)_140px_160px] gap-4 border-b border-line bg-mist px-5 py-3 text-xs font-semibold uppercase text-steel md:grid">
+              <span>Kategoria</span>
+              <span>Zlecenia</span>
+              <span>Ilość</span>
+            </div>
+            <div className="divide-y divide-line">
+              {correctionReasonReport.map((item) => (
+                <div
+                  key={item.correction_reason_category ?? "__uncategorized__"}
+                  className="grid gap-2 px-5 py-4 text-sm text-ink md:grid-cols-[minmax(160px,1fr)_140px_160px] md:gap-4"
+                >
+                  <span className="font-semibold">{formatCorrectionReasonCategory(item.correction_reason_category)}</span>
+                  <span className="text-steel">{item.work_order_count}</span>
+                  <span className="text-steel">{item.total_correction_quantity} szt.</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </section>
 
       <section className="grid gap-6 xl:grid-cols-[1.1fr_1.4fr]">
         <div className="rounded-[2rem] border border-white/70 bg-white/80 p-6 shadow-panel backdrop-blur sm:p-8">

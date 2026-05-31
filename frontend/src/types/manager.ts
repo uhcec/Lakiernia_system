@@ -18,3 +18,9 @@ export interface ReorderQueueRequest {
   queue_revision: string;
   items: ReorderQueueItemRequest[];
 }
+
+export interface CorrectionReasonReportItem {
+  correction_reason_category: string | null;
+  work_order_count: number;
+  total_correction_quantity: number;
+}

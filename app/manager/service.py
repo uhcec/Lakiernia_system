@@ -13,6 +13,7 @@ from app.process.repository import ProcessRepository
 from app.process.service import ProcessService
 from app.manager.repository import ManagerRepository
 from app.manager.schemas import (
+    CorrectionReasonReportItem,
     WorkOrderPlanAssignRequest,
     WorkOrderQueuePositionUpdateRequest,
     WorkOrderQueueReorderBatchRequest,
@@ -53,6 +54,16 @@ class ManagerService:
 
     def list_planned_work_orders(self) -> list[WorkOrderRead]:
         return [self._to_read_model(work_order) for work_order in self.repository.list_planned_work_orders()]
+
+    def get_correction_reason_report(self) -> list[CorrectionReasonReportItem]:
+        return [
+            CorrectionReasonReportItem(
+                correction_reason_category=category,
+                work_order_count=work_order_count,
+                total_correction_quantity=total_correction_quantity,
+            )
+            for category, work_order_count, total_correction_quantity in self.repository.list_correction_reason_report()
+        ]
 
     def assign_plan(
         self,

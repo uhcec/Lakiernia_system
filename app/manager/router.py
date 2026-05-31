@@ -1,12 +1,16 @@
+import csv
+from io import StringIO
 from typing import Annotated
 
 from fastapi import APIRouter, Depends
+from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 from app.audit.context import StationContext, get_station_context
 from app.database.session import get_db_session
 from app.manager.repository import ManagerRepository
 from app.manager.schemas import (
+    CorrectionReasonReportItem,
     WorkOrderPlanAssignRequest,
     WorkOrderQueuePositionUpdateRequest,
     WorkOrderQueueReorderBatchRequest,
@@ -36,6 +40,24 @@ def list_planned_work_orders(
     return service.list_planned_work_orders()
 
 
+@router.get("/corrections/reason-report", response_model=list[CorrectionReasonReportItem])
+def get_correction_reason_report(
+    service: Annotated[ManagerService, Depends(get_manager_service)],
+) -> list[CorrectionReasonReportItem]:
+    return service.get_correction_reason_report()
+
+
+@router.get("/corrections/reason-report/export.csv")
+def export_correction_reason_report_csv(
+    service: Annotated[ManagerService, Depends(get_manager_service)],
+) -> Response:
+    return Response(
+        content=_build_correction_reason_report_csv(service.get_correction_reason_report()),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="correction-reason-report.csv"'},
+    )
+
+
 @router.post("/work-orders/{work_order_id}/plan", response_model=WorkOrderRead)
 def assign_plan(
     work_order_id: int,
@@ -63,3 +85,19 @@ def reorder_queue(
     station_context: Annotated[StationContext, Depends(get_station_context)],
 ) -> list[WorkOrderRead]:
     return service.reorder_queue(payload, station_context=station_context)
+
+
+def _build_correction_reason_report_csv(report_items: list[CorrectionReasonReportItem]) -> str:
+    output = StringIO()
+    fieldnames = ["correction_reason_category", "work_order_count", "total_correction_quantity"]
+    writer = csv.DictWriter(output, fieldnames=fieldnames, lineterminator="\n")
+    writer.writeheader()
+    for item in report_items:
+        writer.writerow(
+            {
+                "correction_reason_category": item.correction_reason_category or "",
+                "work_order_count": item.work_order_count,
+                "total_correction_quantity": item.total_correction_quantity,
+            }
+        )
+    return output.getvalue()

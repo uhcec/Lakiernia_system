@@ -1,6 +1,11 @@
 import { createApiError } from "./apiError";
 import { getCurrentStationHeaders } from "./stationContext";
-import type { AssignWorkOrderPlanRequest, ReorderQueueRequest, UpdateQueuePositionRequest } from "../types/manager";
+import type {
+  AssignWorkOrderPlanRequest,
+  CorrectionReasonReportItem,
+  ReorderQueueRequest,
+  UpdateQueuePositionRequest,
+} from "../types/manager";
 import type { WorkOrder } from "../types/workOrders";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL?.trim();
@@ -45,6 +50,24 @@ export async function fetchPlannedWorkOrders(): Promise<WorkOrder[]> {
   }
 
   return response.json() as Promise<WorkOrder[]>;
+}
+
+export async function fetchCorrectionReasonReport(): Promise<CorrectionReasonReportItem[]> {
+  const response = await fetch(createApiUrl("/manager/corrections/reason-report"), {
+    headers: {
+      Accept: "application/json",
+    },
+  });
+
+  if (!response.ok) {
+    throw await createApiError(response, "Nie udało się pobrać statystyki poprawek");
+  }
+
+  return response.json() as Promise<CorrectionReasonReportItem[]>;
+}
+
+export function getCorrectionReasonReportExportUrl(): string {
+  return createApiUrl("/manager/corrections/reason-report/export.csv");
 }
 
 export async function assignWorkOrderPlan(workOrderId: number, payload: AssignWorkOrderPlanRequest): Promise<WorkOrder> {

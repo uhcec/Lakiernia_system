@@ -94,6 +94,22 @@ class ManagerRepository:
         )
         return self.session.scalars(statement).all()
 
+    def list_correction_reason_report(self) -> Sequence[tuple[str | None, int, int]]:
+        statement = (
+            select(
+                WorkOrder.correction_reason_category,
+                func.count(WorkOrder.id),
+                func.coalesce(func.sum(WorkOrder.total_quantity), 0),
+            )
+            .where(WorkOrder.is_correction.is_(True))
+            .group_by(WorkOrder.correction_reason_category)
+            .order_by(func.coalesce(func.sum(WorkOrder.total_quantity), 0).desc(), WorkOrder.correction_reason_category.asc())
+        )
+        return [
+            (category, int(work_order_count), int(total_correction_quantity or 0))
+            for category, work_order_count, total_correction_quantity in self.session.execute(statement).all()
+        ]
+
     def get_planned_queue_revision(self):
         statement = select(func.max(WorkOrder.updated_at)).where(
             WorkOrder.production_type.is_not(None),
