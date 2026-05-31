@@ -8,6 +8,11 @@ Use this document as an interview guide with factory stakeholders. Do not treat 
 
 Validate the business decisions that would affect station behavior, queueing, corrections, visibility, and future permission enforcement.
 
+Supporting planning notes while waiting for stakeholder answers:
+
+- `docs/OPERATOR_USABILITY_AUDIT_PL.md` summarizes current screens by role and likely usability risks.
+- `docs/FACTORY_DECISION_IMPLEMENTATION_MAP_PL.md` maps expected factory answers to implementation, migration, UI, and test work.
+
 ## Decision Status Legend
 
 - `CONFIRMED`: factory policy is known and can be encoded in docs/tests/code.
