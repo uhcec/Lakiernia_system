@@ -137,8 +137,8 @@ export function CreateWorkOrderPage() {
       setValidationError("Ilość profili musi być nieujemną liczbą całkowitą");
       return;
     }
-    if (profilesQuantity !== undefined && profilesQuantity !== 0 && profilesQuantity !== totalQuantity) {
-      setValidationError("Ilość profili musi wynosić 0 albo być równa ilości całkowitej");
+    if (profilesQuantity !== undefined && profilesQuantity > totalQuantity) {
+      setValidationError("Ilość profili nie może przekraczać ilości całkowitej");
       return;
     }
     if (profilesQuantity === undefined && !formState.profiles_to_count) {
@@ -151,12 +151,17 @@ export function CreateWorkOrderPage() {
       setValidationError("Ilość akcesoriów musi być nieujemną liczbą całkowitą");
       return;
     }
-    if (accessoriesQuantity !== undefined && accessoriesQuantity !== 0 && accessoriesQuantity !== totalQuantity) {
-      setValidationError("Ilość akcesoriów musi wynosić 0 albo być równa ilości całkowitej");
+    if (accessoriesQuantity !== undefined && accessoriesQuantity > totalQuantity) {
+      setValidationError("Ilość akcesoriów nie może przekraczać ilości całkowitej");
       return;
     }
     if (accessoriesQuantity === undefined && !formState.accessories_to_count) {
       setValidationError("Dla akcesoriów podaj ilość albo zaznacz 'Do policzenia na produkcji'");
+      return;
+    }
+
+    if (profilesQuantity !== undefined && accessoriesQuantity !== undefined && profilesQuantity + accessoriesQuantity !== totalQuantity) {
+      setValidationError("Suma profili i akcesoriów musi być równa ilości całkowitej");
       return;
     }
 

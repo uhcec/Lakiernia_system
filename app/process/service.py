@@ -1257,16 +1257,7 @@ class ProcessService:
             planned_pickup_date=parent_work_order.planned_pickup_date,
             total_area_m2=parent_work_order.total_area_m2,
             is_incomplete_on_arrival=False,
-            profiles_quantity=self._derive_correction_category_quantity(
-                parent_work_order.profiles_quantity,
-                correction_quantity,
-            ),
-            profiles_to_count=parent_work_order.profiles_to_count,
-            accessories_quantity=self._derive_correction_category_quantity(
-                parent_work_order.accessories_quantity,
-                correction_quantity,
-            ),
-            accessories_to_count=parent_work_order.accessories_to_count,
+            **self._derive_category_fields_for_operational_quantity(parent_work_order, correction_quantity),
             notes=parent_work_order.notes,
         )
         persisted_correction_order = self.repository.add_work_order(correction_order)
@@ -1376,12 +1367,52 @@ class ProcessService:
         )
 
     @staticmethod
-    def _derive_correction_category_quantity(parent_quantity: int | None, correction_quantity: int) -> int | None:
-        if parent_quantity is None:
-            return None
-        if parent_quantity == 0:
-            return 0
-        return correction_quantity
+    def _persisted_category_fields(work_order: WorkOrder) -> dict[str, int | bool | None]:
+        return {
+            "profiles_quantity": work_order.profiles_quantity,
+            "profiles_to_count": work_order.profiles_to_count,
+            "accessories_quantity": work_order.accessories_quantity,
+            "accessories_to_count": work_order.accessories_to_count,
+        }
+
+    @staticmethod
+    def _unknown_category_fields(work_order: WorkOrder) -> dict[str, int | bool | None]:
+        profiles_known_absent = work_order.profiles_quantity == 0 and not work_order.profiles_to_count
+        accessories_known_absent = work_order.accessories_quantity == 0 and not work_order.accessories_to_count
+        return {
+            "profiles_quantity": 0 if profiles_known_absent else None,
+            "profiles_to_count": False if profiles_known_absent else True,
+            "accessories_quantity": 0 if accessories_known_absent else None,
+            "accessories_to_count": False if accessories_known_absent else True,
+        }
+
+    @staticmethod
+    def _derive_category_fields_for_operational_quantity(
+        work_order: WorkOrder,
+        operational_quantity: int,
+    ) -> dict[str, int | bool | None]:
+        if operational_quantity == work_order.total_quantity:
+            return ProcessService._persisted_category_fields(work_order)
+
+        profiles_known = not work_order.profiles_to_count and work_order.profiles_quantity is not None
+        accessories_known = not work_order.accessories_to_count and work_order.accessories_quantity is not None
+        if profiles_known and accessories_known:
+            if work_order.profiles_quantity == 0:
+                return {
+                    "profiles_quantity": 0,
+                    "profiles_to_count": False,
+                    "accessories_quantity": operational_quantity,
+                    "accessories_to_count": False,
+                }
+            if work_order.accessories_quantity == 0:
+                return {
+                    "profiles_quantity": operational_quantity,
+                    "profiles_to_count": False,
+                    "accessories_quantity": 0,
+                    "accessories_to_count": False,
+                }
+
+        return ProcessService._unknown_category_fields(work_order)
 
     @staticmethod
     def _uses_batch_tracking(work_order: WorkOrder) -> bool:
@@ -1562,6 +1593,11 @@ class ProcessService:
         counted_quantity = self._get_stage_counted_quantity(work_order, stage, batch=batch)
         quantity_difference = counted_quantity - planned_quantity if counted_quantity is not None else None
 
+        category_fields = self._derive_category_fields_for_operational_quantity(
+            work_order,
+            batch_quantity if batch_quantity is not None else current_active_quantity,
+        )
+
         return ProcessStageWorkOrderRead(
             id=work_order.id,
             batch_id=batch_id,
@@ -1581,18 +1617,7 @@ class ProcessService:
             counted_quantity=counted_quantity,
             quantity_difference=quantity_difference,
             customer_name=work_order.customer_name,
-            profiles_quantity=self._derive_operational_category_quantity(
-                work_order.profiles_quantity,
-                work_order.profiles_to_count,
-                batch_quantity if batch_quantity is not None else current_active_quantity,
-            ),
-            profiles_to_count=work_order.profiles_to_count,
-            accessories_quantity=self._derive_operational_category_quantity(
-                work_order.accessories_quantity,
-                work_order.accessories_to_count,
-                batch_quantity if batch_quantity is not None else current_active_quantity,
-            ),
-            accessories_to_count=work_order.accessories_to_count,
+            **category_fields,
             queue_position=work_order.queue_position,
             queue_namespace=build_queue_namespace_view(work_order.queue_namespace),
             production_type=(
@@ -1608,18 +1633,6 @@ class ProcessService:
                 status=stage_status,
             ),
         )
-
-    @staticmethod
-    def _derive_operational_category_quantity(
-        stored_quantity: int | None,
-        to_count: bool,
-        operational_quantity: int,
-    ) -> int | None:
-        if to_count or stored_quantity is None:
-            return None
-        if stored_quantity == 0:
-            return 0
-        return operational_quantity
 
     @staticmethod
     def _get_stage_display_quantity(

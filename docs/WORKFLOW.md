@@ -280,17 +280,18 @@ Rules:
 
 Rules:
 - Profile quantity and accessory quantity are category quantities, not arbitrary independent counts.
-- At office intake, a known profile/accessory quantity must be either `0` when that category is absent or equal to `total_quantity` when that category is present.
+- At office intake, known profile/accessory quantities partition the order: `profiles_quantity + accessories_quantity` must equal `total_quantity` when both quantities are known.
+- A known individual category quantity may be `0`, but it must not exceed `total_quantity`.
 - A category that still needs counting uses the existing `*_to_count` flag with a `NULL` quantity; it must not also carry a numeric quantity.
-- Station read models must display the applicable operational quantity for present categories, using active batch/current stage quantity rather than stale parent totals.
-- Correction children inherit category presence from the parent, but their known present category quantity is derived from the correction child quantity.
+- Station read models must display known category quantities for full-order contexts, and must not invent a category split for partial active batches/corrections when both categories are present.
+- Correction children inherit category information only when it can be derived without guessing; partial corrections from mixed profile/accessory parents become to-count for the category split.
 - Completed/READY rows must not derive category quantities from `current_active_quantity == 0`; historical display remains governed by completed-state display rules.
 
 Current enforcement:
-- API and frontend intake validation reject known profile/accessory values other than `0` or `total_quantity`.
-- DB constraints allow only `NULL`, `0`, or `total_quantity` for persisted profile/accessory quantities.
-- Packing-created correction children convert present parent category quantities to the child correction quantity and preserve absent categories as `0`.
-- Process/station read models derive displayed profile/accessory quantities from the active stage or batch quantity when the category is present.
+- API and frontend intake validation reject known profile/accessory sums that do not match `total_quantity`, and reject individual known values above `total_quantity`.
+- DB constraints allow only `NULL` or values from `0` through `total_quantity`, and require known profile/accessory pairs to sum to `total_quantity`.
+- Packing-created correction children derive binary category splits safely, but mark mixed-category partial corrections as to-count rather than guessing which pieces need correction.
+- Process/station read models show stored category counts for full-order contexts, derive binary category splits for partial contexts, and mark mixed-category partial contexts as to-count.
 
 ## Additional Work Types
 

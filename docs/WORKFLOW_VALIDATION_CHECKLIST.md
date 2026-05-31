@@ -115,31 +115,31 @@ Why this matters:
 
 ### 3a. Profile And Accessory Quantity Semantics
 
-Status: `IMPLEMENTED as current system rule; pending real-factory review if policy changes`
+Status: `IMPLEMENTED as current system rule; corrected after 2026-05-31 clarification`
 
 Requirement raised on 2026-05-31 and implemented as current system policy:
 
 - Profile quantity and accessory quantity should not behave as independent arbitrary counts.
 - A known profile/accessory quantity should be allowed to be `0` when that category is absent.
-- At office intake, when the category is present, the known quantity must match `total_quantity`.
-- For station/correction/batch displays, present category quantities follow the current operational quantity for the active work context, so correction children and split batches do not show stale parent totals.
+- At office intake, known profile/accessory quantities partition the order; when both are known, their sum must match `total_quantity`.
+- For station/correction/batch displays, binary category splits can follow the current operational quantity, but mixed profile/accessory partial contexts must not guess a category distribution.
 - `current_active_quantity == 0` on completed/READY orders must not be used to rewrite historical profile/accessory quantities to `0`; completed views still follow completed-state display rules.
 
 Implemented behavior:
 
-- API, Pydantic schemas, frontend validation, and DB constraints now allow `0` and reject known values other than `0` or `total_quantity`.
-- Existing data is migrated so old positive non-matching values become `total_quantity`.
-- Correction children inherit category presence from the parent, but derive present category quantities from the child correction quantity.
-- Process/station read models derive present category quantities from active stage or batch quantity.
+- API, Pydantic schemas, frontend validation, and DB constraints now allow partitioned values such as `8 + 2 = 10`, reject known sums that do not equal `total_quantity`, and reject individual known values above `total_quantity`.
+- Existing invalid known pairs are migrated to `NULL` plus `*_to_count=True` rather than preserving a false split.
+- Correction children inherit binary category splits from the parent, but mixed-category partial corrections become to-count.
+- Process/station read models show stored category counts for full-order contexts, derive binary category splits for partial contexts, and mark mixed-category partial contexts as to-count.
 
 Future decision only if factory policy changes:
 
-- If factory users need profile/accessory counts that are truly independent from order quantity, this rule must be reopened and remodeled instead of weakening validation silently.
+- If factory users need partial corrections to specify exact profile/accessory composition, add explicit per-category correction quantities instead of deriving them from one total correction quantity.
 
 Why this matters:
 
 - It affects intake validation, DB constraints, Alembic migrations, station read models, correction-child creation, frontend form behavior, and regression tests.
-- It prevents misleading station rows such as a correction child with quantity `8` showing parent profile/accessory quantity `100`, or an order with no accessories being impossible to enter as `0`.
+- It prevents misleading station rows such as a correction child with quantity `8` showing parent profile/accessory quantity `100`, or a mixed `8 profile + 2 accessory` order showing a guessed split after a partial correction.
 
 ### 4. Station Permissions
 

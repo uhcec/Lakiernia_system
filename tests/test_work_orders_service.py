@@ -190,7 +190,7 @@ def test_rejected_mark_complete_arrival_leaves_order_state_unchanged(db_session:
             customer_name="Stały klient",
             profiles_quantity=100,
             profiles_to_count=False,
-            accessories_quantity=100,
+            accessories_quantity=0,
             accessories_to_count=False,
         )
     )

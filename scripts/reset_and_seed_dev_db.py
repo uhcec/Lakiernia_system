@@ -119,7 +119,7 @@ def seed_all_use_cases(session: Session) -> list[SeededScenario]:
         total_quantity=24,
         customer_name="Office Client",
         ral_code="RAL 7016",
-        profiles_quantity=24,
+        profiles_quantity=18,
         accessories_quantity=6,
         notes="A. Kompletne zlecenie biurowe gotowe do planowania.",
     )
@@ -184,7 +184,7 @@ def seed_all_use_cases(session: Session) -> list[SeededScenario]:
         total_quantity=20,
         customer_name="Manual Flow",
         ral_code="RAL 3020",
-        profiles_quantity=20,
+        profiles_quantity=18,
         accessories_quantity=2,
         notes="D. Plan manualny, gotowe do przygotowania powierzchni.",
     )
@@ -207,7 +207,7 @@ def seed_all_use_cases(session: Session) -> list[SeededScenario]:
         total_quantity=18,
         customer_name="Auto Surface",
         ral_code="RAL 5010",
-        profiles_quantity=18,
+        profiles_quantity=15,
         accessories_quantity=3,
         notes="E1. Plan automat, gotowe do przygotowania powierzchni.",
     )
@@ -230,7 +230,7 @@ def seed_all_use_cases(session: Session) -> list[SeededScenario]:
         total_quantity=14,
         customer_name="Auto Hanging",
         ral_code="RAL 6018",
-        profiles_quantity=14,
+        profiles_quantity=12,
         accessories_quantity=2,
         notes="E2. Automat w zawieszaniu; widoczne tez podglady produkcji i pakowania.",
     )
@@ -256,7 +256,7 @@ def seed_all_use_cases(session: Session) -> list[SeededScenario]:
         total_quantity=9,
         customer_name="Decoral Manual",
         ral_code="D-200",
-        profiles_quantity=9,
+        profiles_quantity=8,
         accessories_quantity=1,
         notes="F. Manualny Decoral po pakowaniu, gotowy do etapu Decoral.",
     )
@@ -281,7 +281,7 @@ def seed_all_use_cases(session: Session) -> list[SeededScenario]:
         total_quantity=11,
         customer_name="Decoral Auto",
         ral_code="D-310",
-        profiles_quantity=11,
+        profiles_quantity=9,
         accessories_quantity=2,
         notes="G. Automat + Decoral po pakowaniu, gotowe do etapu Decoral.",
     )
@@ -308,7 +308,7 @@ def seed_all_use_cases(session: Session) -> list[SeededScenario]:
         total_quantity=10,
         customer_name="Packing Split",
         ral_code="RAL 8017",
-        profiles_quantity=10,
+        profiles_quantity=9,
         accessories_quantity=1,
         notes="H. W pakowaniu, wpisz counted 10, OK 7, corrections 3.",
     )
@@ -332,7 +332,7 @@ def seed_all_use_cases(session: Session) -> list[SeededScenario]:
         total_quantity=10,
         customer_name="Correction Parent",
         ral_code="RAL 9010",
-        profiles_quantity=10,
+        profiles_quantity=8,
         accessories_quantity=2,
         notes="I. Rodzic po pakowaniu z poprawka 3 szt.",
     )
@@ -375,7 +375,7 @@ def seed_all_use_cases(session: Session) -> list[SeededScenario]:
         total_quantity=6,
         customer_name="Attachment Client",
         ral_code="RAL 7040",
-        profiles_quantity=6,
+        profiles_quantity=5,
         accessories_quantity=1,
         notes="J. Przykladowy zalacznik PDF zapisany lokalnie.",
     )
@@ -397,7 +397,7 @@ def seed_all_use_cases(session: Session) -> list[SeededScenario]:
         total_quantity=8,
         customer_name="Checkpoint Equal",
         ral_code="RAL 5005",
-        profiles_quantity=8,
+        profiles_quantity=7,
         accessories_quantity=1,
         notes="K1. Counted quantity w przygotowaniu rowne planowi.",
     )
@@ -421,7 +421,7 @@ def seed_all_use_cases(session: Session) -> list[SeededScenario]:
         total_quantity=8,
         customer_name="Checkpoint Diff",
         ral_code="RAL 6021",
-        profiles_quantity=8,
+        profiles_quantity=7,
         accessories_quantity=1,
         notes="K2. Counted quantity w przygotowaniu rozne od planu.",
     )
@@ -445,7 +445,7 @@ def seed_all_use_cases(session: Session) -> list[SeededScenario]:
         total_quantity=10,
         customer_name="Packing Diff",
         ral_code="RAL 3003",
-        profiles_quantity=10,
+        profiles_quantity=9,
         accessories_quantity=1,
         notes="K3. Pakowanie z zapisanym counted_quantity roznym od planu.",
     )
@@ -471,7 +471,7 @@ def seed_all_use_cases(session: Session) -> list[SeededScenario]:
             total_quantity=5 + index,
             customer_name="Queue Demo",
             ral_code=f"RAL 70{index}0",
-            profiles_quantity=5 + index,
+            profiles_quantity=4 + index,
             accessories_quantity=1,
             notes=f"L{index}. Dedykowane testy drag and drop dla kolejki managera.",
         )
@@ -494,7 +494,7 @@ def seed_all_use_cases(session: Session) -> list[SeededScenario]:
         total_quantity=10,
         customer_name="Multi Round",
         ral_code="RAL 1013",
-        profiles_quantity=10,
+        profiles_quantity=9,
         accessories_quantity=1,
         notes=(
             "M1. Screen: Szczegoly zlecenia / Pakowanie. Click: otworz rodzica i przejdz do historii poprawek. "
@@ -571,7 +571,7 @@ def seed_all_use_cases(session: Session) -> list[SeededScenario]:
         total_quantity=10,
         customer_name="Automatic Correction",
         ral_code="RAL 6029",
-        profiles_quantity=10,
+        profiles_quantity=9,
         accessories_quantity=1,
         notes=(
             "N1. Screen: Szczegoly zlecenia / Pakowanie. Click: sprawdz rodzica po rozdziale 8 OK / 2 poprawka. "
@@ -624,7 +624,7 @@ def seed_all_use_cases(session: Session) -> list[SeededScenario]:
         total_quantity=7,
         customer_name="Queue Conflict",
         ral_code="RAL 7031",
-        profiles_quantity=7,
+        profiles_quantity=6,
         accessories_quantity=1,
         notes=(
             f"O1. Screen: Panel managera / API docs. Click: uzyj tej pozycji {queue_position} przy planowaniu innego zlecenia "
@@ -641,7 +641,7 @@ def seed_all_use_cases(session: Session) -> list[SeededScenario]:
         total_quantity=8,
         customer_name="Queue Conflict",
         ral_code="RAL 7032",
-        profiles_quantity=8,
+        profiles_quantity=7,
         accessories_quantity=1,
         notes=(
             f"O2. Screen: Panel managera / API docs. Click: sprobuj zmienic queue_position tego zlecenia na zajeta pozycje {queue_conflict_taken}. "
@@ -657,7 +657,7 @@ def seed_all_use_cases(session: Session) -> list[SeededScenario]:
         total_quantity=9,
         customer_name="Queue Conflict",
         ral_code="RAL 7033",
-        profiles_quantity=9,
+        profiles_quantity=8,
         accessories_quantity=1,
         notes=(
             f"O3. Screen: Panel managera / API docs. Click: zaplanuj to zlecenie na zajeta pozycje {queue_conflict_taken}. "
@@ -699,7 +699,7 @@ def seed_all_use_cases(session: Session) -> list[SeededScenario]:
         total_quantity=10,
         customer_name="History Chain",
         ral_code="RAL 9018",
-        profiles_quantity=10,
+        profiles_quantity=9,
         accessories_quantity=1,
         notes=(
             "P1. Screen: Szczegoly zlecenia. Click: otworz rodzica i przejdz po relacjach rodzic-dziecko. "

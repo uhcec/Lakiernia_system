@@ -228,27 +228,44 @@ def test_create_work_order_with_to_count_flags(test_client: TestClient) -> None:
     assert response.json()["accessories_to_count"] is True
 
 
-def test_create_work_order_allows_zero_profile_and_accessory_quantities(test_client: TestClient) -> None:
+def test_create_work_order_allows_partitioned_profile_and_accessory_quantities(test_client: TestClient) -> None:
     response = create_work_order(
         test_client,
-        title="No profiles or accessories",
+        title="Partitioned profile and accessories",
+        profiles_quantity=75,
+        accessories_quantity=25,
+    )
+
+    assert response.status_code == 201
+    assert response.json()["profiles_quantity"] == 75
+    assert response.json()["profiles_to_count"] is False
+    assert response.json()["accessories_quantity"] == 25
+    assert response.json()["accessories_to_count"] is False
+
+
+def test_create_work_order_rejects_known_profile_accessory_sum_mismatch(test_client: TestClient) -> None:
+    sum_response = create_work_order(
+        test_client,
+        title="Bad category sum",
+        total_quantity=100,
+        profiles_quantity=5,
+        accessories_quantity=7,
+    )
+    too_large_response = create_work_order(test_client, title="Too many profiles", total_quantity=100, profiles_quantity=101)
+
+    assert sum_response.status_code == 422
+    assert too_large_response.status_code == 422
+
+
+def test_create_work_order_rejects_both_known_category_quantities_as_zero(test_client: TestClient) -> None:
+    response = create_work_order(
+        test_client,
+        title="Both zero categories",
         profiles_quantity=0,
         accessories_quantity=0,
     )
 
-    assert response.status_code == 201
-    assert response.json()["profiles_quantity"] == 0
-    assert response.json()["profiles_to_count"] is False
-    assert response.json()["accessories_quantity"] == 0
-    assert response.json()["accessories_to_count"] is False
-
-
-def test_create_work_order_rejects_independent_profile_and_accessory_quantities(test_client: TestClient) -> None:
-    profile_response = create_work_order(test_client, title="Bad profile quantity", total_quantity=100, profiles_quantity=5)
-    accessory_response = create_work_order(test_client, title="Bad accessory quantity", total_quantity=100, accessories_quantity=7)
-
-    assert profile_response.status_code == 422
-    assert accessory_response.status_code == 422
+    assert response.status_code == 422
 
 
 def test_creating_without_required_fields_fails(test_client: TestClient) -> None:
@@ -478,6 +495,29 @@ def test_valid_partial_patch_preserves_counting_consistency(test_client: TestCli
     assert response.json()["profiles_to_count"] is False
     assert response.json()["accessories_quantity"] is None
     assert response.json()["accessories_to_count"] is True
+
+
+def test_patch_rejects_known_profile_accessory_sum_mismatch(test_client: TestClient) -> None:
+    created = create_work_order(
+        test_client,
+        title="Patch category sum",
+        profiles_quantity=60,
+        accessories_quantity=40,
+    ).json()
+
+    response = test_client.patch(f"/work-orders/{created['id']}", json={"profiles_quantity": 70})
+
+    assert response.status_code == 422
+    assert_work_order_fields_unchanged(
+        test_client,
+        created["id"],
+        profiles_quantity=60,
+        profiles_to_count=False,
+        accessories_quantity=40,
+        accessories_to_count=False,
+        customer_name=created["customer_name"],
+        notes=created["notes"],
+    )
 
 
 def test_rejected_patch_leaves_previous_values_unchanged(test_client: TestClient) -> None:

@@ -89,7 +89,7 @@ def test_valid_direct_db_inserts_still_pass(db_session: Session) -> None:
     db_session.commit()
 
 
-def test_profile_accessory_quantities_must_be_zero_or_total(db_session: Session) -> None:
+def test_profile_accessory_quantities_must_sum_to_total_when_known(db_session: Session) -> None:
     valid_work_order = WorkOrder(
         order_number="WO-2026-9001",
         title="valid-category-quantities",
@@ -111,9 +111,9 @@ def test_profile_accessory_quantities_must_be_zero_or_total(db_session: Session)
         planned_pickup_date=None,
         total_area_m2=None,
         is_incomplete_on_arrival=False,
-        profiles_quantity=0,
+        profiles_quantity=4,
         profiles_to_count=False,
-        accessories_quantity=10,
+        accessories_quantity=6,
         accessories_to_count=False,
         notes=None,
     )

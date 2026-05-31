@@ -135,8 +135,19 @@ def _validate_category_quantity(field_name: str, quantity: int | None, to_count:
     _validate_counting_rule(field_name, quantity, to_count)
     if quantity is None:
         return
-    if quantity not in (0, total_quantity):
-        raise ValueError(f"{field_name}: ilość musi wynosić 0 albo być równa ilości całkowitej.")
+    if quantity > total_quantity:
+        raise ValueError(f"{field_name}: ilość nie może przekraczać ilości całkowitej.")
+
+
+def _validate_category_quantity_sum(
+    profiles_quantity: int | None,
+    accessories_quantity: int | None,
+    total_quantity: int,
+) -> None:
+    if profiles_quantity is None or accessories_quantity is None:
+        return
+    if profiles_quantity + accessories_quantity != total_quantity:
+        raise ValueError("Profile + Akcesoria: suma musi być równa ilości całkowitej.")
 
 
 class WorkOrderCreate(BaseModel):
@@ -166,6 +177,7 @@ class WorkOrderCreate(BaseModel):
     def validate_counting_fields(self) -> "WorkOrderCreate":
         _validate_category_quantity("Profile", self.profiles_quantity, self.profiles_to_count, self.total_quantity)
         _validate_category_quantity("Akcesoria", self.accessories_quantity, self.accessories_to_count, self.total_quantity)
+        _validate_category_quantity_sum(self.profiles_quantity, self.accessories_quantity, self.total_quantity)
         return self
 
 

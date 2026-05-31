@@ -253,6 +253,43 @@ describe("frontend state consistency", () => {
     });
   });
 
+  it("requires known profile and accessory quantities to sum to the total quantity", async () => {
+    createWorkOrderMock.mockResolvedValue({ ...buildWorkOrder(91, "WO-CATEGORY-SUM", 1), total_quantity: 10, profiles_quantity: 8, accessories_quantity: 2 });
+
+    render(
+      <MemoryRouter>
+        <CreateWorkOrderPage />
+      </MemoryRouter>,
+    );
+
+    fireEvent.change(screen.getByLabelText("Klient"), { target: { value: "ACME" } });
+    fireEvent.change(screen.getByLabelText("Technologia"), { target: { value: "RAL" } });
+    fireEvent.change(screen.getByLabelText("Kod RAL"), { target: { value: "RAL 7016" } });
+    fireEvent.change(screen.getByLabelText("Producent farby"), { target: { value: "AkzoNobel" } });
+    fireEvent.change(screen.getByLabelText("Data przyjęcia"), { target: { value: "2026-05-30" } });
+    fireEvent.change(screen.getByLabelText("Ilość całkowita"), { target: { value: "10" } });
+    const categoryInputs = screen.getAllByPlaceholderText("Podaj ilość");
+    fireEvent.change(categoryInputs[0], { target: { value: "8" } });
+    fireEvent.change(categoryInputs[1], { target: { value: "1" } });
+    fireEvent.click(screen.getByRole("button", { name: "Zapisz" }));
+
+    expect(await screen.findByText("Suma profili i akcesoriów musi być równa ilości całkowitej")).toBeTruthy();
+    expect(createWorkOrderMock).not.toHaveBeenCalled();
+
+    fireEvent.change(categoryInputs[1], { target: { value: "2" } });
+    fireEvent.click(screen.getByRole("button", { name: "Zapisz" }));
+
+    await waitFor(() => {
+      expect(createWorkOrderMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          total_quantity: 10,
+          profiles_quantity: 8,
+          accessories_quantity: 2,
+        }),
+      );
+    });
+  });
+
   it("resets manager reorder UI to backend state after save failure", async () => {
     fetchUnplannedWorkOrdersMock.mockResolvedValue([]);
     fetchPlannedWorkOrdersMock

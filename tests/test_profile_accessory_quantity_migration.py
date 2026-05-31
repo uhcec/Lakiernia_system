@@ -11,25 +11,29 @@ from alembic.config import Config
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_profile_accessory_quantity_migration_backfills_and_constrains_values(tmp_path: Path) -> None:
+def test_profile_accessory_quantity_migration_marks_invalid_known_pairs_to_count(tmp_path: Path) -> None:
     db_path = tmp_path / "profile_accessory_quantities.db"
 
-    _upgrade_database(db_path, "20260531_0022")
+    _upgrade_database(db_path, "20260531_0023")
     _insert_work_order(
         db_path,
         order_number="WO-2026-9800",
         total_quantity=10,
-        profiles_quantity=5,
+        profiles_quantity=10,
         profiles_to_count=0,
-        accessories_quantity=7,
+        accessories_quantity=10,
         accessories_to_count=0,
     )
 
-    _upgrade_database(db_path, "20260531_0023")
+    _upgrade_database(db_path, "20260531_0024")
 
     with sqlite3.connect(db_path) as connection:
         row = connection.execute(
-            "SELECT profiles_quantity, accessories_quantity FROM work_orders WHERE order_number = ?",
+            """
+            SELECT profiles_quantity, profiles_to_count, accessories_quantity, accessories_to_count
+            FROM work_orders
+            WHERE order_number = ?
+            """,
             ("WO-2026-9800",),
         ).fetchone()
         connection.execute(
@@ -37,9 +41,9 @@ def test_profile_accessory_quantity_migration_backfills_and_constrains_values(tm
             _work_order_params(
                 order_number="WO-2026-9801",
                 total_quantity=10,
-                profiles_quantity=0,
+                profiles_quantity=4,
                 profiles_to_count=0,
-                accessories_quantity=10,
+                accessories_quantity=6,
                 accessories_to_count=0,
             ),
         )
@@ -55,8 +59,20 @@ def test_profile_accessory_quantity_migration_backfills_and_constrains_values(tm
                     accessories_to_count=0,
                 ),
             )
+        with pytest.raises(sqlite3.IntegrityError):
+            connection.execute(
+                _insert_work_order_sql(),
+                _work_order_params(
+                    order_number="WO-2026-9803",
+                    total_quantity=10,
+                    profiles_quantity=11,
+                    profiles_to_count=0,
+                    accessories_quantity=None,
+                    accessories_to_count=1,
+                ),
+            )
 
-    assert row == (10, 10)
+    assert row == (None, 1, None, 1)
 
 
 def _insert_work_order(
