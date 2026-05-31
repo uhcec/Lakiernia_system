@@ -244,12 +244,9 @@ Rules:
 10. Manager views should warn when a globally high-priority item is blocked by resource or station state, without splitting the global queue.
 11. Current manager queue warnings cover the exclusive resources currently modeled by backend locks/conflict checks: `HANGING` and `AUTOMATIC_LINE`. They are read-only visibility and do not change queue order or station-action authorization.
 12. Manager planning should default a new order's proposed queue position to the next slot after active planned work. This is an ergonomics/defaulting rule, not permission to split the global queue.
-
-Open queue-position decision:
-- Completed/READY orders are historical in manager queue views, but the durable policy for their old queue positions is not fully decided.
-- Option A: completed orders keep persisted queue positions forever, which preserves historical order evidence but forces new active work around old slots.
-- Option B: completed orders are moved to a trailing historical area or otherwise release active queue slots, which is more ergonomic for daily planning but changes what persisted queue positions mean after completion.
-- Do not claim final business correctness for completed-order queue-position release until this is confirmed.
+13. Completed/READY orders are historical in manager queue views and must not permanently block active planning slots.
+14. When manager planning or queue-position updates need active slots, completed/READY rows should move to trailing queue positions after active planned work.
+15. A completed/READY row may keep a `queue_position` for manager sorting and historical visibility, but that value is not an immutable record of the row's original active priority.
 
 ## Station Permissions
 

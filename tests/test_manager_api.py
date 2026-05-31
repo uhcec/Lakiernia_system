@@ -34,6 +34,28 @@ def advance_to_hanging(test_client: TestClient, work_order_id: int) -> None:
     assert finish_response.status_code == 200
 
 
+def complete_manual_ral_order(test_client: TestClient, work_order_id: int, *, quantity: int = 100) -> None:
+    start_surface_response = test_client.post(f"/process/work-orders/{work_order_id}/stages/SURFACE_PREPARATION/start")
+    finish_surface_response = test_client.post(
+        f"/process/work-orders/{work_order_id}/stages/SURFACE_PREPARATION/finish",
+        json={"counted_quantity": quantity},
+    )
+    start_production_response = test_client.post(f"/process/work-orders/{work_order_id}/stages/PRODUCTION/start")
+    finish_production_response = test_client.post(f"/process/work-orders/{work_order_id}/stages/PRODUCTION/finish")
+    start_packing_response = test_client.post(f"/process/work-orders/{work_order_id}/stages/PACKING/start")
+    complete_packing_response = test_client.post(
+        f"/process/work-orders/{work_order_id}/packing/complete",
+        json={"counted_quantity": quantity, "ok_quantity": quantity, "correction_quantity": 0},
+    )
+
+    assert start_surface_response.status_code == 200
+    assert finish_surface_response.status_code == 200
+    assert start_production_response.status_code == 200
+    assert finish_production_response.status_code == 200
+    assert start_packing_response.status_code == 200
+    assert complete_packing_response.status_code == 200
+
+
 def get_queue_revision(test_client: TestClient) -> str:
     planned = test_client.get("/manager/work-orders")
     assert planned.status_code == 200
@@ -439,6 +461,100 @@ def test_cannot_plan_order_into_occupied_queue_position(test_client: TestClient)
     assert first_response.status_code == 200
     assert second_response.status_code == 409
     assert second_response.json()["detail"] == "Queue position 4 is already taken."
+
+
+def test_assign_plan_reuses_completed_queue_position_and_trails_completed_order(test_client: TestClient) -> None:
+    completed = create_work_order(test_client, "Completed queue slot")
+    active = create_work_order(test_client, "Active queue slot")
+    incoming = create_work_order(test_client, "Incoming queue slot")
+
+    test_client.post(
+        f"/manager/work-orders/{completed['id']}/plan",
+        json={"production_type": "MANUAL", "queue_position": 1},
+    )
+    test_client.post(
+        f"/manager/work-orders/{active['id']}/plan",
+        json={"production_type": "MANUAL", "queue_position": 2},
+    )
+    complete_manual_ral_order(test_client, completed["id"])
+
+    response = test_client.post(
+        f"/manager/work-orders/{incoming['id']}/plan",
+        json={"production_type": "AUTOMATIC", "queue_position": 1},
+    )
+    planned_response = test_client.get("/manager/work-orders")
+
+    assert response.status_code == 200
+    assert planned_response.status_code == 200
+    planned_by_id = {item["id"]: item for item in planned_response.json()}
+    assert planned_by_id[incoming["id"]]["queue_position"] == 1
+    assert planned_by_id[active["id"]]["queue_position"] == 2
+    assert planned_by_id[completed["id"]]["queue_position"] == 3
+    assert planned_by_id[completed["id"]]["process_status"] == {"value": "READY", "label": "Gotowe"}
+
+
+def test_assign_plan_after_completed_only_queue_trails_completed_beyond_requested_position(test_client: TestClient) -> None:
+    completed = create_work_order(test_client, "Completed only queue slot")
+    incoming = create_work_order(test_client, "Incoming after completed only")
+
+    test_client.post(
+        f"/manager/work-orders/{completed['id']}/plan",
+        json={"production_type": "MANUAL", "queue_position": 1},
+    )
+    complete_manual_ral_order(test_client, completed["id"])
+
+    response = test_client.post(
+        f"/manager/work-orders/{incoming['id']}/plan",
+        json={"production_type": "MANUAL", "queue_position": 2},
+    )
+    planned_response = test_client.get("/manager/work-orders")
+
+    assert response.status_code == 200
+    assert planned_response.status_code == 200
+    planned_by_id = {item["id"]: item for item in planned_response.json()}
+    assert planned_by_id[incoming["id"]]["queue_position"] == 2
+    assert planned_by_id[completed["id"]]["queue_position"] == 3
+    assert planned_by_id[completed["id"]]["process_status"] == {"value": "READY", "label": "Gotowe"}
+
+
+def test_update_queue_position_reuses_completed_queue_position_and_trails_completed_order(test_client: TestClient) -> None:
+    completed = create_work_order(test_client, "Completed queue patch slot")
+    active = create_work_order(test_client, "Active queue patch slot")
+
+    test_client.post(
+        f"/manager/work-orders/{completed['id']}/plan",
+        json={"production_type": "MANUAL", "queue_position": 1},
+    )
+    test_client.post(
+        f"/manager/work-orders/{active['id']}/plan",
+        json={"production_type": "MANUAL", "queue_position": 2},
+    )
+    complete_manual_ral_order(test_client, completed["id"])
+
+    response = test_client.patch(f"/manager/work-orders/{active['id']}/queue-position", json={"queue_position": 1})
+    planned_response = test_client.get("/manager/work-orders")
+
+    assert response.status_code == 200
+    assert planned_response.status_code == 200
+    planned_by_id = {item["id"]: item for item in planned_response.json()}
+    assert planned_by_id[active["id"]]["queue_position"] == 1
+    assert planned_by_id[completed["id"]]["queue_position"] == 2
+    assert planned_by_id[completed["id"]]["process_status"] == {"value": "READY", "label": "Gotowe"}
+
+
+def test_cannot_directly_move_completed_order_in_active_queue(test_client: TestClient) -> None:
+    completed = create_work_order(test_client, "Completed direct queue patch")
+
+    test_client.post(
+        f"/manager/work-orders/{completed['id']}/plan",
+        json={"production_type": "MANUAL", "queue_position": 1},
+    )
+    complete_manual_ral_order(test_client, completed["id"])
+
+    response = test_client.patch(f"/manager/work-orders/{completed['id']}/queue-position", json={"queue_position": 2})
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Completed work orders cannot be moved in the active queue."
 
 
 def test_update_queue_position_for_planned_order(test_client: TestClient) -> None:

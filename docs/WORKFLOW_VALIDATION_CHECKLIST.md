@@ -153,7 +153,7 @@ Why this matters:
 
 ### 5. Global Queue Semantics
 
-Status: `CONFIRMED for one global active queue; completed-position release policy OPEN`
+Status: `CONFIRMED; completed rows trail out of active planning range`
 
 Confirmed factory policy from 2026-05-30:
 
@@ -169,16 +169,18 @@ Current repository behavior/evidence:
 - Station panels filter the global queue to work actionable at that station.
 - Manager planned-queue read models now expose current resource-block warnings for the exclusive resources already modeled by the backend: `HANGING` and `AUTOMATIC_LINE`.
 - Manager planning should propose the next free active queue position after currently active planned work.
+- Completed/READY rows stay visible in manager history but should trail after active planned work instead of permanently occupying active planning slots.
 
 Implementation decision needed:
 
 - Extend manager-facing blocked-work warnings if/when additional station/resource locks are modeled beyond `HANGING` and `AUTOMATIC_LINE`.
-- Decide whether completed/READY orders should keep their persisted queue positions permanently or be moved/released out of the active queue namespace when new work is planned. The user's current instinct is that defaulting after active work is correct, but the durability/history implications still need review.
+- Keep historical/audit meaning separate from active queue ergonomics: if the factory later needs immutable original priority evidence, add a dedicated history/audit field instead of overloading current `queue_position`.
 
 Why this matters:
 
-- Keeping completed rows in the same persisted queue positions preserves historical evidence but makes the daily active queue awkward.
-- Releasing or trailing completed rows improves manager planning, but changes the meaning of `queue_position` after completion and needs explicit tests/docs.
+- The active queue remains useful for daily manager planning.
+- Completed work stays visible without blocking new work from using low active positions.
+- The current `queue_position` value is a live manager ordering aid, not a permanent historical priority field after completion.
 
 ### 6. Additional Work Types
 
@@ -243,7 +245,7 @@ Remaining design option:
 
 ### 7a. Manager Planning Ergonomics And Correction Traceability
 
-Status: `CONFIRMED for production-type assignment and correction context; queue-position release policy linked to section 5`
+Status: `CONFIRMED for production-type assignment and correction context`
 
 Confirmed direction from 2026-05-31:
 

@@ -67,12 +67,24 @@ class ManagerService:
                 raise InvalidManagerPlanningError(f"Work order {work_order_id} is already planned.")
             if self._has_incomplete_marker(work_order):
                 raise InvalidManagerPlanningError("Cannot plan incomplete order. Mark as complete first.")
-            self._ensure_queue_position_available(payload.queue_position)
+            self._ensure_queue_position_available_or_releasable(payload.queue_position)
+
+            now = datetime.now(UTC)
+            completed_work_orders_to_trail = self._get_completed_work_orders_requiring_trailing(
+                reserved_queue_positions=[payload.queue_position],
+            )
+            self._temporarily_move_queue_rows_out_of_the_way(
+                completed_work_orders_to_trail,
+                reserved_queue_positions=[payload.queue_position],
+                now=now,
+            )
 
             work_order.production_type = payload.production_type
             work_order.queue_position = payload.queue_position
-            work_order.updated_at = datetime.now(UTC)
+            work_order.updated_at = now
             self.process_service.prepare_correction_work_order_for_planning(work_order)
+            self.repository.session.flush()
+            self._trail_completed_work_orders(completed_work_orders_to_trail, now=now)
             self._record_audit_event(
                 event_type="manager.plan_assigned",
                 station_context=station_context,
@@ -110,14 +122,29 @@ class ManagerService:
             work_order = self._get_existing_work_order(work_order_id)
             if not self._is_planned(work_order):
                 raise InvalidManagerPlanningError(f"Work order {work_order_id} must be planned before updating queue position.")
-            self._ensure_queue_position_available(
+            if self.process_service.get_display_status(work_order) == ProcessDisplayStatus.READY:
+                raise InvalidManagerPlanningError("Completed work orders cannot be moved in the active queue.")
+            self._ensure_queue_position_available_or_releasable(
                 payload.queue_position,
                 exclude_work_order_id=work_order_id,
             )
 
+            now = datetime.now(UTC)
+            completed_work_orders_to_trail = self._get_completed_work_orders_requiring_trailing(
+                reserved_queue_positions=[payload.queue_position],
+                exclude_work_order_id=work_order_id,
+            )
+            self._temporarily_move_queue_rows_out_of_the_way(
+                completed_work_orders_to_trail,
+                reserved_queue_positions=[payload.queue_position],
+                now=now,
+            )
+
             previous_queue_position = work_order.queue_position
             work_order.queue_position = payload.queue_position
-            work_order.updated_at = datetime.now(UTC)
+            work_order.updated_at = now
+            self.repository.session.flush()
+            self._trail_completed_work_orders(completed_work_orders_to_trail, now=now)
             self._record_audit_event(
                 event_type="manager.queue_position_updated",
                 station_context=station_context,
@@ -266,7 +293,7 @@ class ManagerService:
             raise ResourceNotFoundError(f"Work order {work_order_id} not found.")
         return work_order
 
-    def _ensure_queue_position_available(
+    def _ensure_queue_position_available_or_releasable(
         self,
         queue_position: int,
         *,
@@ -276,8 +303,87 @@ class ManagerService:
             queue_position,
             exclude_work_order_id=exclude_work_order_id,
         )
-        if existing_work_order is not None:
+        if existing_work_order is not None and self.process_service.get_display_status(existing_work_order) != ProcessDisplayStatus.READY:
             raise InvalidManagerPlanningError(f"Queue position {queue_position} is already taken.")
+
+    def _get_completed_work_orders_requiring_trailing(
+        self,
+        *,
+        reserved_queue_positions: list[int],
+        exclude_work_order_id: int | None = None,
+    ) -> list[WorkOrder]:
+        planned_work_orders = list(self.repository.list_planned_work_orders())
+        completed_work_orders = [
+            work_order
+            for work_order in planned_work_orders
+            if work_order.id != exclude_work_order_id
+            and self.process_service.get_display_status(work_order) == ProcessDisplayStatus.READY
+        ]
+        if not completed_work_orders:
+            return []
+
+        active_queue_positions = [
+            work_order.queue_position or 0
+            for work_order in planned_work_orders
+            if work_order.id != exclude_work_order_id
+            and self.process_service.get_display_status(work_order) != ProcessDisplayStatus.READY
+        ]
+        next_completed_position = max(active_queue_positions + reserved_queue_positions, default=0) + 1
+
+        ordered_completed_work_orders = self._sort_queue_rows(completed_work_orders)
+        for work_order in ordered_completed_work_orders:
+            if work_order.queue_position != next_completed_position:
+                return ordered_completed_work_orders
+            next_completed_position += 1
+
+        return []
+
+    def _temporarily_move_queue_rows_out_of_the_way(
+        self,
+        work_orders: list[WorkOrder],
+        *,
+        reserved_queue_positions: list[int],
+        now: datetime,
+    ) -> None:
+        if not work_orders:
+            return
+
+        planned_work_orders = list(self.repository.list_planned_work_orders())
+        temporary_queue_position = max(
+            [work_order.queue_position or 0 for work_order in planned_work_orders] + reserved_queue_positions,
+            default=0,
+        ) + 1
+        for work_order in work_orders:
+            work_order.queue_position = temporary_queue_position
+            work_order.updated_at = now
+            temporary_queue_position += 1
+
+        self.repository.session.flush()
+
+    def _trail_completed_work_orders(
+        self,
+        work_orders: list[WorkOrder],
+        *,
+        now: datetime,
+    ) -> None:
+        if not work_orders:
+            return
+
+        planned_work_orders = list(self.repository.list_planned_work_orders())
+        active_queue_positions = [
+            work_order.queue_position or 0
+            for work_order in planned_work_orders
+            if self.process_service.get_display_status(work_order) != ProcessDisplayStatus.READY
+        ]
+        next_completed_position = max(active_queue_positions, default=0) + 1
+        for work_order in self._sort_queue_rows(work_orders):
+            work_order.queue_position = next_completed_position
+            work_order.updated_at = now
+            next_completed_position += 1
+
+    @staticmethod
+    def _sort_queue_rows(work_orders: list[WorkOrder]) -> list[WorkOrder]:
+        return sorted(work_orders, key=lambda work_order: (work_order.queue_position or 0, work_order.id))
 
     @staticmethod
     def _is_planned(work_order: WorkOrder) -> bool:
