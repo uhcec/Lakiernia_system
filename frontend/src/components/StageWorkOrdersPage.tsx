@@ -177,14 +177,6 @@ export function StageWorkOrdersPage({
     return parsed;
   }
 
-  function formatDifference(value: number): string {
-    if (value > 0) {
-      return `+${value}`;
-    }
-
-    return value.toString();
-  }
-
   function formatArea(value: number | null): string {
     return typeof value === "number" ? `${value} m2` : "-";
   }
@@ -290,7 +282,6 @@ export function StageWorkOrdersPage({
                 <th className="px-5 py-4 font-semibold">Farba</th>
                 <th className="px-5 py-4 font-semibold">Plan</th>
                 {isSurfacePreparationStage ? <th className="px-5 py-4 font-semibold">Policzono</th> : null}
-                {isSurfacePreparationStage ? <th className="px-5 py-4 font-semibold">Różnica</th> : null}
                 <th className="px-5 py-4 font-semibold">Status etapu</th>
                 <th className="px-5 py-4 font-semibold text-right">Akcje</th>
               </tr>
@@ -303,13 +294,6 @@ export function StageWorkOrdersPage({
                 const isActionButtonEnabled = isActionEnabled(workOrder);
                 const rowKey = `${workOrder.id}-${workOrder.batch_id ?? workOrder.id}-${stage}`;
                 const countedDraft = countedQuantities[workOrder.id] ?? "";
-                const parsedCountedQuantity = parseCountedQuantity(countedDraft);
-                const difference =
-                  status === "IN_PROGRESS"
-                    ? parsedCountedQuantity !== null
-                      ? parsedCountedQuantity - workOrder.planned_quantity
-                      : null
-                    : workOrder.quantity_difference;
                 const correctionContext = correctionContextByOrderId[workOrder.id];
                 const isMergedHistoricalCorrection = workOrder.is_historical_correction;
                 const showHistoricalResult = status === "DONE" && !workOrder.is_correction;
@@ -404,17 +388,6 @@ export function StageWorkOrdersPage({
                           />
                         ) : (
                           <span className="font-semibold text-ink">{workOrder.counted_quantity ?? "-"}</span>
-                        )}
-                      </td>
-                    ) : null}
-                    {isSurfacePreparationStage ? (
-                      <td className="px-5 py-4">
-                        {difference === null ? (
-                          <span className="text-steel">-</span>
-                        ) : difference === 0 ? (
-                          <span className="font-medium text-emerald-700">Brak różnicy</span>
-                        ) : (
-                          <span className="font-medium text-amber-700">Różnica: {formatDifference(difference)} szt.</span>
                         )}
                       </td>
                     ) : null}

@@ -53,12 +53,21 @@ vi.mock("../src/utils/workOrderDisplay", () => ({
   getStageWorkOrderProgressText: (workOrder: { batch_quantity?: number | null; current_active_quantity: number; total_quantity: number }) =>
     `${workOrder.batch_quantity ?? workOrder.current_active_quantity} / ${workOrder.total_quantity} szt.`,
   getWorkOrderActiveCorrectionsText: () => null,
-  getWorkOrderAttentionBadges: () => [],
+  getWorkOrderAttentionBadges: (workOrder: { surface_preparation_quantity_difference?: number | null }) =>
+    workOrder.surface_preparation_quantity_difference
+      ? [{ label: `RÓŻNICA: ${workOrder.surface_preparation_quantity_difference} SZT.`, tone: "warning" }]
+      : [],
   getWorkOrderBadgeStack: (workOrder: { process_status?: { value: string }; is_released_to_client?: boolean }) =>
     workOrder.process_status?.value === "READY"
       ? [{ label: workOrder.is_released_to_client ? "WYDANE" : "DO WYDANIA", tone: workOrder.is_released_to_client ? "success" : "warning" }]
       : [],
   getWorkOrderCorrectionContextText: () => null,
+  getWorkOrderDiscrepancyText: (workOrder: { total_quantity: number; surface_preparation_counted_quantity?: number | null; surface_preparation_quantity_difference?: number | null }) =>
+    workOrder.surface_preparation_counted_quantity !== null &&
+    workOrder.surface_preparation_counted_quantity !== undefined &&
+    workOrder.surface_preparation_quantity_difference
+      ? `Przygotowanie: zadeklarowano ${workOrder.total_quantity}, policzono ${workOrder.surface_preparation_counted_quantity} (${workOrder.surface_preparation_quantity_difference} szt.)`
+      : null,
   getWorkOrderProgressText: (workOrder: { total_quantity: number }) => `${workOrder.total_quantity} / ${workOrder.total_quantity} szt.`,
   getWorkOrderStatusSummary: () => "Status testowy",
 }));
@@ -119,6 +128,8 @@ function buildWorkOrder(id: number, orderNumber: string, queuePosition: number, 
     released_to_client_at: null,
     total_area_m2: null,
     is_incomplete_on_arrival: false,
+    surface_preparation_counted_quantity: null,
+    surface_preparation_quantity_difference: null,
     profiles_quantity: null,
     profiles_to_count: false,
     accessories_quantity: null,
@@ -840,6 +851,25 @@ describe("frontend state consistency", () => {
     expect(screen.getAllByText(/Aktywne/).length).toBeGreaterThan(0);
   });
 
+  it("shows backend discrepancy signal in the office table", () => {
+    render(
+      <MemoryRouter>
+        <WorkOrdersTable
+          workOrders={[
+            {
+              ...buildWorkOrder(84, "WO-DISCREPANCY", 1, "Kilo"),
+              surface_preparation_counted_quantity: 8,
+              surface_preparation_quantity_difference: -2,
+            },
+          ]}
+        />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText("RÓŻNICA: -2 SZT.")).toBeTruthy();
+    expect(screen.getByText("Przygotowanie: zadeklarowano 10, policzono 8 (-2 szt.)")).toBeTruthy();
+  });
+
   it("groups office work orders into intake, production, and ready buckets", async () => {
     fetchWorkOrdersMock.mockResolvedValue({
       items: [
@@ -927,6 +957,23 @@ describe("frontend state consistency", () => {
     await screen.findByText("WO-CORR-ACTIVE-MGR :: Juliet");
     expect(screen.getByText("Postęp: 4 / 4 szt.")).toBeTruthy();
     expect(screen.queryByText(/Poprawiono/)).toBeNull();
+  });
+
+  it("shows backend discrepancy signal in the active manager queue", async () => {
+    fetchUnplannedWorkOrdersMock.mockResolvedValue([]);
+    fetchPlannedWorkOrdersMock.mockResolvedValue([
+      {
+        ...buildWorkOrder(85, "WO-MANAGER-DISCREPANCY", 1, "Lemon"),
+        surface_preparation_counted_quantity: 8,
+        surface_preparation_quantity_difference: -2,
+      },
+    ]);
+
+    render(<ManagerPanelPage />);
+
+    await screen.findByText("WO-MANAGER-DISCREPANCY");
+    expect(screen.getByText("RÓŻNICA: -2 SZT.")).toBeTruthy();
+    expect(screen.getByText("Przygotowanie: zadeklarowano 10, policzono 8 (-2 szt.)")).toBeTruthy();
   });
 
   it("renders completed correction quantity context from manager payload after decoral merge", async () => {
@@ -1029,6 +1076,20 @@ describe("frontend state consistency", () => {
     await screen.findAllByText("Wynik końcowy: 10 szt.");
     expect(screen.queryByText(/Postęp/)).toBeNull();
     expect(screen.queryByText(/Aktywne/)).toBeNull();
+  });
+
+  it("shows backend discrepancy signal on work order detail", async () => {
+    fetchWorkOrderMock.mockResolvedValue({
+      ...buildWorkOrder(71, "WO-DISCREPANCY-DETAIL", 1, "Echo"),
+      surface_preparation_counted_quantity: 8,
+      surface_preparation_quantity_difference: -2,
+    });
+
+    renderWorkOrderDetail(71);
+
+    await screen.findByText("Policzono na przygotowaniu");
+    expect(screen.getByText("Rozbieżność ilości")).toBeTruthy();
+    expect(screen.getByText("Przygotowanie: zadeklarowano 10, policzono 8 (-2 szt.)")).toBeTruthy();
   });
 
   it("renders work order audit history on detail page", async () => {

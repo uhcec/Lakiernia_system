@@ -96,8 +96,10 @@ Current repository behavior/evidence:
 
 - Office enters declared client quantity.
 - Surface preparation enters counted received quantity.
-- Current implementation may already require counted quantity at surface-preparation start rather than finish; verify before changing behavior.
 - Downstream validation uses the surface-preparation counted quantity as operational truth.
+- Work-order and manager read models expose surface-preparation counted quantity and declared-versus-counted difference.
+- Office list/detail and manager active queue show discrepancy signals when the difference is non-zero.
+- Station rows keep operational quantities and do not show declared-versus-counted discrepancy context.
 
 Implementation decision needed:
 

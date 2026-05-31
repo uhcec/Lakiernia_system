@@ -20,6 +20,7 @@ import {
   getWorkOrderActiveCorrectionsText,
   getWorkOrderAttentionBadges,
   getWorkOrderBadgeStack,
+  getWorkOrderDiscrepancyText,
   getHistoricalWorkOrderResultText,
   getWorkOrderProgressText,
   getWorkOrderStatusSummary,
@@ -442,6 +443,9 @@ export function ManagerPanelPage() {
                   </div>
                   <p className="text-sm font-semibold text-ink">{getWorkOrderStatusSummary(workOrder)}</p>
                   <p className="text-sm text-steel">Postęp: {getWorkOrderProgressText(workOrder)}</p>
+                  {getWorkOrderDiscrepancyText(workOrder) ? (
+                    <p className="text-sm font-medium text-amber-700">{getWorkOrderDiscrepancyText(workOrder)}</p>
+                  ) : null}
                   {workOrder.is_correction ? (
                     <div className="space-y-1 text-sm">
                       <p className="font-medium text-amber-800">{buildCorrectionReference(workOrder)}</p>

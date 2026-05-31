@@ -19,6 +19,7 @@ import {
   getWorkOrderAttentionBadges,
   getWorkOrderBadgeStack,
   getWorkOrderCorrectionContextText,
+  getWorkOrderDiscrepancyText,
   getHistoricalWorkOrderResultText,
   getWorkOrderProgressText,
   getWorkOrderStatusSummary,
@@ -503,6 +504,18 @@ export function WorkOrderDetailPage() {
                   <dt className="text-sm font-medium text-steel">Ilość całkowita</dt>
                   <dd className="mt-1 text-base text-ink">{workOrder.total_quantity}</dd>
                 </div>
+                <div>
+                  <dt className="text-sm font-medium text-steel">Policzono na przygotowaniu</dt>
+                  <dd className="mt-1 text-base text-ink">{workOrder.surface_preparation_counted_quantity ?? "-"}</dd>
+                </div>
+                {getWorkOrderDiscrepancyText(workOrder) ? (
+                  <div className="md:col-span-2">
+                    <dt className="text-sm font-medium text-steel">Rozbieżność ilości</dt>
+                    <dd className="mt-1 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-base font-medium text-amber-800">
+                      {getWorkOrderDiscrepancyText(workOrder)}
+                    </dd>
+                  </div>
+                ) : null}
                 {!isHistoricalWorkOrder(workOrder) ? (
                   <div>
                     <dt className="text-sm font-medium text-steel">Aktywna ilość</dt>

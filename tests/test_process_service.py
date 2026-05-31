@@ -193,6 +193,26 @@ def test_surface_preparation_finish_persists_counted_quantity(db_session: Sessio
     assert surface_state.counted_quantity == 95
 
 
+def test_office_and_manager_read_models_expose_surface_preparation_discrepancy(db_session: Session) -> None:
+    work_order_service, process_service, manager_service, _, _ = build_services(db_session)
+    created = create_ral_work_order(work_order_service, "Office manager discrepancy")
+    manager_service.assign_plan(
+        created.id,
+        WorkOrderPlanAssignRequest(production_type=ProductionType.MANUAL, queue_position=1),
+    )
+
+    process_service.start_stage(created.id, ProcessStage.SURFACE_PREPARATION)
+    process_service.finish_stage(created.id, ProcessStage.SURFACE_PREPARATION, counted_quantity=95)
+
+    office_read = work_order_service.get_work_order(created.id)
+    manager_read = manager_service.list_planned_work_orders()[0]
+
+    assert office_read.surface_preparation_counted_quantity == 95
+    assert office_read.surface_preparation_quantity_difference == -5
+    assert manager_read.surface_preparation_counted_quantity == 95
+    assert manager_read.surface_preparation_quantity_difference == -5
+
+
 def test_packing_correction_records_packing_and_correction_audit_events(db_session: Session) -> None:
     work_order_service, process_service, manager_service, _, _ = build_services(db_session)
     created = create_ral_work_order(work_order_service, "Audit packing")

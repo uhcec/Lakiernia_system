@@ -130,6 +130,8 @@ export interface WorkOrder {
   released_to_client_at: string | null;
   total_area_m2: number | null;
   is_incomplete_on_arrival: boolean;
+  surface_preparation_counted_quantity: number | null;
+  surface_preparation_quantity_difference: number | null;
   profiles_quantity: number | null;
   profiles_to_count: boolean;
   accessories_quantity: number | null;

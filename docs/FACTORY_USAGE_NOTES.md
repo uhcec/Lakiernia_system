@@ -115,6 +115,7 @@ Use `docs/WORKFLOW_VALIDATION_CHECKLIST.md` as the active checklist before chang
 - Implemented correction detail: packing-created correction work orders store a flexible reason/category and optional note because the category list is not final. Remaining reporting/export surfaces can be designed later.
 - Confirmed quantity visibility: counted quantity entry belongs on the surface-preparation tablet; declared quantity and discrepancy visibility belong to office and manager; production/station operators see only operational quantity.
 - Confirmed discrepancy handling: discrepancy is recorded and confirmed by surface preparation, but does not block the work order for now. Surface preparation start does not require counted quantity; finish does require counted quantity.
+- Current implementation exposes surface-preparation counted quantity and declared-versus-counted difference to office and manager read models/UI, while station lists keep discrepancy context out of the operational rows.
 - Confirmed station permissions: station identity should remain audited, but invalid station actions should be impossible in the UI and rejected by the backend if attempted.
 - Confirmed automatic overlap: hanging can start the next automatic order after the previous hanging stage is finished, while preserving one active work order per physical station/resource.
 - Quality-control production document generation: the factory has a ready template to be filled by the program. The template and field mapping still need to be provided/checked before implementation.

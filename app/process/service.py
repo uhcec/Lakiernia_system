@@ -98,6 +98,19 @@ class ProcessService:
     def list_stage_states(self, work_order_id: int) -> Sequence[WorkOrderStageState]:
         return self.repository.list_stage_states(work_order_id)
 
+    @staticmethod
+    def get_surface_preparation_counted_quantity(work_order: WorkOrder) -> int | None:
+        for stage_state in work_order.stage_states:
+            if stage_state.stage == ProcessStage.SURFACE_PREPARATION:
+                return stage_state.counted_quantity
+        return None
+
+    def get_surface_preparation_quantity_difference(self, work_order: WorkOrder) -> int | None:
+        counted_quantity = self.get_surface_preparation_counted_quantity(work_order)
+        if counted_quantity is None:
+            return None
+        return counted_quantity - work_order.total_quantity
+
     def get_work_order_process(self, work_order_id: int) -> WorkOrder:
         work_order = self.repository.get_work_order_with_stage_states(work_order_id)
         if work_order is None:

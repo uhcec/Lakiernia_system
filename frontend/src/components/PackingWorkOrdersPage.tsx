@@ -58,10 +58,6 @@ function buildEmptyPackingDraft(): PackingDraft {
   };
 }
 
-function formatDifference(difference: number): string {
-  return difference > 0 ? `+${difference}` : String(difference);
-}
-
 function formatPaint(workOrder: StageWorkOrder): string {
   return `${workOrder.paint_producer} / ${workOrder.ral_code}`;
 }
@@ -318,7 +314,6 @@ export function PackingWorkOrdersPage() {
                 <th className="px-5 py-4 font-semibold">Farba</th>
                 <th className="px-5 py-4 font-semibold">Plan</th>
                 <th className="px-5 py-4 font-semibold">Policzono</th>
-                <th className="px-5 py-4 font-semibold">Różnica</th>
                 <th className="px-5 py-4 font-semibold">OK</th>
                 <th className="px-5 py-4 font-semibold">Poprawki</th>
                 <th className="px-5 py-4 font-semibold">Powód</th>
@@ -338,10 +333,6 @@ export function PackingWorkOrdersPage() {
                 const okQuantity = parseQuantity(draft.okQuantity);
                 const correctionQuantity = parseQuantity(draft.correctionQuantity);
                 const hasRequiredCorrectionReason = correctionQuantity === 0 || draft.correctionReasonCategory.trim() !== "";
-                const difference =
-                  Number.isInteger(countedQuantity) && countedQuantity > 0
-                    ? countedQuantity - workOrder.planned_quantity
-                    : null;
                 const isDraftValid =
                   Number.isInteger(countedQuantity) &&
                   countedQuantity > 0 &&
@@ -426,15 +417,6 @@ export function PackingWorkOrdersPage() {
                         />
                       ) : (
                         <span className="font-semibold text-ink">{workOrder.counted_quantity ?? "-"}</span>
-                      )}
-                    </td>
-                    <td className="px-5 py-4">
-                      {difference === null ? (
-                        <span className="text-steel">-</span>
-                      ) : difference === 0 ? (
-                        <span className="font-medium text-emerald-700">Brak różnicy</span>
-                      ) : (
-                        <span className="font-medium text-amber-700">Różnica: {formatDifference(difference)} szt.</span>
                       )}
                     </td>
                     <td className="px-5 py-4">

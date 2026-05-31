@@ -57,6 +57,22 @@ export function getHistoricalWorkOrderResultText(workOrder: WorkOrder): string {
   return `Wynik końcowy: ${workOrder.completed_quantity} szt.`;
 }
 
+export function formatQuantityDifference(quantityDifference: number): string {
+  return quantityDifference > 0 ? `+${quantityDifference}` : String(quantityDifference);
+}
+
+export function getWorkOrderDiscrepancyText(workOrder: WorkOrder): string | null {
+  if (workOrder.surface_preparation_counted_quantity === null || workOrder.surface_preparation_quantity_difference === null) {
+    return null;
+  }
+
+  if (workOrder.surface_preparation_quantity_difference === 0) {
+    return null;
+  }
+
+  return `Przygotowanie: zadeklarowano ${workOrder.total_quantity}, policzono ${workOrder.surface_preparation_counted_quantity} (${formatQuantityDifference(workOrder.surface_preparation_quantity_difference)} szt.)`;
+}
+
 export function getWorkOrderActiveCorrectionsText(workOrder: WorkOrder): string | null {
   if (workOrder.pending_correction_quantity <= 0) {
     return null;
@@ -127,6 +143,10 @@ export function getWorkOrderAttentionBadges(workOrder: WorkOrder): DisplayBadge[
 
   if (workOrder.queue_blocked_reason) {
     badges.push({ label: `CZEKA: ${workOrder.queue_blocked_reason}`, tone: "warning" });
+  }
+
+  if (workOrder.surface_preparation_quantity_difference !== null && workOrder.surface_preparation_quantity_difference !== 0) {
+    badges.push({ label: `RÓŻNICA: ${formatQuantityDifference(workOrder.surface_preparation_quantity_difference)} SZT.`, tone: "warning" });
   }
 
   if (workOrder.planned_pickup_date && workOrder.process_status.value !== "READY") {

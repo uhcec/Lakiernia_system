@@ -629,6 +629,8 @@ class WorkOrderService:
             released_to_client_at=work_order.released_to_client_at,
             total_area_m2=work_order.total_area_m2,
             is_incomplete_on_arrival=work_order.is_incomplete_on_arrival,
+            surface_preparation_counted_quantity=self.process_service.get_surface_preparation_counted_quantity(work_order),
+            surface_preparation_quantity_difference=self.process_service.get_surface_preparation_quantity_difference(work_order),
             profiles_quantity=work_order.profiles_quantity,
             profiles_to_count=work_order.profiles_to_count,
             accessories_quantity=work_order.accessories_quantity,

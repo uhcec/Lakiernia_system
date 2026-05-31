@@ -7,6 +7,7 @@ import {
   getWorkOrderAttentionBadges,
   getWorkOrderBadgeStack,
   getWorkOrderCorrectionContextText,
+  getWorkOrderDiscrepancyText,
   getHistoricalWorkOrderResultText,
   getWorkOrderProgressText,
   getWorkOrderStatusSummary,
@@ -90,6 +91,9 @@ export function WorkOrdersTable({ workOrders }: WorkOrdersTableProps) {
           <span className="inline-flex rounded-full bg-rose-100 px-3 py-1 text-xs font-semibold text-rose-700">
             {getWorkOrderActiveCorrectionsText(workOrder)}
           </span>
+        ) : null}
+        {getWorkOrderDiscrepancyText(workOrder) ? (
+          <p className="text-xs font-medium text-amber-700">{getWorkOrderDiscrepancyText(workOrder)}</p>
         ) : null}
         {activeQuantity > 0 ? (
           <span className="inline-flex rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800">

@@ -220,6 +220,8 @@ class WorkOrderRead(BaseModel):
     released_to_client_at: datetime | None = None
     total_area_m2: float | None
     is_incomplete_on_arrival: bool
+    surface_preparation_counted_quantity: int | None = None
+    surface_preparation_quantity_difference: int | None = None
     profiles_quantity: int | None
     profiles_to_count: bool
     accessories_quantity: int | None
