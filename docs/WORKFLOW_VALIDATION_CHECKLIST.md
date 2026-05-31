@@ -113,7 +113,7 @@ Why this matters:
 
 ### 4. Station Permissions
 
-Status: `CONFIRMED`
+Status: `IMPLEMENTED for current mutating workflow actions; future paint-consumption permissions pending`
 
 Confirmed factory policy from 2026-05-30:
 
@@ -127,11 +127,13 @@ Current repository behavior/evidence:
 
 - Shared station identity is sent with mutating frontend requests via `X-Station-Id`.
 - Backend audit records the station identity for workflow-visible mutations.
-- Full permission enforcement is not enabled yet.
+- Backend rejects wrong-station mutating requests with `403` for office work-order actions, manager planning/queue actions, process stage transitions, packing completion, and completed-order release updates.
+- Current regression coverage checks wrong-station rejection across surface preparation, hanging, manual production, Decoral production, packing, office, manager, and release-marker actions.
+- `SYSTEM` and `UNKNOWN` station identities remain compatibility identities for legacy/system paths.
 
 Implementation decision needed:
 
-- Add backend station-action authorization and frontend action visibility rules in a focused permission hardening change.
+- Add explicit authorization for future paint-consumption actions when the paint inventory/consumption model is designed.
 
 Expected permission direction to validate:
 

@@ -244,6 +244,11 @@ Rules:
 - Station-action restrictions should be explicit and tested before rollout.
 - There are no expected normal-production cases where one station needs to perform another station's action.
 
+Current enforcement:
+- Wrong-station mutating requests return `403` for current office, manager, process, packing, and completed-release actions.
+- `SYSTEM` and `UNKNOWN` remain compatibility station identities for legacy/system paths.
+- Future paint-consumption actions must define their own allowed station rules when the paint inventory model is added.
+
 ## Quantity Discrepancy Visibility
 
 Rules:

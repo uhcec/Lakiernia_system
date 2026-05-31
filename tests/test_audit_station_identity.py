@@ -132,10 +132,98 @@ def test_wrong_station_cannot_complete_packing(test_client: TestClient) -> None:
     assert response.json()["detail"] == "Station HANGING is not allowed to perform PACKING actions. Allowed stations: PACKING."
 
 
-def create_work_order_with_office_station(test_client: TestClient) -> dict:
+def test_stage_permissions_cover_hanging_manual_production_and_decoral(test_client: TestClient) -> None:
+    automatic = create_work_order_with_office_station(test_client)
+    assign_plan_with_manager_station(test_client, automatic["id"], production_type="AUTOMATIC", queue_position=1)
+    advance_surface_preparation_with_station(test_client, automatic["id"])
+
+    hanging_start_blocked = post_stage_action(test_client, automatic["id"], "HANGING", "start", station_id="PACKING")
+    hanging_start_allowed = post_stage_action(test_client, automatic["id"], "HANGING", "start", station_id="HANGING")
+    hanging_finish_blocked = post_stage_action(test_client, automatic["id"], "HANGING", "finish", station_id="MANUAL_PRODUCTION")
+    hanging_finish_allowed = post_stage_action(test_client, automatic["id"], "HANGING", "finish", station_id="HANGING")
+
+    assert hanging_start_blocked.status_code == 403
+    assert hanging_start_blocked.json()["detail"] == (
+        "Station PACKING is not allowed to perform HANGING stage actions. Allowed stations: HANGING."
+    )
+    assert hanging_start_allowed.status_code == 200
+    assert hanging_finish_blocked.status_code == 403
+    assert hanging_finish_blocked.json()["detail"] == (
+        "Station MANUAL_PRODUCTION is not allowed to perform HANGING stage actions. Allowed stations: HANGING."
+    )
+    assert hanging_finish_allowed.status_code == 200
+
+    manual = create_work_order_with_office_station(test_client)
+    assign_plan_with_manager_station(test_client, manual["id"], production_type="MANUAL", queue_position=2)
+    advance_surface_preparation_with_station(test_client, manual["id"])
+
+    production_start_blocked = post_stage_action(test_client, manual["id"], "PRODUCTION", "start", station_id="HANGING")
+    production_start_allowed = post_stage_action(test_client, manual["id"], "PRODUCTION", "start", station_id="MANUAL_PRODUCTION")
+    production_finish_blocked = post_stage_action(test_client, manual["id"], "PRODUCTION", "finish", station_id="PACKING")
+    production_finish_allowed = post_stage_action(test_client, manual["id"], "PRODUCTION", "finish", station_id="MANUAL_PRODUCTION")
+
+    assert production_start_blocked.status_code == 403
+    assert production_start_blocked.json()["detail"] == (
+        "Station HANGING is not allowed to perform PRODUCTION stage actions. Allowed stations: MANUAL_PRODUCTION."
+    )
+    assert production_start_allowed.status_code == 200
+    assert production_finish_blocked.status_code == 403
+    assert production_finish_blocked.json()["detail"] == (
+        "Station PACKING is not allowed to perform PRODUCTION stage actions. Allowed stations: MANUAL_PRODUCTION."
+    )
+    assert production_finish_allowed.status_code == 200
+
+    decoral = create_work_order_with_office_station(test_client, coating_type="DECORAL")
+    assign_plan_with_manager_station(test_client, decoral["id"], production_type="MANUAL", queue_position=3)
+    advance_decoral_to_decoral_production_with_station(test_client, decoral["id"])
+
+    decoral_start_blocked = post_stage_action(test_client, decoral["id"], "DECORAL_PRODUCTION", "start", station_id="PACKING")
+    decoral_start_allowed = post_stage_action(test_client, decoral["id"], "DECORAL_PRODUCTION", "start", station_id="DECORAL_PRODUCTION")
+    decoral_finish_blocked = post_stage_action(test_client, decoral["id"], "DECORAL_PRODUCTION", "finish", station_id="MANUAL_PRODUCTION")
+    decoral_finish_allowed = post_stage_action(test_client, decoral["id"], "DECORAL_PRODUCTION", "finish", station_id="DECORAL_PRODUCTION")
+
+    assert decoral_start_blocked.status_code == 403
+    assert decoral_start_blocked.json()["detail"] == (
+        "Station PACKING is not allowed to perform DECORAL_PRODUCTION stage actions. Allowed stations: DECORAL_PRODUCTION."
+    )
+    assert decoral_start_allowed.status_code == 200
+    assert decoral_finish_blocked.status_code == 403
+    assert decoral_finish_blocked.json()["detail"] == (
+        "Station MANUAL_PRODUCTION is not allowed to perform DECORAL_PRODUCTION stage actions. Allowed stations: DECORAL_PRODUCTION."
+    )
+    assert decoral_finish_allowed.status_code == 200
+
+
+def test_automatic_production_station_authorization_precedes_manual_action_conflict(test_client: TestClient) -> None:
+    created = create_work_order_with_office_station(test_client)
+    assign_plan_with_manager_station(test_client, created["id"], production_type="AUTOMATIC", queue_position=1)
+    advance_surface_preparation_with_station(test_client, created["id"])
+    post_stage_action(test_client, created["id"], "HANGING", "start", station_id="HANGING")
+    post_stage_action(test_client, created["id"], "HANGING", "finish", station_id="HANGING")
+
+    wrong_station_response = post_stage_action(test_client, created["id"], "PRODUCTION", "finish", station_id="HANGING")
+    automatic_station_response = post_stage_action(
+        test_client,
+        created["id"],
+        "PRODUCTION",
+        "finish",
+        station_id="AUTOMATIC_PRODUCTION",
+    )
+
+    assert wrong_station_response.status_code == 403
+    assert wrong_station_response.json()["detail"] == (
+        "Station HANGING is not allowed to perform PRODUCTION stage actions. Allowed stations: AUTOMATIC_PRODUCTION."
+    )
+    assert automatic_station_response.status_code == 409
+    assert automatic_station_response.json()["detail"] == (
+        "Automatic production does not use manual start/finish. Finish HANGING to enter automatic production and complete from PACKING."
+    )
+
+
+def create_work_order_with_office_station(test_client: TestClient, *, coating_type: str = "RAL") -> dict:
     response = test_client.post(
         "/work-orders",
-        json=build_work_order_payload(),
+        json=build_work_order_payload(coating_type=coating_type),
         headers={"X-Station-Id": "OFFICE"},
     )
     assert response.status_code == 201
@@ -143,19 +231,73 @@ def create_work_order_with_office_station(test_client: TestClient) -> dict:
 
 
 def assign_manual_plan_with_manager_station(test_client: TestClient, work_order_id: int) -> dict:
+    return assign_plan_with_manager_station(test_client, work_order_id, production_type="MANUAL", queue_position=1)
+
+
+def assign_plan_with_manager_station(
+    test_client: TestClient,
+    work_order_id: int,
+    *,
+    production_type: str,
+    queue_position: int,
+) -> dict:
     response = test_client.post(
         f"/manager/work-orders/{work_order_id}/plan",
-        json={"production_type": "MANUAL", "queue_position": 1},
+        json={"production_type": production_type, "queue_position": queue_position},
         headers={"X-Station-Id": "MANAGER"},
     )
     assert response.status_code == 200
     return response.json()
 
 
-def build_work_order_payload() -> dict:
+def post_stage_action(
+    test_client: TestClient,
+    work_order_id: int,
+    stage: str,
+    action: str,
+    *,
+    station_id: str,
+    payload: dict | None = None,
+):
+    return test_client.post(
+        f"/process/work-orders/{work_order_id}/stages/{stage}/{action}",
+        json=payload,
+        headers={"X-Station-Id": station_id},
+    )
+
+
+def advance_surface_preparation_with_station(test_client: TestClient, work_order_id: int) -> None:
+    start_response = post_stage_action(test_client, work_order_id, "SURFACE_PREPARATION", "start", station_id="SURFACE_PREPARATION")
+    finish_response = post_stage_action(
+        test_client,
+        work_order_id,
+        "SURFACE_PREPARATION",
+        "finish",
+        station_id="SURFACE_PREPARATION",
+        payload={"counted_quantity": 10},
+    )
+    assert start_response.status_code == 200
+    assert finish_response.status_code == 200
+
+
+def advance_decoral_to_decoral_production_with_station(test_client: TestClient, work_order_id: int) -> None:
+    advance_surface_preparation_with_station(test_client, work_order_id)
+    assert post_stage_action(test_client, work_order_id, "PRODUCTION", "start", station_id="MANUAL_PRODUCTION").status_code == 200
+    assert post_stage_action(test_client, work_order_id, "PRODUCTION", "finish", station_id="MANUAL_PRODUCTION").status_code == 200
+    assert post_stage_action(test_client, work_order_id, "PACKING", "start", station_id="PACKING").status_code == 200
+
+    packing_response = test_client.post(
+        f"/process/work-orders/{work_order_id}/packing/complete",
+        json={"counted_quantity": 10, "ok_quantity": 10, "correction_quantity": 0},
+        headers={"X-Station-Id": "PACKING"},
+    )
+    assert packing_response.status_code == 200
+
+
+def build_work_order_payload(*, coating_type: str = "RAL") -> dict:
     return {
         "title": "Station permission test",
-        "coating_type": "RAL",
+        "coating_type": coating_type,
         "total_quantity": 10,
         "customer_name": "ACME",
         "ral_code": "RAL 7016",
