@@ -21,7 +21,7 @@ from app.process.enums import CoatingType, ProcessStage, ProductionType, StageSt
 from app.process.models import WorkOrderQuantityBatch, WorkOrderStageState
 from app.process.repository import ProcessRepository
 from app.process.service import ProcessService
-from app.shared.enums import WorkOrderStatus
+from app.shared.enums import WorkOrderKind, WorkOrderStatus
 from app.work_orders.models import WorkOrder, WorkOrderAttachment
 from app.work_orders.repository import WorkOrderRepository
 from app.work_orders.schemas import WorkOrderCreate
@@ -223,32 +223,6 @@ def seed_all_use_cases(session: Session) -> list[SeededScenario]:
         )
     )
 
-    auto_ral_hanging_packing = create_work_order(
-        work_order_service,
-        title="RAL automat - zawieszanie i pakowanie",
-        coating_type=CoatingType.RAL,
-        total_quantity=14,
-        customer_name="Auto Hanging",
-        ral_code="RAL 6018",
-        profiles_quantity=12,
-        accessories_quantity=2,
-        notes="E2. Automat w zawieszaniu; widoczne tez podglady produkcji i pakowania.",
-    )
-    assign_plan(manager_service, auto_ral_hanging_packing.id, ProductionType.AUTOMATIC, queue_position)
-    queue_position += 10
-    start_surface_preparation(process_service, auto_ral_hanging_packing.id, counted_quantity=14)
-    finish_surface_preparation(process_service, auto_ral_hanging_packing.id)
-    process_service.start_stage(auto_ral_hanging_packing.id, ProcessStage.HANGING)
-    scenarios.append(
-        scenario(
-            "E",
-            auto_ral_hanging_packing.order_number,
-            "Automatic RAL visible for hanging, automatic production preview, and packing",
-            "Hanging / Automatic production / Packing",
-            auto_ral_hanging_packing.notes or "",
-        )
-    )
-
     decoral_manual = create_work_order(
         work_order_service,
         title="Decoral manual - gotowe do decoral",
@@ -290,6 +264,7 @@ def seed_all_use_cases(session: Session) -> list[SeededScenario]:
     start_surface_preparation(process_service, decoral_automatic.id, counted_quantity=11)
     finish_surface_preparation(process_service, decoral_automatic.id)
     process_service.start_stage(decoral_automatic.id, ProcessStage.HANGING)
+    process_service.finish_stage(decoral_automatic.id, ProcessStage.HANGING)
     process_service.complete_packing(decoral_automatic.id, counted_quantity=11, ok_quantity=11, correction_quantity=0)
     scenarios.append(
         scenario(
@@ -617,6 +592,32 @@ def seed_all_use_cases(session: Session) -> list[SeededScenario]:
         )
     )
 
+    auto_ral_hanging_packing = create_work_order(
+        work_order_service,
+        title="RAL automat - zawieszanie i pakowanie",
+        coating_type=CoatingType.RAL,
+        total_quantity=14,
+        customer_name="Auto Hanging",
+        ral_code="RAL 6018",
+        profiles_quantity=12,
+        accessories_quantity=2,
+        notes="E2. Automat w zawieszaniu; widoczne tez podglady produkcji i pakowania.",
+    )
+    assign_plan(manager_service, auto_ral_hanging_packing.id, ProductionType.AUTOMATIC, queue_position)
+    queue_position += 10
+    start_surface_preparation(process_service, auto_ral_hanging_packing.id, counted_quantity=14)
+    finish_surface_preparation(process_service, auto_ral_hanging_packing.id)
+    process_service.start_stage(auto_ral_hanging_packing.id, ProcessStage.HANGING)
+    scenarios.append(
+        scenario(
+            "E",
+            auto_ral_hanging_packing.order_number,
+            "Automatic RAL visible for hanging, automatic production preview, and packing",
+            "Hanging / Automatic production / Packing",
+            auto_ral_hanging_packing.notes or "",
+        )
+    )
+
     occupied_queue_first = create_work_order(
         work_order_service,
         title="Konflikt kolejki - zajeta pozycja",
@@ -838,11 +839,14 @@ def finish_surface_preparation(process_service: ProcessService, work_order_id: i
 
 def advance_to_packing(process_service: ProcessService, work_order_id: int, *, counted_quantity: int) -> None:
     work_order = process_service.get_work_order_process(work_order_id)
-    start_surface_preparation(process_service, work_order_id, counted_quantity=counted_quantity)
-    finish_surface_preparation(process_service, work_order_id)
+    skips_surface_preparation = work_order.is_correction or work_order.work_order_kind == WorkOrderKind.PRZEMALOWANKA
+    if not skips_surface_preparation:
+        start_surface_preparation(process_service, work_order_id, counted_quantity=counted_quantity)
+        finish_surface_preparation(process_service, work_order_id)
 
     if work_order.production_type == ProductionType.AUTOMATIC:
         process_service.start_stage(work_order_id, ProcessStage.HANGING)
+        process_service.finish_stage(work_order_id, ProcessStage.HANGING)
         return
 
     process_service.start_stage(work_order_id, ProcessStage.PRODUCTION)
