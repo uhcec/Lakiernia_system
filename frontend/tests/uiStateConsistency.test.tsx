@@ -622,6 +622,36 @@ describe("frontend state consistency", () => {
     });
   });
 
+  it("shows packing split balance inside the active order card", async () => {
+    fetchStageWorkOrdersMock.mockResolvedValue([
+      buildStageWorkOrder({
+        id: 32,
+        order_number: "WO-PACK-CARD",
+        customer_name: "Pakowalnia",
+        profiles_quantity: 8,
+        accessories_quantity: 2,
+        current_active_quantity: 6,
+        planned_quantity: 6,
+        stage_status: { stage: "PACKING", status: { value: "IN_PROGRESS", label: "W toku" } },
+      }),
+    ]);
+
+    render(<PackingWorkOrdersPage />);
+
+    await screen.findByText("WO-PACK-CARD :: Pakowalnia");
+    expect(screen.queryByRole("table")).toBeNull();
+    expect(screen.getByText("Bilans pakowania: Wpisz policzoną ilość")).toBeTruthy();
+
+    const inputs = screen.getAllByRole("spinbutton");
+    expect(inputs).toHaveLength(3);
+    fireEvent.change(inputs[0], { target: { value: "6" } });
+    expect(screen.getByText("Bilans pakowania: Suma zgodna")).toBeTruthy();
+    fireEvent.change(inputs[1], { target: { value: "4" } });
+    expect(screen.getByText("Bilans pakowania: Brakuje 2 szt.")).toBeTruthy();
+    fireEvent.change(inputs[2], { target: { value: "2" } });
+    expect(screen.getByText("Bilans pakowania: Suma zgodna")).toBeTruthy();
+  });
+
   it("keeps stage list visible when one correction detail fetch fails", async () => {
     fetchStageWorkOrdersMock.mockResolvedValue([
       buildStageWorkOrder({

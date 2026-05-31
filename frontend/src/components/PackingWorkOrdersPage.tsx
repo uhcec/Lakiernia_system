@@ -105,6 +105,34 @@ function buildMergedCorrectionDeltaText(workOrder: StageWorkOrder, context: Corr
   return `Poprawiono ${workOrder.total_quantity} szt.`;
 }
 
+function formatPackingBalance(countedQuantity: number, okQuantity: number, correctionQuantity: number): { text: string; tone: "neutral" | "success" | "warning" } {
+  if (countedQuantity <= 0) {
+    return { text: "Wpisz policzoną ilość", tone: "neutral" };
+  }
+
+  const balance = countedQuantity - okQuantity - correctionQuantity;
+  if (balance === 0) {
+    return { text: "Suma zgodna", tone: "success" };
+  }
+
+  if (balance > 0) {
+    return { text: `Brakuje ${balance} szt.`, tone: "warning" };
+  }
+
+  return { text: `O ${Math.abs(balance)} szt. za dużo`, tone: "warning" };
+}
+
+function balanceClasses(tone: ReturnType<typeof formatPackingBalance>["tone"]): string {
+  switch (tone) {
+    case "success":
+      return "border-emerald-200 bg-emerald-50 text-emerald-700";
+    case "warning":
+      return "border-amber-200 bg-amber-50 text-amber-800";
+    case "neutral":
+      return "border-line bg-mist text-steel";
+  }
+}
+
 function badgeClasses(tone: DisplayBadge["tone"]): string {
   switch (tone) {
     case "info":
@@ -299,229 +327,231 @@ export function PackingWorkOrdersPage() {
     }
   }
 
-  function renderWorkOrdersTable(items: StageWorkOrder[]) {
+  function renderWorkOrderCards(items: StageWorkOrder[]) {
     return (
-      <div className="overflow-hidden rounded-3xl border border-line bg-white shadow-panel">
-        <div className="overflow-x-auto">
-          <table className="min-w-full border-collapse text-left text-sm">
-            <thead className="bg-mist text-steel">
-              <tr>
-                <th className="px-5 py-4 font-semibold">Pozycja</th>
-                <th className="px-5 py-4 font-semibold">Nr zlecenia</th>
-                <th className="px-5 py-4 font-semibold">Firma / klient</th>
-                <th className="px-5 py-4 font-semibold">Profile</th>
-                <th className="px-5 py-4 font-semibold">Akcesoria</th>
-                <th className="px-5 py-4 font-semibold">Farba</th>
-                <th className="px-5 py-4 font-semibold">Plan</th>
-                <th className="px-5 py-4 font-semibold">Policzono</th>
-                <th className="px-5 py-4 font-semibold">OK</th>
-                <th className="px-5 py-4 font-semibold">Poprawki</th>
-                <th className="px-5 py-4 font-semibold">Powód</th>
-                <th className="px-5 py-4 font-semibold">Status etapu</th>
-                <th className="px-5 py-4 font-semibold text-right">Akcje</th>
-              </tr>
-            </thead>
-            <tbody>
-              {items.map((workOrder) => {
-                const status = workOrder.stage_status.status.value;
-                const isPackingStage = workOrder.stage_status.stage === "PACKING";
-                const isPackingInProgress = isPackingStage && status === "IN_PROGRESS";
-                const draftKey = getDraftKey(workOrder);
-                const isSubmitting = activeWorkOrderId === draftKey;
-                const draft = drafts[draftKey] ?? buildEmptyPackingDraft();
-                const countedQuantity = parseQuantity(draft.countedQuantity);
-                const okQuantity = parseQuantity(draft.okQuantity);
-                const correctionQuantity = parseQuantity(draft.correctionQuantity);
-                const hasRequiredCorrectionReason = correctionQuantity === 0 || draft.correctionReasonCategory.trim() !== "";
-                const isDraftValid =
-                  Number.isInteger(countedQuantity) &&
-                  countedQuantity > 0 &&
-                  Number.isInteger(okQuantity) &&
-                  Number.isInteger(correctionQuantity) &&
-                  okQuantity >= 0 &&
-                  correctionQuantity >= 0 &&
-                  okQuantity + correctionQuantity === countedQuantity &&
-                  hasRequiredCorrectionReason;
-                const correctionContext = correctionContextByOrderId[workOrder.id];
-                const isMergedHistoricalCorrection = workOrder.is_historical_correction;
-                const showHistoricalResult = status === "DONE" && !workOrder.is_correction;
-                const showBatchProgress = status !== "DONE" || (workOrder.is_correction && !isMergedHistoricalCorrection);
+      <div className="space-y-3">
+        {items.map((workOrder) => {
+          const status = workOrder.stage_status.status.value;
+          const isPackingStage = workOrder.stage_status.stage === "PACKING";
+          const isPackingInProgress = isPackingStage && status === "IN_PROGRESS";
+          const draftKey = getDraftKey(workOrder);
+          const isSubmitting = activeWorkOrderId === draftKey;
+          const draft = drafts[draftKey] ?? buildEmptyPackingDraft();
+          const countedQuantity = parseQuantity(draft.countedQuantity);
+          const okQuantity = parseQuantity(draft.okQuantity);
+          const correctionQuantity = parseQuantity(draft.correctionQuantity);
+          const hasRequiredCorrectionReason = correctionQuantity === 0 || draft.correctionReasonCategory.trim() !== "";
+          const isDraftValid =
+            Number.isInteger(countedQuantity) &&
+            countedQuantity > 0 &&
+            Number.isInteger(okQuantity) &&
+            Number.isInteger(correctionQuantity) &&
+            okQuantity >= 0 &&
+            correctionQuantity >= 0 &&
+            okQuantity + correctionQuantity === countedQuantity &&
+            hasRequiredCorrectionReason;
+          const packingBalance = formatPackingBalance(countedQuantity, okQuantity, correctionQuantity);
+          const correctionContext = correctionContextByOrderId[workOrder.id];
+          const isMergedHistoricalCorrection = workOrder.is_historical_correction;
+          const showHistoricalResult = status === "DONE" && !workOrder.is_correction;
+          const showBatchProgress = status !== "DONE" || (workOrder.is_correction && !isMergedHistoricalCorrection);
 
-                return (
-                  <tr
-                    key={`${workOrder.id}-${draftKey}`}
-                    className={[
-                      "border-t border-line/80 text-ink align-top",
-                      workOrder.is_correction ? "bg-amber-50/50" : "",
-                    ].join(" ")}
-                  >
-                    <td className="px-5 py-4 font-semibold">{workOrder.queue_position ?? "-"}</td>
-                    <td className="px-5 py-4 font-semibold align-top">
-                      <div className="space-y-2">
-                        <div className="text-base text-ink">{workOrder.order_number}</div>
-                        <p className="text-sm font-normal text-steel">{formatWorkOrderPrimaryInfo(workOrder)}</p>
-                        <a
-                          href={`/zlecenia/${workOrder.id}`}
-                          className="inline-flex text-sm font-medium text-accent transition hover:text-teal-700"
-                        >
-                          Szczegóły / załączniki
-                        </a>
-                        {workOrder.is_correction ? (
-                          <span className="inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-amber-800">
-                            POPRAWKA
-                          </span>
-                        ) : null}
-                        <div className="flex flex-wrap gap-2">
-                          {getStageWorkOrderBadgeStack(workOrder).map((badge) => (
-                            <span
-                              key={`${workOrder.id}-${badge.label}`}
-                              className={["inline-flex rounded-full px-2 py-1 text-[11px] font-semibold", badgeClasses(badge.tone)].join(" ")}
-                            >
-                              {badge.label}
-                            </span>
-                          ))}
-                        </div>
-                        <p className="text-sm font-semibold text-ink">{getPackingRowSummary(workOrder)}</p>
-                        {showBatchProgress ? (
-                          <p className="text-sm text-steel">Postęp partii: {getStageWorkOrderProgressText(workOrder)}</p>
-                        ) : null}
-                        {showHistoricalResult ? (
-                          <p className="text-sm font-medium text-emerald-700">{getHistoricalStageWorkOrderResultText(workOrder)}</p>
-                        ) : null}
-                        {workOrder.is_correction ? (
-                          <>
-                            <p className="font-medium text-amber-800">{buildCorrectionReference(workOrder, correctionContext)}</p>
-                            <p className="text-amber-700">
-                              {isMergedHistoricalCorrection
-                                ? buildMergedCorrectionDeltaText(workOrder, correctionContext)
-                                : buildCorrectionQuantityContext(workOrder, correctionContext)}
-                            </p>
-                          </>
-                        ) : null}
+          return (
+            <article
+              key={`${workOrder.id}-${draftKey}`}
+              className={[
+                "rounded-lg border bg-white p-5 text-ink shadow-sm",
+                workOrder.is_correction ? "border-amber-200 bg-amber-50/40" : "border-line/80",
+              ].join(" ")}
+            >
+              <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(20rem,28rem)]">
+                <div className="space-y-4">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="min-w-0 space-y-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="inline-flex rounded-full bg-mist px-3 py-1 text-xs font-semibold text-steel">
+                          Poz. {workOrder.queue_position ?? "-"}
+                        </span>
+                        <span className="text-lg font-semibold text-ink">{workOrder.order_number}</span>
+                        <span className="inline-flex rounded-full bg-mist px-3 py-1 text-xs font-semibold text-ink">
+                          {workOrder.stage_status.status.label}
+                        </span>
                       </div>
-                    </td>
-                    <td className="px-5 py-4 text-steel">{workOrder.customer_name ?? "-"}</td>
-                    <td className="px-5 py-4 font-semibold">{formatCountRequirement(workOrder.profiles_quantity, workOrder.profiles_to_count)}</td>
-                    <td className="px-5 py-4 font-semibold">{formatCountRequirement(workOrder.accessories_quantity, workOrder.accessories_to_count)}</td>
-                    <td className="px-5 py-4 text-steel">{formatPaint(workOrder)}</td>
-                    <td className="px-5 py-4 font-semibold">{workOrder.planned_quantity}</td>
-                    <td className="px-5 py-4">
-                      {isPackingInProgress ? (
-                        <input
-                          type="number"
-                          min="1"
-                          step="1"
-                          value={draft.countedQuantity}
-                          onChange={(event) => updateDraft(draftKey, "countedQuantity", event.target.value)}
-                          className="w-24 rounded-2xl border border-line bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-accent"
-                        />
-                      ) : (
-                        <span className="font-semibold text-ink">{workOrder.counted_quantity ?? "-"}</span>
-                      )}
-                    </td>
-                    <td className="px-5 py-4">
-                      {isPackingInProgress ? (
-                        <input
-                          type="number"
-                          min="0"
-                          step="1"
-                          value={draft.okQuantity}
-                          onChange={(event) => updateDraft(draftKey, "okQuantity", event.target.value)}
-                          className="w-24 rounded-2xl border border-line bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-accent"
-                        />
-                      ) : (
-                        <span className="text-steel">-</span>
-                      )}
-                    </td>
-                    <td className="px-5 py-4">
-                      {isPackingInProgress ? (
-                        <input
-                          type="number"
-                          min="0"
-                          step="1"
-                          value={draft.correctionQuantity}
-                          onChange={(event) => updateDraft(draftKey, "correctionQuantity", event.target.value)}
-                          className="w-24 rounded-2xl border border-line bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-accent"
-                        />
-                      ) : (
-                        <span className="text-steel">-</span>
-                      )}
-                    </td>
-                    <td className="px-5 py-4">
-                      {isPackingInProgress && correctionQuantity > 0 ? (
-                        <div className="flex min-w-[12rem] flex-col gap-2">
-                          <select
-                            value={draft.correctionReasonCategory}
-                            onChange={(event) => updateDraft(draftKey, "correctionReasonCategory", event.target.value)}
-                            className="rounded-2xl border border-line bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-accent"
-                          >
-                            <option value="">Wybierz</option>
-                            {correctionReasonOptions.map((option) => (
-                              <option key={option.value} value={option.value}>
-                                {option.label}
-                              </option>
-                            ))}
-                          </select>
+                      <p className="text-sm text-steel">{formatWorkOrderPrimaryInfo(workOrder)}</p>
+                    </div>
+                    <a
+                      href={`/zlecenia/${workOrder.id}`}
+                      className="inline-flex shrink-0 text-sm font-medium text-accent transition hover:text-teal-700"
+                    >
+                      Szczegóły / załączniki
+                    </a>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
+                    {getStageWorkOrderBadgeStack(workOrder).map((badge) => (
+                      <span
+                        key={`${workOrder.id}-${badge.label}`}
+                        className={["inline-flex rounded-full px-2 py-1 text-[11px] font-semibold", badgeClasses(badge.tone)].join(" ")}
+                      >
+                        {badge.label}
+                      </span>
+                    ))}
+                  </div>
+
+                  <dl className="grid gap-x-6 gap-y-3 text-sm sm:grid-cols-2 xl:grid-cols-4">
+                    <div>
+                      <dt className="font-medium text-steel">Profile</dt>
+                      <dd className="mt-1 font-semibold text-ink">{formatCountRequirement(workOrder.profiles_quantity, workOrder.profiles_to_count)}</dd>
+                    </div>
+                    <div>
+                      <dt className="font-medium text-steel">Akcesoria</dt>
+                      <dd className="mt-1 font-semibold text-ink">{formatCountRequirement(workOrder.accessories_quantity, workOrder.accessories_to_count)}</dd>
+                    </div>
+                    <div>
+                      <dt className="font-medium text-steel">Farba</dt>
+                      <dd className="mt-1 font-semibold text-ink">{formatPaint(workOrder)}</dd>
+                    </div>
+                    <div>
+                      <dt className="font-medium text-steel">Plan</dt>
+                      <dd className="mt-1 font-semibold text-ink">{workOrder.planned_quantity} szt.</dd>
+                    </div>
+                  </dl>
+
+                  <div className="space-y-1 text-sm">
+                    <p className="font-semibold text-ink">{getPackingRowSummary(workOrder)}</p>
+                    {showBatchProgress ? (
+                      <p className="text-steel">Postęp partii: {getStageWorkOrderProgressText(workOrder)}</p>
+                    ) : null}
+                    {showHistoricalResult ? (
+                      <p className="font-medium text-emerald-700">{getHistoricalStageWorkOrderResultText(workOrder)}</p>
+                    ) : null}
+                    {workOrder.is_correction ? (
+                      <>
+                        <p className="font-medium text-amber-800">{buildCorrectionReference(workOrder, correctionContext)}</p>
+                        <p className="text-amber-700">
+                          {isMergedHistoricalCorrection
+                            ? buildMergedCorrectionDeltaText(workOrder, correctionContext)
+                            : buildCorrectionQuantityContext(workOrder, correctionContext)}
+                        </p>
+                      </>
+                    ) : null}
+                  </div>
+                </div>
+
+                <div className="border-t border-line/80 pt-4 lg:border-l lg:border-t-0 lg:pl-5 lg:pt-0">
+                  {!isPackingStage ? (
+                    <div className="flex h-full flex-col justify-center gap-3">
+                      <span className="inline-flex w-fit rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800">
+                        Czeka na koniec zawieszania
+                      </span>
+                      <p className="text-sm text-steel">Pakowanie pozostaje zablokowane do zakończenia zawieszania.</p>
+                    </div>
+                  ) : isPackingInProgress ? (
+                    <div className="space-y-4">
+                      <div className="grid gap-3 sm:grid-cols-3">
+                        <label className="space-y-1 text-sm font-medium text-steel">
+                          <span>Policzono</span>
+                          <input
+                            type="number"
+                            min="1"
+                            step="1"
+                            value={draft.countedQuantity}
+                            onChange={(event) => updateDraft(draftKey, "countedQuantity", event.target.value)}
+                            className="w-full rounded-lg border border-line bg-white px-3 py-2 text-base font-semibold text-ink outline-none transition focus:border-accent"
+                          />
+                        </label>
+                        <label className="space-y-1 text-sm font-medium text-steel">
+                          <span>OK</span>
+                          <input
+                            type="number"
+                            min="0"
+                            step="1"
+                            value={draft.okQuantity}
+                            onChange={(event) => updateDraft(draftKey, "okQuantity", event.target.value)}
+                            className="w-full rounded-lg border border-line bg-white px-3 py-2 text-base font-semibold text-ink outline-none transition focus:border-accent"
+                          />
+                        </label>
+                        <label className="space-y-1 text-sm font-medium text-steel">
+                          <span>Poprawki</span>
+                          <input
+                            type="number"
+                            min="0"
+                            step="1"
+                            value={draft.correctionQuantity}
+                            onChange={(event) => updateDraft(draftKey, "correctionQuantity", event.target.value)}
+                            className="w-full rounded-lg border border-line bg-white px-3 py-2 text-base font-semibold text-ink outline-none transition focus:border-accent"
+                          />
+                        </label>
+                      </div>
+
+                      <div className={["rounded-lg border px-3 py-2 text-sm font-semibold", balanceClasses(packingBalance.tone)].join(" ")}>
+                        Bilans pakowania: {packingBalance.text}
+                      </div>
+
+                      {correctionQuantity > 0 ? (
+                        <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+                          <label className="space-y-1 text-sm font-medium text-steel">
+                            <span>Powód poprawki</span>
+                            <select
+                              value={draft.correctionReasonCategory}
+                              onChange={(event) => updateDraft(draftKey, "correctionReasonCategory", event.target.value)}
+                              className="w-full rounded-lg border border-line bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-accent"
+                            >
+                              <option value="">Wybierz</option>
+                              {correctionReasonOptions.map((option) => (
+                                <option key={option.value} value={option.value}>
+                                  {option.label}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
                           {draft.correctionReasonCategory === "inne" ? (
-                            <input
-                              type="text"
-                              maxLength={500}
-                              value={draft.correctionReasonNote}
-                              onChange={(event) => updateDraft(draftKey, "correctionReasonNote", event.target.value)}
-                              placeholder="Notatka"
-                              className="rounded-2xl border border-line bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-accent"
-                            />
+                            <label className="space-y-1 text-sm font-medium text-steel">
+                              <span>Notatka</span>
+                              <input
+                                type="text"
+                                maxLength={500}
+                                value={draft.correctionReasonNote}
+                                onChange={(event) => updateDraft(draftKey, "correctionReasonNote", event.target.value)}
+                                placeholder="Notatka"
+                                className="w-full rounded-lg border border-line bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-accent"
+                              />
+                            </label>
                           ) : null}
                         </div>
+                      ) : null}
+
+                      <button
+                        type="button"
+                        disabled={isSubmitting || !isDraftValid}
+                        onClick={() => void handlePackingSubmit(workOrder)}
+                        className="inline-flex w-full items-center justify-center rounded-lg bg-accent px-4 py-3 text-sm font-semibold text-white transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:bg-teal-300"
+                      >
+                        {isSubmitting ? "Zapisywanie..." : getActionLabel(status)}
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex h-full flex-col justify-center gap-3">
+                      {status === "DONE" ? (
+                        <p className="text-sm font-semibold text-emerald-700">{workOrder.counted_quantity ?? workOrder.planned_quantity} szt. zakończone</p>
                       ) : (
-                        <span className="text-steel">-</span>
+                        <p className="text-sm text-steel">Policzono: {workOrder.counted_quantity ?? "-"}</p>
                       )}
-                    </td>
-                    <td className="px-5 py-4">
-                      <span className="inline-flex rounded-full bg-mist px-3 py-1 text-xs font-semibold text-ink">
-                        {workOrder.stage_status.status.label}
-                      </span>
-                    </td>
-                    <td className="px-5 py-4">
-                      {!isPackingStage ? (
-                        <div className="flex justify-end">
-                          <span className="inline-flex rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800">
-                            Czeka na koniec zawieszania
-                          </span>
-                        </div>
-                      ) : isPackingInProgress ? (
-                        <div className="flex min-w-[20rem] flex-col items-end gap-3">
-                          <p className="text-xs text-steel">
-                            Plan: {workOrder.planned_quantity}. Zatwierdzenie jest dostępne dopiero, gdy OK + poprawki = Policzono.
-                          </p>
-                          <button
-                            type="button"
-                            disabled={isSubmitting || !isDraftValid}
-                            onClick={() => void handlePackingSubmit(workOrder)}
-                            className="inline-flex items-center justify-center rounded-full bg-accent px-4 py-2 text-sm font-medium text-white transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:bg-teal-300"
-                          >
-                            {isSubmitting ? "Zapisywanie..." : getActionLabel(status)}
-                          </button>
-                        </div>
-                      ) : (
-                        <div className="flex justify-end">
-                          <button
-                            type="button"
-                            disabled={isSubmitting}
-                            onClick={() => void handleStageAction(workOrder)}
-                            className="inline-flex items-center justify-center rounded-full border border-line bg-white px-4 py-2 text-sm font-medium text-steel transition hover:border-accent hover:text-accent disabled:cursor-not-allowed disabled:border-line disabled:text-slate-400"
-                          >
-                            {isSubmitting ? "Zapisywanie..." : getActionLabel(status)}
-                          </button>
-                        </div>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+                      <button
+                        type="button"
+                        disabled={isSubmitting}
+                        onClick={() => void handleStageAction(workOrder)}
+                        className="inline-flex w-full items-center justify-center rounded-lg border border-line bg-white px-4 py-3 text-sm font-semibold text-steel transition hover:border-accent hover:text-accent disabled:cursor-not-allowed disabled:border-line disabled:text-slate-400"
+                      >
+                        {isSubmitting ? "Zapisywanie..." : getActionLabel(status)}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </article>
+          );
+        })}
       </div>
     );
   }
@@ -601,7 +631,7 @@ export function PackingWorkOrdersPage() {
                   Brak zleceń do pakowania
                 </div>
               ) : (
-                renderWorkOrdersTable(activeWorkOrders)
+                renderWorkOrderCards(activeWorkOrders)
               )}
             </div>
 
@@ -621,7 +651,7 @@ export function PackingWorkOrdersPage() {
                   </button>
                 </div>
 
-                {showCompleted ? renderWorkOrdersTable(completedWorkOrders) : null}
+                {showCompleted ? renderWorkOrderCards(completedWorkOrders) : null}
               </div>
             ) : null}
           </div>

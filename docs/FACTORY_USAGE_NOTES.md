@@ -86,6 +86,7 @@ Use `docs/WORKFLOW_VALIDATION_CHECKLIST.md` as the active checklist before chang
 - Operators count elements again and compare against the real received amount from surface preparation.
 - Operators perform quality check and split quantity into OK amount and correction amount.
 - When corrections are created, packing should record a correction reason/category for statistics and audit. The reason does not affect the workflow path.
+- Current implementation presents packing as per-order cards with a dedicated action panel and split balance feedback, while active automatic hanging rows remain read-only.
 - Initial coating-defect reason/category list: `niedomalowanie`, `za grubo`, `wtrącenia`, `inne`. This list is not final.
 - RAL OK elements are packed here; RAL/manual work orders end their journey here when no further correction/decoral work remains.
 - Decoral elements are not packed here; they continue to Decoral production.

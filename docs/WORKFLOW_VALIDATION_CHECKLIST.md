@@ -243,6 +243,7 @@ Implemented in session A on 2026-05-30:
 - Station tables use narrower operational columns per station family instead of broad generic metadata columns.
 - Station rows link to work-order details so drawings and attachments remain reachable without putting them into the main list.
 - Frontend regression coverage checks station-specific columns and completed/history display safeguards.
+- Packing uses per-order cards instead of a wide action table, with order facts separated from counted/OK/correction entry and read-only active hanging rows preserved.
 
 Remaining design option:
 
