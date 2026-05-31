@@ -373,7 +373,7 @@ Implementation decision needed:
 
 ### 12. External Work-Order Number
 
-Status: `PARTIALLY IMPLEMENTED; search/uniqueness policy still needed`
+Status: `PARTIALLY IMPLEMENTED; uniqueness/requiredness policy still needed`
 
 Confirmed direction from 2026-05-30:
 
@@ -383,12 +383,13 @@ Current repository behavior/evidence:
 
 - Office intake accepts optional `external_order_number` and stores it on work orders.
 - Work-order list/detail read models expose the field.
+- Office work-order list supports non-unique substring search/filter by external number.
 - Packing-created correction work orders inherit the parent's external number.
-- No uniqueness or search/filter behavior is enforced yet.
+- No uniqueness behavior is enforced yet.
 
 Implementation decision needed:
 
-- Decide uniqueness rules and search/filter behavior.
+- Decide uniqueness rules.
 - Decide whether the external number should remain optional or become required for all office-created orders.
 
 ## Recommended Validation Session

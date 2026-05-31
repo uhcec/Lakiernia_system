@@ -34,7 +34,8 @@ Confirmed needs:
 - paint stock data must not be free-floating display text only; it needs a future inventory model so production consumption can be audited and deducted safely
 
 Open implementation design:
-- `external_order_number` is currently optional, not unique, and has no dedicated search/filter behavior until the factory confirms those rules
+- `external_order_number` is optional and not unique; office list search supports non-unique substring filtering by this field
+- whether `external_order_number` should become unique or required remains a factory-policy decision
 - whether paint stock is stored as a snapshot on the work order, a link to an inventory batch/item, or both
 - how to handle intake when the required paint exists physically but is not yet represented in the inventory module
 

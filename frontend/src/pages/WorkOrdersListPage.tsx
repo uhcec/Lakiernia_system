@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { fetchWorkOrders } from "../api/workOrdersApi";
@@ -39,8 +39,11 @@ function getBucketDescription(bucket: OfficeBucket): string {
 export function WorkOrdersListPage() {
   const [workOrders, setWorkOrders] = useState<WorkOrder[]>([]);
   const [activeBucket, setActiveBucket] = useState<OfficeBucket>("INTAKE");
+  const [externalOrderNumberFilter, setExternalOrderNumberFilter] = useState("");
+  const [appliedExternalOrderNumberFilter, setAppliedExternalOrderNumberFilter] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const hasAppliedExternalOrderNumberFilter = appliedExternalOrderNumberFilter.trim().length > 0;
 
   const bucketCounts = officeBucketOptions.reduce<Record<OfficeBucket, number>>(
     (counts, bucket) => ({ ...counts, [bucket.value]: 0 }),
@@ -61,7 +64,7 @@ export function WorkOrdersListPage() {
       setErrorMessage(null);
 
       try {
-        const response = await fetchWorkOrders();
+        const response = await fetchWorkOrders({ externalOrderNumber: appliedExternalOrderNumberFilter });
         if (!isActive) {
           return;
         }
@@ -83,7 +86,17 @@ export function WorkOrdersListPage() {
     return () => {
       isActive = false;
     };
-  }, []);
+  }, [appliedExternalOrderNumberFilter]);
+
+  function applyExternalOrderNumberFilter(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setAppliedExternalOrderNumberFilter(externalOrderNumberFilter.trim());
+  }
+
+  function clearExternalOrderNumberFilter() {
+    setExternalOrderNumberFilter("");
+    setAppliedExternalOrderNumberFilter("");
+  }
 
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-7xl flex-col gap-6 px-4 py-8 sm:px-6 lg:px-8">
@@ -117,6 +130,34 @@ export function WorkOrdersListPage() {
         <div>
           <h2 className="text-lg font-semibold text-ink">Lista zleceń</h2>
           <p className="mt-1 text-sm text-steel">Status procesu i etapy pozostają jedynym aktywnym źródłem informacji o workflow.</p>
+          <form className="mt-4 flex flex-col gap-3 lg:flex-row lg:items-end" onSubmit={applyExternalOrderNumberFilter}>
+            <label className="flex min-w-0 flex-1 flex-col gap-2">
+              <span className="text-sm font-medium text-ink">Numer zewnętrzny</span>
+              <input
+                type="search"
+                value={externalOrderNumberFilter}
+                onChange={(event) => setExternalOrderNumberFilter(event.target.value)}
+                className="rounded-2xl border border-line bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-accent"
+              />
+            </label>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="submit"
+                className="inline-flex items-center justify-center rounded-full bg-accent px-5 py-3 text-sm font-medium text-white transition hover:bg-teal-700"
+              >
+                Szukaj
+              </button>
+              {hasAppliedExternalOrderNumberFilter ? (
+                <button
+                  type="button"
+                  onClick={clearExternalOrderNumberFilter}
+                  className="inline-flex items-center justify-center rounded-full border border-line bg-mist px-5 py-3 text-sm font-medium text-steel transition hover:border-accent hover:text-accent"
+                >
+                  Wyczyść
+                </button>
+              ) : null}
+            </div>
+          </form>
             <div className="mt-4 flex flex-wrap gap-2">
               {officeBucketOptions.map((bucket) => (
                 <button
@@ -150,7 +191,7 @@ export function WorkOrdersListPage() {
           </div>
         ) : workOrders.length === 0 ? (
           <div className="rounded-3xl border border-dashed border-line bg-mist px-6 py-12 text-center text-base text-steel">
-            Brak zleceń
+            {hasAppliedExternalOrderNumberFilter ? "Brak zleceń dla numeru zewnętrznego" : "Brak zleceń"}
           </div>
         ) : visibleWorkOrders.length === 0 ? (
           <div className="rounded-3xl border border-dashed border-line bg-mist px-6 py-12 text-center text-base text-steel">

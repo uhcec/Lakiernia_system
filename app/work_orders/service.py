@@ -202,12 +202,23 @@ class WorkOrderService:
         limit: int,
         offset: int,
         process_status: ProcessDisplayStatus | None = None,
+        external_order_number: str | None = None,
     ) -> WorkOrderListResponse:
+        external_order_number_query = self._normalize_optional_search(external_order_number)
         if process_status is None:
-            items = self.repository.list(limit=limit, offset=offset)
-            total = self.repository.count()
+            items = self.repository.list(
+                limit=limit,
+                offset=offset,
+                external_order_number_query=external_order_number_query,
+            )
+            total = self.repository.count(external_order_number_query=external_order_number_query)
         else:
-            all_items = self.repository.list(limit=self.repository.count(), offset=0)
+            repository_total = self.repository.count(external_order_number_query=external_order_number_query)
+            all_items = self.repository.list(
+                limit=repository_total,
+                offset=0,
+                external_order_number_query=external_order_number_query,
+            )
             filtered_items = [item for item in all_items if self.process_service.get_display_status(item) == process_status]
             total = len(filtered_items)
             items = filtered_items[offset : offset + limit]
@@ -218,6 +229,13 @@ class WorkOrderService:
             limit=limit,
             offset=offset,
         )
+
+    @staticmethod
+    def _normalize_optional_search(value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized_value = value.strip()
+        return normalized_value or None
 
     def reject_manual_status_transition(self, work_order_id: int) -> WorkOrderRead:
         self._get_existing_work_order(work_order_id)

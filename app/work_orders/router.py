@@ -59,8 +59,14 @@ def list_work_orders(
 	limit: Annotated[int, Query(ge=1, le=100)] = 50,
 	offset: Annotated[int, Query(ge=0)] = 0,
 	process_status: Annotated[ProcessDisplayStatus | None, Query()] = None,
+	external_order_number: Annotated[str | None, Query(max_length=128)] = None,
 ) -> WorkOrderListResponse:
-	return service.list_work_orders(limit=limit, offset=offset, process_status=process_status)
+	return service.list_work_orders(
+		limit=limit,
+		offset=offset,
+		process_status=process_status,
+		external_order_number=external_order_number,
+	)
 
 
 @router.post("/{work_order_id}/status-transitions", response_model=WorkOrderRead)

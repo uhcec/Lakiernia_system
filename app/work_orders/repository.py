@@ -31,7 +31,7 @@ class WorkOrderRepository:
         )
         return self.session.scalar(statement)
 
-    def list(self, *, limit: int, offset: int) -> Sequence[WorkOrder]:
+    def list(self, *, limit: int, offset: int, external_order_number_query: str | None = None) -> Sequence[WorkOrder]:
         statement: Select[tuple[WorkOrder]] = (
             select(WorkOrder)
             .options(
@@ -43,12 +43,25 @@ class WorkOrderRepository:
             )
             .order_by(WorkOrder.queue_position.asc(), WorkOrder.id.asc())
         )
+        statement = self._filter_by_external_order_number(statement, external_order_number_query)
         statement = statement.offset(offset).limit(limit)
         return self.session.scalars(statement).all()
 
-    def count(self) -> int:
+    def count(self, *, external_order_number_query: str | None = None) -> int:
         statement = select(func.count()).select_from(WorkOrder)
+        statement = self._filter_by_external_order_number(statement, external_order_number_query)
         return self.session.scalar(statement) or 0
+
+    @staticmethod
+    def _filter_by_external_order_number(statement, external_order_number_query: str | None):
+        if external_order_number_query is None:
+            return statement
+
+        normalized_query = external_order_number_query.strip()
+        if not normalized_query:
+            return statement
+
+        return statement.where(WorkOrder.external_order_number.ilike(f"%{normalized_query}%"))
 
     def get_next_queue_position(self) -> int:
         statement = select(func.max(WorkOrder.queue_position))

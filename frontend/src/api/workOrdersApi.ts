@@ -4,6 +4,10 @@ import type { CreateWorkOrderRequest, WorkOrder, WorkOrderAttachment, WorkOrders
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL?.trim();
 
+export interface WorkOrderSearchParams {
+  externalOrderNumber?: string;
+}
+
 export function createApiUrl(pathname: string): string {
   const normalizedPath = pathname.startsWith("/") ? pathname : `/${pathname}`;
 
@@ -18,8 +22,8 @@ export function createApiUrl(pathname: string): string {
   return `${API_BASE_URL.replace(/\/$/, "")}${normalizedPath}`;
 }
 
-export async function fetchWorkOrders(): Promise<WorkOrdersListResponse> {
-  const response = await fetch(createApiUrl("/work-orders"), {
+export async function fetchWorkOrders(params: WorkOrderSearchParams = {}): Promise<WorkOrdersListResponse> {
+  const response = await fetch(buildWorkOrdersUrl(params), {
     headers: {
       Accept: "application/json",
     },
@@ -30,6 +34,23 @@ export async function fetchWorkOrders(): Promise<WorkOrdersListResponse> {
   }
 
   return response.json() as Promise<WorkOrdersListResponse>;
+}
+
+function buildWorkOrdersUrl(params: WorkOrderSearchParams): string {
+  const apiUrl = createApiUrl("/work-orders");
+  const url = new URL(apiUrl, window.location.origin);
+  appendSearchParam(url, "external_order_number", params.externalOrderNumber);
+
+  return apiUrl.startsWith("http://") || apiUrl.startsWith("https://") ? url.toString() : `${url.pathname}${url.search}`;
+}
+
+function appendSearchParam(url: URL, name: string, value: string | undefined): void {
+  const normalizedValue = value?.trim();
+  if (!normalizedValue) {
+    return;
+  }
+
+  url.searchParams.set(name, normalizedValue);
 }
 
 export async function createWorkOrder(payload: CreateWorkOrderRequest): Promise<WorkOrder> {

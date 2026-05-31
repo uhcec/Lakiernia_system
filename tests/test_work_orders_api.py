@@ -663,6 +663,43 @@ def test_list_work_orders_can_filter_by_process_status(test_client: TestClient) 
     assert incomplete["id"] not in [item["id"] for item in body["items"]]
 
 
+def test_list_work_orders_can_filter_by_external_order_number(test_client: TestClient) -> None:
+    matching = create_work_order(test_client, title="External search match", external_order_number="CLIENT-2026-ABC").json()
+    create_work_order(test_client, title="External search miss", external_order_number="CLIENT-2026-XYZ")
+    create_work_order(test_client, title="No external number", external_order_number=None)
+
+    response = test_client.get("/work-orders", params={"external_order_number": "abc"})
+
+    body = response.json()
+
+    assert response.status_code == 200
+    assert body["total"] == 1
+    assert [item["id"] for item in body["items"]] == [matching["id"]]
+    assert body["items"][0]["external_order_number"] == "CLIENT-2026-ABC"
+
+
+def test_list_work_orders_combines_external_number_and_process_status_filters(test_client: TestClient) -> None:
+    entered = create_work_order(test_client, title="Entered external", external_order_number="CLIENT-SHARED").json()
+    incomplete = create_work_order(
+        test_client,
+        title="Incomplete external",
+        external_order_number="CLIENT-SHARED",
+        is_incomplete_on_arrival=True,
+    ).json()
+
+    response = test_client.get(
+        "/work-orders",
+        params={"external_order_number": "shared", "process_status": "TO_BE_PLANNED"},
+    )
+
+    body = response.json()
+
+    assert response.status_code == 200
+    assert body["total"] == 1
+    assert [item["id"] for item in body["items"]] == [entered["id"]]
+    assert incomplete["id"] not in [item["id"] for item in body["items"]]
+
+
 def test_profiles_and_accessories_require_quantity_or_to_count_flag(test_client: TestClient) -> None:
     response = test_client.post(
         "/work-orders",

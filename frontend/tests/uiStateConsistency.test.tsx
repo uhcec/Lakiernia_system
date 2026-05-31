@@ -965,6 +965,49 @@ describe("frontend state consistency", () => {
     expect(screen.queryByText("WO-OFFICE-PROD")).toBeNull();
   });
 
+  it("submits external order number search from the office list", async () => {
+    fetchWorkOrdersMock
+      .mockResolvedValueOnce({
+        items: [
+          {
+            ...buildWorkOrder(94, "WO-OFFICE-INITIAL", 1, "Oscar"),
+            external_order_number: "CLIENT-1",
+            process_status: { value: "TO_BE_PLANNED", label: "Do zaplanowania" },
+          },
+        ],
+        total: 1,
+        limit: 50,
+        offset: 0,
+      })
+      .mockResolvedValueOnce({
+        items: [
+          {
+            ...buildWorkOrder(95, "WO-OFFICE-SEARCH", 1, "Papa"),
+            external_order_number: "CLIENT-42",
+            process_status: { value: "TO_BE_PLANNED", label: "Do zaplanowania" },
+          },
+        ],
+        total: 1,
+        limit: 50,
+        offset: 0,
+      });
+
+    render(
+      <MemoryRouter>
+        <WorkOrdersListPage />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText("WO-OFFICE-INITIAL")).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText("Numer zewnętrzny"), { target: { value: " CLIENT-42 " } });
+    fireEvent.click(screen.getByRole("button", { name: "Szukaj" }));
+
+    await waitFor(() => expect(fetchWorkOrdersMock).toHaveBeenLastCalledWith({ externalOrderNumber: "CLIENT-42" }));
+    expect(await screen.findByText("WO-OFFICE-SEARCH")).toBeTruthy();
+    expect(screen.queryByText("WO-OFFICE-INITIAL")).toBeNull();
+  });
+
   it("does not use historical correction wording for active manager correction cards", async () => {
     fetchUnplannedWorkOrdersMock.mockResolvedValue([
       {
