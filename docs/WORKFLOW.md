@@ -263,6 +263,7 @@ Rules:
 Current enforcement:
 - Wrong-station mutating requests return `403` for current office, manager, process, packing, and completed-release actions.
 - `SYSTEM` and `UNKNOWN` remain compatibility station identities for legacy/system paths.
+- Station-origin links to work-order details preserve the source station identity. Detail pages reached from production stations are read-only for office/manager mutations while keeping drawings/attachments downloadable.
 - Future paint-consumption actions must define their own allowed station rules when the paint inventory model is added.
 
 ## Quantity Discrepancy Visibility

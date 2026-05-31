@@ -92,6 +92,7 @@ const createWorkOrderMock = vi.mocked(workOrdersApi.createWorkOrder);
 const fetchWorkOrdersMock = vi.mocked(workOrdersApi.fetchWorkOrders);
 const fetchWorkOrderMock = vi.mocked(workOrdersApi.fetchWorkOrder);
 const fetchWorkOrderAttachmentsMock = vi.mocked(workOrdersApi.fetchWorkOrderAttachments);
+const getWorkOrderAttachmentDownloadUrlMock = vi.mocked(workOrdersApi.getWorkOrderAttachmentDownloadUrl);
 const updateWorkOrderReleaseStatusMock = vi.mocked(workOrdersApi.updateWorkOrderReleaseStatus);
 
 function buildWorkOrder(id: number, orderNumber: string, queuePosition: number, customerName = "Klient"): WorkOrder {
@@ -198,8 +199,10 @@ beforeEach(() => {
   fetchWorkOrdersMock.mockReset();
   fetchWorkOrderMock.mockReset();
   fetchWorkOrderAttachmentsMock.mockReset();
+  getWorkOrderAttachmentDownloadUrlMock.mockReset();
   updateWorkOrderReleaseStatusMock.mockReset();
   fetchWorkOrderAttachmentsMock.mockResolvedValue([]);
+  getWorkOrderAttachmentDownloadUrlMock.mockImplementation((workOrderId, attachmentId) => `/work-orders/${workOrderId}/attachments/${attachmentId}/download`);
 });
 
 afterEach(() => {
@@ -207,9 +210,9 @@ afterEach(() => {
 });
 
 describe("frontend state consistency", () => {
-  function renderWorkOrderDetail(workOrderId = 1) {
+  function renderWorkOrderDetail(workOrderId = 1, search = "") {
     return render(
-      <MemoryRouter initialEntries={[`/zlecenia/${workOrderId}`]}>
+      <MemoryRouter initialEntries={[`/zlecenia/${workOrderId}${search}`]}>
         <Routes>
           <Route path="/zlecenia/:id" element={<WorkOrderDetailPage />} />
         </Routes>
@@ -1129,7 +1132,9 @@ describe("frontend state consistency", () => {
 
     await screen.findByText("WO-CORR-PLAN :: Hotel");
     expect(screen.getByText("Termin oryginału: 18.06.2026")).toBeTruthy();
-    expect(screen.getByRole("link", { name: "Poprawka do WO-PARENT-PLAN" }).getAttribute("href")).toBe("/zlecenia/90");
+    expect(screen.getByRole("link", { name: "Poprawka do WO-PARENT-PLAN" }).getAttribute("href")).toBe(
+      "/zlecenia/90?station_context=MANAGER",
+    );
     expect((screen.getByLabelText("Pozycja") as HTMLInputElement).value).toBe("3");
 
     fireEvent.click(screen.getByRole("button", { name: "Automat" }));
@@ -1266,6 +1271,42 @@ describe("frontend state consistency", () => {
     await screen.findAllByText("Wynik końcowy: 10 szt.");
     expect(screen.queryByText(/Postęp/)).toBeNull();
     expect(screen.queryByText(/Aktywne/)).toBeNull();
+  });
+
+  it("keeps station-origin work order details read-only while allowing attachment downloads", async () => {
+    fetchWorkOrderMock.mockResolvedValue({
+      ...buildWorkOrder(71, "WO-STATION-DETAIL", 1, "Echo"),
+      completed_quantity: 10,
+      current_active_quantity: 0,
+      total_progress_quantity: 10,
+      process_status: { value: "READY", label: "Gotowe" },
+      status: { value: "FINISHED", label: "Zakończone" },
+    });
+    fetchWorkOrderAttachmentsMock.mockResolvedValue([
+      {
+        id: 12,
+        work_order_id: 71,
+        original_filename: "rysunek.pdf",
+        stored_filename: "stored.pdf",
+        storage_path: "71/stored.pdf",
+        content_type: "application/pdf",
+        file_size: 1200,
+        attachment_type: "RYSUNEK",
+        description: null,
+        uploaded_at: "2026-05-27T08:00:00Z",
+      },
+    ]);
+
+    renderWorkOrderDetail(71, "?station_context=PACKING");
+
+    await screen.findByText("rysunek.pdf");
+    expect(screen.getByRole("link", { name: "Pobierz" }).getAttribute("href")).toBe(
+      "/work-orders/71/attachments/12/download",
+    );
+    expect(screen.getByRole("link", { name: "Wróć do listy" }).getAttribute("href")).toBe("/pakowanie");
+    expect(screen.queryByRole("button", { name: "Dodaj załącznik" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Usuń" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Oznacz jako wydane" })).toBeNull();
   });
 
   it("shows backend discrepancy signal on work order detail", async () => {

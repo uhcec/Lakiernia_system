@@ -1,7 +1,8 @@
 import { ChangeEvent, FormEvent, useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useLocation, useParams } from "react-router-dom";
 
 import { fetchWorkOrderAuditEvents } from "../api/auditApi";
+import { buildWorkOrderDetailHref, getStationIdForLocation, getStationPanelPath } from "../api/stationContext";
 import {
   deleteWorkOrderAttachment,
   fetchWorkOrder,
@@ -175,6 +176,11 @@ function buildHistoricalCorrectionDeltaText(
 
 export function WorkOrderDetailPage() {
   const { id } = useParams();
+  const location = useLocation();
+  const effectiveStationId = getStationIdForLocation(location.pathname, location.search);
+  const canCompleteArrival = effectiveStationId === "OFFICE";
+  const canManageAttachments = effectiveStationId === "OFFICE";
+  const canUpdateReleaseStatus = effectiveStationId === "OFFICE" || effectiveStationId === "MANAGER";
   const [workOrder, setWorkOrder] = useState<WorkOrder | null>(null);
   const [attachments, setAttachments] = useState<WorkOrderAttachment[]>([]);
   const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
@@ -440,7 +446,7 @@ export function WorkOrderDetailPage() {
             </div>
           </div>
           <Link
-            to="/zlecenia"
+            to={getStationPanelPath(effectiveStationId)}
             className="inline-flex items-center justify-center rounded-full border border-line bg-white px-5 py-3 text-sm font-medium text-steel transition hover:border-accent hover:text-accent"
           >
             Wróć do listy
@@ -566,7 +572,7 @@ export function WorkOrderDetailPage() {
                   <dt className="text-sm font-medium text-steel">Zlecenie nadrzędne</dt>
                   <dd className="mt-1 text-base text-ink">
                     {workOrder.parent_order ? (
-                      <Link to={`/zlecenia/${workOrder.parent_order.id}`} className="font-semibold text-accent hover:underline">
+                      <Link to={buildWorkOrderDetailHref(workOrder.parent_order.id, effectiveStationId)} className="font-semibold text-accent hover:underline">
                         {formatWorkOrderPrimaryInfo(workOrder.parent_order)} · {workOrder.parent_order.total_quantity} szt.
                       </Link>
                     ) : (
@@ -582,7 +588,7 @@ export function WorkOrderDetailPage() {
                         {workOrder.correction_orders.map((correctionOrder) => (
                           <Link
                             key={correctionOrder.id}
-                            to={`/zlecenia/${correctionOrder.id}`}
+                            to={buildWorkOrderDetailHref(correctionOrder.id, effectiveStationId)}
                             className="rounded-2xl border border-line/80 bg-white px-4 py-3 font-semibold text-accent hover:underline"
                           >
                             <div>{formatWorkOrderPrimaryInfo(correctionOrder)} · {correctionOrder.total_quantity} szt.</div>
@@ -640,18 +646,20 @@ export function WorkOrderDetailPage() {
                       {workOrder.released_to_client_at ? (
                         <p className="mt-1 text-sm text-steel">{formatDateTime(workOrder.released_to_client_at)}</p>
                       ) : null}
-                      <button
-                        type="button"
-                        onClick={() => void handleUpdateReleaseStatus(!workOrder.is_released_to_client)}
-                        disabled={isUpdatingReleaseStatus}
-                        className="mt-4 inline-flex items-center justify-center rounded-full bg-accent px-5 py-3 text-sm font-medium text-white transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:bg-teal-300"
-                      >
-                        {isUpdatingReleaseStatus
-                          ? "Zapisywanie..."
-                          : workOrder.is_released_to_client
-                            ? "Cofnij wydanie"
-                            : "Oznacz jako wydane"}
-                      </button>
+                      {canUpdateReleaseStatus ? (
+                        <button
+                          type="button"
+                          onClick={() => void handleUpdateReleaseStatus(!workOrder.is_released_to_client)}
+                          disabled={isUpdatingReleaseStatus}
+                          className="mt-4 inline-flex items-center justify-center rounded-full bg-accent px-5 py-3 text-sm font-medium text-white transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:bg-teal-300"
+                        >
+                          {isUpdatingReleaseStatus
+                            ? "Zapisywanie..."
+                            : workOrder.is_released_to_client
+                              ? "Cofnij wydanie"
+                              : "Oznacz jako wydane"}
+                        </button>
+                      ) : null}
                     </div>
                   </div>
                 ) : (
@@ -678,7 +686,7 @@ export function WorkOrderDetailPage() {
                     {workOrder.correction_orders.map((correctionOrder) => (
                       <Link
                         key={correctionOrder.id}
-                        to={`/zlecenia/${correctionOrder.id}`}
+                        to={buildWorkOrderDetailHref(correctionOrder.id, effectiveStationId)}
                         className="flex flex-col gap-3 rounded-2xl border border-line/80 bg-mist/40 px-4 py-3 transition hover:border-accent/40"
                       >
                         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -701,7 +709,7 @@ export function WorkOrderDetailPage() {
                     ))}
                   </div>
                 ) : null}
-                {workOrder.process_status.value === "INCOMPLETE" ? (
+                {workOrder.process_status.value === "INCOMPLETE" && canCompleteArrival ? (
                   <button
                     type="button"
                     onClick={() => void handleMarkCompleteArrival()}
@@ -769,54 +777,56 @@ export function WorkOrderDetailPage() {
               </div>
             </div>
 
-            <form className="mt-6 grid gap-4 rounded-3xl border border-line/80 bg-white p-5 md:grid-cols-[1.1fr_0.9fr]" onSubmit={handleAttachmentUpload}>
-              <div className="space-y-4">
-                <label className="flex flex-col gap-2">
-                  <span className="text-sm font-medium text-ink">Plik PDF</span>
-                  <input
-                    type="file"
-                    accept="application/pdf,.pdf"
-                    onChange={handleFileSelection}
-                    className="rounded-2xl border border-line bg-white px-4 py-3 text-sm text-ink outline-none transition file:mr-4 file:rounded-full file:border-0 file:bg-mist file:px-4 file:py-2 file:text-sm file:font-medium file:text-ink hover:file:bg-line/40"
-                  />
-                </label>
-                <p className="text-sm text-steel">{selectedFile ? `Wybrano: ${selectedFile.name}` : "Nie wybrano pliku"}</p>
-              </div>
-
-              <div className="grid gap-4">
-                <label className="flex flex-col gap-2">
-                  <span className="text-sm font-medium text-ink">Typ załącznika</span>
-                  <input
-                    value={attachmentType}
-                    onChange={(event) => setAttachmentType(event.target.value)}
-                    className="rounded-2xl border border-line bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-accent"
-                    placeholder="Np. SPEC, KARTA, OFERTA"
-                  />
-                </label>
-                <label className="flex flex-col gap-2">
-                  <span className="text-sm font-medium text-ink">Opis</span>
-                  <textarea
-                    value={attachmentDescription}
-                    onChange={(event) => setAttachmentDescription(event.target.value)}
-                    rows={3}
-                    className="rounded-2xl border border-line bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-accent"
-                    placeholder="Opcjonalny opis załącznika"
-                  />
-                </label>
-                <div className="flex flex-wrap items-center gap-3">
-                  <button
-                    type="submit"
-                    disabled={isUploadingAttachment}
-                    className="inline-flex items-center justify-center rounded-full bg-accent px-5 py-3 text-sm font-medium text-white transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:bg-teal-300"
-                  >
-                    {isUploadingAttachment ? "Przesyłanie..." : "Dodaj załącznik"}
-                  </button>
-                  <span className="text-sm text-steel">Maksymalny rozmiar kontroluje backend.</span>
+            {canManageAttachments ? (
+              <form className="mt-6 grid gap-4 rounded-3xl border border-line/80 bg-white p-5 md:grid-cols-[1.1fr_0.9fr]" onSubmit={handleAttachmentUpload}>
+                <div className="space-y-4">
+                  <label className="flex flex-col gap-2">
+                    <span className="text-sm font-medium text-ink">Plik PDF</span>
+                    <input
+                      type="file"
+                      accept="application/pdf,.pdf"
+                      onChange={handleFileSelection}
+                      className="rounded-2xl border border-line bg-white px-4 py-3 text-sm text-ink outline-none transition file:mr-4 file:rounded-full file:border-0 file:bg-mist file:px-4 file:py-2 file:text-sm file:font-medium file:text-ink hover:file:bg-line/40"
+                    />
+                  </label>
+                  <p className="text-sm text-steel">{selectedFile ? `Wybrano: ${selectedFile.name}` : "Nie wybrano pliku"}</p>
                 </div>
-              </div>
-            </form>
 
-            {uploadErrorMessage ? (
+                <div className="grid gap-4">
+                  <label className="flex flex-col gap-2">
+                    <span className="text-sm font-medium text-ink">Typ załącznika</span>
+                    <input
+                      value={attachmentType}
+                      onChange={(event) => setAttachmentType(event.target.value)}
+                      className="rounded-2xl border border-line bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-accent"
+                      placeholder="Np. SPEC, KARTA, OFERTA"
+                    />
+                  </label>
+                  <label className="flex flex-col gap-2">
+                    <span className="text-sm font-medium text-ink">Opis</span>
+                    <textarea
+                      value={attachmentDescription}
+                      onChange={(event) => setAttachmentDescription(event.target.value)}
+                      rows={3}
+                      className="rounded-2xl border border-line bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-accent"
+                      placeholder="Opcjonalny opis załącznika"
+                    />
+                  </label>
+                  <div className="flex flex-wrap items-center gap-3">
+                    <button
+                      type="submit"
+                      disabled={isUploadingAttachment}
+                      className="inline-flex items-center justify-center rounded-full bg-accent px-5 py-3 text-sm font-medium text-white transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:bg-teal-300"
+                    >
+                      {isUploadingAttachment ? "Przesyłanie..." : "Dodaj załącznik"}
+                    </button>
+                    <span className="text-sm text-steel">Maksymalny rozmiar kontroluje backend.</span>
+                  </div>
+                </div>
+              </form>
+            ) : null}
+
+            {canManageAttachments && uploadErrorMessage ? (
               <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{uploadErrorMessage}</div>
             ) : null}
 
@@ -860,14 +870,16 @@ export function WorkOrderDetailPage() {
                               >
                                 Pobierz
                               </a>
-                              <button
-                                type="button"
-                                onClick={() => void handleAttachmentDelete(attachment)}
-                                disabled={deletingAttachmentId === attachment.id}
-                                className="inline-flex items-center justify-center rounded-full border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-medium text-rose-700 transition hover:border-rose-300 hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-60"
-                              >
-                                {deletingAttachmentId === attachment.id ? "Usuwanie..." : "Usuń"}
-                              </button>
+                              {canManageAttachments ? (
+                                <button
+                                  type="button"
+                                  onClick={() => void handleAttachmentDelete(attachment)}
+                                  disabled={deletingAttachmentId === attachment.id}
+                                  className="inline-flex items-center justify-center rounded-full border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-medium text-rose-700 transition hover:border-rose-300 hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-60"
+                                >
+                                  {deletingAttachmentId === attachment.id ? "Usuwanie..." : "Usuń"}
+                                </button>
+                              ) : null}
                             </div>
                           </td>
                         </tr>

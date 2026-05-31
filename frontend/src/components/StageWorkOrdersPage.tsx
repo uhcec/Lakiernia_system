@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 
 import { getMutationErrorMessage } from "../utils/mutationError";
+import { buildWorkOrderDetailHref, getStationIdForLocation } from "../api/stationContext";
 import { fetchStageWorkOrders, transitionStage } from "../api/processApi";
 import type { ProcessStageValue, StageWorkOrder, StageStatusValue } from "../types/process";
 import type { ProductionTypeValue } from "../types/workOrders";
@@ -101,6 +102,7 @@ export function StageWorkOrdersPage({
   readOnly = false,
   readOnlyLabel = "Podgląd",
 }: StageWorkOrdersPageProps) {
+  const detailStationId = getStationIdForLocation(window.location.pathname, window.location.search);
   const [workOrders, setWorkOrders] = useState<StageWorkOrder[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [queueFilter, setQueueFilter] = useState<QueueFilter>("ALL");
@@ -306,7 +308,7 @@ export function StageWorkOrdersPage({
                       <p className="text-sm text-steel">{formatWorkOrderPrimaryInfo(workOrder)}</p>
                     </div>
                     <a
-                      href={`/zlecenia/${workOrder.id}`}
+                      href={buildWorkOrderDetailHref(workOrder.id, detailStationId)}
                       className="inline-flex shrink-0 text-sm font-medium text-accent transition hover:text-teal-700"
                     >
                       Szczegóły / załączniki

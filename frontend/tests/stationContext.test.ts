@@ -1,7 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createWorkOrder, deleteWorkOrderAttachment, uploadWorkOrderAttachment } from "../src/api/workOrdersApi";
-import { getStationIdForPath } from "../src/api/stationContext";
+import {
+  buildWorkOrderDetailHref,
+  getStationIdForLocation,
+  getStationIdForPath,
+  getStationPanelPath,
+} from "../src/api/stationContext";
 import type { CreateWorkOrderRequest } from "../src/types/workOrders";
 
 describe("station context", () => {
@@ -22,6 +27,15 @@ describe("station context", () => {
     ["/nieznany-panel", "UNKNOWN"],
   ])("maps %s to %s", (pathname, stationId) => {
     expect(getStationIdForPath(pathname)).toBe(stationId);
+  });
+
+  it("preserves explicit station identity on work order detail routes", () => {
+    expect(getStationIdForLocation("/zlecenia/12", "?station_context=PACKING")).toBe("PACKING");
+    expect(getStationIdForLocation("/zlecenia/12", "?station_context=MANAGER")).toBe("MANAGER");
+    expect(getStationIdForLocation("/zlecenia/12", "?station_context=NOT_A_STATION")).toBe("OFFICE");
+    expect(buildWorkOrderDetailHref(12, "PACKING")).toBe("/zlecenia/12?station_context=PACKING");
+    expect(buildWorkOrderDetailHref(12, "OFFICE")).toBe("/zlecenia/12");
+    expect(getStationPanelPath("PACKING")).toBe("/pakowanie");
   });
 
   it("sends current station identity when creating a work order", async () => {
@@ -60,6 +74,26 @@ describe("station context", () => {
     const requestInit = fetchMock.mock.calls[0][1] as RequestInit;
     expect(requestInit.headers).toMatchObject({
       "X-Station-Id": "OFFICE",
+    });
+  });
+
+  it("sends preserved station identity from station-origin detail routes", async () => {
+    window.history.pushState({}, "", "/zlecenia/12?station_context=PACKING");
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ id: 7 }), {
+        status: 201,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await uploadWorkOrderAttachment(12, {
+      file: new File(["%PDF-1.4"], "audyt.pdf", { type: "application/pdf" }),
+    });
+
+    const requestInit = fetchMock.mock.calls[0][1] as RequestInit;
+    expect(requestInit.headers).toMatchObject({
+      "X-Station-Id": "PACKING",
     });
   });
 

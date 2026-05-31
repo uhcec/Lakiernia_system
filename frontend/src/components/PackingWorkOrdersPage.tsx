@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 
 import { getMutationErrorMessage } from "../utils/mutationError";
+import { buildWorkOrderDetailHref, getStationIdForLocation } from "../api/stationContext";
 import { completePacking, fetchStageWorkOrders, transitionStage } from "../api/processApi";
 import type { StageWorkOrder, StageStatusValue } from "../types/process";
 import { loadCorrectionContexts, type CorrectionContext } from "../utils/correctionContext";
@@ -151,6 +152,7 @@ function badgeClasses(tone: DisplayBadge["tone"]): string {
 }
 
 export function PackingWorkOrdersPage() {
+  const detailStationId = getStationIdForLocation(window.location.pathname, window.location.search);
   const [workOrders, setWorkOrders] = useState<StageWorkOrder[]>([]);
   const [queueFilter, setQueueFilter] = useState<QueueFilter>("ALL");
   const [isLoading, setIsLoading] = useState(true);
@@ -380,7 +382,7 @@ export function PackingWorkOrdersPage() {
                       <p className="text-sm text-steel">{formatWorkOrderPrimaryInfo(workOrder)}</p>
                     </div>
                     <a
-                      href={`/zlecenia/${workOrder.id}`}
+                      href={buildWorkOrderDetailHref(workOrder.id, detailStationId)}
                       className="inline-flex shrink-0 text-sm font-medium text-accent transition hover:text-teal-700"
                     >
                       Szczegóły / załączniki

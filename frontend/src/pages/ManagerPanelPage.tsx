@@ -18,6 +18,7 @@ import {
   getQueueRevisionFromPlannedOrders,
   moveWorkOrderWithinQueueSlots,
 } from "../utils/queueReorder";
+import { buildWorkOrderDetailHref } from "../api/stationContext";
 import {
   formatWorkOrderPrimaryInfo,
   getWorkOrderActiveCorrectionsText,
@@ -485,7 +486,7 @@ export function ManagerPanelPage() {
                     <div className="space-y-1 text-sm">
                       <p className="font-medium text-amber-800">
                         {workOrder.parent_order ? (
-                          <a href={`/zlecenia/${workOrder.parent_order.id}`} className="text-amber-800 underline-offset-2 hover:underline">
+                          <a href={buildWorkOrderDetailHref(workOrder.parent_order.id, "MANAGER")} className="text-amber-800 underline-offset-2 hover:underline">
                             {buildCorrectionReference(workOrder)}
                           </a>
                         ) : (
@@ -507,7 +508,7 @@ export function ManagerPanelPage() {
                   {getProductionTypeLabel(workOrder.production_type?.value)}
                 </span>
                 <a
-                  href={`/zlecenia/${workOrder.id}`}
+                  href={buildWorkOrderDetailHref(workOrder.id, "MANAGER")}
                   className="inline-flex rounded-full border border-line bg-white px-3 py-1 font-medium text-accent transition hover:border-accent/50"
                 >
                   Szczegóły
@@ -740,7 +741,7 @@ export function ManagerPanelPage() {
                             </span>
                             <p className="font-medium text-amber-800">
                               {workOrder.parent_order ? (
-                                <a href={`/zlecenia/${workOrder.parent_order.id}`} className="text-amber-800 underline-offset-2 hover:underline">
+                                <a href={buildWorkOrderDetailHref(workOrder.parent_order.id, "MANAGER")} className="text-amber-800 underline-offset-2 hover:underline">
                                   {buildCorrectionReference(workOrder)}
                                 </a>
                               ) : (
@@ -794,7 +795,7 @@ export function ManagerPanelPage() {
 
                       <div className="flex justify-end">
                         <a
-                          href={`/zlecenia/${workOrder.id}`}
+                          href={buildWorkOrderDetailHref(workOrder.id, "MANAGER")}
                           className="mr-3 inline-flex items-center justify-center rounded-full border border-line bg-white px-5 py-3 text-sm font-medium text-accent transition hover:border-accent/50"
                         >
                           Szczegóły
