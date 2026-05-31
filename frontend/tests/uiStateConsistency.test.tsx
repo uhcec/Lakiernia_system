@@ -399,6 +399,7 @@ describe("frontend state consistency", () => {
     );
 
     expect(await screen.findByText("WO-VERIFY :: ACME")).toBeTruthy();
+    expect(screen.queryByRole("table")).toBeNull();
     expect(screen.getByText("Profile")).toBeTruthy();
     expect(screen.getByText("Akcesoria")).toBeTruthy();
     expect(screen.getByText("42 szt.")).toBeTruthy();
@@ -433,6 +434,7 @@ describe("frontend state consistency", () => {
     );
 
     expect(await screen.findByText("WO-PROD-READ :: ACME")).toBeTruthy();
+    expect(screen.queryByRole("table")).toBeNull();
     expect(screen.getByText("Metraż")).toBeTruthy();
     expect(screen.getByText("12.5 m2")).toBeTruthy();
     expect(screen.getByText("Farba")).toBeTruthy();

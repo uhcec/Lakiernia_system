@@ -265,112 +265,125 @@ export function StageWorkOrdersPage({
     return "Start po zawieszaniu";
   }
 
-  function renderWorkOrdersTable(items: StageWorkOrder[]) {
-    const showVerificationColumns = usesVerificationColumns();
+  function renderWorkOrderCards(items: StageWorkOrder[]) {
+    const showVerificationFields = usesVerificationColumns();
 
     return (
-      <div className="overflow-hidden rounded-3xl border border-line bg-white shadow-panel">
-        <div className="overflow-x-auto">
-          <table className="min-w-full border-collapse text-left text-sm">
-            <thead className="bg-mist text-steel">
-              <tr>
-                <th className="px-5 py-4 font-semibold">Pozycja</th>
-                <th className="px-5 py-4 font-semibold">Nr zlecenia</th>
-                <th className="px-5 py-4 font-semibold">Firma / klient</th>
-                {showVerificationColumns ? <th className="px-5 py-4 font-semibold">Profile</th> : <th className="px-5 py-4 font-semibold">Metraż</th>}
-                {showVerificationColumns ? <th className="px-5 py-4 font-semibold">Akcesoria</th> : null}
-                <th className="px-5 py-4 font-semibold">Farba</th>
-                <th className="px-5 py-4 font-semibold">Plan</th>
-                {isSurfacePreparationStage ? <th className="px-5 py-4 font-semibold">Policzono</th> : null}
-                <th className="px-5 py-4 font-semibold">Status etapu</th>
-                <th className="px-5 py-4 font-semibold text-right">Akcje</th>
-              </tr>
-            </thead>
-            <tbody>
-              {items.map((workOrder) => {
-                const status = workOrder.stage_status.status.value;
-                const isSubmitting = activeWorkOrderId === workOrder.id;
-                const showActionButton = canTriggerAction(workOrder);
-                const isActionButtonEnabled = isActionEnabled(workOrder);
-                const rowKey = `${workOrder.id}-${workOrder.batch_id ?? workOrder.id}-${stage}`;
-                const countedDraft = countedQuantities[workOrder.id] ?? "";
-                const correctionContext = correctionContextByOrderId[workOrder.id];
-                const isMergedHistoricalCorrection = workOrder.is_historical_correction;
-                const showHistoricalResult = status === "DONE" && !workOrder.is_correction;
-                const showBatchProgress = status !== "DONE" || (workOrder.is_correction && !isMergedHistoricalCorrection);
+      <div className="space-y-3">
+        {items.map((workOrder) => {
+          const status = workOrder.stage_status.status.value;
+          const isSubmitting = activeWorkOrderId === workOrder.id;
+          const showActionButton = canTriggerAction(workOrder);
+          const isActionButtonEnabled = isActionEnabled(workOrder);
+          const rowKey = `${workOrder.id}-${workOrder.batch_id ?? workOrder.id}-${stage}`;
+          const countedDraft = countedQuantities[workOrder.id] ?? "";
+          const correctionContext = correctionContextByOrderId[workOrder.id];
+          const isMergedHistoricalCorrection = workOrder.is_historical_correction;
+          const showHistoricalResult = status === "DONE" && !workOrder.is_correction;
+          const showBatchProgress = status !== "DONE" || (workOrder.is_correction && !isMergedHistoricalCorrection);
 
-                return (
-                  <tr
-                    key={rowKey}
-                    className={[
-                      "border-t border-line/80 text-ink",
-                      workOrder.is_correction ? "bg-amber-50/50" : "",
-                    ].join(" ")}
-                  >
-                    <td className="px-5 py-4 font-semibold">{workOrder.queue_position ?? "-"}</td>
-                    <td className="px-5 py-4 font-semibold align-top">
-                      <div className="space-y-2">
-                        <div className="text-base text-ink">{workOrder.order_number}</div>
-                        <p className="text-sm font-normal text-steel">{formatWorkOrderPrimaryInfo(workOrder)}</p>
-                        <a
-                          href={`/zlecenia/${workOrder.id}`}
-                          className="inline-flex text-sm font-medium text-accent transition hover:text-teal-700"
-                        >
-                          Szczegóły / załączniki
-                        </a>
-                        {workOrder.batch_is_partial ? (
-                          <span className="inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800">
-                            Niepełne
-                          </span>
-                        ) : null}
-                        {workOrder.is_correction ? (
-                          <span className="inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-amber-800">
-                            POPRAWKA
-                          </span>
-                        ) : null}
-                        <div className="flex flex-wrap gap-2">
-                          {getStageWorkOrderBadgeStack(workOrder).map((badge) => (
-                            <span
-                              key={`${workOrder.id}-${badge.label}`}
-                              className={["inline-flex rounded-full px-2 py-1 text-[11px] font-semibold", badgeClasses(badge.tone)].join(" ")}
-                            >
-                              {badge.label}
-                            </span>
-                          ))}
-                        </div>
-                        <p className="text-sm font-semibold text-ink">{status === "DONE" ? `Zakończono: ${title}` : title}</p>
-                        {showBatchProgress ? (
-                          <p className="text-sm text-steel">Postęp partii: {getStageWorkOrderProgressText(workOrder)}</p>
-                        ) : null}
-                        {showHistoricalResult ? (
-                          <p className="text-sm font-medium text-emerald-700">{getHistoricalStageWorkOrderResultText(workOrder)}</p>
-                        ) : null}
-                        {workOrder.is_correction ? (
-                          <>
-                            <p className="font-medium text-amber-800">{buildCorrectionReference(workOrder, correctionContext)}</p>
-                            <p className="text-amber-700">
-                              {isMergedHistoricalCorrection
-                                ? buildMergedCorrectionDeltaText(workOrder, correctionContext)
-                                : buildCorrectionQuantityContext(workOrder, correctionContext)}
-                            </p>
-                          </>
-                        ) : null}
+          return (
+            <article
+              key={rowKey}
+              className={[
+                "rounded-lg border bg-white p-5 text-ink shadow-sm",
+                workOrder.is_correction ? "border-amber-200 bg-amber-50/40" : "border-line/80",
+              ].join(" ")}
+            >
+              <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(14rem,18rem)]">
+                <div className="space-y-4">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="min-w-0 space-y-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="inline-flex rounded-full bg-mist px-3 py-1 text-xs font-semibold text-steel">
+                          Poz. {workOrder.queue_position ?? "-"}
+                        </span>
+                        <span className="text-lg font-semibold text-ink">{workOrder.order_number}</span>
+                        <span className="inline-flex rounded-full bg-mist px-3 py-1 text-xs font-semibold text-ink">
+                          {workOrder.stage_status.status.label}
+                        </span>
                       </div>
-                    </td>
-                    <td className="px-5 py-4 text-steel">{workOrder.customer_name ?? "-"}</td>
-                    {showVerificationColumns ? (
-                      <td className="px-5 py-4 font-semibold">{formatCountRequirement(workOrder.profiles_quantity, workOrder.profiles_to_count)}</td>
-                    ) : (
-                      <td className="px-5 py-4 font-semibold">{formatArea(workOrder.total_area_m2)}</td>
-                    )}
-                    {showVerificationColumns ? (
-                      <td className="px-5 py-4 font-semibold">{formatCountRequirement(workOrder.accessories_quantity, workOrder.accessories_to_count)}</td>
+                      <p className="text-sm text-steel">{formatWorkOrderPrimaryInfo(workOrder)}</p>
+                    </div>
+                    <a
+                      href={`/zlecenia/${workOrder.id}`}
+                      className="inline-flex shrink-0 text-sm font-medium text-accent transition hover:text-teal-700"
+                    >
+                      Szczegóły / załączniki
+                    </a>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
+                    {workOrder.batch_is_partial ? (
+                      <span className="inline-flex rounded-full bg-amber-100 px-2 py-1 text-[11px] font-semibold text-amber-800">
+                        Niepełne
+                      </span>
                     ) : null}
-                    <td className="px-5 py-4 text-steel">{formatPaint(workOrder)}</td>
-                    <td className="px-5 py-4 font-semibold">{workOrder.planned_quantity}</td>
+                    {getStageWorkOrderBadgeStack(workOrder).map((badge) => (
+                      <span
+                        key={`${workOrder.id}-${badge.label}`}
+                        className={["inline-flex rounded-full px-2 py-1 text-[11px] font-semibold", badgeClasses(badge.tone)].join(" ")}
+                      >
+                        {badge.label}
+                      </span>
+                    ))}
+                  </div>
+
+                  <dl className="grid gap-x-6 gap-y-3 text-sm sm:grid-cols-2 xl:grid-cols-4">
+                    {showVerificationFields ? (
+                      <>
+                        <div>
+                          <dt className="font-medium text-steel">Profile</dt>
+                          <dd className="mt-1 font-semibold text-ink">{formatCountRequirement(workOrder.profiles_quantity, workOrder.profiles_to_count)}</dd>
+                        </div>
+                        <div>
+                          <dt className="font-medium text-steel">Akcesoria</dt>
+                          <dd className="mt-1 font-semibold text-ink">{formatCountRequirement(workOrder.accessories_quantity, workOrder.accessories_to_count)}</dd>
+                        </div>
+                      </>
+                    ) : (
+                      <div>
+                        <dt className="font-medium text-steel">Metraż</dt>
+                        <dd className="mt-1 font-semibold text-ink">{formatArea(workOrder.total_area_m2)}</dd>
+                      </div>
+                    )}
+                    <div>
+                      <dt className="font-medium text-steel">Farba</dt>
+                      <dd className="mt-1 font-semibold text-ink">{formatPaint(workOrder)}</dd>
+                    </div>
+                    <div>
+                      <dt className="font-medium text-steel">Plan</dt>
+                      <dd className="mt-1 font-semibold text-ink">{workOrder.planned_quantity} szt.</dd>
+                    </div>
+                  </dl>
+
+                  <div className="space-y-1 text-sm">
+                    <p className="font-semibold text-ink">{status === "DONE" ? `Zakończono: ${title}` : title}</p>
+                    {showBatchProgress ? (
+                      <p className="text-steel">Postęp partii: {getStageWorkOrderProgressText(workOrder)}</p>
+                    ) : null}
+                    {showHistoricalResult ? (
+                      <p className="font-medium text-emerald-700">{getHistoricalStageWorkOrderResultText(workOrder)}</p>
+                    ) : null}
+                    {workOrder.is_correction ? (
+                      <>
+                        <p className="font-medium text-amber-800">{buildCorrectionReference(workOrder, correctionContext)}</p>
+                        <p className="text-amber-700">
+                          {isMergedHistoricalCorrection
+                            ? buildMergedCorrectionDeltaText(workOrder, correctionContext)
+                            : buildCorrectionQuantityContext(workOrder, correctionContext)}
+                        </p>
+                      </>
+                    ) : null}
+                  </div>
+                </div>
+
+                <div className="border-t border-line/80 pt-4 lg:border-l lg:border-t-0 lg:pl-5 lg:pt-0">
+                  <div className="flex h-full flex-col justify-center gap-3">
                     {isSurfacePreparationStage ? (
-                      <td className="px-5 py-4">
-                        {status === "IN_PROGRESS" ? (
+                      status === "IN_PROGRESS" ? (
+                        <label className="space-y-1 text-sm font-medium text-steel">
+                          <span>Policzono</span>
                           <input
                             type="number"
                             min={1}
@@ -383,41 +396,35 @@ export function StageWorkOrdersPage({
                                 [workOrder.id]: value,
                               }));
                             }}
-                            className="w-28 rounded-2xl border border-line bg-white px-3 py-2 text-sm font-medium text-ink shadow-sm outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/20"
+                            className="w-full rounded-lg border border-line bg-white px-3 py-2 text-base font-semibold text-ink outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/20"
                             placeholder="0"
                           />
-                        ) : (
-                          <span className="font-semibold text-ink">{workOrder.counted_quantity ?? "-"}</span>
-                        )}
-                      </td>
-                    ) : null}
-                    <td className="px-5 py-4">
-                      <span className="inline-flex rounded-full bg-mist px-3 py-1 text-xs font-semibold text-ink">
-                        {workOrder.stage_status.status.label}
-                      </span>
-                    </td>
-                    <td className="px-5 py-4 text-right">
-                      {showActionButton ? (
-                        <button
-                          type="button"
-                          disabled={isSubmitting || !isActionButtonEnabled}
-                          onClick={() => void handleAction(workOrder)}
-                          className="inline-flex items-center justify-center rounded-full border border-line bg-white px-4 py-2 text-sm font-medium text-steel transition hover:border-accent hover:text-accent disabled:cursor-not-allowed disabled:border-line disabled:text-slate-400"
-                        >
-                          {isSubmitting ? "Zapisywanie..." : getActionLabel(status)}
-                        </button>
+                        </label>
                       ) : (
-                        <span className="inline-flex rounded-full bg-mist px-3 py-1 text-xs font-semibold text-steel">
-                          {getUnavailableLabel(workOrder)}
-                        </span>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+                        <p className="text-sm text-steel">Policzono: {workOrder.counted_quantity ?? "-"}</p>
+                      )
+                    ) : null}
+
+                    {showActionButton ? (
+                      <button
+                        type="button"
+                        disabled={isSubmitting || !isActionButtonEnabled}
+                        onClick={() => void handleAction(workOrder)}
+                        className="inline-flex w-full items-center justify-center rounded-lg border border-line bg-white px-4 py-3 text-sm font-semibold text-steel transition hover:border-accent hover:text-accent disabled:cursor-not-allowed disabled:border-line disabled:text-slate-400"
+                      >
+                        {isSubmitting ? "Zapisywanie..." : getActionLabel(status)}
+                      </button>
+                    ) : (
+                      <span className="inline-flex w-fit rounded-full bg-mist px-3 py-1 text-xs font-semibold text-steel">
+                        {getUnavailableLabel(workOrder)}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </article>
+          );
+        })}
       </div>
     );
   }
@@ -499,7 +506,7 @@ export function StageWorkOrdersPage({
                   {emptyMessage}
                 </div>
               ) : (
-                renderWorkOrdersTable(activeWorkOrders)
+                renderWorkOrderCards(activeWorkOrders)
               )}
             </div>
 
@@ -519,7 +526,7 @@ export function StageWorkOrdersPage({
                   </button>
                 </div>
 
-                {showCompleted ? renderWorkOrdersTable(completedWorkOrders) : null}
+                {showCompleted ? renderWorkOrderCards(completedWorkOrders) : null}
               </div>
             ) : null}
           </div>

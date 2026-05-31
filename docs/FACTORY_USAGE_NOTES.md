@@ -105,6 +105,7 @@ Use `docs/WORKFLOW_VALIDATION_CHECKLIST.md` as the active checklist before chang
 - Surface preparation list should primarily show: work-order number, profile pieces to verify, accessory pieces to verify, company/customer, and queue position.
 - Production-oriented station lists should prioritize the data needed to decide and execute work at that station, with less-used data moved into work-order details.
 - Drawings and attachments must remain reachable from details on production and hanging/automatic screens.
+- Current implementation presents general station lists as per-order cards with station-specific facts and a separated action area, rather than wide action tables.
 
 ## Known Gaps To Clarify
 
