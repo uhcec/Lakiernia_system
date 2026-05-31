@@ -86,6 +86,8 @@ Te rzeczy nie powinny wymagac nowej decyzji workflow, bo dotycza czytelnosci alb
 
 ## Wymaga decyzji lub rozmowy z fabryka
 
+Aktualizacja 2026-06-01: czesc pytan ponizej dostala odpowiedzi. Globalna nawigacja i widocznosc statystyk trzeba projektowac razem z loginami/rolami; audyt i statystyki nie powinny polegac wylacznie na wspolnym tablecie. Pytanie o fizyczna wyłącznosc pakowania nadal pozostaje otwarte.
+
 1. Globalna nawigacja dla wszystkich stanowisk
 
    Header pokazuje biuro, kierownika, wszystkie stanowiska, audyt i dodawanie zlecenia. Przy jednym wspolnym systemie jest to wygodne, ale na tablecie stanowiskowym operator moze widziec za duzo drog.
@@ -106,9 +108,9 @@ Te rzeczy nie powinny wymagac nowej decyzji workflow, bo dotycza czytelnosci alb
 
 4. Widocznosc audytu w glownej nawigacji
 
-   Bez logowania osobowego audyt jest read-only, ale nadal pokazuje historie operacyjna i techniczne dane. To moze byc w porzadku w zaufanej sieci, ale warto to swiadomie potwierdzic.
+   Bez logowania osobowego audyt jest read-only, ale nadal pokazuje historie operacyjna i techniczne dane. Po odpowiedziach z 2026-06-01 trzeba go traktowac jako ekran wymagajacy docelowych rol/uprawnien, nie jako ogolny panel dla wszystkich.
 
-   Pytanie: czy audyt ma byc widoczny dla wszystkich na wspolnym urzadzeniu, czy tylko dla biura/kierownika/serwisu?
+   Pytanie otwarte: kto poza managerem/serwisem ma miec dostep do audytu po wprowadzeniu loginow?
 
 5. Pakowanie i zasob pakowania
 
@@ -118,15 +120,15 @@ Te rzeczy nie powinny wymagac nowej decyzji workflow, bo dotycza czytelnosci alb
 
 6. Produkcja automatyczna i zuzycie farby
 
-   Wiemy, ze temat farby/inwentaryzacji jest otwarty. Aktualne UI pokazuje producenta/RAL, ale nie ma kontrolowanego wpisu zuzycia farby.
+   Potwierdzono, ze produkcja automatyczna wpisuje zuzycie farby, a pakowanie automatycznego zlecenia nie powinno dac sie zakonczyc bez tego wpisu. Aktualne UI pokazuje producenta/RAL, ale nie ma kontrolowanego wpisu zuzycia farby.
 
-   Pytanie: kiedy i przez kogo ma byc wpisywane zuzycie farby, w jakiej jednostce i czy ma pomniejszac magazyn?
+   Otwarte: rezerwacja versus odjecie po faktycznym zuzyciu, zachowanie przy braku farby, dokladnie 70 m2 w formule.
 
 7. Dokument kontroli jakosci
 
-   Pakowanie pelni role kontroli jakosci, ale UI nie generuje jeszcze dokumentu QC z szablonu fabryki.
+   Pakowanie pelni role kontroli jakosci, ale UI nie generuje jeszcze dokumentu QC z szablonu fabryki. Wiemy juz, ze szablon jest w Excelu, generuje go biuro przed produkcja, a systemowe pola to numer wewnetrzny, farba i firma.
 
-   Pytanie: jaki jest finalny szablon dokumentu, ktore pola sa obowiazkowe i kiedy dokument ma powstawac?
+   Otwarte: potrzebny jest realny plik i mapowanie komorek.
 
 ## Nie ruszac teraz
 

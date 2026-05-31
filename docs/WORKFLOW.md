@@ -29,13 +29,12 @@ Scope:
 Office intake should support operational and traceability fields needed later by production, manager, and documents.
 
 Confirmed needs:
-- client-facing/external work-order number (`external_order_number`) should be captured separately from the internal system work-order number
+- client-facing/external work-order number (`external_order_number`) is captured separately from the internal system work-order number
+- `external_order_number` is optional, not unique, and duplicate values should be allowed without warning or blocking
 - paint identity and paint stock state should be captured or selected at intake before planning/production
 - paint stock data must not be free-floating display text only; it needs a future inventory model so production consumption can be audited and deducted safely
 
 Open implementation design:
-- `external_order_number` is optional and not unique; office list search supports non-unique substring filtering by this field
-- whether `external_order_number` should become unique or required remains a factory-policy decision
 - whether paint stock is stored as a snapshot on the work order, a link to an inventory batch/item, or both
 - how to handle intake when the required paint exists physically but is not yet represented in the inventory module
 
@@ -111,7 +110,9 @@ When packing has correction quantity (`correction_quantity > 0`):
 4. Packing must record a correction reason/category when a correction child is created. The optional note can hold additional context from packing.
 5. The reason/category is stored on the child correction work order for statistics, read models, and audit; it does not change the workflow path and does not require approval before planning.
 6. Manager reporting aggregates correction child orders by stored reason/category, counting correction orders and summing their correction quantities. Legacy/uncategorized correction children remain visible as an uncategorized reporting row rather than being hidden.
-7. Initial coating-defect reason/category values are `niedomalowanie`, `za grubo`, `wtrącenia`, and `inne`; the list is not final, so storage remains flexible rather than a strict database enum.
+7. Initial coating-defect reason/category values are `niedomalowanie`, `za grubo`, `wtrącenia`, and `inne`; the list is acceptable for now, should remain simple in the UI, and may change later.
+8. The correction reason UI should not allow arbitrary custom categories. Storage may remain flexible for compatibility and future category changes, but operator entry should stay list-based.
+9. Packing correction entry should capture how many corrected pieces are profiles and how many are accessories. Those category correction quantities must sum to `correction_quantity` and must not introduce categories beyond profiles/accessories.
 
 Correction planning return stage:
 - Correction orders do not go through `SURFACE_PREPARATION`.
@@ -167,7 +168,9 @@ Office/manager list grouping:
 - Completed work orders have an issued/released marker showing whether the completed order has been handed over/released to the client.
 - The marker is stored as `released_to_client_at`; `is_released_to_client` is derived for read models.
 - Release can be marked or cleared only for `READY` work orders. This is logistics/dispatch state and must not change the production meaning of READY.
-- Office and manager station identities may update the marker; production station identities may not.
+- Target factory policy is that office marks or clears completed-order release. Production station identities may not update the marker.
+- Current implementation still allows manager station identity to update the marker; this is an implementation gap after the 2026-06-01 clarification.
+- Future release flow should generate a WZ / issue document for completed orders; the WZ template, fields, storage, and print/download behavior still need separate design.
 
 Manager planning ergonomics:
 - Manager planning assigns `production_type` explicitly as manual or automatic production. A switch/segmented control is a UI affordance for that assignment; it must not create separate queues.
@@ -259,12 +262,16 @@ Rules:
 - Backend must reject state-changing actions sent from a station that is not allowed to perform them.
 - Station-action restrictions should be explicit and tested before rollout.
 - There are no expected normal-production cases where one station needs to perform another station's action.
+- Production users should not edit work-order intake/business data; production access is limited to station workflow actions and read-only detail/attachment access.
+- Statistics should be manager-only.
+- The current shared station identity model is not the final access model. Factory policy now requires login: production logs into station contexts, while office users need individual accounts.
 
 Current enforcement:
 - Wrong-station mutating requests return `403` for current office, manager, process, packing, and completed-release actions.
 - `SYSTEM` and `UNKNOWN` remain compatibility station identities for legacy/system paths.
 - Station-origin links to work-order details preserve the source station identity. Detail pages reached from production stations are read-only for office/manager mutations while keeping drawings/attachments downloadable.
 - Future paint-consumption actions must define their own allowed station rules when the paint inventory model is added.
+- Future auth/role work must add users, login sessions, role checks, and audit actor fields without weakening station-context checks.
 
 ## Quantity Discrepancy Visibility
 
@@ -284,7 +291,7 @@ Rules:
 - A known individual category quantity may be `0`, but it must not exceed `total_quantity`.
 - A category that still needs counting uses the existing `*_to_count` flag with a `NULL` quantity; it must not also carry a numeric quantity.
 - Station read models must display known category quantities for full-order contexts, and must not invent a category split for partial active batches/corrections when both categories are present.
-- Correction children inherit category information only when it can be derived without guessing; partial corrections from mixed profile/accessory parents become to-count for the category split.
+- Target correction behavior: packing should explicitly collect profile/accessory correction quantities, so correction children preserve the exact corrected category split instead of guessing.
 - Completed/READY rows must not derive category quantities from `current_active_quantity == 0`; historical display remains governed by completed-state display rules.
 
 Current enforcement:
@@ -292,6 +299,7 @@ Current enforcement:
 - DB constraints allow only `NULL` or values from `0` through `total_quantity`, and require known profile/accessory pairs to sum to `total_quantity`.
 - Packing-created correction children derive binary category splits safely, but mark mixed-category partial corrections as to-count rather than guessing which pieces need correction.
 - Process/station read models show stored category counts for full-order contexts, derive binary category splits for partial contexts, and mark mixed-category partial contexts as to-count.
+- The current correction implementation is now incomplete against the 2026-06-01 requirement for explicit profile/accessory correction quantities.
 
 ## Additional Work Types
 
@@ -315,25 +323,39 @@ The system should generate a production quality-control document from a provided
 Confirmed need:
 - the document should be generated automatically from work-order/process data where possible
 - the factory already has a document template that should drive the generated output instead of inventing a new format
+- the template format is Excel
+- office generates the document before production
+- the generated document should contain only the internal work-order number, paint, and company/customer from the system unless the provided template proves otherwise
+- generated copies are for printing only; the system does not need to persist every filled copy as an attachment unless a later audit/storage rule changes this
 
 Open implementation design:
-- template file format and storage location
-- exact data fields to fill from the system
-- whether generation happens at intake, production start, completion, or on demand
-- whether generated documents are stored as attachments/audit evidence or regenerated from current data
+- obtain the real Excel template and map concrete cells/fields before implementation
+- decide where the template file is stored and who may update it
+- confirm how manual/signature fields in the template should remain blank for printing
 
 ## Paint Inventory And Consumption
 
 Paint stock management is a required future workflow area, but it needs a dedicated data model before implementation.
 
 Confirmed non-conflicting needs:
-- paint stock state should be required during order intake/planning
+- paint stock unit is kilograms
+- stock balance is tracked as an aggregate for a given paint producer and RAL/color, not as separate stock buckets per paint batch
+- paint intake records should capture producer, RAL/color, amount in kg, supplier, and likely batch/lot as receipt metadata; they should not require price, notes, or a manually entered date
+- the system must detect and report insufficient paint for a work order
+- estimated required paint is derived from order surface area: below 70 m2 use `area_m2 / 4`, above 70 m2 use `area_m2 / 6`
+- the factory answer says paint should be taken from stock after the work order is entered, based on the order requirement
+- automatic production records actual paint consumption manually; manual production is not currently confirmed to record paint consumption
+- automatic correction work should record paint consumption like other automatic work
+- packing completion for automatic work should be blocked until required paint consumption has been entered, so departments remind each other to complete the required production data
 - production paint consumption should reduce paint stock through an audited system action
 - automatic production is allowed to enter paint used/consumed; it is no longer a display-only panel
 
 Open implementation design:
 - define paint inventory entities, stock movement rules, audit events, and correction/undo behavior before code changes
-- clarify stock units, container/batch tracking, deduction timing, and any additional automatic-production fields before implementing inventory semantics
+- clarify whether the order-entry stock action is a hard deduction or a reservation, and how it reconciles with later actual automatic-production consumption entry
+- clarify whether insufficient paint blocks order creation/planning/consumption, or only warns before a controlled override
+- clarify how exactly 70 m2 is classified in the paint requirement formula
+- clarify whether entered batch/lot is only receipt metadata or should become searchable/reportable despite aggregate stock balances
 - keep the automatic `PRODUCTION` stage transition model separate from paint consumption: automatic production should not gain manual production start/finish unless separately decided
 
 ## Process Action Safety

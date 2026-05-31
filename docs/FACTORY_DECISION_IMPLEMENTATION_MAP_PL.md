@@ -1,6 +1,6 @@
 # Mapa decyzji na implementacje
 
-Status: robocza mapa na czas oczekiwania na odpowiedzi fabryki. Nie wprowadza nowych zasad. Sluzy do szybkiego przetlumaczenia odpowiedzi kolegi na bezpieczne zadania techniczne.
+Status: robocza mapa po odpowiedziach fabryki z 2026-06-01. Sluzy do szybkiego przetlumaczenia potwierdzonych odpowiedzi na bezpieczne zadania techniczne.
 
 Zasada pracy: jesli odpowiedz dotyczy realnej polityki fabryki, najpierw aktualizujemy `docs/WORKFLOW.md` i `docs/FACTORY_USAGE_NOTES.md`, potem dodajemy testy, potem implementujemy najmniejsza spojna zmiane.
 
@@ -19,12 +19,13 @@ Obecnie:
 - Lista biura umie szukac po fragmencie numeru.
 - Poprawki dziedzicza numer zewnetrzny rodzica.
 
-Jesli odpowiedz brzmi: numer nadal opcjonalny i nieunikalny:
+Potwierdzona decyzja po 2026-06-01:
 
 - Brak wymaganej implementacji.
 - Mozliwe drobne usprawnienie: raport/lista potencjalnych duplikatow jako narzedzie biura.
+- Numer zewnetrzny zostaje opcjonalny, nieunikalny i duplikaty sa dozwolone bez ostrzezenia/blokady.
 
-Jesli numer ma byc wymagany:
+Jesli przyszla polityka zmieni numer na wymagany:
 
 - Zmienic Pydantic create/update validation.
 - Zmienic frontend create form i komunikaty.
@@ -32,7 +33,7 @@ Jesli numer ma byc wymagany:
 - Ustalic wyjatki: poprawki, zlecenia awaryjne, telefoniczne, stare rekordy.
 - Testy: API create/patch, frontend validation, migracja dirty-data.
 
-Jesli numer ma byc unikalny:
+Jesli przyszla polityka zmieni numer na unikalny:
 
 - Ustalic zakres: globalnie czy per klient.
 - Ustalic czy puste wartosci sa dozwolone i czy wiele pustych jest OK.
@@ -53,16 +54,17 @@ Obecnie:
 - Jesli podzial nieznany, uzywa sie `*_to_count` i `NULL`.
 - Przy mieszanych profilach/akcesoriach czesciowa poprawka nie zgaduje podzialu.
 
-Jesli fabryka potwierdzi obecny model:
+Status po 2026-06-01:
 
-- Brak zmian.
+- Model przyjecia jest potwierdzony: profile + akcesoria = ilosc calkowita, brak innych kategorii, nieznany podzial moze byc `do policzenia`.
+- Model poprawki wymaga zmiany: przy poprawce pracownik ma podac osobno ile profili i ile akcesoriow idzie do poprawki.
 
 Jesli przy poprawce czesciowej trzeba wpisac osobno profile i akcesoria:
 
 - Rozszerzyc request pakowania o per-kategoria correction quantities.
 - Dodac walidacje: profile_poprawka + akcesoria_poprawka = correction_quantity.
 - Tworzenie child correction powinno przenosic dokladne wartosci.
-- UI pakowania musi miec dodatkowe pola tylko wtedy, gdy rodzic ma mieszane kategorie.
+- UI pakowania musi miec dodatkowe pola przy poprawce; do ustalenia, czy zawsze, czy tylko gdy rodzic ma znany mieszany podzial.
 - Testy: API, service, frontend bilans, DB/read model.
 
 Ryzyko:
@@ -74,25 +76,23 @@ Ryzyko:
 Obecnie:
 
 - Funkcja nie jest zaimplementowana.
-- Wiadomo, ze fabryka ma gotowy szablon.
+- Wiadomo, ze fabryka ma gotowy szablon Excel.
+- Dokument generuje biuro przed produkcja.
+- System ma wypelnic tylko numer wewnetrzny, farbe i firme, chyba ze prawdziwy szablon pokaze dodatkowe pola do recznego wypelnienia.
+- Dokument jest tylko do wydruku; zapis wygenerowanych kopii nie jest potwierdzony.
 
-Minimum odpowiedzi potrzebne do implementacji:
+Minimum nadal potrzebne do implementacji:
 
-- Format szablonu: Excel, Word, PDF, inny.
-- Moment generowania: przy przyjeciu, po planowaniu, przed produkcja, po produkcji, przy wydaniu.
-- Mapowanie pol: ktore pole dokumentu bierze dane z systemu, a ktore zostaje reczne.
-- Czy wygenerowana kopia ma byc zapisywana jako zalacznik/audyt.
+- Prawdziwy plik Excel ze wzorem.
+- Mapowanie konkretnych komorek: numer wewnetrzny, farba, firma.
+- Decyzja, gdzie trzymamy szablon i kto moze go podmienic.
+- Potwierdzenie, czy generowanie powinno zostawic slad audytu mimo braku zapisu kopii.
 
-Jesli szablon to Excel:
+Sciezka dla potwierdzonego szablonu Excel:
 
-- Najprostsza sciezka: wypelnianie pliku `.xlsx`, zapis jako zalacznik albo download.
+- Najprostsza sciezka: wypelnianie pliku `.xlsx` i pobranie/wydruk; nie zapisywac kopii jako zalacznika, dopoki nie ma osobnej decyzji audytowej.
 - Dodac zaleznosc tylko po sprawdzeniu biblioteki i testow.
 - Testy: generowanie pliku, mapowanie pol, uprawnienia, pobieranie.
-
-Jesli szablon to PDF:
-
-- Trzeba ustalic czy PDF jest formularzem z polami, czy statycznym wzorem do renderowania.
-- Statyczny PDF moze wymagac generowania nowego dokumentu z layoutem, a to jest wiekszy projekt.
 
 Ryzyko:
 
@@ -105,15 +105,22 @@ Obecnie:
 - Zlecenie ma producenta farby i RAL.
 - Nie ma modelu stanu magazynowego ani ruchow magazynowych.
 - Automat ma w przyszlosci wpisywac zuzycie farby.
+- Potwierdzono kg jako jednostke.
+- Stan ma byc laczny dla producenta + RAL/koloru, nie per batch magazynowy.
+- Przyjecie farby powinno zbierac producenta, RAL/kolor, ilosc kg, dostawce i prawdopodobnie partie jako metadane przyjecia; bez ceny, uwag i recznej daty.
+- System ma wykrywac i zglaszac za mala ilosc farby.
+- Zapotrzebowanie: ponizej 70 m2 -> `area_m2 / 4`; powyzej 70 m2 -> `area_m2 / 6`.
+- Odpowiedz fabryki mowi, ze farba ma byc zdejmowana ze stanu po wpisaniu zlecenia wedlug zapotrzebowania.
+- Zuzycie wpisuje recznie produkcja automatyczna, takze dla poprawek automatycznych.
+- Pakowania automatycznego nie powinno dac sie zakonczyc bez wpisanego zuzycia farby.
 
-Minimum odpowiedzi potrzebne do implementacji:
+Minimum nadal potrzebne do implementacji:
 
-- Jednostka: kg, litry, opakowania, inna.
-- Czy sledzimy partie/batche farby.
-- Czy stan jest per producent + RAL, czy per konkretny produkt/partia.
-- Kiedy zdejmowac ze stanu: planowanie, start, wpis zuzycia, koniec zlecenia.
-- Kto moze dodawac stan, kto moze wpisywac zuzycie, kto moze korygowac.
-- Czy stan ujemny jest dozwolony.
+- Czy ruch po wpisaniu zlecenia jest twardym zdjeciem ze stanu czy rezerwacja, oraz jak rozliczamy go z pozniejszym faktycznym zuzyciem wpisanym na automacie.
+- Czy brak farby jest twarda blokada, czy ostrzezenie wymagajace obejscia.
+- Jak traktowac dokladnie 70 m2.
+- Czy partia ma byc tylko metadana przyjecia, czy ma byc wyszukiwalna/raportowana mimo braku stocku per batch.
+- Kto moze dodawac stan i kto moze korygowac pomylki magazynowe.
 
 Prawdopodobny model, jesli odpowiedzi beda kompletne:
 
@@ -143,6 +150,10 @@ Obecnie:
 - Manager widzi agregat po `correction_reason_category`.
 - Jest eksport CSV.
 - Kategorie sa tekstowe/elastyczne.
+- Po 2026-06-01 obecny zestaw kategorii jest OK na start.
+- UI powinno pozostac proste i nie pozwalac operatorowi dopisywac wlasnych kategorii.
+- Najwazniejszy wymiar raportu to powod poprawki; dodatkowe metryki/procenty nie sa teraz potrzebne.
+- Panel w systemie i eksport sa potrzebne, czyli obecny kierunek jest zgodny.
 
 Jesli lista kategorii ma byc finalna i sztywna:
 
@@ -171,12 +182,15 @@ Obecnie:
 - Zapisuje sie data/czas wydania.
 - Mozna cofnac oznaczenie.
 - Produkcja nie moze tego zmieniac.
+- Po 2026-06-01 target policy: wydanie oznacza biuro, nie manager.
+- Docelowo program ma generowac dokument WZ dla gotowych zlecen.
 
 Jesli potrzebne sa dodatkowe pola:
 
 - Osoba/stacja wydajaca: stacja juz jest w audycie; login osobisty wymaga osobnego modelu uzytkownika.
 - Komentarz wydania: dodac request field + audit details.
 - Dokument wydania: powiazac z modulem dokumentow/zalacznikow.
+- Potrzebne: szablon/format WZ, pola, moment generowania, czy WZ jest tylko do druku czy ma byc archiwizowany.
 
 Ryzyko:
 
@@ -189,15 +203,16 @@ Obecnie:
 - System uzywa wspolnej tozsamosci stanowiska przez `X-Station-Id`.
 - Backend blokuje zle akcje stacji.
 - Audyt zapisuje stacje i request ID.
-
-Jesli wspolne stanowiska wystarczaja:
-
-- Brak zmian poza przyszlymi uprawnieniami dla farb/dokumentow.
+- Po 2026-06-01 wspolne stanowisko/tablet nie wystarcza jako docelowy model dostepu.
+- Produkcja ma logowac sie na stanowiska; biuro ma miec indywidualne loginy.
+- Statystyki maja byc tylko dla managera.
+- Produkcja nie ma miec mozliwosci edycji danych zlecenia, tylko akcje etapow i podglad zalacznikow/szczegolow.
 
 Jesli potrzebne sa loginy osobiste:
 
 - To osobny projekt: uzytkownicy, sesje, role, hasla/PIN, audyt operatora, migracja UI.
 - Trzeba ustalic czy login jest wymagany zawsze, czy tylko do wybranych akcji.
+- Trzeba ustalic, czy produkcyjne logowanie identyfikuje osobe, stanowisko, czy oba naraz.
 
 Jesli manager ma miec akcje niedostepne dla biura:
 
@@ -226,10 +241,13 @@ Ryzyko:
 
 ## Rekomendowana kolejnosc po odpowiedziach
 
-1. Najpierw male decyzje o niskim ryzyku: numer zewnetrzny required/unique, finalne filtry raportu poprawek.
-2. Potem workflow-zasoby: pakowanie jako zasob, jesli potwierdzone.
-3. Potem dokument QC, jesli szablon i mapowanie sa dostepne.
-4. Na koncu magazyn farb, bo to najwiekszy nowy model i wymaga najwiecej edge-case'ow.
+1. Najpierw male zgodne poprawki: UI profili/akcesoriow i brak custom kategorii poprawek, bez zmiany semantyki procesu.
+2. Potem poprawka profili/akcesoriow w pakowaniu, bo to zmienia kontrakt API i read model poprawek.
+3. Potem dokument QC, ale dopiero po otrzymaniu pliku Excel i mapowania komorek.
+4. Rownolegle zaprojektowac auth/loginy, bo wplywa na manager-only statystyki, office-only wydanie, audyt i globalna nawigacje.
+5. Magazyn farb jako osobny wiekszy modul po doprecyzowaniu timingow rezerwacji/zuzycia i zachowania przy braku farby.
+6. WZ po ustaleniu szablonu i powiazaniu z office-only wydaniem.
+7. Pakowanie jako zasob zostaje osobnym pytaniem, bo odpowiedzi z 2026-06-01 go nie rozstrzygnely.
 
 ## Format przepisywania odpowiedzi kolegi
 

@@ -8,7 +8,7 @@ Cel: opisac, co obecny system daje kazdej roli, gdzie jest ergonomicznie dobry, 
 
 System jest teraz wystarczajaco spojny, zeby prowadzic normalny przeplyw zlecen: biuro przyjmuje, kierownik planuje, stanowiska widza swoje aktywne prace, pakowanie rozdziela OK/poprawki, poprawki wracaja przez planowanie, a gotowe zlecenia mozna oznaczac jako wydane.
 
-Najwieksze ryzyka uzywalnosci nie wynikaja juz z oczywistych bledow ekranow, tylko z brakujacych decyzji biznesowych: magazyn farb, dokument kontroli jakosci, polityka numeru zewnetrznego, ewentualna wyłącznosc pakowania i ostateczny ksztalt raportow poprawek.
+Najwieksze ryzyka uzywalnosci nie wynikaja juz z oczywistych bledow ekranow, tylko z nowych obszarow do zaprojektowania: loginy i role, magazyn farb, dokument kontroli jakosci, WZ, dokladny podzial profili/akcesoriow w poprawce oraz ewentualna wyłącznosc pakowania.
 
 ## Nawigacja i role
 
@@ -46,9 +46,10 @@ Mocne strony:
 
 Ryzyka i pytania:
 
-- Numer zewnetrzny jest opcjonalny i nieunikalny; to jest bezpieczne technicznie, ale moze byc za slabe organizacyjnie.
-- Przyjecie zlecenia nie wymaga jeszcze danych magazynu farby, bo model magazynu nie jest zdecydowany.
-- Dokument kontroli jakosci nie istnieje, bo brakuje szablonu i mapowania pol.
+- Numer zewnetrzny jest potwierdzony jako opcjonalny, nieunikalny i dopuszczajacy duplikaty.
+- Przyjecie zlecenia nie wymaga jeszcze danych magazynu farby, bo model magazynu/rezerwacji nie jest zaimplementowany.
+- Dokument kontroli jakosci nie istnieje; wiemy, ze ma byc generowany przez biuro przed produkcja z szablonu Excel, ale brakuje pliku i mapowania komorek.
+- Wydanie zlecenia jest docelowo akcja biura i powinno generowac WZ; obecny system ma tylko marker wydania.
 
 ## Kierownik
 
@@ -71,8 +72,9 @@ Mocne strony:
 
 Ryzyka i pytania:
 
-- Raport poprawek jest minimalny: bez filtrow daty, klienta, RAL, technologii.
-- Kategorie powodow poprawek sa elastyczne, bo lista nie jest finalna.
+- Raport poprawek jest minimalny, ale zgodny z obecna potrzeba: najwazniejszy jest powod poprawki, panel i eksport.
+- Kategorie powodow poprawek sa obecnie wystarczajace; UI powinno pozostac proste i bez dopisywania wlasnych kategorii.
+- Statystyki powinny byc docelowo dostepne tylko dla managera, wiec wymagaja auth/roli, nie tylko samej trasy `/kierownik`.
 - Jesli potrzebna jest historia pierwotnej pozycji kolejki, trzeba dodac osobne pole/audyt, nie przeciazac aktualnej `queue_position`.
 
 ## Przygotowanie powierzchni
@@ -127,7 +129,7 @@ Mocne strony:
 
 Ryzyka i pytania:
 
-- Tablet automatyczny ma miec wpisywanie zuzycia farby, ale nie ma jeszcze modelu magazynu i zuzycia.
+- Tablet automatyczny ma miec wpisywanie zuzycia farby, a pakowania automatycznego nie powinno dac sie zakonczyc bez wpisanego zuzycia. Nadal brakuje modelu magazynu i decyzji o rezerwacji/rozliczeniu stanu.
 - Nie jest zdecydowane, czy automat kiedys potrzebuje wlasnych start/finish produkcji; obecnie nie.
 
 ## Produkcja reczna
@@ -168,7 +170,7 @@ Mocne strony:
 Ryzyka i pytania:
 
 - Wyłącznosc fizyczna pakowania jest nadal otwarta. Jesli pakowanie moze miec tylko jedno aktywnie rozpoczete zlecenie, trzeba dodac zasob `PACKING`.
-- Przy mieszanych profilach/akcesoriach poprawka czesciowa ma tylko jedna ilosc poprawki; system nie zgaduje podzialu kategorii. Jesli fabryka potrzebuje dokladnego podzialu, pakowanie musi dostac pola per kategoria.
+- Potwierdzono, ze poprawka powinna miec dokladny podzial na profile i akcesoria. Obecny system ma tylko jedna ilosc poprawki i nie zgaduje podzialu, wiec pakowanie musi dostac pola per kategoria.
 
 ## Decoral
 
@@ -197,12 +199,12 @@ Obecnie obslugiwane zadania:
 
 Mocne strony:
 
-- Daje techniczne sledzenie kto/stacja/co zmienil.
-- Dobrze pasuje do modelu wspolnych stanowisk bez logowania osobistego.
+- Daje techniczne sledzenie stacja/co zmienila.
+- Dobrze pasuje do obecnej warstwy station-context, ale nie zastapi docelowych loginow.
 
 Ryzyka i pytania:
 
-- Jesli beda loginy osobiste, audyt trzeba rozszerzyc o operatora/uzytkownika, nie tylko stacje.
+- Loginy sa juz potwierdzonym kierunkiem: audyt trzeba bedzie rozszerzyc o operatora/uzytkownika, nie tylko stacje.
 - Audyt jest raczej narzedziem administracyjnym niz ekranem dla operatora.
 
 ## Najwazniejsze obserwacje przekrojowe
@@ -210,7 +212,7 @@ Ryzyka i pytania:
 - Frontend powinien nadal wyswietlac backendowy `process_status`, a nie zgadywac workflow z ilosci.
 - Szczegoly zlecenia dzialaja jako bezpieczny wspolny widok dla biura, managera i stacji, ale stacje nie powinny dostawac mutacji biurowych.
 - Zalaczniki sa dobrze umieszczone w szczegolach; dedykowana szuflada na tabletach bylaby tylko usprawnieniem ergonomii, nie koniecznoscia semantyczna.
-- Najbardziej wartosciowe kolejne prace beda po odpowiedziach: magazyn farb, dokument QC, polityka numeru zewnetrznego, pakowanie jako zasob, finalne raporty poprawek.
+- Najbardziej wartosciowe kolejne prace: dokladny podzial profili/akcesoriow w poprawce, auth/loginy, magazyn farb, dokument QC, WZ i ewentualne pakowanie jako zasob.
 
 ## Proponowany test z uzytkownikami
 

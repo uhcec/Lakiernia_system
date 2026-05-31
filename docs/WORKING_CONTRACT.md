@@ -56,10 +56,10 @@ Product goals:
 ## Current Product Decisions
 
 - Multiple real-world actors are in scope. Panels should eventually map to authenticated users/roles with an audit trail for important changes.
-- Station devices are expected to run specific panels in specific factory locations. Near-term identity can be station-based/shared, such as a hanging station, manager station, packing station, or office station, without requiring each operator to log in personally.
+- Station devices are expected to run specific panels in specific factory locations. The current station-based/shared identity remains useful as a rollout and audit layer, but it is not the target access model.
 - `docs/FACTORY_USAGE_NOTES.md` captures the current station/device understanding and open real-factory workflow questions.
-- `docs/STATION_IDENTITY_AND_AUDIT.md` defines the near-term shared station identity and audit trail design.
-- Personal operator login may be needed later, but it is not a priority and should be clarified before implementation.
+- `docs/STATION_IDENTITY_AND_AUDIT.md` defines the current station identity/audit layer and the target login direction.
+- Factory clarification from 2026-06-01: production needs login to station contexts, office needs individual logins, and manager-only statistics must be protected by auth/roles.
 - A single backend process is acceptable for the expected near-term deployment while the system is hardened.
 - Multi-user auth/roles and multi-worker backend safety are related but separate: auth identifies who acted; multi-worker safety controls how concurrent backend processes mutate shared state.
 

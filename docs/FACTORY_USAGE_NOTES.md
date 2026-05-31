@@ -21,10 +21,12 @@ Use `docs/WORKFLOW_VALIDATION_CHECKLIST.md` as the active checklist before chang
 	- `Zlecenia`: unplanned work orders and incomplete deliveries.
 	- `Na produkcji`: all work orders currently on the factory floor.
 	- `Gotowe`: completed work orders, with the ability to mark whether the order has been issued/released. Current implementation allows office/manager to mark or clear release only for READY orders.
-- Needs an additional external client/order number field separate from the internal system work-order number. Current implementation captures it as optional text and office list search can filter by it; uniqueness/requiredness rules still need factory policy.
-- Should require paint stock/state information when entering a work order, once the paint inventory model exists.
+- Needs an additional external client/order number field separate from the internal system work-order number. Confirmed on 2026-06-01: this field is optional, not unique, may be empty, and duplicate values should be allowed.
+- Should require paint stock/state information when entering a work order, once the paint inventory model exists. Paint shortage should be detected using the order surface-area formula and inventory state.
 - Should see whether surface-preparation counted quantity differs from the declared client quantity.
 - Office and manager should generally have the same broad access to process information.
+- Office generates the Excel-based production quality-control document before production once the factory template is provided.
+- Office marks completed orders as released to the client. Future target: generate a WZ / issue document for completed orders.
 
 ### Manager Computer / Kierownik
 
@@ -40,6 +42,7 @@ Use `docs/WORKFLOW_VALIDATION_CHECKLIST.md` as the active checklist before chang
 - New planning should propose the next queue position after currently active planned work. Completed/READY rows stay visible but should move to trailing positions instead of permanently blocking active planning slots.
 - Manager should see whether queued work is blocked by a resource or station state. Current implementation shows warnings for the modeled exclusive resources `HANGING` and `AUTOMATIC_LINE`.
 - Manager should see declared-versus-counted quantity discrepancies.
+- Correction statistics should be manager-only.
 
 ### Przygotowanie Powierzchni Tablet
 
@@ -70,6 +73,8 @@ Use `docs/WORKFLOW_VALIDATION_CHECKLIST.md` as the active checklist before chang
 - Confirmed update from 2026-05-30: the automatic production tablet is no longer display-only.
 - Confirmed update from 2026-05-30: this tablet should also show the automatic hanging queue from the moment work is ready for hanging, so the automatic operator can see the day's workflow before the line is physically occupied.
 - Automatic production should be able to enter paint consumption so stock is deducted from inventory once the paint inventory model exists.
+- Automatic production is the confirmed production station for manual paint-consumption entry. Automatic correction work should record paint consumption as well.
+- Packing should not be completable for automatic work until paint consumption has been entered.
 - Automatic production still does not need manual start/finish clicks for the automatic `PRODUCTION` stage unless that is separately decided.
 - Only one work order can be in automatic production at a time.
 - Packing later handles completion of the automatic path.
@@ -90,8 +95,9 @@ Use `docs/WORKFLOW_VALIDATION_CHECKLIST.md` as the active checklist before chang
 - Operators count elements again and compare against the real received amount from surface preparation.
 - Operators perform quality check and split quantity into OK amount and correction amount.
 - When corrections are created, packing should record a correction reason/category for statistics and audit. The reason does not affect the workflow path.
+- When corrections are created, packing should also record how many corrected pieces are profiles and how many are accessories; the two values must sum to the correction quantity.
 - Current implementation presents packing as per-order cards with a dedicated action panel and split balance feedback, while active automatic hanging rows remain read-only.
-- Initial coating-defect reason/category list: `niedomalowanie`, `za grubo`, `wtrącenia`, `inne`. This list is not final.
+- Initial coating-defect reason/category list: `niedomalowanie`, `za grubo`, `wtrącenia`, `inne`. This list is acceptable for now, should stay simple in the UI, and may change later.
 - RAL OK elements are packed here; RAL/manual work orders end their journey here when no further correction/decoral work remains.
 - Decoral elements are not packed here; they continue to Decoral production.
 - Station list should primarily show: work-order number, profile pieces to verify, accessory pieces to verify, paint, company/customer, and queue position.
@@ -112,6 +118,14 @@ Use `docs/WORKFLOW_VALIDATION_CHECKLIST.md` as the active checklist before chang
 - Details opened from production stations preserve the source station identity and remain read-only for office/manager mutations. Attachment downloads stay available; upload/delete remains an office action.
 - Current implementation presents general station lists as per-order cards with station-specific facts and a separated action area, rather than wide action tables.
 
+## Access And Login Direction
+
+- The current shared station identity model is useful as a rollout/audit layer, but it is not enough for the target product.
+- Production should log into station contexts; details still need design on whether this identifies a station account, an operator, or both.
+- Office should use individual logins.
+- Production should not edit work-order intake/business data; production access remains station actions plus read-only details and attachment download.
+- Manager-only statistics must not be available to office/production users once real auth is implemented.
+
 ## Known Gaps To Clarify
 
 - Confirmed correction policy: when packing marks `corrections > 0`, the system automatically creates a correction work order. The manager later assigns that correction to manual or automatic production and inserts it into the global queue.
@@ -119,16 +133,16 @@ Use `docs/WORKFLOW_VALIDATION_CHECKLIST.md` as the active checklist before chang
 - Defect/correction type does not require office, manager, quality-control, or customer approval before planning.
 - Correction reason/category is needed for statistics/audit, not for workflow routing.
 - Correction-chain completion races should reconcile or behave idempotently when the final persisted state is already valid; otherwise the stale action should fail with a controlled conflict.
-- Implemented correction detail: packing-created correction work orders store a flexible reason/category and optional note because the category list is not final. Manager correction statistics aggregate stored categories, keep uncategorized legacy rows visible, and can be exported as CSV.
+- Implemented correction detail: packing-created correction work orders store a flexible reason/category and optional note because categories may change later. Manager correction statistics aggregate stored categories, keep uncategorized legacy rows visible, are visible in the manager panel, and can be exported as CSV. The current category list is acceptable for now and custom operator-created categories should not be introduced in the UI.
 - Confirmed quantity visibility: counted quantity entry belongs on the surface-preparation tablet; declared quantity and discrepancy visibility belong to office and manager; production/station operators see only operational quantity.
 - Confirmed discrepancy handling: discrepancy is recorded through the surface-preparation counted quantity, but does not block the work order for now. Surface preparation start does not require counted quantity; finish does require counted quantity. No separate discrepancy-confirmation action or dedicated audit event is required unless future factory review asks for one.
 - Current implementation exposes surface-preparation counted quantity and declared-versus-counted difference to office and manager read models/UI, while station lists keep discrepancy context out of the operational rows.
-- Implemented profile/accessory quantity rule: known office-intake values partition the work order, so profile quantity plus accessory quantity must equal `total_quantity`; station/correction displays derive only safe binary splits and mark mixed partial contexts as to-count rather than guessing.
+- Implemented profile/accessory quantity rule: known office-intake values partition the work order, so profile quantity plus accessory quantity must equal `total_quantity`; there are no other expected item categories. Implementation gap from 2026-06-01: packing corrections should collect the profile/accessory split explicitly instead of leaving mixed partial correction category data as to-count.
 - Confirmed station permissions: station identity should remain audited, invalid station actions should be impossible in the UI, and current backend enforcement rejects wrong-station mutating requests for office, manager, process, packing, and release-marker actions.
 - Confirmed automatic overlap: hanging can start the next automatic order after the previous hanging stage is finished, while preserving one active work order per physical station/resource.
-- Quality-control production document generation: the factory has a ready template to be filled by the program. The template and field mapping still need to be provided/checked before implementation.
-- Paint inventory: intake should require paint stock/state data and production consumption should deduct stock, but this needs a paint inventory model. Automatic production is confirmed as allowed to enter paint used/consumed and is no longer display-only; units, container/batch tracking, deduction timing, and additional fields still need factory clarification.
-- Completed-order issue/release marker: completed work orders are markable as issued/released, separate from production READY state.
+- Quality-control production document generation: the factory has a ready Excel template to be filled by the program. Office generates it before production. Confirmed system-filled fields so far are internal work-order number, paint, and company/customer; the real template still needs to be provided/checked before implementation.
+- Paint inventory: unit is kg; stock balance is aggregate per producer + RAL/color; receipt should include producer, RAL/color, kg amount, supplier, and likely batch/lot as receipt metadata, with no price, notes, or manual date. The system must detect/report insufficient paint. Requirement formula is below 70 m2: `area_m2 / 4`; above 70 m2: `area_m2 / 6`. The factory answer says paint should be taken from stock after the work order is entered. Open details: exactly 70 m2, warning versus hard block, and whether order-entry stock movement is a hard deduction or reservation reconciled with later automatic-production consumption.
+- Completed-order issue/release marker: completed work orders are markable as issued/released, separate from production READY state. Target policy is office-only release marking; current implementation still allows manager as well. Future WZ document generation is desired but needs template/design.
 - Manager queue history: completed/READY work orders should trail out of the active planning range when manager planning or queue updates need active slots. If immutable original priority evidence is needed later, add a dedicated history/audit field instead of overloading live `queue_position`.
 - Packing exclusivity: user wants to clarify with a factory friend whether packing can have only one physically started work order at a time, and how that applies to automatic work that is visible in packing while hanging/automatic flow is still active.
 

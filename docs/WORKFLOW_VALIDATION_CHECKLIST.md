@@ -58,8 +58,9 @@ Confirmed factory policy from 2026-05-30:
 - Packing with correction quantity should automatically create an unplanned correction work order.
 - No defect type requires office, manager, quality-control, or customer approval before planning.
 - Packing should record a correction reason/category.
-- Initial coating-defect reason/category list: `niedomalowanie`, `za grubo`, `wtrącenia`, `inne`. This is not final and should remain easy to change.
+- Initial coating-defect reason/category list: `niedomalowanie`, `za grubo`, `wtrącenia`, `inne`. The list is acceptable for now and should remain easy to change later.
 - Correction reason/category is statistical/audit data only and does not affect the workflow path.
+- Correction reason UI should stay simple and list-based; operators should not create arbitrary custom categories.
 - Correction orders use the same manager planning and queue workflow as normal orders.
 - Correction orders do not go through `SURFACE_PREPARATION`; manual corrections start at production, automatic corrections start at hanging.
 
@@ -76,9 +77,10 @@ Current repository behavior/evidence:
 
 Implementation decision needed:
 
-- Done for storage/capture: use flexible nullable text fields for category and note rather than a strict enum, because the category list is not final.
+- Done for storage/capture: use flexible nullable text fields for category and note rather than a strict enum, because the category list may change later.
 - Done for current reporting surface: manager panel displays and exports the aggregate correction-reason statistics.
-- Still open: decide whether future reports need date ranges, customer/order filters, or a controlled final category list.
+- Confirmed on 2026-06-01: the current report focus by reason is enough for now; no extra percentage metric is needed now; both on-screen panel and export are desired.
+- Future optional: additional report filters can be added later if the factory asks, but they are not required by the current answer.
 
 Why this matters:
 
@@ -120,14 +122,17 @@ Why this matters:
 
 ### 3a. Profile And Accessory Quantity Semantics
 
-Status: `IMPLEMENTED as current system rule; corrected after 2026-05-31 clarification`
+Status: `PARTIALLY IMPLEMENTED; correction category split needs implementation`
 
 Requirement raised on 2026-05-31 and implemented as current system policy:
 
 - Profile quantity and accessory quantity should not behave as independent arbitrary counts.
 - A known profile/accessory quantity should be allowed to be `0` when that category is absent.
 - At office intake, known profile/accessory quantities partition the order; when both are known, their sum must match `total_quantity`.
-- For station/correction/batch displays, binary category splits can follow the current operational quantity, but mixed profile/accessory partial contexts must not guess a category distribution.
+- No other quantity categories besides profiles and accessories are expected to participate in `total_quantity`.
+- If the split is not known at office intake, `do policzenia na produkcji` is enough.
+- Packing correction entry should capture exactly how many corrected pieces are profiles and how many are accessories; those values must sum to the total correction quantity.
+- Until that is implemented, mixed profile/accessory partial contexts must not guess a category distribution.
 - `current_active_quantity == 0` on completed/READY orders must not be used to rewrite historical profile/accessory quantities to `0`; completed views still follow completed-state display rules.
 
 Implemented behavior:
@@ -136,10 +141,13 @@ Implemented behavior:
 - Existing invalid known pairs are migrated to `NULL` plus `*_to_count=True` rather than preserving a false split.
 - Correction children inherit binary category splits from the parent, but mixed-category partial corrections become to-count.
 - Process/station read models show stored category counts for full-order contexts, derive binary category splits for partial contexts, and mark mixed-category partial contexts as to-count.
+- New implementation gap from 2026-06-01: partial corrections should collect explicit profile/accessory correction quantities instead of falling back to to-count for mixed-category parents.
 
-Future decision only if factory policy changes:
+Implementation decision needed:
 
-- If factory users need partial corrections to specify exact profile/accessory composition, add explicit per-category correction quantities instead of deriving them from one total correction quantity.
+- Extend packing completion request/UI with profile/accessory correction quantities when correction quantity is greater than zero.
+- Validate that `correction_profiles_quantity + correction_accessories_quantity == correction_quantity` and that each value is non-negative.
+- Decide whether the UI always asks for the split, or only asks when the parent order has both categories.
 
 Why this matters:
 
@@ -148,7 +156,7 @@ Why this matters:
 
 ### 4. Station Permissions
 
-Status: `IMPLEMENTED for current mutating workflow actions; future paint-consumption permissions pending`
+Status: `IMPLEMENTED for current station actions; auth/login redesign needed`
 
 Confirmed factory policy from 2026-05-30:
 
@@ -157,6 +165,9 @@ Confirmed factory policy from 2026-05-30:
 - The UI generally should not present actions that belong to another station.
 - If an invalid station action reaches the backend, it should be blocked rather than only warned/logged.
 - There are no expected real cases where a station needs to perform another station's action due to staffing or device placement.
+- Production users should not edit work-order intake/business data; production gets station workflow actions plus read-only detail/attachment access.
+- Statistics should be manager-only, not office-visible.
+- Shared station identity is not enough for the target product: production should log into station contexts, while office users should have individual accounts.
 
 Current repository behavior/evidence:
 
@@ -169,16 +180,18 @@ Current repository behavior/evidence:
 Implementation decision needed:
 
 - Add explicit authorization for future paint-consumption actions when the paint inventory/consumption model is designed.
+- Design users, login/session handling, roles, manager-only statistics checks, and audit actor fields.
+- Decide whether production station login identifies only the station, the operator, or both.
 
 Expected permission direction to validate:
 
-- `OFFICE`: create/update intake, view discrepancies, manage attachments
-- `MANAGER`: assign production type, queue/reorder, view global queue
+- `OFFICE`: individual login; create/update intake, view discrepancies, manage attachments, mark completed order as released, generate WZ when implemented
+- `MANAGER`: assign production type, queue/reorder, view global queue and manager-only statistics
 - `SURFACE_PREPARATION`: enter counted quantity, start/finish surface prep
 - `HANGING`: start/finish hanging
 - `AUTOMATIC_PRODUCTION`: enter paint consumption once paint inventory exists; no manual start/finish for automatic production unless separately decided
 - `MANUAL_PRODUCTION`: start/finish manual production
-- `PACKING`: enter counted/OK/correction quantities, complete packing
+- `PACKING`: enter counted/OK/correction quantities, enter profile/accessory correction split, complete packing
 - `DECORAL_PRODUCTION`: start/finish Decoral production
 
 Why this matters:
@@ -250,7 +263,7 @@ Why this matters:
 
 ### 7. Office/Manager Tabs And Completed Release
 
-Status: `IMPLEMENTED for office buckets; manager panel aligned with bucket counters`
+Status: `PARTIALLY IMPLEMENTED; office-only release and WZ generation pending`
 
 Confirmed direction from 2026-05-30:
 
@@ -260,12 +273,15 @@ Confirmed direction from 2026-05-30:
 	- `Gotowe`: completed/READY work orders.
 - Completed/READY work orders should have an additional marker for whether the order was issued/released to the client.
 - Issued/released state is logistics/dispatch state and should not change the production meaning of READY.
+- Factory clarification from 2026-06-01: office marks completed orders as released to the client.
+- Release marking can be undone if clicked by mistake.
+- Future target: generate a WZ / issue document for completed orders.
 
 Current repository behavior/evidence:
 
 - Completed release is stored as nullable `released_to_client_at` and exposed as `is_released_to_client` in read models.
 - Release status can be marked or cleared only while `process_status = READY`.
-- Office and manager station identities may update release status; production station identities are rejected.
+- Office and manager station identities currently may update release status; production station identities are rejected.
 - Release-status changes create audit events.
 
 Implemented in session B on 2026-05-31:
@@ -273,6 +289,11 @@ Implemented in session B on 2026-05-31:
 - Office `/zlecenia` groups work orders into `Zlecenia`, `Na produkcji`, and `Gotowe` using backend `process_status` only.
 - Manager planning keeps its planning-specific layout, but header counters now use the same practical buckets: `Zlecenia`, `Na produkcji`, and `Gotowe`.
 - `READY` display remains historical/completed and release state remains separate logistics state.
+
+Implementation decision needed:
+
+- Restrict release update to office once auth/role or station policy is updated.
+- Obtain/design WZ template and decide whether generated WZ documents are printed only or persisted.
 
 Remaining design option:
 
@@ -348,22 +369,26 @@ Why this matters:
 
 ### 10. Quality-Control Production Document
 
-Status: `CONFIRMED with template/design needed`
+Status: `CONFIRMED with Excel template needed before implementation`
 
 Confirmed direction from 2026-05-30:
 
 - The system should automatically generate a production quality-control document.
 - The factory already has a ready document template that should be filled by the program.
+- The template is Excel.
+- Office generates the document before production.
+- System-filled fields confirmed so far: internal work-order number, paint, and company/customer only.
+- Generated output is for printing only; no persistence requirement is confirmed yet.
 
 Implementation decision needed:
 
-- Obtain and store the actual template format.
-- Map each template field to backend work-order/process data or mark it as manually entered.
-- Decide when the document is generated and whether generated copies are stored as attachments/audit evidence.
+- Obtain the actual Excel template before implementation.
+- Map exact cells to system data or mark them as manual/blank-for-print fields.
+- Decide storage/update path for the template file.
 
 ### 11. Paint Inventory And Consumption
 
-Status: `CONFIRMED with implementation design needed`
+Status: `CONFIRMED with implementation design and edge-case questions needed`
 
 Confirmed direction from 2026-05-30:
 
@@ -371,20 +396,33 @@ Confirmed direction from 2026-05-30:
 - Paint usage should be recorded so stock can be deducted.
 - Automatic production is no longer display-only; the first confirmed station input is paint used/consumed, with room for additional fields after factory clarification.
 - This does not automatically mean automatic production gains manual start/finish stage actions.
+- Stock unit is kilograms.
+- Stock balance is aggregate per producer + RAL/color, not separate tracked stock per paint batch.
+- Paint receipt data should include producer, RAL/color, amount, supplier, and likely batch/lot as receipt metadata; no price, notes, or manually entered date.
+- The system must detect and report insufficient paint for an order.
+- Estimated requirement formula: below 70 m2 -> `area_m2 / 4`; above 70 m2 -> `area_m2 / 6`.
+- The factory answer says paint should be taken from stock after the work order is entered, based on the order requirement.
+- Automatic production enters actual paint consumption manually.
+- Automatic correction work should record paint consumption like other automatic work.
+- Packing should not be completable for automatic work until paint consumption is entered.
 
 Implementation decision needed:
 
 - Design paint inventory entities, stock movements, audit events, and correction/undo behavior before implementation.
 - Define station permissions for paint-stock entry and paint-consumption entry.
-- Clarify stock units, container/batch tracking, deduction timing, and any non-paint fields before implementing inventory semantics.
+- Clarify whether the order-entry stock action is a hard deduction or a reservation, and how it reconciles with later actual automatic-production consumption entry.
+- Clarify whether insufficient paint is a blocking error or a warning requiring override.
+- Clarify how exactly 70 m2 is handled by the formula.
+- Clarify whether batch/lot is only receipt metadata or searchable/reportable data despite aggregate stock balance.
 
 ### 12. External Work-Order Number
 
-Status: `PARTIALLY IMPLEMENTED; uniqueness/requiredness policy still needed`
+Status: `CONFIRMED and implemented for current policy`
 
 Confirmed direction from 2026-05-30:
 
 - Add an external client/order number field separate from the system-generated internal work-order number.
+- Factory clarification from 2026-06-01: the external number is optional, not unique, may be empty, and duplicate values should simply be allowed.
 
 Current repository behavior/evidence:
 
@@ -392,12 +430,11 @@ Current repository behavior/evidence:
 - Work-order list/detail read models expose the field.
 - Office work-order list supports non-unique substring search/filter by external number.
 - Packing-created correction work orders inherit the parent's external number.
-- No uniqueness behavior is enforced yet.
+- No uniqueness behavior is enforced by design.
 
 Implementation decision needed:
 
-- Decide uniqueness rules.
-- Decide whether the external number should remain optional or become required for all office-created orders.
+- None for the current policy. Future duplicate reports/search tools would be optional office ergonomics, not validation rules.
 
 ## Recommended Validation Session
 

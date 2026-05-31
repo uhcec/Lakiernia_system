@@ -1,6 +1,6 @@
 # Station Identity And Audit Design
 
-This document defines the near-term identity and audit model for physical factory station panels. It is based on `docs/FACTORY_USAGE_NOTES.md` and the current working contract. It is not a personal-login design.
+This document defines the current station identity and audit layer for physical factory station panels. It is based on `docs/FACTORY_USAGE_NOTES.md` and the current working contract. The current implementation is station-context based, but factory clarification from 2026-06-01 says the target product also needs login and role design.
 
 ## Problem
 
@@ -9,18 +9,25 @@ The application is used from physical devices in specific factory areas. A scree
 Near-term requirements:
 
 - identify which station/device context performed important actions
-- keep personal operator login deferred
 - keep the first implementation low-friction for factory devices
 - preserve operator truth and workflow integrity
 - avoid pretending that station identity solves multi-worker backend concurrency
 
+Target access requirements from 2026-06-01:
+
+- production logs into station contexts
+- office uses individual logins
+- manager-only statistics are protected from office/production access
+- production cannot edit work-order intake/business data
+
 ## Current Decisions
 
 - Station identity is shared by device/panel for now.
-- Personal operator login is deferred.
+- Shared station identity is current implementation, not the final access model.
 - A single backend process is acceptable for near-term deployment.
-- Station identity and audit should be implemented before personal accounts.
+- Station identity and audit remain necessary even after personal accounts, because actions still happen from physical station contexts.
 - Factory decision from 2026-05-30: station actions should be blocked when attempted from the wrong station; normal production does not need cross-station action overrides.
+- Factory decision from 2026-06-01: auth/login work is required for production station login, individual office login, and manager-only statistics.
 - Audit records are implementation evidence and operational traceability, not business validation by themselves.
 
 ## Station Identities
@@ -83,7 +90,7 @@ Future personal-login fields can be added later:
 - `actor_user_id`
 - `actor_display_name`
 
-Do not require those fields in the near-term station identity slice.
+Do not require those fields in the existing station identity slice, but add them as part of the future auth/login project.
 
 ## Events To Audit First
 
@@ -134,18 +141,20 @@ Implemented frontend propagation:
 Still open:
 
 - hide or reshape any future frontend actions that might cross station boundaries as new station capabilities are added, especially automatic-production paint consumption and completed-order issue/release
+- add user login/session/role checks and audit actor fields
+- protect manager-only statistics with auth/roles, not only route naming
 
 ## Permission Direction
 
 Confirmed permission direction:
 
-- `OFFICE`: create/update intake, enter external work-order number, enter/select paint stock state once inventory exists, view discrepancies, manage attachments, mark completed order as issued/released if policy allows office dispatch
-- `MANAGER`: assign production type, queue/reorder, view global queue and discrepancies, view paint/inventory warnings, mark completed order as issued/released if policy assigns dispatch to manager
+- `OFFICE`: individual login; create/update intake, enter external work-order number, enter/select paint stock state once inventory exists, view discrepancies, manage attachments, mark completed order as issued/released, generate WZ when implemented
+- `MANAGER`: assign production type, queue/reorder, view global queue and discrepancies, view paint/inventory warnings, view manager-only statistics
 - `SURFACE_PREPARATION`: start surface prep, enter counted quantity, confirm quantity discrepancy, finish surface prep after counted quantity exists
 - `HANGING`: start/finish hanging
 - `AUTOMATIC_PRODUCTION`: enter paint consumption once paint inventory exists; no manual start/finish for automatic production unless separately decided
 - `MANUAL_PRODUCTION`: start/finish manual production
-- `PACKING`: enter counted/OK/correction quantities, correction reason/category, complete packing
+- `PACKING`: enter counted/OK/correction quantities, profile/accessory correction split, correction reason/category, complete packing
 - `DECORAL_PRODUCTION`: start/finish Decoral production
 
 Invalid station actions should be rejected by the backend and should not be visible in normal frontend station panels.
@@ -159,7 +168,7 @@ Confirmed decisions from `docs/FACTORY_USAGE_NOTES.md`:
 - Office and manager should see quantity discrepancies; station operators should see only operational quantities.
 - Quantity discrepancies should be recorded and confirmed at surface preparation, but should not block work orders for now. Surface-preparation finish requires counted quantity; start does not.
 - `Przemalowanka` is a standalone customer work order that skips surface preparation; `Ocynk` is a strong station-visible type/marker combinable with RAL or Decoral.
-- Office/manager completed views support an issued/released marker for READY orders, separate from production READY state; office and manager station identities can update it.
+- Office/manager completed views support an issued/released marker for READY orders, separate from production READY state. Target policy is office-only release marking; current implementation still allows manager as well.
 - Paint inventory/consumption needs station permission decisions. Intake paint-stock entry is needed, and automatic production is confirmed as an action-capable station for paint-consumption entry.
 - Quality-control production document generation should use the factory-provided template and may need audit/attachment rules depending on whether generated copies are persisted.
 
