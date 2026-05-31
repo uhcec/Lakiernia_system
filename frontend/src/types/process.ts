@@ -1,4 +1,4 @@
-import type { QueueNamespaceValue, WorkOrderOption, ProductionTypeValue } from "./workOrders";
+import type { QueueNamespaceValue, WorkOrderKindValue, WorkOrderOption, ProductionTypeValue } from "./workOrders";
 
 export type ProcessStageValue =
   | "SURFACE_PREPARATION"
@@ -24,6 +24,8 @@ export interface StageWorkOrder {
   batch_id: number | null;
   is_correction: boolean;
   is_historical_correction: boolean;
+  work_order_kind: WorkOrderOption<WorkOrderKindValue>;
+  is_ocynk: boolean;
   order_number: string;
   title: string;
   ral_code: string;

@@ -252,6 +252,31 @@ def test_creating_decoral_work_order_works(test_client: TestClient) -> None:
     assert response.json()["coating_type"] == {"value": "DECORAL", "label": "Decoral"}
 
 
+def test_creating_przemalowanka_ocynk_work_order_exposes_type_markers(test_client: TestClient) -> None:
+    response = create_work_order(
+        test_client,
+        title="Przemalowanka Ocynk",
+        coating_type="DECORAL",
+        work_order_kind="PRZEMALOWANKA",
+        is_ocynk=True,
+    )
+
+    body = response.json()
+
+    assert response.status_code == 201
+    assert body["work_order_kind"] == {"value": "PRZEMALOWANKA", "label": "Przemalowanka"}
+    assert body["is_ocynk"] is True
+    assert body["is_correction"] is False
+    assert body["parent_order"] is None
+    assert body["queue_namespace"] == {"value": "MAIN", "label": "Main"}
+    assert [stage["stage"]["value"] for stage in body["stage_states"]] == [
+        "HANGING",
+        "PRODUCTION",
+        "PACKING",
+        "DECORAL_PRODUCTION",
+    ]
+
+
 def test_created_work_order_defaults_to_entered_with_polish_label(test_client: TestClient) -> None:
     response = create_work_order(test_client, title="Status default", coating_type="RAL")
 

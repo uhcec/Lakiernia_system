@@ -17,6 +17,8 @@ function buildWorkOrder(overrides: Partial<WorkOrder> = {}): WorkOrder {
     total_progress_quantity: 0,
     is_correction: false,
     is_historical_correction: false,
+    work_order_kind: { value: "STANDARD", label: "Standardowe" },
+    is_ocynk: false,
     correction_reason_category: null,
     correction_reason_note: null,
     parent_order: null,
@@ -93,5 +95,17 @@ describe("work order display helpers", () => {
 
     expect(getWorkOrderDiscrepancyText(workOrder)).toBe("Przygotowanie: zadeklarowano 10, policzono 8 (-2 szt.)");
     expect(getWorkOrderAttentionBadges(workOrder)).toContainEqual({ label: "RÓŻNICA: -2 SZT.", tone: "warning" });
+  });
+
+  it("shows work-type badges for Przemalowanka and Ocynk", () => {
+    const badges = getWorkOrderBadgeStack(
+      buildWorkOrder({
+        work_order_kind: { value: "PRZEMALOWANKA", label: "Przemalowanka" },
+        is_ocynk: true,
+      }),
+    );
+
+    expect(badges).toContainEqual({ label: "PRZEMALOWANKA", tone: "danger" });
+    expect(badges).toContainEqual({ label: "OCYNK", tone: "info" });
   });
 });

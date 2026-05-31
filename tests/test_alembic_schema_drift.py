@@ -29,6 +29,8 @@ def test_alembic_check_passes_after_upgrade_head(tmp_path: Path) -> None:
     assert "due_date" not in columns
     assert "external_order_number" in columns
     assert "released_to_client_at" in columns
+    assert "work_order_kind" in columns
+    assert "is_ocynk" in columns
     assert "correction_reason_category" in columns
     assert "correction_reason_note" in columns
     assert "ix_work_orders_queue_namespace" in work_order_indexes

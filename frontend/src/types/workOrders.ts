@@ -1,6 +1,7 @@
 export type WorkOrderStatusValue = "ENTERED" | "INCOMPLETE" | "ASSIGNED" | "IN_PROGRESS" | "FINISHED";
 export type ProductionTypeValue = "MANUAL" | "AUTOMATIC";
 export type CoatingTypeValue = "RAL" | "DECORAL";
+export type WorkOrderKindValue = "STANDARD" | "PRZEMALOWANKA";
 export type QuantityBatchTypeValue = "MAIN" | "CORRECTION";
 export type QueueNamespaceValue = "MAIN" | "CORRECTIONS";
 export type ProcessStatusValue =
@@ -88,6 +89,8 @@ export interface WorkOrderRelationSummary {
   current_active_quantity: number;
   is_correction: boolean;
   is_historical_correction: boolean;
+  work_order_kind: WorkOrderOption<WorkOrderKindValue>;
+  is_ocynk: boolean;
   correction_reason_category: string | null;
   correction_reason_note: string | null;
   process_status: ProcessStatus;
@@ -119,6 +122,8 @@ export interface WorkOrder {
   queue_blocked_by_resource: string | null;
   queue_blocked_reason: string | null;
   coating_type: WorkOrderOption<CoatingTypeValue>;
+  work_order_kind: WorkOrderOption<WorkOrderKindValue>;
+  is_ocynk: boolean;
   production_type: WorkOrderOption<ProductionTypeValue> | null;
   queue_namespace: WorkOrderOption<QueueNamespaceValue>;
   queue_position: number | null;
@@ -152,6 +157,8 @@ export interface CreateWorkOrderRequest {
   title?: string;
   external_order_number?: string;
   coating_type: CoatingTypeValue;
+  work_order_kind?: WorkOrderKindValue;
+  is_ocynk?: boolean;
   total_quantity?: number;
   customer_name: string;
   ral_code: string;

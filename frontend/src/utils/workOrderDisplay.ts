@@ -107,6 +107,14 @@ export function getWorkOrderBadgeStack(workOrder: WorkOrder): DisplayBadge[] {
     badges.push({ label: "POPRAWKA", tone: "warning" });
   }
 
+  if (workOrder.work_order_kind.value === "PRZEMALOWANKA") {
+    badges.push({ label: "PRZEMALOWANKA", tone: "danger" });
+  }
+
+  if (workOrder.is_ocynk) {
+    badges.push({ label: "OCYNK", tone: "info" });
+  }
+
   if (workOrder.coating_type.value === "DECORAL") {
     badges.push({ label: "DECORAL", tone: "accent" });
   }
@@ -164,6 +172,14 @@ export function getStageWorkOrderBadgeStack(workOrder: StageWorkOrder): DisplayB
 
   if (workOrder.is_correction) {
     badges.push({ label: "POPRAWKA", tone: "warning" });
+  }
+
+  if (workOrder.work_order_kind.value === "PRZEMALOWANKA") {
+    badges.push({ label: "PRZEMALOWANKA", tone: "danger" });
+  }
+
+  if (workOrder.is_ocynk) {
+    badges.push({ label: "OCYNK", tone: "info" });
   }
 
   if (workOrder.coating_type.value === "DECORAL") {

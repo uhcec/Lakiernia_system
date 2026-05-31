@@ -1,3 +1,4 @@
+import pytest
 from sqlalchemy.orm import Session
 
 from app.manager.repository import ManagerRepository
@@ -6,6 +7,8 @@ from app.manager.service import ManagerService
 from app.process.enums import CoatingType, ProcessStage, ProductionType, StageStatus
 from app.process.repository import ProcessRepository
 from app.process.service import ProcessService
+from app.shared.enums import QueueNamespace, WorkOrderKind
+from app.shared.exceptions import InvalidProcessStageTransitionError
 from app.work_orders.repository import WorkOrderRepository
 from app.work_orders.schemas import WorkOrderCreate
 from app.work_orders.service import WorkOrderService
@@ -31,10 +34,14 @@ def build_work_order_create(
     title: str,
     coating_type: CoatingType,
     total_quantity: int,
+    work_order_kind: WorkOrderKind = WorkOrderKind.STANDARD,
+    is_ocynk: bool = False,
 ) -> WorkOrderCreate:
     return WorkOrderCreate(
         title=title,
         coating_type=coating_type,
+        work_order_kind=work_order_kind,
+        is_ocynk=is_ocynk,
         total_quantity=total_quantity,
         customer_name="ACME",
         ral_code="RAL 7016",
@@ -54,15 +61,94 @@ def create_planned_work_order(
     production_type: ProductionType,
     queue_position: int,
     total_quantity: int = 10,
+    work_order_kind: WorkOrderKind = WorkOrderKind.STANDARD,
+    is_ocynk: bool = False,
 ) -> int:
     created = work_order_service.create_work_order(
-        build_work_order_create(title=title, coating_type=coating_type, total_quantity=total_quantity)
+        build_work_order_create(
+            title=title,
+            coating_type=coating_type,
+            total_quantity=total_quantity,
+            work_order_kind=work_order_kind,
+            is_ocynk=is_ocynk,
+        )
     )
     manager_service.assign_plan(
         created.id,
         WorkOrderPlanAssignRequest(production_type=production_type, queue_position=queue_position),
     )
     return created.id
+
+
+def test_przemalowanka_is_independent_and_skips_surface_preparation(db_session: Session) -> None:
+    work_order_service, process_service, manager_service, work_order_repository, process_repository = build_services(db_session)
+
+    work_order_id = create_planned_work_order(
+        work_order_service,
+        manager_service,
+        title="Contract Przemalowanka",
+        coating_type=CoatingType.RAL,
+        production_type=ProductionType.MANUAL,
+        queue_position=1,
+        work_order_kind=WorkOrderKind.PRZEMALOWANKA,
+    )
+
+    work_order = process_repository.get_work_order_with_stage_states(work_order_id)
+    assert work_order is not None
+    assert work_order.work_order_kind == WorkOrderKind.PRZEMALOWANKA
+    assert work_order.is_correction is False
+    assert work_order.parent_order_id is None
+    assert work_order.queue_namespace == QueueNamespace.MAIN
+    assert ProcessStage.SURFACE_PREPARATION not in process_service.get_stage_sequence_for_work_order(work_order)
+    assert process_service.get_display_status(work_order).value == "PRODUCTION_MANUAL"
+    assert work_order_id not in [
+        item.id
+        for item in process_service.list_visible_work_orders(ProcessStage.SURFACE_PREPARATION, include_done=True)
+    ]
+    assert work_order_id in [
+        item.id
+        for item in process_service.list_visible_work_orders(
+            ProcessStage.PRODUCTION,
+            production_type=ProductionType.MANUAL,
+            include_done=True,
+        )
+    ]
+
+    with pytest.raises(InvalidProcessStageTransitionError) as exc_info:
+        process_service.start_stage(work_order_id, ProcessStage.SURFACE_PREPARATION)
+
+    assert str(exc_info.value) == "Przemalowanka work orders do not go through surface preparation."
+
+    production_start = process_service.start_stage(work_order_id, ProcessStage.PRODUCTION)
+    assert production_start.stage_status.status.value == StageStatus.IN_PROGRESS
+
+
+def test_ocynk_marker_preserves_ral_decoral_route_semantics(db_session: Session) -> None:
+    work_order_service, process_service, manager_service, _, process_repository = build_services(db_session)
+
+    work_order_id = create_planned_work_order(
+        work_order_service,
+        manager_service,
+        title="Contract Ocynk Decoral",
+        coating_type=CoatingType.DECORAL,
+        production_type=ProductionType.MANUAL,
+        queue_position=1,
+        is_ocynk=True,
+    )
+
+    work_order = process_repository.get_work_order_with_stage_states(work_order_id)
+    assert work_order is not None
+    assert work_order.is_ocynk is True
+    assert process_service.get_stage_sequence_for_work_order(work_order) == [
+        ProcessStage.SURFACE_PREPARATION,
+        ProcessStage.PRODUCTION,
+        ProcessStage.PACKING,
+        ProcessStage.DECORAL_PRODUCTION,
+    ]
+
+    read_model = work_order_service.get_work_order(work_order_id)
+    assert read_model.is_ocynk is True
+    assert read_model.work_order_kind.value == WorkOrderKind.STANDARD
 
 
 def advance_to_packing(process_service: ProcessService, work_order_id: int) -> None:

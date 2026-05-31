@@ -13,11 +13,11 @@ from app.process.enums import CoatingType, ProcessDisplayStatus, ProcessStage, P
 from app.process.models import WorkOrderQuantityBatch, WorkOrderStageState
 from app.process.repository import ProcessRepository
 from app.process.schemas import ProcessStageStatusRead, ProcessStageWorkOrderRead, StageStatusView
-from app.shared.enums import QueueNamespace, StationId, WorkOrderStatus
+from app.shared.enums import QueueNamespace, StationId, WorkOrderKind, WorkOrderStatus
 from app.shared.exceptions import InvalidProcessStageTransitionError, ResourceNotFoundError
 from app.work_orders.number_allocator import WorkOrderNumberAllocator
 from app.work_orders.models import WorkOrder
-from app.work_orders.schemas import build_coating_type_view, build_production_type_view, build_queue_namespace_view
+from app.work_orders.schemas import build_coating_type_view, build_production_type_view, build_queue_namespace_view, build_work_order_kind_view
 
 
 _PROCESS_MUTATION_LOCKS: dict[int, RLock] = {}
@@ -45,8 +45,10 @@ class ProcessService:
     def get_stage_sequence_for_configuration(
         coating_type: CoatingType,
         production_type: ProductionType | None,
+        *,
+        skips_surface_preparation: bool = False,
     ) -> list[ProcessStage]:
-        stages = [ProcessStage.SURFACE_PREPARATION]
+        stages = [] if skips_surface_preparation else [ProcessStage.SURFACE_PREPARATION]
         if production_type != ProductionType.MANUAL:
             stages.append(ProcessStage.HANGING)
         stages.append(ProcessStage.PRODUCTION)
@@ -56,16 +58,20 @@ class ProcessService:
         return stages
 
     def get_stage_sequence_for_work_order(self, work_order: WorkOrder) -> list[ProcessStage]:
-        return self.get_stage_sequence_for_configuration(work_order.coating_type, work_order.production_type)
+        return self.get_stage_sequence_for_configuration(
+            work_order.coating_type,
+            work_order.production_type,
+            skips_surface_preparation=self._omits_surface_preparation_stage(work_order),
+        )
 
     @staticmethod
-    def get_configured_stage_states_sequence(coating_type: CoatingType) -> list[ProcessStage]:
-        stages = [
-            ProcessStage.SURFACE_PREPARATION,
-            ProcessStage.HANGING,
-            ProcessStage.PRODUCTION,
-            ProcessStage.PACKING,
-        ]
+    def get_configured_stage_states_sequence(
+        coating_type: CoatingType,
+        *,
+        skips_surface_preparation: bool = False,
+    ) -> list[ProcessStage]:
+        stages = [] if skips_surface_preparation else [ProcessStage.SURFACE_PREPARATION]
+        stages.extend([ProcessStage.HANGING, ProcessStage.PRODUCTION, ProcessStage.PACKING])
         if coating_type == CoatingType.DECORAL:
             stages.append(ProcessStage.DECORAL_PRODUCTION)
         return stages
@@ -77,7 +83,10 @@ class ProcessService:
                 stage=stage,
                 status=StageStatus.NOT_STARTED,
             )
-            for stage in self.get_configured_stage_states_sequence(work_order.coating_type)
+            for stage in self.get_configured_stage_states_sequence(
+                work_order.coating_type,
+                skips_surface_preparation=self._omits_surface_preparation_stage(work_order),
+            )
         ]
         self.repository.add_stage_states(stage_states)
 
@@ -218,8 +227,8 @@ class ProcessService:
             if self._is_automatic_production_preview_stage(work_order, stage):
                 raise InvalidProcessStageTransitionError(self.AUTOMATIC_PRODUCTION_MANUAL_ACTION_ERROR)
 
-            if self._is_correction_surface_preparation(work_order, stage):
-                raise InvalidProcessStageTransitionError("Correction orders do not go through surface preparation.")
+            if self._is_skipped_surface_preparation(work_order, stage):
+                raise InvalidProcessStageTransitionError(self._get_surface_preparation_skipped_message(work_order))
 
             self._store_stage_start_data(work_order, stage, counted_quantity)
 
@@ -309,8 +318,8 @@ class ProcessService:
         if self._is_automatic_production_preview_stage(work_order, stage):
             raise InvalidProcessStageTransitionError(self.AUTOMATIC_PRODUCTION_MANUAL_ACTION_ERROR)
 
-        if self._is_correction_surface_preparation(work_order, stage):
-            raise InvalidProcessStageTransitionError("Correction orders do not go through surface preparation.")
+        if self._is_skipped_surface_preparation(work_order, stage):
+            raise InvalidProcessStageTransitionError(self._get_surface_preparation_skipped_message(work_order))
 
         stage_state = self._get_stage_state(work_order, stage)
 
@@ -496,7 +505,7 @@ class ProcessService:
         if not self._is_planned(work_order):
             return False
 
-        if self._is_correction_surface_preparation(work_order, stage):
+        if self._is_skipped_surface_preparation(work_order, stage):
             return False
 
         if self._uses_batch_tracking(work_order):
@@ -679,8 +688,8 @@ class ProcessService:
         if self._is_automatic_production_preview_stage(work_order, stage_state.stage):
             raise InvalidProcessStageTransitionError(self.AUTOMATIC_PRODUCTION_MANUAL_ACTION_ERROR)
 
-        if self._is_correction_surface_preparation(work_order, stage_state.stage):
-            raise InvalidProcessStageTransitionError("Correction orders do not go through surface preparation.")
+        if self._is_skipped_surface_preparation(work_order, stage_state.stage):
+            raise InvalidProcessStageTransitionError(self._get_surface_preparation_skipped_message(work_order))
 
         allowed_transitions = {
             StageStatus.NOT_STARTED: {StageStatus.IN_PROGRESS},
@@ -799,8 +808,21 @@ class ProcessService:
         return work_order.production_type == ProductionType.AUTOMATIC and stage == ProcessStage.PRODUCTION
 
     @staticmethod
-    def _is_correction_surface_preparation(work_order: WorkOrder, stage: ProcessStage) -> bool:
-        return work_order.is_correction and stage == ProcessStage.SURFACE_PREPARATION
+    def _skips_surface_preparation(work_order: WorkOrder) -> bool:
+        return work_order.is_correction or work_order.work_order_kind == WorkOrderKind.PRZEMALOWANKA
+
+    @staticmethod
+    def _omits_surface_preparation_stage(work_order: WorkOrder) -> bool:
+        return work_order.work_order_kind == WorkOrderKind.PRZEMALOWANKA
+
+    def _is_skipped_surface_preparation(self, work_order: WorkOrder, stage: ProcessStage) -> bool:
+        return stage == ProcessStage.SURFACE_PREPARATION and self._skips_surface_preparation(work_order)
+
+    @staticmethod
+    def _get_surface_preparation_skipped_message(work_order: WorkOrder) -> str:
+        if work_order.is_correction:
+            return "Correction orders do not go through surface preparation."
+        return "Przemalowanka work orders do not go through surface preparation."
 
     def _is_visible_in_automatic_production_preview(
         self,
@@ -1226,6 +1248,8 @@ class ProcessService:
             paint_producer=parent_work_order.paint_producer,
             status=WorkOrderStatus.ENTERED,
             coating_type=parent_work_order.coating_type,
+            work_order_kind=WorkOrderKind.STANDARD,
+            is_ocynk=parent_work_order.is_ocynk,
             production_type=None,
             queue_namespace=QueueNamespace.CORRECTIONS,
             queue_position=None,
@@ -1529,6 +1553,8 @@ class ProcessService:
             batch_id=batch_id,
             is_correction=work_order.is_correction,
             is_historical_correction=self.is_historical_correction(work_order),
+            work_order_kind=build_work_order_kind_view(work_order.work_order_kind),
+            is_ocynk=work_order.is_ocynk,
             order_number=work_order.order_number,
             title=work_order.title,
             ral_code=work_order.ral_code,
@@ -1735,6 +1761,9 @@ class ProcessService:
         )
 
     def _get_surface_preparation_actual_quantity(self, work_order: WorkOrder) -> int | None:
+        if self._skips_surface_preparation(work_order):
+            return None
+
         surface_preparation_state = self._get_stage_state(work_order, ProcessStage.SURFACE_PREPARATION)
         return surface_preparation_state.counted_quantity
 

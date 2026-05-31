@@ -56,6 +56,8 @@ def test_create_work_order_records_station_audit_event(db_session: Session) -> N
     assert json.loads(event.details_json or "{}") == {
         "order_number": created.order_number,
         "external_order_number": None,
+        "work_order_kind": "STANDARD",
+        "is_ocynk": False,
         "is_incomplete_on_arrival": False,
     }
 

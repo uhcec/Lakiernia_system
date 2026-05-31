@@ -126,6 +126,6 @@ Use `docs/WORKFLOW_VALIDATION_CHECKLIST.md` as the active checklist before chang
 
 ## Additional Work Types
 
-- `Przemalowanka`: always a separate independent customer work order, not parent-linked to an original order. It behaves like a correction operationally and skips surface preparation. It may follow RAL or Decoral downstream paths.
-- `Ocynk`: a separate production-relevant work-order type/marker that can combine with RAL or Decoral (`Ocynk RAL`, `Ocynk Decoral`). It follows the same stage path as normal work but must be strongly marked as `OCYNK` on station screens because station work differs.
-- Open implementation detail: design the work-order kind/type model so `Przemalowanka` and `Ocynk` can coexist with existing RAL/Decoral route semantics.
+- `Przemalowanka`: always a separate independent customer work order, not parent-linked to an original order. It behaves like a correction operationally and skips surface preparation. It may follow RAL or Decoral downstream paths. Current implementation models it as `work_order_kind = PRZEMALOWANKA`, not as `is_correction`.
+- `Ocynk`: a separate production-relevant work-order type/marker that can combine with RAL or Decoral (`Ocynk RAL`, `Ocynk Decoral`). It follows the same stage path as normal work but must be strongly marked as `OCYNK` on station screens because station work differs. Current implementation models it as an independent `is_ocynk` marker.
+- Open implementation detail: reporting/search/document needs for `Przemalowanka` and `Ocynk` are still open beyond the current model and station-visible markers.

@@ -14,6 +14,11 @@ QUEUE_NAMESPACE_LABELS_PL = {
     "CORRECTIONS": "Corrections",
 }
 
+WORK_ORDER_KIND_LABELS_PL = {
+    "STANDARD": "Standardowe",
+    "PRZEMALOWANKA": "Przemalowanka",
+}
+
 STATION_ID_LABELS_PL = {
     "OFFICE": "Biuro",
     "MANAGER": "Kierownik",
@@ -49,6 +54,15 @@ class QueueNamespace(StrEnum):
         return QUEUE_NAMESPACE_LABELS_PL[self.value]
 
 
+class WorkOrderKind(StrEnum):
+    STANDARD = "STANDARD"
+    PRZEMALOWANKA = "PRZEMALOWANKA"
+
+    @property
+    def polish_label(self) -> str:
+        return WORK_ORDER_KIND_LABELS_PL[self.value]
+
+
 class StationId(StrEnum):
     OFFICE = "OFFICE"
     MANAGER = "MANAGER"
@@ -72,6 +86,10 @@ def get_work_order_status_label(status: WorkOrderStatus) -> str:
 
 def get_queue_namespace_label(queue_namespace: QueueNamespace) -> str:
     return QUEUE_NAMESPACE_LABELS_PL[queue_namespace.value]
+
+
+def get_work_order_kind_label(work_order_kind: WorkOrderKind) -> str:
+    return WORK_ORDER_KIND_LABELS_PL[work_order_kind.value]
 
 
 def get_station_id_label(station_id: StationId) -> str:

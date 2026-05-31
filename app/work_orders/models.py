@@ -5,7 +5,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database.base import Base
 from app.process.enums import CoatingType, ProductionType
-from app.shared.enums import QueueNamespace, WorkOrderStatus
+from app.shared.enums import QueueNamespace, WorkOrderKind, WorkOrderStatus
 
 
 work_order_status_enum = Enum(
@@ -34,6 +34,13 @@ queue_namespace_enum = Enum(
     name="queue_namespace",
     native_enum=False,
     values_callable=lambda namespaces: [namespace.value for namespace in namespaces],
+)
+
+work_order_kind_enum = Enum(
+    WorkOrderKind,
+    name="work_order_kind",
+    native_enum=False,
+    values_callable=lambda kinds: [kind.value for kind in kinds],
 )
 
 
@@ -88,6 +95,12 @@ class WorkOrder(Base):
     paint_producer: Mapped[str] = mapped_column(String(255), nullable=False)
     status: Mapped[WorkOrderStatus] = mapped_column(work_order_status_enum, default=WorkOrderStatus.ENTERED, nullable=False)
     coating_type: Mapped[CoatingType] = mapped_column(coating_type_enum, default=CoatingType.RAL, nullable=False)
+    work_order_kind: Mapped[WorkOrderKind] = mapped_column(
+        work_order_kind_enum,
+        nullable=False,
+        default=WorkOrderKind.STANDARD,
+    )
+    is_ocynk: Mapped[bool] = mapped_column(Boolean(), nullable=False, default=False)
     production_type: Mapped[ProductionType | None] = mapped_column(production_type_enum, nullable=True)
     queue_namespace: Mapped[QueueNamespace] = mapped_column(
         queue_namespace_enum,

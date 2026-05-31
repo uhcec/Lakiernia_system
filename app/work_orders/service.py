@@ -38,6 +38,7 @@ from app.work_orders.schemas import (
     build_quantity_batch_type_view,
     build_work_order_relation_summary,
     build_queue_namespace_view,
+    build_work_order_kind_view,
     build_production_type_view,
 )
 
@@ -90,6 +91,8 @@ class WorkOrderService:
             paint_producer=payload.paint_producer,
             status=initial_status,
             coating_type=payload.coating_type,
+            work_order_kind=payload.work_order_kind,
+            is_ocynk=payload.is_ocynk,
             received_date=payload.received_date,
             planned_pickup_date=payload.planned_pickup_date,
             total_area_m2=payload.total_area_m2,
@@ -172,6 +175,8 @@ class WorkOrderService:
             "ral_code": work_order.ral_code,
             "paint_producer": work_order.paint_producer,
             "coating_type": work_order.coating_type,
+            "work_order_kind": work_order.work_order_kind,
+            "is_ocynk": work_order.is_ocynk,
             "received_date": work_order.received_date,
             "planned_pickup_date": work_order.planned_pickup_date,
             "total_area_m2": work_order.total_area_m2,
@@ -487,6 +492,8 @@ class WorkOrderService:
             details={
                 "order_number": work_order.order_number,
                 "external_order_number": work_order.external_order_number,
+                "work_order_kind": work_order.work_order_kind,
+                "is_ocynk": work_order.is_ocynk,
                 "is_incomplete_on_arrival": work_order.is_incomplete_on_arrival,
             },
         )
@@ -572,6 +579,8 @@ class WorkOrderService:
             total_progress_quantity=total_progress_quantity,
             is_correction=work_order.is_correction,
             is_historical_correction=self.process_service.is_historical_correction(work_order),
+            work_order_kind=build_work_order_kind_view(work_order.work_order_kind),
+            is_ocynk=work_order.is_ocynk,
             correction_reason_category=work_order.correction_reason_category,
             correction_reason_note=work_order.correction_reason_note,
             parent_order=(

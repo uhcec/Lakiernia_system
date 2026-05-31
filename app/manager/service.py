@@ -34,6 +34,7 @@ from app.work_orders.schemas import (
     build_quantity_batch_type_view,
     build_stage_status_info_view,
     build_work_order_relation_summary,
+    build_work_order_kind_view,
 )
 from app.work_orders.service import WorkOrderService
 
@@ -329,6 +330,8 @@ class ManagerService:
             total_progress_quantity=total_progress_quantity,
             is_correction=work_order.is_correction,
             is_historical_correction=self.process_service.is_historical_correction(work_order),
+            work_order_kind=build_work_order_kind_view(work_order.work_order_kind),
+            is_ocynk=work_order.is_ocynk,
             correction_reason_category=work_order.correction_reason_category,
             correction_reason_note=work_order.correction_reason_note,
             parent_order=(

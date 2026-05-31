@@ -104,6 +104,8 @@ function buildWorkOrder(id: number, orderNumber: string, queuePosition: number, 
     total_progress_quantity: 0,
     is_correction: false,
     is_historical_correction: false,
+    work_order_kind: { value: "STANDARD", label: "Standardowe" },
+    is_ocynk: false,
     correction_reason_category: null,
     correction_reason_note: null,
     parent_order: null,
@@ -148,6 +150,8 @@ function buildStageWorkOrder(
     batch_id: overrides.batch_id ?? null,
     is_correction: overrides.is_correction ?? false,
     is_historical_correction: overrides.is_historical_correction ?? false,
+    work_order_kind: overrides.work_order_kind ?? { value: "STANDARD", label: "Standardowe" },
+    is_ocynk: overrides.is_ocynk ?? false,
     order_number: overrides.order_number,
     title: overrides.title ?? overrides.order_number,
     ral_code: overrides.ral_code ?? "RAL 9005",
@@ -218,6 +222,8 @@ describe("frontend state consistency", () => {
     fireEvent.change(screen.getByLabelText("Nr zewnętrzny"), { target: { value: " EXT-77 " } });
     fireEvent.change(screen.getByLabelText("Klient"), { target: { value: "ACME" } });
     fireEvent.change(screen.getByLabelText("Technologia"), { target: { value: "RAL" } });
+    fireEvent.change(screen.getByLabelText("Rodzaj zlecenia"), { target: { value: "PRZEMALOWANKA" } });
+    fireEvent.click(screen.getByLabelText("Ocynk"));
     fireEvent.change(screen.getByLabelText("Kod RAL"), { target: { value: "RAL 7016" } });
     fireEvent.change(screen.getByLabelText("Producent farby"), { target: { value: "AkzoNobel" } });
     fireEvent.change(screen.getByLabelText("Data przyjęcia"), { target: { value: "2026-05-30" } });
@@ -230,6 +236,8 @@ describe("frontend state consistency", () => {
           external_order_number: "EXT-77",
           customer_name: "ACME",
           coating_type: "RAL",
+          work_order_kind: "PRZEMALOWANKA",
+          is_ocynk: true,
         }),
       );
     });
@@ -978,6 +986,8 @@ describe("frontend state consistency", () => {
           current_active_quantity: 0,
           is_correction: false,
           is_historical_correction: false,
+          work_order_kind: { value: "STANDARD", label: "Standardowe" },
+          is_ocynk: false,
           process_status: { value: "WAITING_FOR_CORRECTIONS", label: "Czeka na poprawki" },
         },
       },
@@ -1031,6 +1041,8 @@ describe("frontend state consistency", () => {
             current_active_quantity: 0,
             is_correction: true,
             is_historical_correction: true,
+            work_order_kind: { value: "STANDARD", label: "Standardowe" },
+            is_ocynk: false,
             process_status: { value: "READY", label: "Gotowe" },
           },
         ],
@@ -1057,6 +1069,8 @@ describe("frontend state consistency", () => {
           current_active_quantity: 0,
           is_correction: false,
           is_historical_correction: false,
+          work_order_kind: { value: "STANDARD", label: "Standardowe" },
+          is_ocynk: false,
           process_status: { value: "READY", label: "Gotowe" },
         },
       },
@@ -1218,6 +1232,8 @@ describe("frontend state consistency", () => {
           current_active_quantity: 0,
           is_correction: true,
           is_historical_correction: true,
+          work_order_kind: { value: "STANDARD", label: "Standardowe" },
+          is_ocynk: false,
           process_status: { value: "READY", label: "Gotowe" },
         },
       ],
@@ -1248,6 +1264,8 @@ describe("frontend state consistency", () => {
           current_active_quantity: 3,
           is_correction: true,
           is_historical_correction: false,
+          work_order_kind: { value: "STANDARD", label: "Standardowe" },
+          is_ocynk: false,
           process_status: { value: "PACKING", label: "Pakowanie" },
         },
       ],

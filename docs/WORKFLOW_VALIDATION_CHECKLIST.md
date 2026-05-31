@@ -175,7 +175,7 @@ Implementation decision needed:
 
 ### 6. Additional Work Types
 
-Status: `CONFIRMED with implementation design needed`
+Status: `IMPLEMENTED first model slice; remaining UI/reporting refinements open`
 
 Confirmed factory policy from 2026-05-30:
 
@@ -186,10 +186,18 @@ Confirmed factory policy from 2026-05-30:
 - `Ocynk` follows the same stage path as other work orders, but station screens must strongly mark it as `OCYNK` because station work differs.
 - Both new work types can follow RAL or Decoral paths.
 
+Current repository behavior/evidence:
+
+- `work_order_kind` represents independent `STANDARD` and `PRZEMALOWANKA` orders separately from packing-created corrections.
+- `PRZEMALOWANKA` remains `is_correction = false`, has no parent order, stays in the main queue namespace, and skips `SURFACE_PREPARATION` after planning.
+- `is_ocynk` is an independent marker that can combine with either RAL or Decoral and preserves existing route semantics.
+- Office/manager/station shared badge helpers expose `PRZEMALOWANKA` and `OCYNK` labels in frontend read models.
+- API, workflow-contract, migration, and frontend regression tests cover the first model slice.
+
 Implementation decision needed:
 
-- Define the data model for a standalone work-order kind/type that can represent `Przemalowanka` and `Ocynk` without breaking existing RAL/Decoral route semantics.
-- Define which station and manager/office screens show the strong `OCYNK` marker.
+- Extend search/report/export surfaces for `Przemalowanka` and `Ocynk` once office/manager reporting needs are clearer.
+- Decide whether any dedicated `Przemalowanka` or `Ocynk` production documents/fields are needed beyond the current marker fields.
 
 Why this matters:
 

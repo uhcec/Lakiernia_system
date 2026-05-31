@@ -266,7 +266,13 @@ Confirmed concepts:
 - `Ocynk` is a separate production-relevant work-order type/marker that can combine with RAL or Decoral. It follows the normal stage path but must be strongly marked as `OCYNK` because station work differs.
 - Both may follow RAL or Decoral downstream paths.
 
-These concepts need data-model design before implementation so they can coexist with existing RAL/Decoral route semantics.
+Current enforcement:
+- `work_order_kind` distinguishes normal independent work orders from `PRZEMALOWANKA` without using `is_correction` or parent links.
+- `PRZEMALOWANKA` work orders stay in the main queue namespace and omit `SURFACE_PREPARATION` from their workflow sequence.
+- `is_ocynk` is an independent marker and does not change RAL/Decoral routing.
+- Packing-created correction orders remain correction children and retain existing correction semantics; they are not modeled as `PRZEMALOWANKA`.
+
+Remaining design work: reporting/search/document surfaces for these work types are still open beyond current model fields and frontend markers.
 
 ## Quality Control Production Document
 

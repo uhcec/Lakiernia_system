@@ -17,7 +17,7 @@ from app.process.enums import (
     get_stage_status_label,
 )
 from app.shared.enums import WorkOrderStatus
-from app.shared.enums import QueueNamespace, get_queue_namespace_label
+from app.shared.enums import QueueNamespace, WorkOrderKind, get_queue_namespace_label, get_work_order_kind_label
 
 
 class WorkOrderStatusOption(BaseModel):
@@ -59,6 +59,11 @@ class StageStatusInfoView(BaseModel):
 
 class QueueNamespaceView(BaseModel):
     value: QueueNamespace
+    label: str
+
+
+class WorkOrderKindView(BaseModel):
+    value: WorkOrderKind
     label: str
 
 
@@ -111,6 +116,8 @@ class WorkOrderRelationSummaryRead(BaseModel):
     current_active_quantity: int
     is_correction: bool
     is_historical_correction: bool = False
+    work_order_kind: WorkOrderKindView
+    is_ocynk: bool = False
     correction_reason_category: str | None = None
     correction_reason_note: str | None = None
     process_status: ProcessStatusView
@@ -132,6 +139,8 @@ class WorkOrderCreate(BaseModel):
     ral_code: str = Field(min_length=1, max_length=64)
     paint_producer: str = Field(min_length=1, max_length=255)
     coating_type: CoatingType
+    work_order_kind: WorkOrderKind = WorkOrderKind.STANDARD
+    is_ocynk: bool = False
     received_date: date
     planned_pickup_date: date | None = None
     total_area_m2: float | None = Field(default=None, gt=0)
@@ -196,6 +205,8 @@ class WorkOrderRead(BaseModel):
     total_progress_quantity: int
     is_correction: bool
     is_historical_correction: bool = False
+    work_order_kind: WorkOrderKindView
+    is_ocynk: bool = False
     correction_reason_category: str | None = None
     correction_reason_note: str | None = None
     parent_order: WorkOrderRelationSummaryRead | None = None
@@ -243,6 +254,10 @@ def build_queue_namespace_view(queue_namespace: QueueNamespace) -> QueueNamespac
     return QueueNamespaceView(value=queue_namespace, label=get_queue_namespace_label(queue_namespace))
 
 
+def build_work_order_kind_view(work_order_kind: WorkOrderKind) -> WorkOrderKindView:
+    return WorkOrderKindView(value=work_order_kind, label=get_work_order_kind_label(work_order_kind))
+
+
 def build_process_status_view(process_status: ProcessDisplayStatus) -> ProcessStatusView:
     return ProcessStatusView(value=process_status, label=get_process_display_status_label(process_status))
 
@@ -278,6 +293,8 @@ def build_work_order_relation_summary(work_order: "WorkOrder") -> WorkOrderRelat
         completed_quantity=work_order.completed_quantity,
         current_active_quantity=work_order.current_active_quantity,
         is_correction=work_order.is_correction,
+        work_order_kind=build_work_order_kind_view(work_order.work_order_kind),
+        is_ocynk=work_order.is_ocynk,
         correction_reason_category=work_order.correction_reason_category,
         correction_reason_note=work_order.correction_reason_note,
         process_status=build_process_status_view(process_status),

@@ -2,11 +2,13 @@ import { FormEvent, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
 import { createWorkOrder } from "../api/workOrdersApi";
-import type { CoatingTypeValue } from "../types/workOrders";
+import type { CoatingTypeValue, WorkOrderKindValue } from "../types/workOrders";
 
 interface FormState {
   total_quantity: string;
   coating_type: CoatingTypeValue | "";
+  work_order_kind: WorkOrderKindValue;
+  is_ocynk: boolean;
   external_order_number: string;
   description: string;
   customer_name: string;
@@ -26,6 +28,8 @@ interface FormState {
 const initialFormState: FormState = {
   total_quantity: "1",
   coating_type: "",
+  work_order_kind: "STANDARD",
+  is_ocynk: false,
   external_order_number: "",
   description: "",
   customer_name: "",
@@ -162,6 +166,8 @@ export function CreateWorkOrderPage() {
       await createWorkOrder({
         total_quantity: totalQuantity,
         coating_type: formState.coating_type,
+        work_order_kind: formState.work_order_kind,
+        is_ocynk: formState.is_ocynk,
         external_order_number: formState.external_order_number.trim() || undefined,
         description: formState.description.trim() || undefined,
         customer_name: trimmedCustomerName,
@@ -248,6 +254,18 @@ export function CreateWorkOrderPage() {
             </label>
 
             <label className="flex flex-col gap-2">
+              <span className="text-sm font-medium text-ink">Rodzaj zlecenia</span>
+              <select
+                value={formState.work_order_kind}
+                onChange={(event) => updateField("work_order_kind", event.target.value as WorkOrderKindValue)}
+                className="rounded-2xl border border-line bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-accent"
+              >
+                <option value="STANDARD">Standardowe</option>
+                <option value="PRZEMALOWANKA">Przemalowanka</option>
+              </select>
+            </label>
+
+            <label className="flex flex-col gap-2">
               <span className="text-sm font-medium text-ink">Kod RAL</span>
               <input
                 value={formState.ral_code}
@@ -321,6 +339,16 @@ export function CreateWorkOrderPage() {
                 className="h-4 w-4 rounded border-line text-accent focus:ring-accent"
               />
               Zlecenie przyszło niekompletne
+            </label>
+
+            <label className="md:col-span-2 flex items-center gap-3 rounded-3xl border border-line/80 bg-mist/40 px-4 py-4 text-sm text-ink">
+              <input
+                type="checkbox"
+                checked={formState.is_ocynk}
+                onChange={(event) => setFormState((current) => ({ ...current, is_ocynk: event.target.checked }))}
+                className="h-4 w-4 rounded border-line text-accent focus:ring-accent"
+              />
+              Ocynk
             </label>
 
             <div className="space-y-3 rounded-3xl border border-line/80 bg-mist/40 p-4">
