@@ -113,30 +113,26 @@ Why this matters:
 
 ### 3a. Profile And Accessory Quantity Semantics
 
-Status: `OPEN; docs do not contradict, implementation currently differs`
+Status: `IMPLEMENTED as current system rule; pending real-factory review if policy changes`
 
-Working requirement raised on 2026-05-31:
+Requirement raised on 2026-05-31 and implemented as current system policy:
 
 - Profile quantity and accessory quantity should not behave as independent arbitrary counts.
 - A known profile/accessory quantity should be allowed to be `0` when that category is absent.
-- When the category is present, the displayed quantity should match the applicable order/operational quantity instead of accepting a separate value.
-- For office intake this likely means matching `total_quantity`.
-- For station/correction/batch displays this may need to follow the current operational quantity for the active work context, so correction children and split batches do not show stale parent totals.
+- At office intake, when the category is present, the known quantity must match `total_quantity`.
+- For station/correction/batch displays, present category quantities follow the current operational quantity for the active work context, so correction children and split batches do not show stale parent totals.
 - `current_active_quantity == 0` on completed/READY orders must not be used to rewrite historical profile/accessory quantities to `0`; completed views still follow completed-state display rules.
 
-Current repository behavior/evidence:
+Implemented behavior:
 
-- Documentation only says station lists should show profile/accessory pieces to verify; it does not currently define equality with total or active quantity.
-- API, Pydantic schemas, frontend validation, and DB constraints currently reject `0` for profile/accessory quantities when a value is provided.
-- Existing tests and fixtures currently allow profile/accessory quantities that differ from `total_quantity`.
-- Correction children currently copy profile/accessory quantities from the parent, which can make child correction quantities disagree with the child order quantity.
+- API, Pydantic schemas, frontend validation, and DB constraints now allow `0` and reject known values other than `0` or `total_quantity`.
+- Existing data is migrated so old positive non-matching values become `total_quantity`.
+- Correction children inherit category presence from the parent, but derive present category quantities from the child correction quantity.
+- Process/station read models derive present category quantities from active stage or batch quantity.
 
-Implementation decision needed:
+Future decision only if factory policy changes:
 
-- Confirm whether the persisted intake value should be exactly `0`, `total_quantity`, or unknown/to-count.
-- Confirm whether station read models should derive profile/accessory pieces from active batch/current operational quantity when the category is present.
-- Confirm how correction children should inherit category presence while deriving the displayed quantity from the child correction quantity.
-- Decide whether `profiles_quantity`/`accessories_quantity` remain stored quantities or become derived read-model values backed by category presence/to-count fields.
+- If factory users need profile/accessory counts that are truly independent from order quantity, this rule must be reopened and remodeled instead of weakening validation silently.
 
 Why this matters:
 

@@ -91,7 +91,7 @@ def test_update_work_order_records_station_audit_event(db_session: Session) -> N
 def test_mark_complete_arrival_rejects_invalid_profiles_state(db_session: Session) -> None:
     service, repository = build_work_order_service(db_session)
     created = service.create_work_order(
-        build_incomplete_work_order_payload(profiles_quantity=5, profiles_to_count=False),
+        build_incomplete_work_order_payload(profiles_quantity=100, profiles_to_count=False),
     )
     work_order = repository.get_by_id(created.id)
     assert work_order is not None
@@ -112,7 +112,7 @@ def test_mark_complete_arrival_rejects_invalid_profiles_state(db_session: Sessio
 def test_mark_complete_arrival_rejects_invalid_accessories_state(db_session: Session) -> None:
     service, repository = build_work_order_service(db_session)
     created = service.create_work_order(
-        build_incomplete_work_order_payload(accessories_quantity=7, accessories_to_count=False),
+        build_incomplete_work_order_payload(accessories_quantity=100, accessories_to_count=False),
     )
     work_order = repository.get_by_id(created.id)
     assert work_order is not None
@@ -188,9 +188,9 @@ def test_rejected_mark_complete_arrival_leaves_order_state_unchanged(db_session:
     created = service.create_work_order(
         build_incomplete_work_order_payload(
             customer_name="Stały klient",
-            profiles_quantity=5,
+            profiles_quantity=100,
             profiles_to_count=False,
-            accessories_quantity=7,
+            accessories_quantity=100,
             accessories_to_count=False,
         )
     )
@@ -208,7 +208,7 @@ def test_rejected_mark_complete_arrival_leaves_order_state_unchanged(db_session:
     assert work_order.is_incomplete_on_arrival is True
     assert work_order.status == WorkOrderStatus.INCOMPLETE
     assert work_order.customer_name == "   "
-    assert work_order.profiles_quantity == 5
+    assert work_order.profiles_quantity == 100
     assert work_order.profiles_to_count is False
     assert work_order.accessories_quantity is None
     assert work_order.accessories_to_count is False

@@ -46,13 +46,13 @@ const initialFormState: FormState = {
   notes: "",
 };
 
-function parseOptionalPositiveInteger(value: string): number | undefined {
+function parseOptionalNonNegativeInteger(value: string): number | undefined {
   if (!value.trim()) {
     return undefined;
   }
 
   const parsed = Number(value);
-  if (!Number.isInteger(parsed) || parsed <= 0) {
+  if (!Number.isInteger(parsed) || parsed < 0) {
     return Number.NaN;
   }
 
@@ -132,9 +132,13 @@ export function CreateWorkOrderPage() {
       return;
     }
 
-    const profilesQuantity = parseOptionalPositiveInteger(formState.profiles_quantity);
+    const profilesQuantity = parseOptionalNonNegativeInteger(formState.profiles_quantity);
     if (Number.isNaN(profilesQuantity)) {
-      setValidationError("Ilość profili musi być dodatnią liczbą całkowitą");
+      setValidationError("Ilość profili musi być nieujemną liczbą całkowitą");
+      return;
+    }
+    if (profilesQuantity !== undefined && profilesQuantity !== 0 && profilesQuantity !== totalQuantity) {
+      setValidationError("Ilość profili musi wynosić 0 albo być równa ilości całkowitej");
       return;
     }
     if (profilesQuantity === undefined && !formState.profiles_to_count) {
@@ -142,9 +146,13 @@ export function CreateWorkOrderPage() {
       return;
     }
 
-    const accessoriesQuantity = parseOptionalPositiveInteger(formState.accessories_quantity);
+    const accessoriesQuantity = parseOptionalNonNegativeInteger(formState.accessories_quantity);
     if (Number.isNaN(accessoriesQuantity)) {
-      setValidationError("Ilość akcesoriów musi być dodatnią liczbą całkowitą");
+      setValidationError("Ilość akcesoriów musi być nieujemną liczbą całkowitą");
+      return;
+    }
+    if (accessoriesQuantity !== undefined && accessoriesQuantity !== 0 && accessoriesQuantity !== totalQuantity) {
+      setValidationError("Ilość akcesoriów musi wynosić 0 albo być równa ilości całkowitej");
       return;
     }
     if (accessoriesQuantity === undefined && !formState.accessories_to_count) {
@@ -356,7 +364,7 @@ export function CreateWorkOrderPage() {
                 <span className="text-sm font-medium text-ink">Profile</span>
                 <input
                   type="number"
-                  min="1"
+                  min="0"
                   step="1"
                   disabled={formState.profiles_to_count}
                   value={formState.profiles_quantity}
@@ -381,7 +389,7 @@ export function CreateWorkOrderPage() {
                 <span className="text-sm font-medium text-ink">Akcesoria</span>
                 <input
                   type="number"
-                  min="1"
+                  min="0"
                   step="1"
                   disabled={formState.accessories_to_count}
                   value={formState.accessories_quantity}

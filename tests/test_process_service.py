@@ -565,6 +565,50 @@ def test_decoral_automatic_mixed_split_waits_for_correction_child(db_session: Se
     assert correction_orders[0].correction_reason_note == "pomiar na końcu partii"
 
 
+def test_station_and_correction_rows_derive_profile_accessory_quantities_from_operational_quantity(
+    db_session: Session,
+) -> None:
+    work_order_service, process_service, manager_service, work_order_repository, _ = build_services(db_session)
+
+    created = work_order_service.create_work_order(
+        WorkOrderCreate(
+            title="Correction category quantities",
+            coating_type=CoatingType.DECORAL,
+            total_quantity=10,
+            customer_name="ACME",
+            ral_code="RAL 7016",
+            paint_producer="AkzoNobel",
+            received_date="2026-05-25",
+            profiles_quantity=10,
+            profiles_to_count=False,
+            accessories_quantity=0,
+            accessories_to_count=False,
+        )
+    )
+    manager_service.assign_plan(
+        created.id,
+        WorkOrderPlanAssignRequest(production_type=ProductionType.MANUAL, queue_position=1),
+    )
+    advance_to_packing(process_service, created.id)
+
+    complete_packing(process_service, created.id, ok_quantity=7, correction_quantity=3)
+
+    decoral_rows = process_service.list_stage_work_orders(ProcessStage.DECORAL_PRODUCTION)
+    correction_orders = [work_order for work_order in work_order_repository.list(limit=20, offset=0) if work_order.is_correction]
+
+    assert [row.id for row in decoral_rows] == [created.id]
+    assert decoral_rows[0].profiles_quantity == 7
+    assert decoral_rows[0].profiles_to_count is False
+    assert decoral_rows[0].accessories_quantity == 0
+    assert decoral_rows[0].accessories_to_count is False
+    assert len(correction_orders) == 1
+    assert correction_orders[0].total_quantity == 3
+    assert correction_orders[0].profiles_quantity == 3
+    assert correction_orders[0].profiles_to_count is False
+    assert correction_orders[0].accessories_quantity == 0
+    assert correction_orders[0].accessories_to_count is False
+
+
 def test_decoral_split_moves_ok_quantity_to_decoral_and_child_to_painting_flow(db_session: Session) -> None:
     work_order_service, process_service, manager_service, work_order_repository, process_repository = build_services(db_session)
 

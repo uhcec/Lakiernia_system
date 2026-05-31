@@ -273,6 +273,22 @@ Rules:
 - Starting `SURFACE_PREPARATION` does not require counted quantity.
 - Finishing `SURFACE_PREPARATION` requires counted quantity.
 
+## Profile And Accessory Quantity Semantics
+
+Rules:
+- Profile quantity and accessory quantity are category quantities, not arbitrary independent counts.
+- At office intake, a known profile/accessory quantity must be either `0` when that category is absent or equal to `total_quantity` when that category is present.
+- A category that still needs counting uses the existing `*_to_count` flag with a `NULL` quantity; it must not also carry a numeric quantity.
+- Station read models must display the applicable operational quantity for present categories, using active batch/current stage quantity rather than stale parent totals.
+- Correction children inherit category presence from the parent, but their known present category quantity is derived from the correction child quantity.
+- Completed/READY rows must not derive category quantities from `current_active_quantity == 0`; historical display remains governed by completed-state display rules.
+
+Current enforcement:
+- API and frontend intake validation reject known profile/accessory values other than `0` or `total_quantity`.
+- DB constraints allow only `NULL`, `0`, or `total_quantity` for persisted profile/accessory quantities.
+- Packing-created correction children convert present parent category quantities to the child correction quantity and preserve absent categories as `0`.
+- Process/station read models derive displayed profile/accessory quantities from the active stage or batch quantity when the category is present.
+
 ## Additional Work Types
 
 Confirmed concepts:

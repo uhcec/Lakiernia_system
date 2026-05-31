@@ -104,8 +104,8 @@ def test_create_work_order(test_client: TestClient) -> None:
         received_date="2026-05-20",
         planned_pickup_date="2026-06-15",
         total_area_m2=42.5,
-        profiles_quantity=12,
-        accessories_quantity=8,
+        profiles_quantity=250,
+        accessories_quantity=0,
         notes="Handle carefully",
         total_quantity=250,
     )
@@ -131,9 +131,9 @@ def test_create_work_order(test_client: TestClient) -> None:
     assert body["planned_pickup_date"] == "2026-06-15"
     assert body["total_area_m2"] == 42.5
     assert body["is_incomplete_on_arrival"] is False
-    assert body["profiles_quantity"] == 12
+    assert body["profiles_quantity"] == 250
     assert body["profiles_to_count"] is False
-    assert body["accessories_quantity"] == 8
+    assert body["accessories_quantity"] == 0
     assert body["accessories_to_count"] is False
     assert body["notes"] == "Handle carefully"
     assert body["process_status"] == {"value": "TO_BE_PLANNED", "label": "Do zaplanowania"}
@@ -226,6 +226,29 @@ def test_create_work_order_with_to_count_flags(test_client: TestClient) -> None:
     assert response.json()["profiles_to_count"] is True
     assert response.json()["accessories_quantity"] is None
     assert response.json()["accessories_to_count"] is True
+
+
+def test_create_work_order_allows_zero_profile_and_accessory_quantities(test_client: TestClient) -> None:
+    response = create_work_order(
+        test_client,
+        title="No profiles or accessories",
+        profiles_quantity=0,
+        accessories_quantity=0,
+    )
+
+    assert response.status_code == 201
+    assert response.json()["profiles_quantity"] == 0
+    assert response.json()["profiles_to_count"] is False
+    assert response.json()["accessories_quantity"] == 0
+    assert response.json()["accessories_to_count"] is False
+
+
+def test_create_work_order_rejects_independent_profile_and_accessory_quantities(test_client: TestClient) -> None:
+    profile_response = create_work_order(test_client, title="Bad profile quantity", total_quantity=100, profiles_quantity=5)
+    accessory_response = create_work_order(test_client, title="Bad accessory quantity", total_quantity=100, accessories_quantity=7)
+
+    assert profile_response.status_code == 422
+    assert accessory_response.status_code == 422
 
 
 def test_creating_without_required_fields_fails(test_client: TestClient) -> None:
@@ -380,13 +403,13 @@ def test_partial_update_does_not_erase_unspecified_fields(test_client: TestClien
     ("create_overrides", "patch_payload"),
     [
         ({"profiles_to_count": True, "profiles_quantity": None}, {"profiles_to_count": False}),
-        ({"profiles_to_count": False, "profiles_quantity": 5}, {"profiles_quantity": None}),
-        ({"profiles_to_count": False, "profiles_quantity": 5}, {"profiles_to_count": True}),
-        ({"profiles_to_count": True, "profiles_quantity": None}, {"profiles_quantity": 5}),
+        ({"profiles_to_count": False, "profiles_quantity": 100}, {"profiles_quantity": None}),
+        ({"profiles_to_count": False, "profiles_quantity": 100}, {"profiles_to_count": True}),
+        ({"profiles_to_count": True, "profiles_quantity": None}, {"profiles_quantity": 100}),
         ({"accessories_to_count": True, "accessories_quantity": None}, {"accessories_to_count": False}),
-        ({"accessories_to_count": False, "accessories_quantity": 7}, {"accessories_quantity": None}),
-        ({"accessories_to_count": False, "accessories_quantity": 7}, {"accessories_to_count": True}),
-        ({"accessories_to_count": True, "accessories_quantity": None}, {"accessories_quantity": 7}),
+        ({"accessories_to_count": False, "accessories_quantity": 100}, {"accessories_quantity": None}),
+        ({"accessories_to_count": False, "accessories_quantity": 100}, {"accessories_to_count": True}),
+        ({"accessories_to_count": True, "accessories_quantity": None}, {"accessories_quantity": 100}),
     ],
 )
 def test_patch_rejects_invalid_merged_counting_state(
@@ -436,7 +459,7 @@ def test_valid_partial_patch_preserves_counting_consistency(test_client: TestCli
     created = create_work_order(
         test_client,
         title="Valid partial patch",
-        profiles_quantity=5,
+        profiles_quantity=100,
         profiles_to_count=False,
         accessories_quantity=None,
         accessories_to_count=True,
@@ -451,7 +474,7 @@ def test_valid_partial_patch_preserves_counting_consistency(test_client: TestCli
     assert response.status_code == 200
     assert response.json()["notes"] == "Updated note"
     assert response.json()["customer_name"] == "Updated customer"
-    assert response.json()["profiles_quantity"] == 5
+    assert response.json()["profiles_quantity"] == 100
     assert response.json()["profiles_to_count"] is False
     assert response.json()["accessories_quantity"] is None
     assert response.json()["accessories_to_count"] is True
@@ -461,9 +484,9 @@ def test_rejected_patch_leaves_previous_values_unchanged(test_client: TestClient
     created = create_work_order(
         test_client,
         title="Rejected patch rollback",
-        profiles_quantity=5,
+        profiles_quantity=100,
         profiles_to_count=False,
-        accessories_quantity=7,
+        accessories_quantity=0,
         accessories_to_count=False,
         customer_name="Stable customer",
         notes="Stable note",
@@ -478,9 +501,9 @@ def test_rejected_patch_leaves_previous_values_unchanged(test_client: TestClient
     assert_work_order_fields_unchanged(
         test_client,
         created["id"],
-        profiles_quantity=5,
+        profiles_quantity=100,
         profiles_to_count=False,
-        accessories_quantity=7,
+        accessories_quantity=0,
         accessories_to_count=False,
         customer_name="Stable customer",
         notes="Stable note",

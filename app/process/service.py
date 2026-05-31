@@ -1257,9 +1257,15 @@ class ProcessService:
             planned_pickup_date=parent_work_order.planned_pickup_date,
             total_area_m2=parent_work_order.total_area_m2,
             is_incomplete_on_arrival=False,
-            profiles_quantity=parent_work_order.profiles_quantity,
+            profiles_quantity=self._derive_correction_category_quantity(
+                parent_work_order.profiles_quantity,
+                correction_quantity,
+            ),
             profiles_to_count=parent_work_order.profiles_to_count,
-            accessories_quantity=parent_work_order.accessories_quantity,
+            accessories_quantity=self._derive_correction_category_quantity(
+                parent_work_order.accessories_quantity,
+                correction_quantity,
+            ),
             accessories_to_count=parent_work_order.accessories_to_count,
             notes=parent_work_order.notes,
         )
@@ -1368,6 +1374,14 @@ class ProcessService:
                 details_json=json.dumps(details, separators=(",", ":")),
             )
         )
+
+    @staticmethod
+    def _derive_correction_category_quantity(parent_quantity: int | None, correction_quantity: int) -> int | None:
+        if parent_quantity is None:
+            return None
+        if parent_quantity == 0:
+            return 0
+        return correction_quantity
 
     @staticmethod
     def _uses_batch_tracking(work_order: WorkOrder) -> bool:
@@ -1567,9 +1581,17 @@ class ProcessService:
             counted_quantity=counted_quantity,
             quantity_difference=quantity_difference,
             customer_name=work_order.customer_name,
-            profiles_quantity=work_order.profiles_quantity,
+            profiles_quantity=self._derive_operational_category_quantity(
+                work_order.profiles_quantity,
+                work_order.profiles_to_count,
+                batch_quantity if batch_quantity is not None else current_active_quantity,
+            ),
             profiles_to_count=work_order.profiles_to_count,
-            accessories_quantity=work_order.accessories_quantity,
+            accessories_quantity=self._derive_operational_category_quantity(
+                work_order.accessories_quantity,
+                work_order.accessories_to_count,
+                batch_quantity if batch_quantity is not None else current_active_quantity,
+            ),
             accessories_to_count=work_order.accessories_to_count,
             queue_position=work_order.queue_position,
             queue_namespace=build_queue_namespace_view(work_order.queue_namespace),
@@ -1586,6 +1608,18 @@ class ProcessService:
                 status=stage_status,
             ),
         )
+
+    @staticmethod
+    def _derive_operational_category_quantity(
+        stored_quantity: int | None,
+        to_count: bool,
+        operational_quantity: int,
+    ) -> int | None:
+        if to_count or stored_quantity is None:
+            return None
+        if stored_quantity == 0:
+            return 0
+        return operational_quantity
 
     @staticmethod
     def _get_stage_display_quantity(

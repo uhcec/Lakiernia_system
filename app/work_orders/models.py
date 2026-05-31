@@ -59,10 +59,13 @@ class WorkOrder(Base):
             "queue_position IS NULL OR (is_incomplete_on_arrival = 0 AND status != 'INCOMPLETE')",
             name="incomplete_requires_unplanned",
         ),
-        CheckConstraint("profiles_quantity IS NULL OR profiles_quantity > 0", name="profiles_quantity_positive_if_present"),
         CheckConstraint(
-            "accessories_quantity IS NULL OR accessories_quantity > 0",
-            name="accessories_quantity_positive_if_present",
+            "profiles_quantity IS NULL OR profiles_quantity = 0 OR profiles_quantity = total_quantity",
+            name="profiles_quantity_matches_total_if_known",
+        ),
+        CheckConstraint(
+            "accessories_quantity IS NULL OR accessories_quantity = 0 OR accessories_quantity = total_quantity",
+            name="accessories_quantity_matches_total_if_known",
         ),
         CheckConstraint("parent_order_id IS NULL OR parent_order_id != id", name="parent_order_cannot_reference_self"),
         CheckConstraint("is_correction = 0 OR parent_order_id IS NOT NULL", name="correction_requires_parent"),

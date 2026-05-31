@@ -131,6 +131,14 @@ def _validate_counting_rule(field_name: str, quantity: int | None, to_count: boo
         raise ValueError(f"{field_name}: wybierz ilość albo 'Do policzenia na produkcji', nie oba naraz.")
 
 
+def _validate_category_quantity(field_name: str, quantity: int | None, to_count: bool, total_quantity: int) -> None:
+    _validate_counting_rule(field_name, quantity, to_count)
+    if quantity is None:
+        return
+    if quantity not in (0, total_quantity):
+        raise ValueError(f"{field_name}: ilość musi wynosić 0 albo być równa ilości całkowitej.")
+
+
 class WorkOrderCreate(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=255)
     external_order_number: str | None = Field(default=None, min_length=1, max_length=128)
@@ -146,9 +154,9 @@ class WorkOrderCreate(BaseModel):
     planned_pickup_date: date | None = None
     total_area_m2: float | None = Field(default=None, gt=0)
     is_incomplete_on_arrival: bool = False
-    profiles_quantity: int | None = Field(default=None, gt=0)
+    profiles_quantity: int | None = Field(default=None, ge=0)
     profiles_to_count: bool = False
-    accessories_quantity: int | None = Field(default=None, gt=0)
+    accessories_quantity: int | None = Field(default=None, ge=0)
     accessories_to_count: bool = False
     notes: str | None = None
 
@@ -156,8 +164,8 @@ class WorkOrderCreate(BaseModel):
 
     @model_validator(mode="after")
     def validate_counting_fields(self) -> "WorkOrderCreate":
-        _validate_counting_rule("Profile", self.profiles_quantity, self.profiles_to_count)
-        _validate_counting_rule("Akcesoria", self.accessories_quantity, self.accessories_to_count)
+        _validate_category_quantity("Profile", self.profiles_quantity, self.profiles_to_count, self.total_quantity)
+        _validate_category_quantity("Akcesoria", self.accessories_quantity, self.accessories_to_count, self.total_quantity)
         return self
 
 
@@ -178,9 +186,9 @@ class WorkOrderUpdate(BaseModel):
     received_date: date | None = None
     planned_pickup_date: date | None = None
     total_area_m2: float | None = Field(default=None, gt=0)
-    profiles_quantity: int | None = Field(default=None, gt=0)
+    profiles_quantity: int | None = Field(default=None, ge=0)
     profiles_to_count: bool | None = None
-    accessories_quantity: int | None = Field(default=None, gt=0)
+    accessories_quantity: int | None = Field(default=None, ge=0)
     accessories_to_count: bool | None = None
     notes: str | None = None
 

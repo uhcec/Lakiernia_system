@@ -89,6 +89,70 @@ def test_valid_direct_db_inserts_still_pass(db_session: Session) -> None:
     db_session.commit()
 
 
+def test_profile_accessory_quantities_must_be_zero_or_total(db_session: Session) -> None:
+    valid_work_order = WorkOrder(
+        order_number="WO-2026-9001",
+        title="valid-category-quantities",
+        total_quantity=10,
+        completed_quantity=0,
+        current_active_batch_id=None,
+        parent_order_id=None,
+        is_correction=False,
+        description=None,
+        customer_name="Customer",
+        ral_code="RAL 9005",
+        paint_producer="Producer",
+        status=WorkOrderStatus.ENTERED,
+        coating_type=CoatingType.RAL,
+        production_type=None,
+        queue_namespace=QueueNamespace.MAIN,
+        queue_position=None,
+        received_date=date(2026, 5, 25),
+        planned_pickup_date=None,
+        total_area_m2=None,
+        is_incomplete_on_arrival=False,
+        profiles_quantity=0,
+        profiles_to_count=False,
+        accessories_quantity=10,
+        accessories_to_count=False,
+        notes=None,
+    )
+    db_session.add(valid_work_order)
+    db_session.commit()
+
+    invalid_work_order = WorkOrder(
+        order_number="WO-2026-9002",
+        title="invalid-category-quantities",
+        total_quantity=10,
+        completed_quantity=0,
+        current_active_batch_id=None,
+        parent_order_id=None,
+        is_correction=False,
+        description=None,
+        customer_name="Customer",
+        ral_code="RAL 9005",
+        paint_producer="Producer",
+        status=WorkOrderStatus.ENTERED,
+        coating_type=CoatingType.RAL,
+        production_type=None,
+        queue_namespace=QueueNamespace.MAIN,
+        queue_position=None,
+        received_date=date(2026, 5, 25),
+        planned_pickup_date=None,
+        total_area_m2=None,
+        is_incomplete_on_arrival=False,
+        profiles_quantity=5,
+        profiles_to_count=False,
+        accessories_quantity=10,
+        accessories_to_count=False,
+        notes=None,
+    )
+    db_session.add(invalid_work_order)
+    with pytest.raises(IntegrityError):
+        db_session.commit()
+    db_session.rollback()
+
+
 @pytest.mark.parametrize(
     ("statement", "params"),
     [

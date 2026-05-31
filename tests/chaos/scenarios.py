@@ -526,7 +526,7 @@ def scenario_invalid_patch_during_planning(env: ChaosEnvironment):
         "/work-orders",
         json={
             **build_create_payload("Invalid Patch During Planning"),
-            "profiles_quantity": 5,
+            "profiles_quantity": 100,
             "profiles_to_count": False,
         },
     )
