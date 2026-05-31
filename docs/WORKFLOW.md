@@ -250,14 +250,14 @@ Rules:
 - Office and manager should see declared client quantity, surface-preparation counted quantity, and their difference.
 - Production/station operators should see only the current operational quantity they need to process.
 - Quantity discrepancies should be recorded and visible to office/manager, but should not block the work order for now.
-- Surface-preparation operators confirm discrepancies where counting happens.
+- Surface-preparation operators record the counted quantity where counting happens; no separate discrepancy confirmation step is required for now.
 - Starting `SURFACE_PREPARATION` does not require counted quantity.
 - Finishing `SURFACE_PREPARATION` requires counted quantity.
 
 ## Additional Work Types
 
 Confirmed concepts:
-- `Przemalowanka` is always a separate customer work order. It behaves like a correction operationally and skips `SURFACE_PREPARATION`.
+- `Przemalowanka` is always a separate independent customer work order, not a child or parent-linked order. It behaves like a correction operationally and skips `SURFACE_PREPARATION`.
 - `Ocynk` is a separate production-relevant work-order type/marker that can combine with RAL or Decoral. It follows the normal stage path but must be strongly marked as `OCYNK` because station work differs.
 - Both may follow RAL or Decoral downstream paths.
 
@@ -284,10 +284,11 @@ Paint stock management is a required future workflow area, but it needs a dedica
 Confirmed non-conflicting needs:
 - paint stock state should be required during order intake/planning
 - production paint consumption should reduce paint stock through an audited system action
-- automatic production is allowed to enter paint consumption; it is no longer a display-only panel
+- automatic production is allowed to enter paint used/consumed; it is no longer a display-only panel
 
 Open implementation design:
 - define paint inventory entities, stock movement rules, audit events, and correction/undo behavior before code changes
+- clarify stock units, container/batch tracking, deduction timing, and any additional automatic-production fields before implementing inventory semantics
 - keep the automatic `PRODUCTION` stage transition model separate from paint consumption: automatic production should not gain manual production start/finish unless separately decided
 
 ## Process Action Safety

@@ -45,7 +45,7 @@ Use `docs/WORKFLOW_VALIDATION_CHECKLIST.md` as the active checklist before chang
 - Operators start washing, then finish washing to pass the work order onward.
 - Confirmed policy: surface-preparation operators should enter the counted quantity only. Declared client quantity and declared-versus-counted difference should be visible to office and manager, not station operators.
 - Quantity discrepancies should be recorded and visible to office/manager, but should not block the work order for now.
-- The surface-preparation operator confirms the discrepancy where counting happens.
+- The surface-preparation operator records the counted quantity only; there is no separate discrepancy-confirmation action for now.
 - Surface preparation may be started before the counted quantity is entered, but it cannot be finished without the counted quantity.
 
 ### Hanging Area Tablet / Zawieszanie
@@ -116,16 +116,16 @@ Use `docs/WORKFLOW_VALIDATION_CHECKLIST.md` as the active checklist before chang
 - Correction-chain completion races should reconcile or behave idempotently when the final persisted state is already valid; otherwise the stale action should fail with a controlled conflict.
 - Implemented correction detail: packing-created correction work orders store a flexible reason/category and optional note because the category list is not final. Remaining reporting/export surfaces can be designed later.
 - Confirmed quantity visibility: counted quantity entry belongs on the surface-preparation tablet; declared quantity and discrepancy visibility belong to office and manager; production/station operators see only operational quantity.
-- Confirmed discrepancy handling: discrepancy is recorded and confirmed by surface preparation, but does not block the work order for now. Surface preparation start does not require counted quantity; finish does require counted quantity.
+- Confirmed discrepancy handling: discrepancy is recorded through the surface-preparation counted quantity, but does not block the work order for now. Surface preparation start does not require counted quantity; finish does require counted quantity. No separate discrepancy-confirmation action or dedicated audit event is required unless future factory review asks for one.
 - Current implementation exposes surface-preparation counted quantity and declared-versus-counted difference to office and manager read models/UI, while station lists keep discrepancy context out of the operational rows.
 - Confirmed station permissions: station identity should remain audited, but invalid station actions should be impossible in the UI and rejected by the backend if attempted.
 - Confirmed automatic overlap: hanging can start the next automatic order after the previous hanging stage is finished, while preserving one active work order per physical station/resource.
 - Quality-control production document generation: the factory has a ready template to be filled by the program. The template and field mapping still need to be provided/checked before implementation.
-- Paint inventory: intake should require paint stock/state data and production consumption should deduct stock, but this needs a paint inventory model. Automatic production is confirmed as allowed to enter paint consumption and is no longer display-only.
+- Paint inventory: intake should require paint stock/state data and production consumption should deduct stock, but this needs a paint inventory model. Automatic production is confirmed as allowed to enter paint used/consumed and is no longer display-only; units, container/batch tracking, deduction timing, and additional fields still need factory clarification.
 - Completed-order issue/release marker: completed work orders are markable as issued/released, separate from production READY state.
 
 ## Additional Work Types
 
-- `Przemalowanka`: always a separate customer work order. It behaves like a correction operationally and skips surface preparation. It may follow RAL or Decoral downstream paths.
+- `Przemalowanka`: always a separate independent customer work order, not parent-linked to an original order. It behaves like a correction operationally and skips surface preparation. It may follow RAL or Decoral downstream paths.
 - `Ocynk`: a separate production-relevant work-order type/marker that can combine with RAL or Decoral (`Ocynk RAL`, `Ocynk Decoral`). It follows the same stage path as normal work but must be strongly marked as `OCYNK` on station screens because station work differs.
 - Open implementation detail: design the work-order kind/type model so `Przemalowanka` and `Ocynk` can coexist with existing RAL/Decoral route semantics.

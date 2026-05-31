@@ -88,7 +88,7 @@ Confirmed factory policy from 2026-05-30:
 - Office and manager should see declared-versus-counted quantity discrepancies.
 - Production/station operators should not see discrepancy context; they should see only the current operational quantity.
 - Quantity discrepancies should be recorded and shown to office/manager, but should not block the work order for now.
-- Surface-preparation operator confirms the discrepancy at the station where counting happens.
+- Surface-preparation operators record the counted quantity; no separate discrepancy confirmation step is required for now.
 - Starting `SURFACE_PREPARATION` must not require a counted quantity.
 - Finishing `SURFACE_PREPARATION` must require the counted quantity.
 
@@ -103,8 +103,8 @@ Current repository behavior/evidence:
 
 Implementation decision needed:
 
-- Define the exact station UI wording for confirming a discrepancy without blocking the workflow.
-- Define the audit event/details for discrepancy confirmation.
+- No extra station discrepancy-confirmation UI is needed beyond counted quantity entry for now.
+- No dedicated discrepancy-confirmation audit event is required unless future factory review asks for it; existing process/count audit evidence remains the current path.
 
 Why this matters:
 
@@ -178,6 +178,7 @@ Status: `CONFIRMED with implementation design needed`
 Confirmed factory policy from 2026-05-30:
 
 - `Przemalowanka` is always a separate customer work order, not a child correction of an existing work order.
+- `Przemalowanka` stays independent and does not need an original/parent work-order relationship.
 - `Przemalowanka` behaves like a correction operationally: it skips `SURFACE_PREPARATION`.
 - `Ocynk` is a separate work-order type/marker like a production-relevant order type, while still combinable with RAL or Decoral (`Ocynk RAL`, `Ocynk Decoral`).
 - `Ocynk` follows the same stage path as other work orders, but station screens must strongly mark it as `OCYNK` because station work differs.
@@ -273,13 +274,14 @@ Confirmed direction from 2026-05-30:
 
 - Work-order intake should force paint stock/state entry once inventory exists.
 - Paint usage should be recorded so stock can be deducted.
-- Automatic production is no longer display-only; it should be able to enter paint consumption.
+- Automatic production is no longer display-only; the first confirmed station input is paint used/consumed, with room for additional fields after factory clarification.
 - This does not automatically mean automatic production gains manual start/finish stage actions.
 
 Implementation decision needed:
 
 - Design paint inventory entities, stock movements, audit events, and correction/undo behavior before implementation.
 - Define station permissions for paint-stock entry and paint-consumption entry.
+- Clarify stock units, container/batch tracking, deduction timing, and any non-paint fields before implementing inventory semantics.
 
 ### 11. External Work-Order Number
 
