@@ -168,8 +168,7 @@ Office/manager list grouping:
 - Completed work orders have an issued/released marker showing whether the completed order has been handed over/released to the client.
 - The marker is stored as `released_to_client_at`; `is_released_to_client` is derived for read models.
 - Release can be marked or cleared only for `READY` work orders. This is logistics/dispatch state and must not change the production meaning of READY.
-- Target factory policy is that office marks or clears completed-order release. Production station identities may not update the marker.
-- Current implementation still allows manager station identity to update the marker; this is an implementation gap after the 2026-06-01 clarification.
+- Office marks or clears completed-order release. Manager and production station identities may not update the marker.
 - Future release flow should generate a WZ / issue document for completed orders; the WZ template, fields, storage, and print/download behavior still need separate design.
 
 Manager planning ergonomics:
@@ -291,15 +290,15 @@ Rules:
 - A known individual category quantity may be `0`, but it must not exceed `total_quantity`.
 - A category that still needs counting uses the existing `*_to_count` flag with a `NULL` quantity; it must not also carry a numeric quantity.
 - Station read models must display known category quantities for full-order contexts, and must not invent a category split for partial active batches/corrections when both categories are present.
-- Target correction behavior: packing should explicitly collect profile/accessory correction quantities, so correction children preserve the exact corrected category split instead of guessing.
+- Packing explicitly collects profile/accessory correction quantities when `correction_quantity > 0`, so correction children preserve the exact corrected category split instead of guessing.
 - Completed/READY rows must not derive category quantities from `current_active_quantity == 0`; historical display remains governed by completed-state display rules.
 
 Current enforcement:
 - API and frontend intake validation reject known profile/accessory sums that do not match `total_quantity`, and reject individual known values above `total_quantity`.
 - DB constraints allow only `NULL` or values from `0` through `total_quantity`, and require known profile/accessory pairs to sum to `total_quantity`.
-- Packing-created correction children derive binary category splits safely, but mark mixed-category partial corrections as to-count rather than guessing which pieces need correction.
+- Packing completion requests require `correction_profiles_quantity + correction_accessories_quantity == correction_quantity` when correction quantity is greater than zero, and reject category correction quantities when no correction is created.
+- Packing-created correction children store the explicit profile/accessory correction split with both category `*_to_count` flags cleared.
 - Process/station read models show stored category counts for full-order contexts, derive binary category splits for partial contexts, and mark mixed-category partial contexts as to-count.
-- The current correction implementation is now incomplete against the 2026-06-01 requirement for explicit profile/accessory correction quantities.
 
 ## Additional Work Types
 

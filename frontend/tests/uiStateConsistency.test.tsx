@@ -271,12 +271,14 @@ describe("frontend state consistency", () => {
     const categoryInputs = screen.getAllByPlaceholderText("Podaj ilość");
     fireEvent.change(categoryInputs[0], { target: { value: "8" } });
     fireEvent.change(categoryInputs[1], { target: { value: "1" } });
+    expect(screen.getByText("Suma kategorii: 9 / 10. Brakuje 1 szt.")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Zapisz" }));
 
     expect(await screen.findByText("Suma profili i akcesoriów musi być równa ilości całkowitej")).toBeTruthy();
     expect(createWorkOrderMock).not.toHaveBeenCalled();
 
     fireEvent.change(categoryInputs[1], { target: { value: "2" } });
+    expect(screen.getByText("Suma kategorii: 10 / 10")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Zapisz" }));
 
     await waitFor(() => {
@@ -650,6 +652,9 @@ describe("frontend state consistency", () => {
     fireEvent.change(inputs[0], { target: { value: "4" } });
     fireEvent.change(inputs[1], { target: { value: "3" } });
     fireEvent.change(inputs[2], { target: { value: "1" } });
+    const correctionInputs = screen.getAllByRole("spinbutton");
+    fireEvent.change(correctionInputs[3], { target: { value: "1" } });
+    fireEvent.change(correctionInputs[4], { target: { value: "0" } });
     fireEvent.change(screen.getByRole("combobox"), { target: { value: "niedomalowanie" } });
     fireEvent.click(screen.getByRole("button", { name: "Zatwierdź pakowanie" }));
 
@@ -682,6 +687,9 @@ describe("frontend state consistency", () => {
     fireEvent.change(inputs[0], { target: { value: "4" } });
     fireEvent.change(inputs[1], { target: { value: "3" } });
     fireEvent.change(inputs[2], { target: { value: "1" } });
+    const correctionInputs = screen.getAllByRole("spinbutton");
+    fireEvent.change(correctionInputs[3], { target: { value: "1" } });
+    fireEvent.change(correctionInputs[4], { target: { value: "0" } });
 
     const submitButton = screen.getByRole("button", { name: "Zatwierdź pakowanie" }) as HTMLButtonElement;
     expect(submitButton.disabled).toBe(true);
@@ -698,6 +706,8 @@ describe("frontend state consistency", () => {
           counted_quantity: 4,
           ok_quantity: 3,
           correction_quantity: 1,
+          correction_profiles_quantity: 1,
+          correction_accessories_quantity: 0,
           correction_reason_category: "inne",
           correction_reason_note: "ryska przy profilu",
         },
@@ -734,6 +744,14 @@ describe("frontend state consistency", () => {
     expect(screen.getByText("Bilans pakowania: Brakuje 2 szt.")).toBeTruthy();
     fireEvent.change(inputs[2], { target: { value: "2" } });
     expect(screen.getByText("Bilans pakowania: Suma zgodna")).toBeTruthy();
+    expect(screen.getByText("Podział poprawki: Brakuje 2 szt.")).toBeTruthy();
+
+    const correctionInputs = screen.getAllByRole("spinbutton");
+    expect(correctionInputs).toHaveLength(5);
+    fireEvent.change(correctionInputs[3], { target: { value: "1" } });
+    expect(screen.getByText("Podział poprawki: Brakuje 1 szt.")).toBeTruthy();
+    fireEvent.change(correctionInputs[4], { target: { value: "1" } });
+    expect(screen.getByText("Podział poprawki: Suma zgodna")).toBeTruthy();
   });
 
   it("keeps stage list visible when one correction detail fetch fails", async () => {
@@ -1430,6 +1448,24 @@ describe("frontend state consistency", () => {
     } finally {
       confirmSpy.mockRestore();
     }
+  });
+
+  it("does not show release status action in manager station context", async () => {
+    fetchWorkOrderMock.mockResolvedValue({
+      ...buildWorkOrder(75, "WO-RELEASE-MANAGER", 1, "Hotel"),
+      completed_quantity: 10,
+      current_active_quantity: 0,
+      total_progress_quantity: 10,
+      process_status: { value: "READY", label: "Gotowe" },
+      status: { value: "FINISHED", label: "Skończone" },
+      is_released_to_client: false,
+      released_to_client_at: null,
+    });
+
+    renderWorkOrderDetail(75, "?station_context=MANAGER");
+
+    await screen.findByText("Do wydania");
+    expect(screen.queryByRole("button", { name: "Oznacz jako wydane" })).toBeNull();
   });
 
   it("renders historical correction children in detail as delta only", async () => {

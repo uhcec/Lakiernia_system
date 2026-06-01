@@ -319,6 +319,8 @@ def seed_all_use_cases(session: Session) -> list[SeededScenario]:
         counted_quantity=10,
         ok_quantity=7,
         correction_quantity=3,
+        correction_profiles_quantity=2,
+        correction_accessories_quantity=1,
         correction_reason_category="niedomalowanie",
     )
     correction_child = get_latest_correction_child(work_order_repository, correction_parent.id)
@@ -484,6 +486,8 @@ def seed_all_use_cases(session: Session) -> list[SeededScenario]:
         counted_quantity=10,
         ok_quantity=7,
         correction_quantity=3,
+        correction_profiles_quantity=2,
+        correction_accessories_quantity=1,
         correction_reason_category="niedomalowanie",
     )
 
@@ -501,6 +505,8 @@ def seed_all_use_cases(session: Session) -> list[SeededScenario]:
         counted_quantity=3,
         ok_quantity=2,
         correction_quantity=1,
+        correction_profiles_quantity=1,
+        correction_accessories_quantity=0,
         correction_reason_category="inne",
         correction_reason_note="Druga runda poprawki w danych testowych.",
     )
@@ -561,6 +567,8 @@ def seed_all_use_cases(session: Session) -> list[SeededScenario]:
         counted_quantity=10,
         ok_quantity=8,
         correction_quantity=2,
+        correction_profiles_quantity=1,
+        correction_accessories_quantity=1,
         correction_reason_category="wtrącenia",
     )
 
@@ -715,6 +723,8 @@ def seed_all_use_cases(session: Session) -> list[SeededScenario]:
         counted_quantity=10,
         ok_quantity=7,
         correction_quantity=3,
+        correction_profiles_quantity=2,
+        correction_accessories_quantity=1,
         correction_reason_category="niedomalowanie",
     )
 
@@ -732,6 +742,8 @@ def seed_all_use_cases(session: Session) -> list[SeededScenario]:
         counted_quantity=3,
         ok_quantity=2,
         correction_quantity=1,
+        correction_profiles_quantity=1,
+        correction_accessories_quantity=0,
         correction_reason_category="inne",
         correction_reason_note="Powtorna poprawka w historii testowej.",
     )

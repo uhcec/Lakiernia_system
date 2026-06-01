@@ -19,6 +19,8 @@ interface PackingDraft {
   countedQuantity: string;
   okQuantity: string;
   correctionQuantity: string;
+  correctionProfilesQuantity: string;
+  correctionAccessoriesQuantity: string;
   correctionReasonCategory: string;
   correctionReasonNote: string;
 }
@@ -54,6 +56,8 @@ function buildEmptyPackingDraft(): PackingDraft {
     countedQuantity: "",
     okQuantity: "0",
     correctionQuantity: "0",
+    correctionProfilesQuantity: "0",
+    correctionAccessoriesQuantity: "0",
     correctionReasonCategory: "",
     correctionReasonNote: "",
   };
@@ -112,6 +116,23 @@ function formatPackingBalance(countedQuantity: number, okQuantity: number, corre
   }
 
   const balance = countedQuantity - okQuantity - correctionQuantity;
+  if (balance === 0) {
+    return { text: "Suma zgodna", tone: "success" };
+  }
+
+  if (balance > 0) {
+    return { text: `Brakuje ${balance} szt.`, tone: "warning" };
+  }
+
+  return { text: `O ${Math.abs(balance)} szt. za dużo`, tone: "warning" };
+}
+
+function formatCorrectionSplitBalance(correctionQuantity: number, profilesQuantity: number, accessoriesQuantity: number): { text: string; tone: "neutral" | "success" | "warning" } {
+  if (correctionQuantity <= 0) {
+    return { text: "Wpisz ilość poprawki", tone: "neutral" };
+  }
+
+  const balance = correctionQuantity - profilesQuantity - accessoriesQuantity;
   if (balance === 0) {
     return { text: "Suma zgodna", tone: "success" };
   }
@@ -205,6 +226,8 @@ export function PackingWorkOrdersPage() {
             countedQuantity: item.counted_quantity?.toString() ?? "",
             okQuantity: String(item.counted_quantity ?? item.current_active_quantity),
             correctionQuantity: "0",
+            correctionProfilesQuantity: "0",
+            correctionAccessoriesQuantity: "0",
             correctionReasonCategory: "",
             correctionReasonNote: "",
           };
@@ -267,6 +290,8 @@ export function PackingWorkOrdersPage() {
     const countedQuantity = parseQuantity(draft.countedQuantity);
     const okQuantity = parseQuantity(draft.okQuantity);
     const correctionQuantity = parseQuantity(draft.correctionQuantity);
+    const correctionProfilesQuantity = parseQuantity(draft.correctionProfilesQuantity);
+    const correctionAccessoriesQuantity = parseQuantity(draft.correctionAccessoriesQuantity);
     const correctionReasonCategory = draft.correctionReasonCategory.trim();
     const correctionReasonNote = draft.correctionReasonNote.trim();
 
@@ -282,8 +307,24 @@ export function PackingWorkOrdersPage() {
       return;
     }
 
+    if (
+      correctionQuantity > 0 &&
+      (!Number.isInteger(correctionProfilesQuantity) ||
+        !Number.isInteger(correctionAccessoriesQuantity) ||
+        correctionProfilesQuantity < 0 ||
+        correctionAccessoriesQuantity < 0)
+    ) {
+      setErrorMessage("Ilości profili i akcesoriów do poprawki muszą być nieujemnymi liczbami całkowitymi");
+      return;
+    }
+
     if (okQuantity + correctionQuantity !== countedQuantity) {
       setErrorMessage("Suma ilości OK i do poprawki musi być równa wartości Policzono");
+      return;
+    }
+
+    if (correctionQuantity > 0 && correctionProfilesQuantity + correctionAccessoriesQuantity !== correctionQuantity) {
+      setErrorMessage("Suma profili i akcesoriów do poprawki musi być równa ilości poprawek");
       return;
     }
 
@@ -301,6 +342,8 @@ export function PackingWorkOrdersPage() {
       correction_quantity: correctionQuantity,
       ...(correctionQuantity > 0
         ? {
+            correction_profiles_quantity: correctionProfilesQuantity,
+            correction_accessories_quantity: correctionAccessoriesQuantity,
             correction_reason_category: correctionReasonCategory,
             ...(correctionReasonNote ? { correction_reason_note: correctionReasonNote } : {}),
           }
@@ -342,7 +385,16 @@ export function PackingWorkOrdersPage() {
           const countedQuantity = parseQuantity(draft.countedQuantity);
           const okQuantity = parseQuantity(draft.okQuantity);
           const correctionQuantity = parseQuantity(draft.correctionQuantity);
+          const correctionProfilesQuantity = parseQuantity(draft.correctionProfilesQuantity);
+          const correctionAccessoriesQuantity = parseQuantity(draft.correctionAccessoriesQuantity);
           const hasRequiredCorrectionReason = correctionQuantity === 0 || draft.correctionReasonCategory.trim() !== "";
+          const hasValidCorrectionSplit =
+            correctionQuantity === 0 ||
+            (Number.isInteger(correctionProfilesQuantity) &&
+              Number.isInteger(correctionAccessoriesQuantity) &&
+              correctionProfilesQuantity >= 0 &&
+              correctionAccessoriesQuantity >= 0 &&
+              correctionProfilesQuantity + correctionAccessoriesQuantity === correctionQuantity);
           const isDraftValid =
             Number.isInteger(countedQuantity) &&
             countedQuantity > 0 &&
@@ -351,8 +403,10 @@ export function PackingWorkOrdersPage() {
             okQuantity >= 0 &&
             correctionQuantity >= 0 &&
             okQuantity + correctionQuantity === countedQuantity &&
+            hasValidCorrectionSplit &&
             hasRequiredCorrectionReason;
           const packingBalance = formatPackingBalance(countedQuantity, okQuantity, correctionQuantity);
+          const correctionSplitBalance = formatCorrectionSplitBalance(correctionQuantity, correctionProfilesQuantity, correctionAccessoriesQuantity);
           const correctionContext = correctionContextByOrderId[workOrder.id];
           const isMergedHistoricalCorrection = workOrder.is_historical_correction;
           const showHistoricalResult = status === "DONE" && !workOrder.is_correction;
@@ -489,25 +543,56 @@ export function PackingWorkOrdersPage() {
                       <div className={["rounded-lg border px-3 py-2 text-sm font-semibold", balanceClasses(packingBalance.tone)].join(" ")}>
                         Bilans pakowania: {packingBalance.text}
                       </div>
+                      <p className="text-xs font-medium text-steel">OK + Poprawki = Policzono</p>
 
                       {correctionQuantity > 0 ? (
-                        <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-                          <label className="space-y-1 text-sm font-medium text-steel">
-                            <span>Powód poprawki</span>
-                            <select
-                              value={draft.correctionReasonCategory}
-                              onChange={(event) => updateDraft(draftKey, "correctionReasonCategory", event.target.value)}
-                              className="w-full rounded-lg border border-line bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-accent"
-                            >
-                              <option value="">Wybierz</option>
-                              {correctionReasonOptions.map((option) => (
-                                <option key={option.value} value={option.value}>
-                                  {option.label}
-                                </option>
-                              ))}
-                            </select>
-                          </label>
-                          {draft.correctionReasonCategory === "inne" ? (
+                        <div className="space-y-3">
+                          <div className="grid gap-3 sm:grid-cols-2">
+                            <label className="space-y-1 text-sm font-medium text-steel">
+                              <span>Profile do poprawki</span>
+                              <input
+                                type="number"
+                                min="0"
+                                step="1"
+                                value={draft.correctionProfilesQuantity}
+                                onChange={(event) => updateDraft(draftKey, "correctionProfilesQuantity", event.target.value)}
+                                className="w-full rounded-lg border border-line bg-white px-3 py-2 text-base font-semibold text-ink outline-none transition focus:border-accent"
+                              />
+                            </label>
+                            <label className="space-y-1 text-sm font-medium text-steel">
+                              <span>Akcesoria do poprawki</span>
+                              <input
+                                type="number"
+                                min="0"
+                                step="1"
+                                value={draft.correctionAccessoriesQuantity}
+                                onChange={(event) => updateDraft(draftKey, "correctionAccessoriesQuantity", event.target.value)}
+                                className="w-full rounded-lg border border-line bg-white px-3 py-2 text-base font-semibold text-ink outline-none transition focus:border-accent"
+                              />
+                            </label>
+                          </div>
+
+                          <div className={["rounded-lg border px-3 py-2 text-sm font-semibold", balanceClasses(correctionSplitBalance.tone)].join(" ")}>
+                            Podział poprawki: {correctionSplitBalance.text}
+                          </div>
+
+                          <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+                            <label className="space-y-1 text-sm font-medium text-steel">
+                              <span>Powód poprawki</span>
+                              <select
+                                value={draft.correctionReasonCategory}
+                                onChange={(event) => updateDraft(draftKey, "correctionReasonCategory", event.target.value)}
+                                className="w-full rounded-lg border border-line bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-accent"
+                              >
+                                <option value="">Wybierz</option>
+                                {correctionReasonOptions.map((option) => (
+                                  <option key={option.value} value={option.value}>
+                                    {option.label}
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+                            {draft.correctionReasonCategory === "inne" ? (
                             <label className="space-y-1 text-sm font-medium text-steel">
                               <span>Notatka</span>
                               <input
@@ -519,7 +604,8 @@ export function PackingWorkOrdersPage() {
                                 className="w-full rounded-lg border border-line bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-accent"
                               />
                             </label>
-                          ) : null}
+                            ) : null}
+                          </div>
                         </div>
                       ) : null}
 

@@ -122,7 +122,7 @@ Why this matters:
 
 ### 3a. Profile And Accessory Quantity Semantics
 
-Status: `PARTIALLY IMPLEMENTED; correction category split needs implementation`
+Status: `IMPLEMENTED`
 
 Requirement raised on 2026-05-31 and implemented as current system policy:
 
@@ -139,20 +139,18 @@ Implemented behavior:
 
 - API, Pydantic schemas, frontend validation, and DB constraints now allow partitioned values such as `8 + 2 = 10`, reject known sums that do not equal `total_quantity`, and reject individual known values above `total_quantity`.
 - Existing invalid known pairs are migrated to `NULL` plus `*_to_count=True` rather than preserving a false split.
-- Correction children inherit binary category splits from the parent, but mixed-category partial corrections become to-count.
+- Packing completion now requires an explicit profile/accessory correction split when `correction_quantity > 0`; those values must sum to the correction quantity.
+- Packing-created correction children store the exact correction split and clear both category `*_to_count` flags.
 - Process/station read models show stored category counts for full-order contexts, derive binary category splits for partial contexts, and mark mixed-category partial contexts as to-count.
-- New implementation gap from 2026-06-01: partial corrections should collect explicit profile/accessory correction quantities instead of falling back to to-count for mixed-category parents.
 
 Implementation decision needed:
 
-- Extend packing completion request/UI with profile/accessory correction quantities when correction quantity is greater than zero.
-- Validate that `correction_profiles_quantity + correction_accessories_quantity == correction_quantity` and that each value is non-negative.
-- Decide whether the UI always asks for the split, or only asks when the parent order has both categories.
+- Done for current policy: the packing UI always asks for profile/accessory correction quantities when a correction quantity is entered, regardless of the parent category mix. This avoids hidden category inference and keeps the backend contract uniform.
 
 Why this matters:
 
-- It affects intake validation, DB constraints, Alembic migrations, station read models, correction-child creation, frontend form behavior, and regression tests.
-- It prevents misleading station rows such as a correction child with quantity `8` showing parent profile/accessory quantity `100`, or a mixed `8 profile + 2 accessory` order showing a guessed split after a partial correction.
+- It affects intake validation, DB constraints, station read models, correction-child creation, frontend form behavior, and regression tests.
+- It prevents misleading station rows such as a correction child with quantity `8` showing parent profile/accessory quantity `100`, or a mixed `8 profile + 2 accessory` order showing an inferred split after a partial correction.
 
 ### 4. Station Permissions
 
@@ -263,7 +261,7 @@ Why this matters:
 
 ### 7. Office/Manager Tabs And Completed Release
 
-Status: `PARTIALLY IMPLEMENTED; office-only release and WZ generation pending`
+Status: `PARTIALLY IMPLEMENTED; WZ generation pending`
 
 Confirmed direction from 2026-05-30:
 
@@ -281,7 +279,7 @@ Current repository behavior/evidence:
 
 - Completed release is stored as nullable `released_to_client_at` and exposed as `is_released_to_client` in read models.
 - Release status can be marked or cleared only while `process_status = READY`.
-- Office and manager station identities currently may update release status; production station identities are rejected.
+- Office station identity may update release status; manager and production station identities are rejected.
 - Release-status changes create audit events.
 
 Implemented in session B on 2026-05-31:
@@ -289,10 +287,10 @@ Implemented in session B on 2026-05-31:
 - Office `/zlecenia` groups work orders into `Zlecenia`, `Na produkcji`, and `Gotowe` using backend `process_status` only.
 - Manager planning keeps its planning-specific layout, but header counters now use the same practical buckets: `Zlecenia`, `Na produkcji`, and `Gotowe`.
 - `READY` display remains historical/completed and release state remains separate logistics state.
+- Office-only release update is enforced by the current station-identity layer; manager can view completed/released state but cannot change it.
 
 Implementation decision needed:
 
-- Restrict release update to office once auth/role or station policy is updated.
 - Obtain/design WZ template and decide whether generated WZ documents are printed only or persisted.
 
 Remaining design option:

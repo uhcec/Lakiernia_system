@@ -52,24 +52,24 @@ Obecnie:
 - Gdy oba znane: `profile + akcesoria = ilosc calkowita`.
 - Kazde znane pole moze byc od `0` do `total_quantity`.
 - Jesli podzial nieznany, uzywa sie `*_to_count` i `NULL`.
-- Przy mieszanych profilach/akcesoriach czesciowa poprawka nie zgaduje podzialu.
+- Przy poprawce pakowanie zbiera osobno liczbe profili i akcesoriow do poprawki.
 
 Status po 2026-06-01:
 
 - Model przyjecia jest potwierdzony: profile + akcesoria = ilosc calkowita, brak innych kategorii, nieznany podzial moze byc `do policzenia`.
-- Model poprawki wymaga zmiany: przy poprawce pracownik ma podac osobno ile profili i ile akcesoriow idzie do poprawki.
+- Model poprawki jest zaimplementowany: przy poprawce pracownik podaje osobno ile profili i ile akcesoriow idzie do poprawki.
 
-Jesli przy poprawce czesciowej trzeba wpisac osobno profile i akcesoria:
+Wdrozone dla poprawki czesciowej:
 
-- Rozszerzyc request pakowania o per-kategoria correction quantities.
-- Dodac walidacje: profile_poprawka + akcesoria_poprawka = correction_quantity.
-- Tworzenie child correction powinno przenosic dokladne wartosci.
-- UI pakowania musi miec dodatkowe pola przy poprawce; do ustalenia, czy zawsze, czy tylko gdy rodzic ma znany mieszany podzial.
-- Testy: API, service, frontend bilans, DB/read model.
+- Request pakowania ma per-kategoria correction quantities.
+- Walidacja wymaga: profile_poprawka + akcesoria_poprawka = correction_quantity.
+- Tworzenie child correction przenosi dokladne wartosci.
+- UI pakowania pokazuje dodatkowe pola zawsze, gdy correction quantity jest wieksze od zera.
+- Testy: API, service, frontend bilans, chaos/helper payloads.
 
 Ryzyko:
 
-- Dodanie pol kategorii do pakowania zwieksza obciazenie operatora. Warto wdrozyc tylko jesli realnie potrzebne.
+- Dodanie pol kategorii do pakowania zwieksza obciazenie operatora. Wdrozone jako jawny wymog, zeby nie zgadywac kategorii w poprawkach.
 
 ## 3. Dokument kontroli jakosci / dokument produkcyjny
 
@@ -178,11 +178,11 @@ Jesli raport ma pokazywac procent poprawek:
 
 Obecnie:
 
-- Office i manager moga oznaczyc READY jako wydane klientowi.
+- Tylko office moze oznaczyc READY jako wydane klientowi.
 - Zapisuje sie data/czas wydania.
 - Mozna cofnac oznaczenie.
-- Produkcja nie moze tego zmieniac.
-- Po 2026-06-01 target policy: wydanie oznacza biuro, nie manager.
+- Manager i produkcja nie moga tego zmieniac.
+- Po 2026-06-01 target policy zostalo wdrozone na poziomie station identity: wydanie oznacza biuro, nie manager.
 - Docelowo program ma generowac dokument WZ dla gotowych zlecen.
 
 Jesli potrzebne sa dodatkowe pola:
@@ -241,13 +241,11 @@ Ryzyko:
 
 ## Rekomendowana kolejnosc po odpowiedziach
 
-1. Najpierw male zgodne poprawki: UI profili/akcesoriow i brak custom kategorii poprawek, bez zmiany semantyki procesu.
-2. Potem poprawka profili/akcesoriow w pakowaniu, bo to zmienia kontrakt API i read model poprawek.
-3. Potem dokument QC, ale dopiero po otrzymaniu pliku Excel i mapowania komorek.
-4. Rownolegle zaprojektowac auth/loginy, bo wplywa na manager-only statystyki, office-only wydanie, audyt i globalna nawigacje.
-5. Magazyn farb jako osobny wiekszy modul po doprecyzowaniu timingow rezerwacji/zuzycia i zachowania przy braku farby.
-6. WZ po ustaleniu szablonu i powiazaniu z office-only wydaniem.
-7. Pakowanie jako zasob zostaje osobnym pytaniem, bo odpowiedzi z 2026-06-01 go nie rozstrzygnely.
+1. Dokument QC, ale dopiero po otrzymaniu pliku Excel i mapowania komorek.
+2. Rownolegle zaprojektowac auth/loginy, bo wplywa na manager-only statystyki, audyt i globalna nawigacje.
+3. Magazyn farb jako osobny wiekszy modul po doprecyzowaniu timingow rezerwacji/zuzycia i zachowania przy braku farby.
+4. WZ po ustaleniu szablonu i powiazaniu z office-only wydaniem.
+5. Pakowanie jako zasob zostaje osobnym pytaniem, bo odpowiedzi z 2026-06-01 go nie rozstrzygnely.
 
 ## Format przepisywania odpowiedzi kolegi
 

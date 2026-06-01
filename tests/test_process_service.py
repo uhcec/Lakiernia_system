@@ -96,6 +96,8 @@ def complete_packing(
     *,
     ok_quantity: int,
     correction_quantity: int,
+    correction_profiles_quantity: int | None = None,
+    correction_accessories_quantity: int | None = None,
     correction_reason_category: str | None = None,
     correction_reason_note: str | None = None,
 ):
@@ -104,6 +106,12 @@ def complete_packing(
         counted_quantity=ok_quantity + correction_quantity,
         ok_quantity=ok_quantity,
         correction_quantity=correction_quantity,
+        correction_profiles_quantity=(
+            correction_profiles_quantity if correction_profiles_quantity is not None else correction_quantity
+        ) if correction_quantity > 0 else None,
+        correction_accessories_quantity=(
+            correction_accessories_quantity if correction_accessories_quantity is not None else 0
+        ) if correction_quantity > 0 else None,
         correction_reason_category=(correction_reason_category or "niedomalowanie") if correction_quantity > 0 else None,
         correction_reason_note=correction_reason_note if correction_quantity > 0 else None,
     )
@@ -224,6 +232,8 @@ def test_packing_correction_records_packing_and_correction_audit_events(db_sessi
         counted_quantity=100,
         ok_quantity=70,
         correction_quantity=30,
+        correction_profiles_quantity=25,
+        correction_accessories_quantity=5,
         correction_reason_category="wtrącenia",
         correction_reason_note="widoczne punkty",
         station_context=StationContext(station_id=StationId.PACKING),
@@ -246,8 +256,12 @@ def test_packing_correction_records_packing_and_correction_audit_events(db_sessi
         "counted_quantity": 100,
         "ok_quantity": 70,
         "correction_quantity": 30,
+        "correction_profiles_quantity": 25,
+        "correction_accessories_quantity": 5,
     }
     correction_details = json.loads(correction_event.details_json or "{}")
+    assert correction_details["correction_profiles_quantity"] == 25
+    assert correction_details["correction_accessories_quantity"] == 5
     assert correction_details["correction_reason_category"] == "wtrącenia"
     assert correction_details["correction_reason_note"] == "widoczne punkty"
 
@@ -609,7 +623,7 @@ def test_station_and_correction_rows_derive_profile_accessory_quantities_from_op
     assert correction_orders[0].accessories_to_count is False
 
 
-def test_mixed_profile_accessory_partial_rows_do_not_guess_category_split(
+def test_mixed_profile_accessory_partial_rows_preserve_explicit_correction_category_split(
     db_session: Session,
 ) -> None:
     work_order_service, process_service, manager_service, work_order_repository, _ = build_services(db_session)
@@ -635,7 +649,14 @@ def test_mixed_profile_accessory_partial_rows_do_not_guess_category_split(
     )
     advance_to_packing(process_service, created.id)
 
-    complete_packing(process_service, created.id, ok_quantity=7, correction_quantity=3)
+    complete_packing(
+        process_service,
+        created.id,
+        ok_quantity=7,
+        correction_quantity=3,
+        correction_profiles_quantity=1,
+        correction_accessories_quantity=2,
+    )
 
     decoral_rows = process_service.list_stage_work_orders(ProcessStage.DECORAL_PRODUCTION)
     correction_orders = [work_order for work_order in work_order_repository.list(limit=20, offset=0) if work_order.is_correction]
@@ -647,10 +668,10 @@ def test_mixed_profile_accessory_partial_rows_do_not_guess_category_split(
     assert decoral_rows[0].accessories_to_count is True
     assert len(correction_orders) == 1
     assert correction_orders[0].total_quantity == 3
-    assert correction_orders[0].profiles_quantity is None
-    assert correction_orders[0].profiles_to_count is True
-    assert correction_orders[0].accessories_quantity is None
-    assert correction_orders[0].accessories_to_count is True
+    assert correction_orders[0].profiles_quantity == 1
+    assert correction_orders[0].profiles_to_count is False
+    assert correction_orders[0].accessories_quantity == 2
+    assert correction_orders[0].accessories_to_count is False
 
 
 def test_decoral_split_moves_ok_quantity_to_decoral_and_child_to_painting_flow(db_session: Session) -> None:

@@ -348,6 +348,8 @@ class ProcessService:
         counted_quantity: int,
         ok_quantity: int,
         correction_quantity: int,
+        correction_profiles_quantity: int | None = None,
+        correction_accessories_quantity: int | None = None,
         correction_reason_category: str | None = None,
         correction_reason_note: str | None = None,
         batch_id: int | None = None,
@@ -361,6 +363,11 @@ class ProcessService:
                 correction_reason_category,
                 correction_reason_note,
             )
+            correction_category_fields = self._validate_correction_category_split(
+                correction_quantity,
+                correction_profiles_quantity,
+                correction_accessories_quantity,
+            )
             target_batch = self._resolve_batch_for_stage(work_order, ProcessStage.PACKING, batch_id)
             if target_batch is not None:
                 return self._complete_tracked_batch_packing(
@@ -369,6 +376,7 @@ class ProcessService:
                     counted_quantity=counted_quantity,
                     ok_quantity=ok_quantity,
                     correction_quantity=correction_quantity,
+                    correction_category_fields=correction_category_fields,
                     correction_reason_category=normalized_correction_reason_category,
                     correction_reason_note=normalized_correction_reason_note,
                     station_context=station_context,
@@ -422,6 +430,7 @@ class ProcessService:
                     planned_quantity=planned_quantity,
                     ok_quantity=ok_quantity,
                     correction_quantity=correction_quantity,
+                    correction_category_fields=correction_category_fields,
                     correction_reason_category=normalized_correction_reason_category,
                     correction_reason_note=normalized_correction_reason_note,
                     station_context=station_context,
@@ -434,6 +443,7 @@ class ProcessService:
                     counted_quantity=counted_quantity,
                     ok_quantity=ok_quantity,
                     correction_quantity=correction_quantity,
+                    correction_category_fields=correction_category_fields,
                 )
                 self._commit_process_changes()
                 refreshed_work_order = self.get_work_order_process(work_order_id)
@@ -464,6 +474,7 @@ class ProcessService:
                 counted_quantity=counted_quantity,
                 ok_quantity=ok_quantity,
                 correction_quantity=correction_quantity,
+                correction_category_fields=correction_category_fields,
             )
 
             try:
@@ -749,6 +760,37 @@ class ProcessService:
         if correction_quantity == 0 and (normalized_category is not None or normalized_note is not None):
             raise InvalidProcessStageTransitionError("Correction reason can only be set when correction quantity is greater than zero.")
         return normalized_category, normalized_note
+
+    @staticmethod
+    def _validate_correction_category_split(
+        correction_quantity: int,
+        correction_profiles_quantity: int | None,
+        correction_accessories_quantity: int | None,
+    ) -> dict[str, int | bool | None]:
+        if correction_quantity == 0:
+            if correction_profiles_quantity is not None or correction_accessories_quantity is not None:
+                raise InvalidProcessStageTransitionError(
+                    "Correction category quantities can only be set when correction quantity is greater than zero."
+                )
+            return {}
+
+        if correction_profiles_quantity is None or correction_accessories_quantity is None:
+            raise InvalidProcessStageTransitionError(
+                "Correction profile and accessory quantities are required when correction quantity is greater than zero."
+            )
+        if correction_profiles_quantity < 0 or correction_accessories_quantity < 0:
+            raise InvalidProcessStageTransitionError("Correction category quantities cannot be negative.")
+        if correction_profiles_quantity + correction_accessories_quantity != correction_quantity:
+            raise InvalidProcessStageTransitionError(
+                "Correction profile and accessory quantities must add up to correction quantity."
+            )
+
+        return {
+            "profiles_quantity": correction_profiles_quantity,
+            "profiles_to_count": False,
+            "accessories_quantity": correction_accessories_quantity,
+            "accessories_to_count": False,
+        }
 
     @staticmethod
     def _normalize_optional_text(value: str | None) -> str | None:
@@ -1089,6 +1131,7 @@ class ProcessService:
         counted_quantity: int,
         ok_quantity: int,
         correction_quantity: int,
+        correction_category_fields: dict[str, int | bool | None],
         correction_reason_category: str | None,
         correction_reason_note: str | None,
         station_context: StationContext | None = None,
@@ -1137,6 +1180,7 @@ class ProcessService:
             self._create_correction_work_order(
                 work_order,
                 correction_quantity,
+                correction_category_fields=correction_category_fields,
                 correction_reason_category=correction_reason_category,
                 correction_reason_note=correction_reason_note,
                 station_context=station_context,
@@ -1153,6 +1197,7 @@ class ProcessService:
             counted_quantity=counted_quantity,
             ok_quantity=ok_quantity,
             correction_quantity=correction_quantity,
+            correction_category_fields=correction_category_fields,
         )
         self._commit_process_changes()
 
@@ -1179,6 +1224,7 @@ class ProcessService:
         planned_quantity: int,
         ok_quantity: int,
         correction_quantity: int,
+        correction_category_fields: dict[str, int | bool | None],
         correction_reason_category: str | None,
         correction_reason_note: str | None,
         station_context: StationContext | None = None,
@@ -1210,6 +1256,7 @@ class ProcessService:
         self._create_correction_work_order(
             work_order,
             correction_quantity,
+            correction_category_fields=correction_category_fields,
             correction_reason_category=correction_reason_category,
             correction_reason_note=correction_reason_note,
             station_context=station_context,
@@ -1227,6 +1274,7 @@ class ProcessService:
         parent_work_order: WorkOrder,
         correction_quantity: int,
         *,
+        correction_category_fields: dict[str, int | bool | None],
         correction_reason_category: str | None,
         correction_reason_note: str | None,
         station_context: StationContext | None = None,
@@ -1257,7 +1305,7 @@ class ProcessService:
             planned_pickup_date=parent_work_order.planned_pickup_date,
             total_area_m2=parent_work_order.total_area_m2,
             is_incomplete_on_arrival=False,
-            **self._derive_category_fields_for_operational_quantity(parent_work_order, correction_quantity),
+            **correction_category_fields,
             notes=parent_work_order.notes,
         )
         persisted_correction_order = self.repository.add_work_order(correction_order)
@@ -1274,6 +1322,8 @@ class ProcessService:
                 "parent_work_order_id": parent_work_order.id,
                 "parent_order_number": parent_work_order.order_number,
                 "correction_quantity": correction_quantity,
+                "correction_profiles_quantity": correction_category_fields["profiles_quantity"],
+                "correction_accessories_quantity": correction_category_fields["accessories_quantity"],
                 "correction_reason_category": correction_reason_category,
                 "correction_reason_note": correction_reason_note,
             },
@@ -1325,7 +1375,22 @@ class ProcessService:
         counted_quantity: int,
         ok_quantity: int,
         correction_quantity: int,
+        correction_category_fields: dict[str, int | bool | None],
     ) -> None:
+        details = {
+            "stage": ProcessStage.PACKING.value,
+            "batch_id": batch_id,
+            "counted_quantity": counted_quantity,
+            "ok_quantity": ok_quantity,
+            "correction_quantity": correction_quantity,
+        }
+        if correction_quantity > 0:
+            details.update(
+                {
+                    "correction_profiles_quantity": correction_category_fields["profiles_quantity"],
+                    "correction_accessories_quantity": correction_category_fields["accessories_quantity"],
+                }
+            )
         self._record_audit_event(
             event_type="process.packing.completed",
             station_context=station_context,
@@ -1333,13 +1398,7 @@ class ProcessService:
             target_type="process_stage",
             target_id=batch_id,
             summary=f"Completed packing for work order {work_order.order_number}.",
-            details={
-                "stage": ProcessStage.PACKING.value,
-                "batch_id": batch_id,
-                "counted_quantity": counted_quantity,
-                "ok_quantity": ok_quantity,
-                "correction_quantity": correction_quantity,
-            },
+            details=details,
         )
 
     def _record_audit_event(

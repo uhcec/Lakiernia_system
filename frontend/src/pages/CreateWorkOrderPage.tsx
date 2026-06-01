@@ -72,12 +72,55 @@ function parseOptionalPositiveNumber(value: string): number | undefined {
   return parsed;
 }
 
+function getCategoryQuantityHint(formState: FormState): { text: string; tone: "neutral" | "success" | "warning" } {
+  const totalQuantity = Number(formState.total_quantity);
+  if (!Number.isInteger(totalQuantity) || totalQuantity <= 0) {
+    return { text: "Suma kategorii: podaj ilość całkowitą", tone: "neutral" };
+  }
+
+  if (formState.profiles_to_count || formState.accessories_to_count) {
+    return { text: "Suma kategorii: do policzenia na produkcji", tone: "neutral" };
+  }
+
+  const profilesQuantity = parseOptionalNonNegativeInteger(formState.profiles_quantity);
+  const accessoriesQuantity = parseOptionalNonNegativeInteger(formState.accessories_quantity);
+  if (Number.isNaN(profilesQuantity) || Number.isNaN(accessoriesQuantity)) {
+    return { text: "Suma kategorii: popraw wartości", tone: "warning" };
+  }
+  if (profilesQuantity === undefined || accessoriesQuantity === undefined) {
+    const knownCategorySum = (profilesQuantity ?? 0) + (accessoriesQuantity ?? 0);
+    return { text: `Suma kategorii: ${knownCategorySum} / ${totalQuantity}`, tone: "neutral" };
+  }
+
+  const categorySum = profilesQuantity + accessoriesQuantity;
+  const difference = totalQuantity - categorySum;
+  if (difference === 0) {
+    return { text: `Suma kategorii: ${categorySum} / ${totalQuantity}`, tone: "success" };
+  }
+  if (difference > 0) {
+    return { text: `Suma kategorii: ${categorySum} / ${totalQuantity}. Brakuje ${difference} szt.`, tone: "warning" };
+  }
+  return { text: `Suma kategorii: ${categorySum} / ${totalQuantity}. O ${Math.abs(difference)} szt. za dużo`, tone: "warning" };
+}
+
+function categoryQuantityHintClasses(tone: ReturnType<typeof getCategoryQuantityHint>["tone"]): string {
+  switch (tone) {
+    case "success":
+      return "border-emerald-200 bg-emerald-50 text-emerald-700";
+    case "warning":
+      return "border-amber-200 bg-amber-50 text-amber-800";
+    case "neutral":
+      return "border-line bg-mist text-steel";
+  }
+}
+
 export function CreateWorkOrderPage() {
   const navigate = useNavigate();
   const [formState, setFormState] = useState<FormState>(initialFormState);
   const [validationError, setValidationError] = useState<string | null>(null);
   const [apiError, setApiError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const categoryQuantityHint = getCategoryQuantityHint(formState);
 
   function updateField(fieldName: keyof FormState, value: string) {
     setFormState((current) => ({ ...current, [fieldName]: value }));
@@ -412,6 +455,10 @@ export function CreateWorkOrderPage() {
                 />
                 Do policzenia na produkcji
               </label>
+            </div>
+
+            <div className={["md:col-span-2 rounded-2xl border px-4 py-3 text-sm font-semibold", categoryQuantityHintClasses(categoryQuantityHint.tone)].join(" ")}>
+              {categoryQuantityHint.text}
             </div>
 
             <label className="flex flex-col gap-2 md:col-span-2">

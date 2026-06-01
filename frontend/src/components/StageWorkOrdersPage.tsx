@@ -399,7 +399,7 @@ export function StageWorkOrdersPage({
                               }));
                             }}
                             className="w-full rounded-lg border border-line bg-white px-3 py-2 text-base font-semibold text-ink outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/20"
-                            placeholder="0"
+                            placeholder="Podaj ilość"
                           />
                         </label>
                       ) : (

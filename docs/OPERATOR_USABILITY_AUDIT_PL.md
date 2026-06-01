@@ -8,7 +8,7 @@ Cel: opisac, co obecny system daje kazdej roli, gdzie jest ergonomicznie dobry, 
 
 System jest teraz wystarczajaco spojny, zeby prowadzic normalny przeplyw zlecen: biuro przyjmuje, kierownik planuje, stanowiska widza swoje aktywne prace, pakowanie rozdziela OK/poprawki, poprawki wracaja przez planowanie, a gotowe zlecenia mozna oznaczac jako wydane.
 
-Najwieksze ryzyka uzywalnosci nie wynikaja juz z oczywistych bledow ekranow, tylko z nowych obszarow do zaprojektowania: loginy i role, magazyn farb, dokument kontroli jakosci, WZ, dokladny podzial profili/akcesoriow w poprawce oraz ewentualna wyłącznosc pakowania.
+Najwieksze ryzyka uzywalnosci nie wynikaja juz z oczywistych bledow ekranow, tylko z nowych obszarow do zaprojektowania: loginy i role, magazyn farb, dokument kontroli jakosci, WZ oraz ewentualna wyłącznosc pakowania.
 
 ## Nawigacja i role
 
@@ -170,7 +170,7 @@ Mocne strony:
 Ryzyka i pytania:
 
 - Wyłącznosc fizyczna pakowania jest nadal otwarta. Jesli pakowanie moze miec tylko jedno aktywnie rozpoczete zlecenie, trzeba dodac zasob `PACKING`.
-- Potwierdzono, ze poprawka powinna miec dokladny podzial na profile i akcesoria. Obecny system ma tylko jedna ilosc poprawki i nie zgaduje podzialu, wiec pakowanie musi dostac pola per kategoria.
+- Potwierdzono i wdrozono, ze poprawka ma miec dokladny podzial na profile i akcesoria. Pakowanie zbiera pola per kategoria, a backend wymaga, zeby ich suma zgadzala sie z iloscia poprawki.
 
 ## Decoral
 
@@ -212,7 +212,7 @@ Ryzyka i pytania:
 - Frontend powinien nadal wyswietlac backendowy `process_status`, a nie zgadywac workflow z ilosci.
 - Szczegoly zlecenia dzialaja jako bezpieczny wspolny widok dla biura, managera i stacji, ale stacje nie powinny dostawac mutacji biurowych.
 - Zalaczniki sa dobrze umieszczone w szczegolach; dedykowana szuflada na tabletach bylaby tylko usprawnieniem ergonomii, nie koniecznoscia semantyczna.
-- Najbardziej wartosciowe kolejne prace: dokladny podzial profili/akcesoriow w poprawce, auth/loginy, magazyn farb, dokument QC, WZ i ewentualne pakowanie jako zasob.
+- Najbardziej wartosciowe kolejne prace: auth/loginy, magazyn farb, dokument QC, WZ i ewentualne pakowanie jako zasob.
 
 ## Proponowany test z uzytkownikami
 

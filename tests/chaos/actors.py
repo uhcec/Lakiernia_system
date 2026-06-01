@@ -154,6 +154,8 @@ class PackingAgent:
         ok_quantity: int,
         correction_quantity: int,
         batch_id: int | None = None,
+        correction_profiles_quantity: int | None = None,
+        correction_accessories_quantity: int | None = None,
         correction_reason_category: str | None = None,
     ):
         path = (
@@ -167,6 +169,12 @@ class PackingAgent:
             "correction_quantity": correction_quantity,
         }
         if correction_quantity > 0:
+            payload["correction_profiles_quantity"] = (
+                correction_profiles_quantity if correction_profiles_quantity is not None else correction_quantity
+            )
+            payload["correction_accessories_quantity"] = (
+                correction_accessories_quantity if correction_accessories_quantity is not None else 0
+            )
             payload["correction_reason_category"] = correction_reason_category or "niedomalowanie"
         return self.client.post(path, json=payload)
 
@@ -179,6 +187,8 @@ class PackingAgent:
         ok_quantity: int,
         correction_quantity: int,
         batch_id: int | None = None,
+        correction_profiles_quantity: int | None = None,
+        correction_accessories_quantity: int | None = None,
         correction_reason_category: str | None = None,
     ):
         barrier.wait()
@@ -188,5 +198,7 @@ class PackingAgent:
             ok_quantity=ok_quantity,
             correction_quantity=correction_quantity,
             batch_id=batch_id,
+            correction_profiles_quantity=correction_profiles_quantity,
+            correction_accessories_quantity=correction_accessories_quantity,
             correction_reason_category=correction_reason_category,
         )

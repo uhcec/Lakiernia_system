@@ -180,7 +180,7 @@ export function WorkOrderDetailPage() {
   const effectiveStationId = getStationIdForLocation(location.pathname, location.search);
   const canCompleteArrival = effectiveStationId === "OFFICE";
   const canManageAttachments = effectiveStationId === "OFFICE";
-  const canUpdateReleaseStatus = effectiveStationId === "OFFICE" || effectiveStationId === "MANAGER";
+  const canUpdateReleaseStatus = effectiveStationId === "OFFICE";
   const [workOrder, setWorkOrder] = useState<WorkOrder | null>(null);
   const [attachments, setAttachments] = useState<WorkOrderAttachment[]>([]);
   const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);

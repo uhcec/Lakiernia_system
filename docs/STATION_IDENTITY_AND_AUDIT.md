@@ -140,7 +140,7 @@ Implemented frontend propagation:
 
 Still open:
 
-- hide or reshape any future frontend actions that might cross station boundaries as new station capabilities are added, especially automatic-production paint consumption and completed-order issue/release
+- hide or reshape any future frontend actions that might cross station boundaries as new station capabilities are added, especially automatic-production paint consumption
 - add user login/session/role checks and audit actor fields
 - protect manager-only statistics with auth/roles, not only route naming
 
@@ -168,7 +168,7 @@ Confirmed decisions from `docs/FACTORY_USAGE_NOTES.md`:
 - Office and manager should see quantity discrepancies; station operators should see only operational quantities.
 - Quantity discrepancies should be recorded and confirmed at surface preparation, but should not block work orders for now. Surface-preparation finish requires counted quantity; start does not.
 - `Przemalowanka` is a standalone customer work order that skips surface preparation; `Ocynk` is a strong station-visible type/marker combinable with RAL or Decoral.
-- Office/manager completed views support an issued/released marker for READY orders, separate from production READY state. Target policy is office-only release marking; current implementation still allows manager as well.
+- Office completed views support an issued/released marker for READY orders, separate from production READY state. The current station-identity layer restricts release marking to `OFFICE`; future individual logins still need a separate auth design.
 - Paint inventory/consumption needs station permission decisions. Intake paint-stock entry is needed, and automatic production is confirmed as an action-capable station for paint-consumption entry.
 - Quality-control production document generation should use the factory-provided template and may need audit/attachment rules depending on whether generated copies are persisted.
 

@@ -114,7 +114,7 @@ export function WorkOrdersListPage() {
           </div>
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
             <div className="rounded-2xl border border-line bg-mist px-4 py-3 text-sm text-steel">
-              Widocznych rekordów: <span className="font-semibold text-ink">{workOrders.length}</span>
+              Widocznych rekordów: <span className="font-semibold text-ink">{visibleWorkOrders.length}</span>
             </div>
             <Link
               to="/zlecenia/nowe"

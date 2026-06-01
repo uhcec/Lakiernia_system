@@ -60,6 +60,8 @@ interface CompletePackingPayload {
   counted_quantity: number;
   ok_quantity: number;
   correction_quantity: number;
+  correction_profiles_quantity?: number;
+  correction_accessories_quantity?: number;
   correction_reason_category?: string;
   correction_reason_note?: string;
 }

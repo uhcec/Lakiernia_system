@@ -177,6 +177,8 @@ def complete_packing(
         counted_quantity=ok_quantity + correction_quantity,
         ok_quantity=ok_quantity,
         correction_quantity=correction_quantity,
+        correction_profiles_quantity=correction_quantity if correction_quantity > 0 else None,
+        correction_accessories_quantity=0 if correction_quantity > 0 else None,
         correction_reason_category="niedomalowanie" if correction_quantity > 0 else None,
     )
 

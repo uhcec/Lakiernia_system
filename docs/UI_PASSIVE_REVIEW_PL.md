@@ -46,25 +46,25 @@ Te rzeczy nie powinny wymagac nowej decyzji workflow, bo dotycza czytelnosci alb
 
    Ekran zlecen pokazuje `Widocznych rekordow`, ale wartosc pochodzi z calego pobranego zestawu, nie z aktywnej zakladki. Przy filtrze `Zlecenia / Na produkcji / Gotowe` moze to mylic.
 
-   Proponowany kierunek: zmienic etykiete na `Pobrane rekordy` albo licznik na `visibleWorkOrders.length`.
+   Status: wdrozone przez licznik `visibleWorkOrders.length`.
 
 2. Podpowiedz dla profili i akcesoriow w formularzu tworzenia
 
    Regula `Profile + Akcesoria = Ilosc calkowita` jest egzekwowana, ale operator widzi ja dopiero przez blad walidacji. To jest latwe miejsce na pomylke.
 
-   Proponowany kierunek: dodac cicha podpowiedz lub maly licznik sumy przy polach profili/akcesoriow. Nie zgadywac wartosci automatycznie.
+   Status: wdrozone przez maly licznik sumy przy polach profili/akcesoriow, bez automatycznego zgadywania wartosci.
 
 3. Placeholder na przygotowaniu powierzchni
 
    Pole `Policzono` ma `min=1`, ale placeholder `0`. To drobiazg, ale podpowiada wartosc, ktorej formularz nie akceptuje.
 
-   Proponowany kierunek: placeholder `Podaj ilosc` albo pusty placeholder.
+   Status: wdrozone przez placeholder `Podaj ilosc`.
 
 4. Pakowanie: neutralna instrukcja bilansu
 
    Pakowanie jest walidowane poprawnie, ale przy pustym `Policzono` operator nie ma stalego tekstu zasady poza dynamicznym bilansem.
 
-   Proponowany kierunek: mala linia pomocnicza `OK + Poprawki musi rownac sie Policzono`. Bez automatycznego przepisywania OK, dopoki nie wiemy, czy to pasuje do praktyki.
+   Status: wdrozone przez mala linie `OK + Poprawki = Policzono`, bez automatycznego przepisywania OK.
 
 5. Dlugosc szczegolow zlecenia
 

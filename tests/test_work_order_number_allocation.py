@@ -85,6 +85,8 @@ def test_correction_child_uses_same_yearly_sequence(db_session: Session) -> None
         counted_quantity=100,
         ok_quantity=80,
         correction_quantity=20,
+        correction_profiles_quantity=20,
+        correction_accessories_quantity=0,
         correction_reason_category="niedomalowanie",
     )
     correction_orders = [order for order in work_order_repository.list(limit=20, offset=0) if order.parent_order_id == parent.id]
@@ -166,6 +168,8 @@ def test_mixed_normal_and_correction_creation_produces_unique_numbers(tmp_path) 
                     counted_quantity=100,
                     ok_quantity=85,
                     correction_quantity=15,
+                    correction_profiles_quantity=15,
+                    correction_accessories_quantity=0,
                     correction_reason_category="niedomalowanie",
                 )
                 correction_order = session.scalars(

@@ -58,6 +58,8 @@ def complete_packing_request(
     ok_quantity: int,
     correction_quantity: int,
     batch_id: int | None = None,
+    correction_profiles_quantity: int | None = None,
+    correction_accessories_quantity: int | None = None,
     correction_reason_category: str | None = None,
     correction_reason_note: str | None = None,
 ):
@@ -72,6 +74,12 @@ def complete_packing_request(
         "correction_quantity": correction_quantity,
     }
     if correction_quantity > 0:
+        payload["correction_profiles_quantity"] = (
+            correction_profiles_quantity if correction_profiles_quantity is not None else correction_quantity
+        )
+        payload["correction_accessories_quantity"] = (
+            correction_accessories_quantity if correction_accessories_quantity is not None else 0
+        )
         payload["correction_reason_category"] = correction_reason_category or "niedomalowanie"
         if correction_reason_note is not None:
             payload["correction_reason_note"] = correction_reason_note
@@ -656,6 +664,88 @@ def test_packing_complete_requires_correction_reason_for_corrections(test_client
 
     assert response.status_code == 422
     assert test_client.get(f"/work-orders/{created['id']}").json()["correction_orders"] == []
+
+
+def test_packing_complete_requires_correction_category_split_for_corrections(test_client: TestClient) -> None:
+    created = create_planned_work_order(test_client, title="Packing correction split required", queue_position=1)
+    advance_to_packing(test_client, created["id"])
+
+    response = test_client.post(
+        f"/process/work-orders/{created['id']}/packing/complete",
+        json={
+            "counted_quantity": 100,
+            "ok_quantity": 90,
+            "correction_quantity": 10,
+            "correction_reason_category": "niedomalowanie",
+        },
+    )
+
+    assert response.status_code == 422
+    assert test_client.get(f"/work-orders/{created['id']}").json()["correction_orders"] == []
+
+
+def test_packing_complete_rejects_correction_category_split_that_does_not_sum_to_correction_quantity(
+    test_client: TestClient,
+) -> None:
+    created = create_planned_work_order(test_client, title="Packing correction split sum", queue_position=1)
+    advance_to_packing(test_client, created["id"])
+
+    response = test_client.post(
+        f"/process/work-orders/{created['id']}/packing/complete",
+        json={
+            "counted_quantity": 100,
+            "ok_quantity": 90,
+            "correction_quantity": 10,
+            "correction_profiles_quantity": 8,
+            "correction_accessories_quantity": 1,
+            "correction_reason_category": "niedomalowanie",
+        },
+    )
+
+    assert response.status_code == 422
+    assert test_client.get(f"/work-orders/{created['id']}").json()["correction_orders"] == []
+
+
+def test_packing_complete_creates_correction_child_with_explicit_profile_accessory_split(
+    test_client: TestClient,
+) -> None:
+    create_payload = build_create_payload(title="Explicit correction category split", total_quantity=10)
+    create_payload.update(
+        {
+            "profiles_quantity": 8,
+            "profiles_to_count": False,
+            "accessories_quantity": 2,
+            "accessories_to_count": False,
+        }
+    )
+    created = test_client.post("/work-orders", json=create_payload).json()
+    test_client.post(
+        f"/manager/work-orders/{created['id']}/plan",
+        json={"production_type": "MANUAL", "queue_position": 1},
+    )
+    advance_to_packing(test_client, created["id"])
+
+    response = complete_packing_request(
+        test_client,
+        created["id"],
+        counted_quantity=10,
+        ok_quantity=7,
+        correction_quantity=3,
+        correction_profiles_quantity=1,
+        correction_accessories_quantity=2,
+    )
+    correction_order = next(
+        item
+        for item in test_client.get("/manager/work-orders/unplanned").json()
+        if item["parent_order"]["id"] == created["id"]
+    )
+
+    assert response.status_code == 200
+    assert correction_order["total_quantity"] == 3
+    assert correction_order["profiles_quantity"] == 1
+    assert correction_order["profiles_to_count"] is False
+    assert correction_order["accessories_quantity"] == 2
+    assert correction_order["accessories_to_count"] is False
 
 
 def test_packing_complete_rejects_reason_without_correction_quantity(test_client: TestClient) -> None:

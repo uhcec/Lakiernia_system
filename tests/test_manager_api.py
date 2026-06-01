@@ -84,6 +84,8 @@ def create_packing_correction(
             "counted_quantity": 100,
             "ok_quantity": 100 - correction_quantity,
             "correction_quantity": correction_quantity,
+            "correction_profiles_quantity": correction_quantity,
+            "correction_accessories_quantity": 0,
             "correction_reason_category": correction_reason_category,
         },
     )
@@ -262,6 +264,8 @@ def test_packing_correction_creates_new_unplanned_work_order(test_client: TestCl
             "counted_quantity": 100,
             "ok_quantity": 92,
             "correction_quantity": 8,
+            "correction_profiles_quantity": 8,
+            "correction_accessories_quantity": 0,
             "correction_reason_category": "niedomalowanie",
             "correction_reason_note": "dolna listwa",
         },
@@ -357,7 +361,14 @@ def test_completed_decoral_correction_preserves_correction_quantity_context_in_m
     test_client.post(f"/process/work-orders/{created['id']}/stages/HANGING/finish")
     parent_pack_response = test_client.post(
         f"/process/work-orders/{created['id']}/packing/complete",
-        json={"counted_quantity": 10, "ok_quantity": 7, "correction_quantity": 3, "correction_reason_category": "wtrącenia"},
+        json={
+            "counted_quantity": 10,
+            "ok_quantity": 7,
+            "correction_quantity": 3,
+            "correction_profiles_quantity": 3,
+            "correction_accessories_quantity": 0,
+            "correction_reason_category": "wtrącenia",
+        },
     )
     assert parent_pack_response.status_code == 200
 
@@ -422,7 +433,14 @@ def test_corrections_are_listed_in_shared_unplanned_queue(test_client: TestClien
     test_client.post(f"/process/work-orders/{created['id']}/stages/PACKING/start")
     test_client.post(
         f"/process/work-orders/{created['id']}/packing/complete",
-        json={"counted_quantity": 100, "ok_quantity": 90, "correction_quantity": 10, "correction_reason_category": "niedomalowanie"},
+        json={
+            "counted_quantity": 100,
+            "ok_quantity": 90,
+            "correction_quantity": 10,
+            "correction_profiles_quantity": 10,
+            "correction_accessories_quantity": 0,
+            "correction_reason_category": "niedomalowanie",
+        },
     )
 
     response = test_client.get("/manager/work-orders/unplanned")
@@ -455,7 +473,14 @@ def test_same_queue_position_is_not_allowed_between_normal_and_correction_orders
     test_client.post(f"/process/work-orders/{correction_parent['id']}/stages/PACKING/start")
     test_client.post(
         f"/process/work-orders/{correction_parent['id']}/packing/complete",
-        json={"counted_quantity": 100, "ok_quantity": 95, "correction_quantity": 5, "correction_reason_category": "niedomalowanie"},
+        json={
+            "counted_quantity": 100,
+            "ok_quantity": 95,
+            "correction_quantity": 5,
+            "correction_profiles_quantity": 5,
+            "correction_accessories_quantity": 0,
+            "correction_reason_category": "niedomalowanie",
+        },
     )
 
     correction_order = next(
@@ -496,7 +521,14 @@ def test_reorder_accepts_mixed_normal_and_correction_orders(test_client: TestCli
     test_client.post(f"/process/work-orders/{correction_parent['id']}/stages/PACKING/start")
     test_client.post(
         f"/process/work-orders/{correction_parent['id']}/packing/complete",
-        json={"counted_quantity": 100, "ok_quantity": 95, "correction_quantity": 5, "correction_reason_category": "niedomalowanie"},
+        json={
+            "counted_quantity": 100,
+            "ok_quantity": 95,
+            "correction_quantity": 5,
+            "correction_profiles_quantity": 5,
+            "correction_accessories_quantity": 0,
+            "correction_reason_category": "niedomalowanie",
+        },
     )
 
     correction_order = next(
@@ -817,7 +849,14 @@ def test_reorder_mixed_normal_and_correction_orders_preserves_global_queue_posit
     test_client.post(f"/process/work-orders/{correction_parent['id']}/stages/PACKING/start")
     test_client.post(
         f"/process/work-orders/{correction_parent['id']}/packing/complete",
-        json={"counted_quantity": 100, "ok_quantity": 95, "correction_quantity": 5, "correction_reason_category": "niedomalowanie"},
+        json={
+            "counted_quantity": 100,
+            "ok_quantity": 95,
+            "correction_quantity": 5,
+            "correction_profiles_quantity": 5,
+            "correction_accessories_quantity": 0,
+            "correction_reason_category": "niedomalowanie",
+        },
     )
 
     correction_order = next(

@@ -460,7 +460,7 @@ class WorkOrderService:
     def _ensure_release_station_action(station_context: StationContext | None) -> None:
         ensure_station_allowed(
             station_context,
-            allowed_station_ids={StationId.OFFICE, StationId.MANAGER},
+            allowed_station_ids={StationId.OFFICE},
             action="work-order release actions",
         )
 
