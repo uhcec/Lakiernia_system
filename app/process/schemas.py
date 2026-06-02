@@ -24,7 +24,11 @@ class ProcessStageWorkOrderRead(BaseModel):
     order_number: str
     title: str
     ral_code: str
+    paint_code: str | None = None
     paint_producer: str
+    planned_paint_quantity_kg: float | None = None
+    consumed_paint_quantity_kg: float
+    remaining_paint_quantity_kg: float | None = None
     total_area_m2: float | None = None
     total_quantity: int
     current_active_quantity: int
@@ -81,3 +85,9 @@ class PackingCompleteRequest(BaseModel):
             if self.correction_profiles_quantity + self.correction_accessories_quantity != self.correction_quantity:
                 raise ValueError("Correction profile and accessory quantities must add up to correction quantity.")
         return self
+
+
+class AutomaticPaintConsumptionRequest(BaseModel):
+    consumed_paint_quantity_kg: float = Field(gt=0)
+
+    model_config = ConfigDict(extra="forbid")

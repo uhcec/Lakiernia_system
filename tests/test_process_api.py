@@ -13,7 +13,9 @@ def build_create_payload(
         "total_quantity": total_quantity,
         "customer_name": "ACME",
         "ral_code": "RAL 7016",
+        "paint_code": "P-7016",
         "paint_producer": "AkzoNobel",
+        "planned_paint_quantity_kg": 18.5,
         "received_date": "2026-05-25",
         "profiles_to_count": True,
         "accessories_to_count": True,
@@ -294,10 +296,18 @@ def test_automatic_packing_can_complete_after_hanging_finish(test_client: TestCl
 
     test_client.post(f"/process/work-orders/{automatic['id']}/stages/HANGING/start")
     test_client.post(f"/process/work-orders/{automatic['id']}/stages/HANGING/finish")
+    paint_response = test_client.post(
+        f"/process/work-orders/{automatic['id']}/automatic-production/paint-consumption",
+        json={"consumed_paint_quantity_kg": 12.5},
+        headers={"X-Station-Id": "AUTOMATIC_PRODUCTION"},
+    )
 
     response = complete_packing_request(test_client, automatic["id"], counted_quantity=100, ok_quantity=100, correction_quantity=0)
     detail = test_client.get(f"/work-orders/{automatic['id']}")
 
+    assert paint_response.status_code == 200
+    assert paint_response.json()["consumed_paint_quantity_kg"] == 12.5
+    assert paint_response.json()["remaining_paint_quantity_kg"] == 6.0
     assert response.status_code == 200
     assert response.json()["stage_status"] == {
         "stage": "PACKING",
@@ -318,6 +328,59 @@ def test_automatic_packing_rejects_completion_while_hanging_is_active(test_clien
 
     assert response.status_code == 409
     assert response.json()["detail"] == "Automatic hanging must be finished before packing."
+
+
+def test_automatic_packing_requires_paint_consumption_before_completion(test_client: TestClient) -> None:
+    automatic = create_planned_work_order(test_client, title="Automatic requires paint", queue_position=1, production_type="AUTOMATIC")
+    advance_to_hanging(test_client, automatic["id"])
+
+    test_client.post(f"/process/work-orders/{automatic['id']}/stages/HANGING/start")
+    test_client.post(f"/process/work-orders/{automatic['id']}/stages/HANGING/finish")
+
+    response = complete_packing_request(test_client, automatic["id"], counted_quantity=100, ok_quantity=100, correction_quantity=0)
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Automatic paint consumption must be recorded before packing can be completed."
+
+
+def test_automatic_production_can_record_paint_consumption_after_hanging_start(test_client: TestClient) -> None:
+    automatic = create_planned_work_order(test_client, title="Automatic paint entry", queue_position=1, production_type="AUTOMATIC")
+    advance_to_hanging(test_client, automatic["id"])
+
+    test_client.post(f"/process/work-orders/{automatic['id']}/stages/HANGING/start")
+
+    response = test_client.post(
+        f"/process/work-orders/{automatic['id']}/automatic-production/paint-consumption",
+        json={"consumed_paint_quantity_kg": 11.25},
+        headers={"X-Station-Id": "AUTOMATIC_PRODUCTION"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["stage_status"] == {
+        "stage": "HANGING",
+        "status": {"value": "IN_PROGRESS", "label": "W trakcie"},
+    }
+    assert response.json()["paint_code"] == "P-7016"
+    assert response.json()["planned_paint_quantity_kg"] == 18.5
+    assert response.json()["consumed_paint_quantity_kg"] == 11.25
+    assert response.json()["remaining_paint_quantity_kg"] == 7.25
+
+
+def test_automatic_production_rejects_paint_consumption_above_planned_quantity(test_client: TestClient) -> None:
+    automatic = create_planned_work_order(test_client, title="Automatic paint overflow", queue_position=1, production_type="AUTOMATIC")
+    advance_to_hanging(test_client, automatic["id"])
+
+    test_client.post(f"/process/work-orders/{automatic['id']}/stages/HANGING/start")
+    test_client.post(f"/process/work-orders/{automatic['id']}/stages/HANGING/finish")
+
+    response = test_client.post(
+        f"/process/work-orders/{automatic['id']}/automatic-production/paint-consumption",
+        json={"consumed_paint_quantity_kg": 20},
+        headers={"X-Station-Id": "AUTOMATIC_PRODUCTION"},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Consumed paint quantity cannot exceed the planned paint quantity assigned to the work order."
 
 
 def test_automatic_production_preview_rejects_actions_after_hanging_start(test_client: TestClient) -> None:

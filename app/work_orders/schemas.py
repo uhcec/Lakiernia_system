@@ -110,6 +110,7 @@ class WorkOrderRelationSummaryRead(BaseModel):
     title: str
     customer_name: str
     ral_code: str
+    paint_code: str | None = None
     total_area_m2: float | None
     total_quantity: int
     completed_quantity: int
@@ -157,7 +158,9 @@ class WorkOrderCreate(BaseModel):
     description: str | None = None
     customer_name: str = Field(min_length=1, max_length=255)
     ral_code: str = Field(min_length=1, max_length=64)
+    paint_code: str | None = Field(default=None, min_length=1, max_length=64)
     paint_producer: str = Field(min_length=1, max_length=255)
+    planned_paint_quantity_kg: float | None = Field(default=None, gt=0)
     coating_type: CoatingType
     work_order_kind: WorkOrderKind = WorkOrderKind.STANDARD
     is_ocynk: bool = False
@@ -194,7 +197,9 @@ class WorkOrderUpdate(BaseModel):
     description: str | None = None
     customer_name: str | None = Field(default=None, max_length=255)
     ral_code: str | None = Field(default=None, min_length=1, max_length=64)
+    paint_code: str | None = Field(default=None, min_length=1, max_length=64)
     paint_producer: str | None = Field(default=None, min_length=1, max_length=255)
+    planned_paint_quantity_kg: float | None = Field(default=None, gt=0)
     received_date: date | None = None
     planned_pickup_date: date | None = None
     total_area_m2: float | None = Field(default=None, gt=0)
@@ -235,7 +240,11 @@ class WorkOrderRead(BaseModel):
     description: str | None
     customer_name: str
     ral_code: str
+    paint_code: str | None = None
     paint_producer: str
+    planned_paint_quantity_kg: float | None = None
+    consumed_paint_quantity_kg: float
+    remaining_paint_quantity_kg: float | None = None
     status: WorkOrderStatusView = Field(description="Derived compatibility field. Lifecycle truth comes from process_status and stage_states.")
     process_status: ProcessStatusView
     queue_blocked_by_resource: str | None = None
@@ -309,6 +318,7 @@ def build_work_order_relation_summary(work_order: "WorkOrder") -> WorkOrderRelat
         title=work_order.title,
         customer_name=work_order.customer_name,
         ral_code=work_order.ral_code,
+        paint_code=work_order.paint_code,
         total_area_m2=work_order.total_area_m2,
         total_quantity=work_order.total_quantity,
         completed_quantity=work_order.completed_quantity,

@@ -9,7 +9,9 @@ def build_create_payload(**overrides: object) -> dict:
         "total_quantity": 100,
         "customer_name": "ACME",
         "ral_code": "RAL 7016",
+        "paint_code": "P-7016",
         "paint_producer": "AkzoNobel",
+        "planned_paint_quantity_kg": 18.5,
         "received_date": "2026-05-25",
         "profiles_to_count": True,
         "accessories_to_count": True,
@@ -102,7 +104,9 @@ def test_create_work_order(test_client: TestClient) -> None:
         description="Initial intake",
         customer_name="ACME",
         ral_code="RAL 9005",
+        paint_code="P-9005-MAT",
         paint_producer="Tiger",
+        planned_paint_quantity_kg=26.75,
         received_date="2026-05-20",
         planned_pickup_date="2026-06-15",
         total_area_m2=42.5,
@@ -127,7 +131,11 @@ def test_create_work_order(test_client: TestClient) -> None:
     assert body["description"] == "Initial intake"
     assert body["customer_name"] == "ACME"
     assert body["ral_code"] == "RAL 9005"
+    assert body["paint_code"] == "P-9005-MAT"
     assert body["paint_producer"] == "Tiger"
+    assert body["planned_paint_quantity_kg"] == 26.75
+    assert body["consumed_paint_quantity_kg"] == 0
+    assert body["remaining_paint_quantity_kg"] == 26.75
     assert body["coating_type"] == {"value": "RAL", "label": "RAL"}
     assert body["received_date"] == "2026-05-20"
     assert body["planned_pickup_date"] == "2026-06-15"
@@ -141,6 +149,21 @@ def test_create_work_order(test_client: TestClient) -> None:
     assert body["process_status"] == {"value": "TO_BE_PLANNED", "label": "Do zaplanowania"}
     assert body["created_at"]
     assert body["updated_at"]
+
+
+def test_update_work_order_can_change_paint_configuration(test_client: TestClient) -> None:
+    created = create_work_order(test_client, title="Paint config update").json()
+
+    response = test_client.patch(
+        f"/work-orders/{created['id']}",
+        json={"paint_code": "P-NEW-7016", "planned_paint_quantity_kg": 24.0},
+        headers={"X-Station-Id": "OFFICE"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["paint_code"] == "P-NEW-7016"
+    assert response.json()["planned_paint_quantity_kg"] == 24.0
+    assert response.json()["remaining_paint_quantity_kg"] == 24.0
 
 
 def test_create_work_order_rejects_invalid_station_header(test_client: TestClient) -> None:

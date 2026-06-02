@@ -29,7 +29,11 @@ export interface StageWorkOrder {
   order_number: string;
   title: string;
   ral_code: string;
+  paint_code: string | null;
   paint_producer: string;
+  planned_paint_quantity_kg: number | null;
+  consumed_paint_quantity_kg: number;
+  remaining_paint_quantity_kg: number | null;
   total_area_m2: number | null;
   total_quantity: number;
   current_active_quantity: number;

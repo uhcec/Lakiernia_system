@@ -13,7 +13,9 @@ interface FormState {
   description: string;
   customer_name: string;
   ral_code: string;
+  paint_code: string;
   paint_producer: string;
+  planned_paint_quantity_kg: string;
   received_date: string;
   planned_pickup_date: string;
   total_area_m2: string;
@@ -34,7 +36,9 @@ const initialFormState: FormState = {
   description: "",
   customer_name: "",
   ral_code: "",
+  paint_code: "",
   paint_producer: "",
+  planned_paint_quantity_kg: "",
   received_date: "",
   planned_pickup_date: "",
   total_area_m2: "",
@@ -159,6 +163,12 @@ export function CreateWorkOrderPage() {
       return;
     }
 
+    const trimmedPaintCode = formState.paint_code.trim();
+    if (!trimmedPaintCode) {
+      setValidationError("Kod farby jest wymagany");
+      return;
+    }
+
     if (!formState.coating_type) {
       setValidationError("Technologia jest wymagana");
       return;
@@ -214,6 +224,12 @@ export function CreateWorkOrderPage() {
       return;
     }
 
+    const plannedPaintQuantityKg = parseOptionalPositiveNumber(formState.planned_paint_quantity_kg);
+    if (Number.isNaN(plannedPaintQuantityKg) || plannedPaintQuantityKg === undefined) {
+      setValidationError("Ilość farby [kg] musi być dodatnią liczbą");
+      return;
+    }
+
     setValidationError(null);
     setApiError(null);
     setIsSubmitting(true);
@@ -228,7 +244,9 @@ export function CreateWorkOrderPage() {
         description: formState.description.trim() || undefined,
         customer_name: trimmedCustomerName,
         ral_code: trimmedRalCode,
+        paint_code: trimmedPaintCode,
         paint_producer: trimmedPaintProducer,
+        planned_paint_quantity_kg: plannedPaintQuantityKg,
         received_date: formState.received_date,
         planned_pickup_date: formState.planned_pickup_date || undefined,
         total_area_m2: totalArea,
@@ -338,6 +356,29 @@ export function CreateWorkOrderPage() {
                 onChange={(event) => updateField("paint_producer", event.target.value)}
                 className="rounded-2xl border border-line bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-accent"
                 placeholder="np. AkzoNobel"
+              />
+            </label>
+
+            <label className="flex flex-col gap-2">
+              <span className="text-sm font-medium text-ink">Kod farby</span>
+              <input
+                value={formState.paint_code}
+                onChange={(event) => updateField("paint_code", event.target.value)}
+                className="rounded-2xl border border-line bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-accent"
+                placeholder="np. P-7016-MAT"
+              />
+            </label>
+
+            <label className="flex flex-col gap-2">
+              <span className="text-sm font-medium text-ink">Ilość farby [kg]</span>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={formState.planned_paint_quantity_kg}
+                onChange={(event) => updateField("planned_paint_quantity_kg", event.target.value)}
+                className="rounded-2xl border border-line bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-accent"
+                placeholder="np. 18.5"
               />
             </label>
 

@@ -30,6 +30,7 @@ vi.mock("../src/api/auditApi", () => ({
 vi.mock("../src/api/processApi", () => ({
   completePacking: vi.fn(),
   fetchStageWorkOrders: vi.fn(),
+  recordAutomaticPaintConsumption: vi.fn(),
   transitionStage: vi.fn(),
 }));
 
@@ -86,6 +87,7 @@ const fetchPlannedWorkOrdersMock = vi.mocked(managerApi.fetchPlannedWorkOrders);
 const assignWorkOrderPlanMock = vi.mocked(managerApi.assignWorkOrderPlan);
 const reorderWorkOrderQueueMock = vi.mocked(managerApi.reorderWorkOrderQueue);
 const fetchStageWorkOrdersMock = vi.mocked(processApi.fetchStageWorkOrders);
+const recordAutomaticPaintConsumptionMock = vi.mocked(processApi.recordAutomaticPaintConsumption);
 const transitionStageMock = vi.mocked(processApi.transitionStage);
 const completePackingMock = vi.mocked(processApi.completePacking);
 const createWorkOrderMock = vi.mocked(workOrdersApi.createWorkOrder);
@@ -118,7 +120,11 @@ function buildWorkOrder(id: number, orderNumber: string, queuePosition: number, 
     description: null,
     customer_name: customerName,
     ral_code: "RAL 9005",
+    paint_code: "P-9005",
     paint_producer: "Test",
+    planned_paint_quantity_kg: 18.5,
+    consumed_paint_quantity_kg: 0,
+    remaining_paint_quantity_kg: 18.5,
     status: { value: "ASSIGNED", label: "Przypisane" },
     process_status: { value: "PACKING", label: "Pakowanie" },
     coating_type: { value: "RAL", label: "RAL" },
@@ -160,7 +166,11 @@ function buildStageWorkOrder(
     order_number: overrides.order_number,
     title: overrides.title ?? overrides.order_number,
     ral_code: overrides.ral_code ?? "RAL 9005",
+    paint_code: overrides.paint_code ?? "P-9005",
     paint_producer: overrides.paint_producer ?? "Test",
+    planned_paint_quantity_kg: overrides.planned_paint_quantity_kg ?? 18.5,
+    consumed_paint_quantity_kg: overrides.consumed_paint_quantity_kg ?? 0,
+    remaining_paint_quantity_kg: overrides.remaining_paint_quantity_kg ?? 18.5,
     total_area_m2: overrides.total_area_m2 ?? null,
     total_quantity: overrides.total_quantity ?? 10,
     current_active_quantity: overrides.current_active_quantity ?? 10,
@@ -193,6 +203,7 @@ beforeEach(() => {
   assignWorkOrderPlanMock.mockReset();
   reorderWorkOrderQueueMock.mockReset();
   fetchStageWorkOrdersMock.mockReset();
+  recordAutomaticPaintConsumptionMock.mockReset();
   transitionStageMock.mockReset();
   completePackingMock.mockReset();
   createWorkOrderMock.mockReset();
@@ -236,6 +247,8 @@ describe("frontend state consistency", () => {
     fireEvent.click(screen.getByLabelText("Ocynk"));
     fireEvent.change(screen.getByLabelText("Kod RAL"), { target: { value: "RAL 7016" } });
     fireEvent.change(screen.getByLabelText("Producent farby"), { target: { value: "AkzoNobel" } });
+    fireEvent.change(screen.getByLabelText("Kod farby"), { target: { value: "P-7016" } });
+    fireEvent.change(screen.getByLabelText("Ilość farby [kg]"), { target: { value: "18.5" } });
     fireEvent.change(screen.getByLabelText("Data przyjęcia"), { target: { value: "2026-05-30" } });
     screen.getAllByLabelText("Do policzenia na produkcji").forEach((checkbox) => fireEvent.click(checkbox));
     fireEvent.click(screen.getByRole("button", { name: "Zapisz" }));
@@ -248,6 +261,8 @@ describe("frontend state consistency", () => {
           coating_type: "RAL",
           work_order_kind: "PRZEMALOWANKA",
           is_ocynk: true,
+          paint_code: "P-7016",
+          planned_paint_quantity_kg: 18.5,
         }),
       );
     });
@@ -266,6 +281,8 @@ describe("frontend state consistency", () => {
     fireEvent.change(screen.getByLabelText("Technologia"), { target: { value: "RAL" } });
     fireEvent.change(screen.getByLabelText("Kod RAL"), { target: { value: "RAL 7016" } });
     fireEvent.change(screen.getByLabelText("Producent farby"), { target: { value: "AkzoNobel" } });
+    fireEvent.change(screen.getByLabelText("Kod farby"), { target: { value: "P-7016" } });
+    fireEvent.change(screen.getByLabelText("Ilość farby [kg]"), { target: { value: "18.5" } });
     fireEvent.change(screen.getByLabelText("Data przyjęcia"), { target: { value: "2026-05-30" } });
     fireEvent.change(screen.getByLabelText("Ilość całkowita"), { target: { value: "10" } });
     const categoryInputs = screen.getAllByPlaceholderText("Podaj ilość");
@@ -583,6 +600,51 @@ describe("frontend state consistency", () => {
     expect(screen.getByText("Nie rozpoczęte")).toBeTruthy();
     expect(screen.getByText("Status automatu")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Rozpocznij" })).toBeNull();
+    expect(screen.getByText("Zużycie farby wpiszesz po rozpoczęciu zawieszania.")).toBeTruthy();
+  });
+
+  it("records paint consumption from the automatic production panel before hanging is finished", async () => {
+    fetchStageWorkOrdersMock
+      .mockResolvedValueOnce([
+        buildStageWorkOrder({
+          id: 15,
+          order_number: "WO-AUTO-PAINT",
+          production_type: { value: "AUTOMATIC", label: "Automatyczna" },
+          stage_status: { stage: "HANGING", status: { value: "IN_PROGRESS", label: "W toku" } },
+          paint_code: "P-7016-MAT",
+          planned_paint_quantity_kg: 18.5,
+          consumed_paint_quantity_kg: 0,
+          remaining_paint_quantity_kg: 18.5,
+        }),
+      ])
+      .mockResolvedValueOnce([
+        buildStageWorkOrder({
+          id: 15,
+          order_number: "WO-AUTO-PAINT",
+          production_type: { value: "AUTOMATIC", label: "Automatyczna" },
+          stage_status: { stage: "HANGING", status: { value: "IN_PROGRESS", label: "W toku" } },
+          paint_code: "P-7016-MAT",
+          planned_paint_quantity_kg: 18.5,
+          consumed_paint_quantity_kg: 12.5,
+          remaining_paint_quantity_kg: 6,
+        }),
+      ]);
+    recordAutomaticPaintConsumptionMock.mockResolvedValue({} as never);
+
+    render(<AutomaticProductionPage />);
+
+    await screen.findByText("WO-AUTO-PAINT :: Klient");
+    fireEvent.click(screen.getByRole("button", { name: "25 kg" }));
+    fireEvent.click(screen.getByRole("button", { name: "Dodaj karton" }));
+    fireEvent.change(screen.getByLabelText("Pozostało w ostatnim kartonie [kg]"), { target: { value: "12.5" } });
+    expect(screen.getByText("Zużycie do zapisu: 12.5 kg")).toBeTruthy();
+    expect(screen.getByText("Pozostało po zapisie: 6 kg")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Zapisz zużycie farby" }));
+
+    await waitFor(() => {
+      expect(recordAutomaticPaintConsumptionMock).toHaveBeenCalledWith(15, { consumed_paint_quantity_kg: 12.5 });
+    });
+    await screen.findByText("Pozostało: 6 kg");
   });
 
   it("shows automatic active hanging in packing without packing actions", async () => {

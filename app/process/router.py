@@ -7,7 +7,12 @@ from app.audit.context import StationContext, get_station_context
 from app.database.session import get_db_session
 from app.process.enums import ProcessStage, ProductionType
 from app.process.repository import ProcessRepository
-from app.process.schemas import PackingCompleteRequest, ProcessStageWorkOrderRead, StageTransitionRequest
+from app.process.schemas import (
+    AutomaticPaintConsumptionRequest,
+    PackingCompleteRequest,
+    ProcessStageWorkOrderRead,
+    StageTransitionRequest,
+)
 from app.process.service import ProcessService
 from app.shared.enums import QueueNamespace
 
@@ -134,6 +139,20 @@ def complete_packing(
         correction_accessories_quantity=payload.correction_accessories_quantity,
         correction_reason_category=payload.correction_reason_category,
         correction_reason_note=payload.correction_reason_note,
+        station_context=station_context,
+    )
+
+
+@router.post("/work-orders/{work_order_id}/automatic-production/paint-consumption", response_model=ProcessStageWorkOrderRead)
+def record_automatic_paint_consumption(
+    work_order_id: int,
+    payload: AutomaticPaintConsumptionRequest,
+    service: Annotated[ProcessService, Depends(get_process_service)],
+    station_context: Annotated[StationContext, Depends(get_station_context)],
+) -> ProcessStageWorkOrderRead:
+    return service.record_automatic_paint_consumption(
+        work_order_id,
+        consumed_paint_quantity_kg=payload.consumed_paint_quantity_kg,
         station_context=station_context,
     )
 

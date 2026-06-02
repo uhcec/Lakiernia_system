@@ -334,27 +334,23 @@ Open implementation design:
 
 ## Paint Inventory And Consumption
 
-Paint stock management is a required future workflow area, but it needs a dedicated data model before implementation.
+The first implemented paint slice uses per-work-order paint allocation instead of a separate warehouse ledger.
 
 Confirmed non-conflicting needs:
 - paint stock unit is kilograms
-- stock balance is tracked as an aggregate for a given paint producer and RAL/color, not as separate stock buckets per paint batch
-- paint intake records should capture producer, RAL/color, amount in kg, supplier, and likely batch/lot as receipt metadata; they should not require price, notes, or a manually entered date
-- the system must detect and report insufficient paint for a work order
-- estimated required paint is derived from order surface area: below 70 m2 use `area_m2 / 4`, above 70 m2 use `area_m2 / 6`
-- the factory answer says paint should be taken from stock after the work order is entered, based on the order requirement
+- office intake stores `paint_producer`, `paint_code`, `ral_code`, and `planned_paint_quantity_kg` on the work order
 - automatic production records actual paint consumption manually; manual production is not currently confirmed to record paint consumption
-- automatic correction work should record paint consumption like other automatic work
+- automatic production enters paint usage in carton workflow terms: the operator chooses carton size (`20 kg` or `25 kg`), adds how many cartons were taken, and enters how much remained in the final carton
+- the carton workflow is converted into net consumed paint for the work order as `taken cartons * carton size - remaining paint in the final carton`
+- while the operator is filling that carton workflow, the panel should preview the remaining paint assigned to the work order after subtracting taken cartons and adding back the final-carton remainder
+- automatic production may start entering paint consumption once `HANGING` has started; it does not need to wait for `HANGING` to finish
 - packing completion for automatic work should be blocked until required paint consumption has been entered, so departments remind each other to complete the required production data
-- production paint consumption should reduce paint stock through an audited system action
+- recorded consumption reduces the remaining paint quantity assigned to that work order through an audited system action
 - automatic production is allowed to enter paint used/consumed; it is no longer a display-only panel
 
 Open implementation design:
-- define paint inventory entities, stock movement rules, audit events, and correction/undo behavior before code changes
-- clarify whether the order-entry stock action is a hard deduction or a reservation, and how it reconciles with later actual automatic-production consumption entry
-- clarify whether insufficient paint blocks order creation/planning/consumption, or only warns before a controlled override
-- clarify how exactly 70 m2 is classified in the paint requirement formula
-- clarify whether entered batch/lot is only receipt metadata or should become searchable/reportable despite aggregate stock balances
+- shared stock receipts, supplier and batch metadata, and manual stock corrections remain future work
+- automatic correction-order paint allocation remains future work; the current packing hard-block applies to standard automatic work orders only
 - keep the automatic `PRODUCTION` stage transition model separate from paint consumption: automatic production should not gain manual production start/finish unless separately decided
 
 ## Process Action Safety

@@ -406,11 +406,10 @@ Confirmed direction from 2026-05-30:
 
 Implementation decision needed:
 
-- Design paint inventory entities, stock movements, audit events, and correction/undo behavior before implementation.
-- Define station permissions for paint-stock entry and paint-consumption entry.
-- Clarify whether the order-entry stock action is a hard deduction or a reservation, and how it reconciles with later actual automatic-production consumption entry.
-- Clarify whether insufficient paint is a blocking error or a warning requiring override.
-- Clarify how exactly 70 m2 is handled by the formula.
+- First implementation slice confirmed on 2026-06-02: office stores producer, paint code, RAL code, and planned paint quantity in kg directly on the work order; automatic production records actual consumed kg against that work-order allocation; no manual stock corrections are included.
+- Define whether a later inventory module should replace or extend this per-work-order allocation model.
+- Clarify whether insufficient paint should be a blocking error or a warning if a shared stock module is added later.
+- Clarify how exactly 70 m2 is handled by the formula if automatic estimation is added.
 - Clarify whether batch/lot is only receipt metadata or searchable/reportable data despite aggregate stock balance.
 
 ### 12. External Work-Order Number

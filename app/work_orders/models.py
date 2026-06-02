@@ -50,6 +50,19 @@ class WorkOrder(Base):
         CheckConstraint("total_quantity > 0", name="total_quantity_positive"),
         CheckConstraint("completed_quantity >= 0", name="completed_quantity_non_negative"),
         CheckConstraint("completed_quantity <= total_quantity", name="completed_quantity_lte_total_quantity"),
+        CheckConstraint(
+            "planned_paint_quantity_kg IS NULL OR planned_paint_quantity_kg > 0",
+            name="planned_paint_quantity_positive_if_present",
+        ),
+        CheckConstraint("consumed_paint_quantity_kg >= 0", name="consumed_paint_quantity_non_negative"),
+        CheckConstraint(
+            "planned_paint_quantity_kg IS NOT NULL OR consumed_paint_quantity_kg = 0",
+            name="paint_consumption_requires_planned_quantity",
+        ),
+        CheckConstraint(
+            "planned_paint_quantity_kg IS NULL OR consumed_paint_quantity_kg <= planned_paint_quantity_kg",
+            name="consumed_paint_quantity_lte_planned_if_known",
+        ),
         CheckConstraint("queue_position IS NULL OR queue_position >= 1", name="queue_position_positive_if_present"),
         CheckConstraint(
             "(production_type IS NULL AND queue_position IS NULL) OR (production_type IS NOT NULL AND queue_position IS NOT NULL)",
@@ -99,7 +112,10 @@ class WorkOrder(Base):
     description: Mapped[str | None] = mapped_column(Text(), nullable=True)
     customer_name: Mapped[str] = mapped_column(String(255), nullable=False)
     ral_code: Mapped[str] = mapped_column(String(64), nullable=False)
+    paint_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
     paint_producer: Mapped[str] = mapped_column(String(255), nullable=False)
+    planned_paint_quantity_kg: Mapped[float | None] = mapped_column(Float(), nullable=True)
+    consumed_paint_quantity_kg: Mapped[float] = mapped_column(Float(), nullable=False, default=0)
     status: Mapped[WorkOrderStatus] = mapped_column(work_order_status_enum, default=WorkOrderStatus.ENTERED, nullable=False)
     coating_type: Mapped[CoatingType] = mapped_column(coating_type_enum, default=CoatingType.RAL, nullable=False)
     work_order_kind: Mapped[WorkOrderKind] = mapped_column(
@@ -178,6 +194,12 @@ class WorkOrder(Base):
     @property
     def current_active_quantity(self) -> int:
         return sum(batch.quantity for batch in self.active_batches)
+
+    @property
+    def remaining_paint_quantity_kg(self) -> float | None:
+        if self.planned_paint_quantity_kg is None:
+            return None
+        return max(self.planned_paint_quantity_kg - self.consumed_paint_quantity_kg, 0)
 
 
 class WorkOrderNumberCounter(Base):

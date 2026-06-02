@@ -66,6 +66,10 @@ interface CompletePackingPayload {
   correction_reason_note?: string;
 }
 
+interface AutomaticPaintConsumptionPayload {
+  consumed_paint_quantity_kg: number;
+}
+
 export async function transitionStage(
   workOrderId: number,
   stage: ProcessStageValue,
@@ -115,6 +119,27 @@ export async function completePacking(
 
   if (!response.ok) {
     throw await createApiError(response, "Nie udało się zakończyć pakowania");
+  }
+
+  return response.json() as Promise<StageWorkOrder>;
+}
+
+export async function recordAutomaticPaintConsumption(
+  workOrderId: number,
+  payload: AutomaticPaintConsumptionPayload,
+): Promise<StageWorkOrder> {
+  const response = await fetch(createApiUrl(`/process/work-orders/${workOrderId}/automatic-production/paint-consumption`), {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+      ...getCurrentStationHeaders(),
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    throw await createApiError(response, "Nie udało się zapisać zużycia farby");
   }
 
   return response.json() as Promise<StageWorkOrder>;
