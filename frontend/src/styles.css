@@ -3,19 +3,37 @@
 @tailwind utilities;
 
 :root {
-  color: #15202b;
+  color: #1e214f;
   background:
-    radial-gradient(circle at top left, rgba(15, 118, 110, 0.12), transparent 35%),
-    linear-gradient(180deg, #f8fbfc 0%, #edf3f7 100%);
-  font-family: "Segoe UI", "Helvetica Neue", sans-serif;
+    radial-gradient(circle at 0% 0%, rgba(255, 156, 66, 0.18), transparent 24%),
+    radial-gradient(circle at 100% 0%, rgba(61, 33, 122, 0.12), transparent 28%),
+    linear-gradient(180deg, #f7f5ff 0%, #f4f7fb 42%, #f6f2eb 100%);
+  font-family: "Aptos", "Segoe UI Variable", "Segoe UI", sans-serif;
 }
 
 body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
+  color: #1e214f;
+  background:
+    radial-gradient(circle at 0% 0%, rgba(255, 156, 66, 0.18), transparent 24%),
+    radial-gradient(circle at 100% 0%, rgba(61, 33, 122, 0.12), transparent 28%),
+    linear-gradient(180deg, #f7f5ff 0%, #f4f7fb 42%, #f6f2eb 100%);
 }
 
 #root {
   min-height: 100vh;
+}
+
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.32) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.32) 1px, transparent 1px);
+  background-size: 42px 42px;
+  mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.35), transparent 80%);
 }
