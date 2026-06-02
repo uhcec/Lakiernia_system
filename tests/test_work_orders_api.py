@@ -11,7 +11,6 @@ def build_create_payload(**overrides: object) -> dict:
         "ral_code": "RAL 7016",
         "paint_code": "P-7016",
         "paint_producer": "AkzoNobel",
-        "planned_paint_quantity_kg": 18.5,
         "received_date": "2026-05-25",
         "profiles_to_count": True,
         "accessories_to_count": True,
@@ -24,7 +23,68 @@ def build_create_payload(**overrides: object) -> dict:
     return payload
 
 
+def ensure_paint_stock(
+    test_client: TestClient,
+    *,
+    ral_code: str = "RAL 7016",
+    paint_producer: str = "AkzoNobel",
+    paint_code: str = "P-7016",
+    target_quantity_kg: float,
+) -> None:
+    lookup_response = test_client.get(
+        "/paints/lookup",
+        params={
+            "ral_code": ral_code,
+            "paint_producer": paint_producer,
+            "paint_code": paint_code,
+        },
+    )
+    assert lookup_response.status_code == 200
+    current_quantity = lookup_response.json()["current_quantity_kg"]
+    quantity_delta = round(target_quantity_kg - current_quantity, 2)
+
+    if quantity_delta == 0:
+        return
+
+    if quantity_delta > 0:
+        response = test_client.post(
+            "/paints/deliveries",
+            json={
+                "ral_code": ral_code,
+                "paint_producer": paint_producer,
+                "paint_code": paint_code,
+                "quantity_kg": quantity_delta,
+                "movement_date": "2026-05-25",
+            },
+            headers={"X-Station-Id": "OFFICE"},
+        )
+        assert response.status_code == 201
+        return
+
+    response = test_client.post(
+        "/paints/adjustments",
+        json={
+            "ral_code": ral_code,
+            "paint_producer": paint_producer,
+            "paint_code": paint_code,
+            "quantity_delta_kg": quantity_delta,
+            "movement_date": "2026-05-25",
+            "note": "Test stock normalization",
+        },
+        headers={"X-Station-Id": "OFFICE"},
+    )
+    assert response.status_code == 201
+
+
 def create_work_order(test_client: TestClient, **overrides: object):
+    snapshot_quantity = float(overrides.pop("paint_stock_snapshot_quantity_kg", 30.0))
+    ensure_paint_stock(
+        test_client,
+        ral_code=str(overrides.get("ral_code", "RAL 7016")),
+        paint_producer=str(overrides.get("paint_producer", "AkzoNobel")),
+        paint_code=str(overrides.get("paint_code", "P-7016")),
+        target_quantity_kg=snapshot_quantity,
+    )
     return test_client.post("/work-orders", json=build_create_payload(**overrides))
 
 
@@ -106,7 +166,7 @@ def test_create_work_order(test_client: TestClient) -> None:
         ral_code="RAL 9005",
         paint_code="P-9005-MAT",
         paint_producer="Tiger",
-        planned_paint_quantity_kg=26.75,
+        paint_stock_snapshot_quantity_kg=40.0,
         received_date="2026-05-20",
         planned_pickup_date="2026-06-15",
         total_area_m2=42.5,
@@ -133,9 +193,12 @@ def test_create_work_order(test_client: TestClient) -> None:
     assert body["ral_code"] == "RAL 9005"
     assert body["paint_code"] == "P-9005-MAT"
     assert body["paint_producer"] == "Tiger"
-    assert body["planned_paint_quantity_kg"] == 26.75
+    assert body["paint_stock_snapshot_quantity_kg"] == 40.0
     assert body["consumed_paint_quantity_kg"] == 0
-    assert body["remaining_paint_quantity_kg"] == 26.75
+    assert "planned_paint_quantity_kg" not in body
+    assert "has_paint_shortage" not in body
+    assert "paint_shortage_quantity_kg" not in body
+    assert "remaining_paint_quantity_kg" not in body
     assert body["coating_type"] == {"value": "RAL", "label": "RAL"}
     assert body["received_date"] == "2026-05-20"
     assert body["planned_pickup_date"] == "2026-06-15"
@@ -153,17 +216,41 @@ def test_create_work_order(test_client: TestClient) -> None:
 
 def test_update_work_order_can_change_paint_configuration(test_client: TestClient) -> None:
     created = create_work_order(test_client, title="Paint config update").json()
+    ensure_paint_stock(
+        test_client,
+        ral_code="RAL 7016",
+        paint_producer="AkzoNobel",
+        paint_code="P-NEW-7016",
+        target_quantity_kg=30.0,
+    )
 
     response = test_client.patch(
         f"/work-orders/{created['id']}",
-        json={"paint_code": "P-NEW-7016", "planned_paint_quantity_kg": 24.0},
+        json={
+            "paint_code": "P-NEW-7016",
+        },
         headers={"X-Station-Id": "OFFICE"},
     )
 
     assert response.status_code == 200
     assert response.json()["paint_code"] == "P-NEW-7016"
-    assert response.json()["planned_paint_quantity_kg"] == 24.0
-    assert response.json()["remaining_paint_quantity_kg"] == 24.0
+    assert response.json()["paint_stock_snapshot_quantity_kg"] == 30.0
+    assert "planned_paint_quantity_kg" not in response.json()
+
+
+def test_create_work_order_keeps_only_paint_snapshot_and_consumption_fields(test_client: TestClient) -> None:
+    response = create_work_order(
+        test_client,
+        title="Paint snapshot only",
+        paint_stock_snapshot_quantity_kg=9.5,
+    )
+
+    assert response.status_code == 201
+    assert response.json()["paint_stock_snapshot_quantity_kg"] == 9.5
+    assert response.json()["consumed_paint_quantity_kg"] == 0
+    assert "has_paint_shortage" not in response.json()
+    assert "paint_shortage_quantity_kg" not in response.json()
+    assert "remaining_paint_quantity_kg" not in response.json()
 
 
 def test_create_work_order_rejects_invalid_station_header(test_client: TestClient) -> None:

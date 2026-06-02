@@ -10,6 +10,8 @@ from app.audit.context import StationContext, ensure_station_allowed
 from app.audit.models import AuditEvent
 from app.audit.repository import AuditRepository
 from app.core.config import get_settings, get_work_order_attachments_path
+from app.paints.repository import PaintRepository
+from app.paints.service import PaintService
 from app.process.enums import ProcessDisplayStatus
 from app.process.repository import ProcessRepository
 from app.process.service import ProcessService
@@ -50,6 +52,7 @@ class WorkOrderService:
     def __init__(self, repository: WorkOrderRepository) -> None:
         self.repository = repository
         self.process_service = ProcessService(ProcessRepository(repository.session))
+        self.paint_service = PaintService(PaintRepository(repository.session))
         self.number_allocator = WorkOrderNumberAllocator(repository.session)
         self.audit_repository = AuditRepository(repository.session)
 
@@ -79,8 +82,14 @@ class WorkOrderService:
         self._ensure_office_station_action(station_context, "office work-order actions")
         initial_status = WorkOrderStatus.INCOMPLETE if payload.is_incomplete_on_arrival else WorkOrderStatus.ENTERED
         order_number = self.number_allocator.allocate()
+        paint, paint_stock_snapshot_quantity_kg = self.paint_service.capture_work_order_snapshot(
+            ral_code=payload.ral_code,
+            paint_producer=payload.paint_producer,
+            paint_code=payload.paint_code,
+        )
 
         work_order = WorkOrder(
+            paint_id=paint.id,
             order_number=order_number,
             external_order_number=payload.external_order_number,
             title=payload.title or order_number,
@@ -90,7 +99,7 @@ class WorkOrderService:
             ral_code=payload.ral_code,
             paint_code=payload.paint_code,
             paint_producer=payload.paint_producer,
-            planned_paint_quantity_kg=payload.planned_paint_quantity_kg,
+            paint_stock_snapshot_quantity_kg=paint_stock_snapshot_quantity_kg,
             consumed_paint_quantity_kg=0,
             status=initial_status,
             coating_type=payload.coating_type,
@@ -133,6 +142,15 @@ class WorkOrderService:
         work_order = self._get_existing_work_order(work_order_id)
         updates = payload.model_dump(exclude_unset=True)
         validated_payload = self._validate_work_order_state(work_order, updates)
+        paint_identity_changed = any(field_name in updates for field_name in {"ral_code", "paint_code", "paint_producer"})
+        resolved_paint = None
+        resolved_snapshot = None
+        if paint_identity_changed:
+            resolved_paint, resolved_snapshot = self.paint_service.capture_work_order_snapshot(
+                ral_code=validated_payload.ral_code,
+                paint_producer=validated_payload.paint_producer,
+                paint_code=validated_payload.paint_code,
+            )
         changed_fields = {
             field_name: {
                 "before": getattr(work_order, field_name),
@@ -144,6 +162,17 @@ class WorkOrderService:
 
         for field_name in updates:
             setattr(work_order, field_name, getattr(validated_payload, field_name))
+
+        if resolved_paint is not None and resolved_snapshot is not None:
+            if work_order.paint_id != resolved_paint.id:
+                changed_fields["paint_id"] = {"before": work_order.paint_id, "after": resolved_paint.id}
+            if work_order.paint_stock_snapshot_quantity_kg != resolved_snapshot:
+                changed_fields["paint_stock_snapshot_quantity_kg"] = {
+                    "before": work_order.paint_stock_snapshot_quantity_kg,
+                    "after": resolved_snapshot,
+                }
+            work_order.paint_id = resolved_paint.id
+            work_order.paint_stock_snapshot_quantity_kg = resolved_snapshot
 
         work_order.updated_at = datetime.now(UTC)
         if changed_fields:
@@ -178,7 +207,6 @@ class WorkOrderService:
             "ral_code": work_order.ral_code,
             "paint_code": work_order.paint_code,
             "paint_producer": work_order.paint_producer,
-            "planned_paint_quantity_kg": work_order.planned_paint_quantity_kg,
             "coating_type": work_order.coating_type,
             "work_order_kind": work_order.work_order_kind,
             "is_ocynk": work_order.is_ocynk,
@@ -620,9 +648,8 @@ class WorkOrderService:
             ral_code=work_order.ral_code,
             paint_code=work_order.paint_code,
             paint_producer=work_order.paint_producer,
-            planned_paint_quantity_kg=work_order.planned_paint_quantity_kg,
+            paint_stock_snapshot_quantity_kg=work_order.paint_stock_snapshot_quantity_kg,
             consumed_paint_quantity_kg=work_order.consumed_paint_quantity_kg,
-            remaining_paint_quantity_kg=work_order.remaining_paint_quantity_kg,
             status=self.build_status_view(process_status),
             process_status=build_process_status_view(process_status),
             coating_type=build_coating_type_view(work_order.coating_type),

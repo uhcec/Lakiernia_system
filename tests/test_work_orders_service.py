@@ -24,7 +24,6 @@ def build_incomplete_work_order_payload(**overrides: object) -> WorkOrderCreate:
         "ral_code": "RAL 7016",
         "paint_code": "P-7016",
         "paint_producer": "AkzoNobel",
-        "planned_paint_quantity_kg": 18.5,
         "received_date": date(2026, 5, 25),
         "is_incomplete_on_arrival": True,
         "profiles_to_count": True,

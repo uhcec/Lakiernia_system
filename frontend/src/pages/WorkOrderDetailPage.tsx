@@ -75,6 +75,10 @@ function formatCountOrFlag(quantity: number | null, toCount: boolean): string {
   return quantity === null ? "-" : String(quantity);
 }
 
+function formatPaintKg(value: number | null | undefined): string {
+  return typeof value === "number" ? `${value} kg` : "-";
+}
+
 function formatFileSize(fileSize: number): string {
   if (fileSize < 1024) {
     return `${fileSize} B`;
@@ -505,6 +509,29 @@ export function WorkOrderDetailPage() {
                 <div>
                   <dt className="text-sm font-medium text-steel">Producent farby</dt>
                   <dd className="mt-1 text-base text-ink">{workOrder.paint_producer}</dd>
+                </div>
+                <div className="md:col-span-2">
+                  <dt className="text-sm font-medium text-steel">Farba</dt>
+                  <dd className="mt-2 rounded-3xl border border-line/80 bg-white px-5 py-4 text-base text-ink">
+                    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                      <div className="rounded-2xl border border-line/70 bg-mist/35 px-4 py-3 min-w-0">
+                        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-steel">Kod farby</p>
+                        <p className="mt-2 break-words font-semibold text-ink">{workOrder.paint_code ?? "-"}</p>
+                      </div>
+                      <div className="rounded-2xl border border-line/70 bg-mist/35 px-4 py-3 min-w-0">
+                        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-steel">Stan przy przyjęciu</p>
+                        <p className="mt-2 font-semibold text-ink">{formatPaintKg(workOrder.paint_stock_snapshot_quantity_kg)}</p>
+                      </div>
+                      <div className="rounded-2xl border border-line/70 bg-mist/35 px-4 py-3 min-w-0">
+                        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-steel">Zużyto</p>
+                        <p className="mt-2 font-semibold text-ink">{formatPaintKg(workOrder.consumed_paint_quantity_kg)}</p>
+                      </div>
+                    </div>
+                    <p className="mt-4 text-sm text-steel">
+                      Stan przy przyjęciu to historyczny snapshot zapisany automatycznie z magazynu podczas tworzenia lub
+                      zmiany konfiguracji farby na zleceniu. System nie pokazuje tutaj bieżącego globalnego stanu magazynu.
+                    </p>
+                  </dd>
                 </div>
                 <div>
                   <dt className="text-sm font-medium text-steel">Ilość całkowita</dt>

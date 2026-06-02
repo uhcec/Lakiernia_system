@@ -15,11 +15,63 @@ def build_create_payload(
         "ral_code": "RAL 7016",
         "paint_code": "P-7016",
         "paint_producer": "AkzoNobel",
-        "planned_paint_quantity_kg": 18.5,
         "received_date": "2026-05-25",
         "profiles_to_count": True,
         "accessories_to_count": True,
     }
+
+
+def ensure_paint_stock(
+    test_client: TestClient,
+    *,
+    ral_code: str = "RAL 7016",
+    paint_producer: str = "AkzoNobel",
+    paint_code: str = "P-7016",
+    target_quantity_kg: float = 30.0,
+) -> None:
+    lookup_response = test_client.get(
+        "/paints/lookup",
+        params={
+            "ral_code": ral_code,
+            "paint_producer": paint_producer,
+            "paint_code": paint_code,
+        },
+    )
+    assert lookup_response.status_code == 200
+    current_quantity = lookup_response.json()["current_quantity_kg"]
+    quantity_delta = round(target_quantity_kg - current_quantity, 2)
+
+    if quantity_delta == 0:
+        return
+
+    if quantity_delta > 0:
+        response = test_client.post(
+            "/paints/deliveries",
+            json={
+                "ral_code": ral_code,
+                "paint_producer": paint_producer,
+                "paint_code": paint_code,
+                "quantity_kg": quantity_delta,
+                "movement_date": "2026-05-25",
+            },
+            headers={"X-Station-Id": "OFFICE"},
+        )
+        assert response.status_code == 201
+        return
+
+    response = test_client.post(
+        "/paints/adjustments",
+        json={
+            "ral_code": ral_code,
+            "paint_producer": paint_producer,
+            "paint_code": paint_code,
+            "quantity_delta_kg": quantity_delta,
+            "movement_date": "2026-05-25",
+            "note": "Test stock normalization",
+        },
+        headers={"X-Station-Id": "OFFICE"},
+    )
+    assert response.status_code == 201
 
 
 def start_surface_preparation(
@@ -91,6 +143,19 @@ def complete_packing_request(
     )
 
 
+def record_automatic_paint_consumption_request(
+    test_client: TestClient,
+    work_order_id: int,
+    *,
+    consumed_paint_quantity_kg: float = 12.5,
+):
+    return test_client.post(
+        f"/process/work-orders/{work_order_id}/automatic-production/paint-consumption",
+        json={"consumed_paint_quantity_kg": consumed_paint_quantity_kg},
+        headers={"X-Station-Id": "AUTOMATIC_PRODUCTION"},
+    )
+
+
 def advance_to_hanging(test_client: TestClient, work_order_id: int) -> None:
     detail = test_client.get(f"/work-orders/{work_order_id}").json()
     if detail["is_correction"]:
@@ -138,6 +203,7 @@ def create_planned_work_order(
     coating_type: str = "RAL",
     total_quantity: int = 100,
 ) -> dict:
+    ensure_paint_stock(test_client)
     created = test_client.post(
         "/work-orders",
         json=build_create_payload(title=title, coating_type=coating_type, total_quantity=total_quantity),
@@ -307,7 +373,6 @@ def test_automatic_packing_can_complete_after_hanging_finish(test_client: TestCl
 
     assert paint_response.status_code == 200
     assert paint_response.json()["consumed_paint_quantity_kg"] == 12.5
-    assert paint_response.json()["remaining_paint_quantity_kg"] == 6.0
     assert response.status_code == 200
     assert response.json()["stage_status"] == {
         "stage": "PACKING",
@@ -361,12 +426,14 @@ def test_automatic_production_can_record_paint_consumption_after_hanging_start(t
         "status": {"value": "IN_PROGRESS", "label": "W trakcie"},
     }
     assert response.json()["paint_code"] == "P-7016"
-    assert response.json()["planned_paint_quantity_kg"] == 18.5
+    assert response.json()["paint_stock_snapshot_quantity_kg"] == 30.0
     assert response.json()["consumed_paint_quantity_kg"] == 11.25
-    assert response.json()["remaining_paint_quantity_kg"] == 7.25
+    assert "planned_paint_quantity_kg" not in response.json()
+    assert "has_paint_shortage" not in response.json()
+    assert "remaining_paint_quantity_kg" not in response.json()
 
 
-def test_automatic_production_rejects_paint_consumption_above_planned_quantity(test_client: TestClient) -> None:
+def test_automatic_production_allows_consumption_above_planned_quantity(test_client: TestClient) -> None:
     automatic = create_planned_work_order(test_client, title="Automatic paint overflow", queue_position=1, production_type="AUTOMATIC")
     advance_to_hanging(test_client, automatic["id"])
 
@@ -379,8 +446,91 @@ def test_automatic_production_rejects_paint_consumption_above_planned_quantity(t
         headers={"X-Station-Id": "AUTOMATIC_PRODUCTION"},
     )
 
-    assert response.status_code == 409
-    assert response.json()["detail"] == "Consumed paint quantity cannot exceed the planned paint quantity assigned to the work order."
+    assert response.status_code == 200
+    assert response.json()["consumed_paint_quantity_kg"] == 20
+
+
+def test_automatic_correction_requires_and_records_paint_consumption(test_client: TestClient) -> None:
+    automatic = create_planned_work_order(test_client, title="Automatic correction paint", queue_position=1, production_type="AUTOMATIC")
+    advance_to_hanging(test_client, automatic["id"])
+
+    test_client.post(f"/process/work-orders/{automatic['id']}/stages/HANGING/start")
+    test_client.post(f"/process/work-orders/{automatic['id']}/stages/HANGING/finish")
+    test_client.post(
+        f"/process/work-orders/{automatic['id']}/automatic-production/paint-consumption",
+        json={"consumed_paint_quantity_kg": 12.5},
+        headers={"X-Station-Id": "AUTOMATIC_PRODUCTION"},
+    )
+
+    split_response = complete_packing_request(
+        test_client,
+        automatic["id"],
+        counted_quantity=100,
+        ok_quantity=95,
+        correction_quantity=5,
+    )
+    assert split_response.status_code == 200
+
+    correction_order = next(
+        item
+        for item in test_client.get("/manager/work-orders/unplanned").json()
+        if item["parent_order"]["id"] == automatic["id"]
+    )
+    test_client.post(
+        f"/manager/work-orders/{correction_order['id']}/plan",
+        json={"production_type": "AUTOMATIC", "queue_position": 2},
+    )
+    advance_to_packing(test_client, correction_order["id"])
+
+    blocked_response = complete_packing_request(
+        test_client,
+        correction_order["id"],
+        counted_quantity=5,
+        ok_quantity=5,
+        correction_quantity=0,
+    )
+
+    assert blocked_response.status_code == 409
+    assert blocked_response.json()["detail"] == "Automatic paint consumption must be recorded before packing can be completed."
+
+    paint_response = test_client.post(
+        f"/process/work-orders/{correction_order['id']}/automatic-production/paint-consumption",
+        json={"consumed_paint_quantity_kg": 1.25},
+        headers={"X-Station-Id": "AUTOMATIC_PRODUCTION"},
+    )
+    finish_response = complete_packing_request(
+        test_client,
+        correction_order["id"],
+        counted_quantity=5,
+        ok_quantity=5,
+        correction_quantity=0,
+    )
+
+    assert paint_response.status_code == 200
+    assert paint_response.json()["paint_stock_snapshot_quantity_kg"] == 17.5
+    assert paint_response.json()["consumed_paint_quantity_kg"] == 1.25
+    assert finish_response.status_code == 200
+
+
+def test_automatic_production_rejects_editing_paint_consumption_after_first_save(test_client: TestClient) -> None:
+    automatic = create_planned_work_order(test_client, title="Automatic paint immutable", queue_position=1, production_type="AUTOMATIC")
+    advance_to_hanging(test_client, automatic["id"])
+    test_client.post(f"/process/work-orders/{automatic['id']}/stages/HANGING/start")
+
+    first_response = test_client.post(
+        f"/process/work-orders/{automatic['id']}/automatic-production/paint-consumption",
+        json={"consumed_paint_quantity_kg": 11.25},
+        headers={"X-Station-Id": "AUTOMATIC_PRODUCTION"},
+    )
+    second_response = test_client.post(
+        f"/process/work-orders/{automatic['id']}/automatic-production/paint-consumption",
+        json={"consumed_paint_quantity_kg": 12.0},
+        headers={"X-Station-Id": "AUTOMATIC_PRODUCTION"},
+    )
+
+    assert first_response.status_code == 200
+    assert second_response.status_code == 409
+    assert second_response.json()["detail"] == "Automatic paint consumption cannot be edited after it has been saved. Use a manual office stock adjustment if a correction is required."
 
 
 def test_automatic_production_preview_rejects_actions_after_hanging_start(test_client: TestClient) -> None:
@@ -609,6 +759,7 @@ def test_automatic_line_is_released_after_first_job_finishes(test_client: TestCl
     first_hanging_finish_response = test_client.post(f"/process/work-orders/{first['id']}/stages/HANGING/finish")
     second_start_response = test_client.post(f"/process/work-orders/{second['id']}/stages/HANGING/start")
     blocked_second_finish_response = test_client.post(f"/process/work-orders/{second['id']}/stages/HANGING/finish")
+    record_automatic_paint_consumption_request(test_client, first["id"])
     finish_first_response = complete_packing_request(
         test_client,
         first["id"],
@@ -885,6 +1036,7 @@ def test_packing_finish_endpoint_still_acts_as_full_ok_completion(test_client: T
 def test_automatic_full_ok_can_finish_from_packing(test_client: TestClient) -> None:
     created = create_planned_work_order(test_client, title="Automatic full OK", queue_position=1, production_type="AUTOMATIC")
     advance_to_packing(test_client, created["id"])
+    record_automatic_paint_consumption_request(test_client, created["id"])
 
     response = complete_packing_request(test_client, created["id"], counted_quantity=100, ok_quantity=100, correction_quantity=0)
     detail = test_client.get(f"/work-orders/{created['id']}")
@@ -904,6 +1056,7 @@ def test_manual_and_automatic_corrections_create_new_unplanned_orders(test_clien
     automatic = create_planned_work_order(test_client, title="Automatic correction", queue_position=2, production_type="AUTOMATIC")
     advance_to_packing(test_client, manual["id"])
     advance_to_packing(test_client, automatic["id"])
+    record_automatic_paint_consumption_request(test_client, automatic["id"])
 
     complete_packing_request(test_client, manual["id"], counted_quantity=100, ok_quantity=95, correction_quantity=5)
     complete_packing_request(test_client, automatic["id"], counted_quantity=100, ok_quantity=95, correction_quantity=5)
@@ -922,6 +1075,7 @@ def test_manual_and_automatic_corrections_create_new_unplanned_orders(test_clien
 def test_correction_order_can_be_planned_after_packing_split(test_client: TestClient) -> None:
     created = create_planned_work_order(test_client, title="Correction planning", queue_position=1, production_type="AUTOMATIC")
     advance_to_packing(test_client, created["id"])
+    record_automatic_paint_consumption_request(test_client, created["id"])
 
     split_response = complete_packing_request(test_client, created["id"], counted_quantity=100, ok_quantity=95, correction_quantity=5)
     assert split_response.status_code == 200
@@ -1013,6 +1167,7 @@ def test_decoral_automatic_mixed_split_waits_for_correction_child(test_client: T
         coating_type="DECORAL",
     )
     advance_to_packing(test_client, created["id"])
+    record_automatic_paint_consumption_request(test_client, created["id"])
 
     response = complete_packing_request(test_client, created["id"], counted_quantity=100, ok_quantity=70, correction_quantity=30)
     hanging_response = test_client.get("/process/stages/HANGING/work-orders")
@@ -1041,6 +1196,7 @@ def test_decoral_correction_child_plans_back_to_painting_flow_via_api(test_clien
         total_quantity=10,
     )
     advance_to_packing(test_client, created["id"])
+    record_automatic_paint_consumption_request(test_client, created["id"], consumed_paint_quantity_kg=2.5)
 
     split_response = complete_packing_request(
         test_client,
@@ -1203,6 +1359,7 @@ def test_automatic_correction_child_can_complete_and_merge_parent_via_api(test_c
         total_quantity=10,
     )
     advance_to_packing(test_client, created["id"])
+    record_automatic_paint_consumption_request(test_client, created["id"], consumed_paint_quantity_kg=2.5)
 
     split_response = complete_packing_request(
         test_client,
@@ -1225,6 +1382,7 @@ def test_automatic_correction_child_can_complete_and_merge_parent_via_api(test_c
     assert plan_response.status_code == 200
 
     advance_to_packing(test_client, correction_order["id"])
+    record_automatic_paint_consumption_request(test_client, correction_order["id"], consumed_paint_quantity_kg=1.0)
     child_complete = complete_packing_request(
         test_client,
         correction_order["id"],
@@ -1592,6 +1750,7 @@ def test_completed_hanging_stage_row_preserves_historical_non_zero_quantities(te
         total_quantity=11,
     )
     advance_to_packing(test_client, created["id"])
+    record_automatic_paint_consumption_request(test_client, created["id"], consumed_paint_quantity_kg=2.0)
     complete_packing_request(test_client, created["id"], counted_quantity=11, ok_quantity=11, correction_quantity=0)
 
     response = test_client.get("/process/stages/HANGING/work-orders")

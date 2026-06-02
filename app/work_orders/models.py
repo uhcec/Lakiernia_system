@@ -51,18 +51,10 @@ class WorkOrder(Base):
         CheckConstraint("completed_quantity >= 0", name="completed_quantity_non_negative"),
         CheckConstraint("completed_quantity <= total_quantity", name="completed_quantity_lte_total_quantity"),
         CheckConstraint(
-            "planned_paint_quantity_kg IS NULL OR planned_paint_quantity_kg > 0",
-            name="planned_paint_quantity_positive_if_present",
+            "paint_stock_snapshot_quantity_kg IS NULL OR paint_stock_snapshot_quantity_kg >= 0",
+            name="paint_stock_snapshot_quantity_positive_if_present",
         ),
         CheckConstraint("consumed_paint_quantity_kg >= 0", name="consumed_paint_quantity_non_negative"),
-        CheckConstraint(
-            "planned_paint_quantity_kg IS NOT NULL OR consumed_paint_quantity_kg = 0",
-            name="paint_consumption_requires_planned_quantity",
-        ),
-        CheckConstraint(
-            "planned_paint_quantity_kg IS NULL OR consumed_paint_quantity_kg <= planned_paint_quantity_kg",
-            name="consumed_paint_quantity_lte_planned_if_known",
-        ),
         CheckConstraint("queue_position IS NULL OR queue_position >= 1", name="queue_position_positive_if_present"),
         CheckConstraint(
             "(production_type IS NULL AND queue_position IS NULL) OR (production_type IS NOT NULL AND queue_position IS NOT NULL)",
@@ -99,6 +91,7 @@ class WorkOrder(Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    paint_id: Mapped[int | None] = mapped_column(ForeignKey("paints.id", ondelete="SET NULL"), nullable=True, index=True)
     order_number: Mapped[str] = mapped_column(String(32), unique=True, nullable=False)
     external_order_number: Mapped[str | None] = mapped_column(String(128), nullable=True)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -114,7 +107,7 @@ class WorkOrder(Base):
     ral_code: Mapped[str] = mapped_column(String(64), nullable=False)
     paint_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
     paint_producer: Mapped[str] = mapped_column(String(255), nullable=False)
-    planned_paint_quantity_kg: Mapped[float | None] = mapped_column(Float(), nullable=True)
+    paint_stock_snapshot_quantity_kg: Mapped[float | None] = mapped_column(Float(), nullable=True)
     consumed_paint_quantity_kg: Mapped[float] = mapped_column(Float(), nullable=False, default=0)
     status: Mapped[WorkOrderStatus] = mapped_column(work_order_status_enum, default=WorkOrderStatus.ENTERED, nullable=False)
     coating_type: Mapped[CoatingType] = mapped_column(coating_type_enum, default=CoatingType.RAL, nullable=False)
@@ -174,6 +167,7 @@ class WorkOrder(Base):
         passive_deletes=True,
         order_by="WorkOrderAttachment.uploaded_at.desc()",
     )
+    paint = relationship("Paint", back_populates="work_orders")
 
     @property
     def active_batches(self):
@@ -194,12 +188,6 @@ class WorkOrder(Base):
     @property
     def current_active_quantity(self) -> int:
         return sum(batch.quantity for batch in self.active_batches)
-
-    @property
-    def remaining_paint_quantity_kg(self) -> float | None:
-        if self.planned_paint_quantity_kg is None:
-            return None
-        return max(self.planned_paint_quantity_kg - self.consumed_paint_quantity_kg, 0)
 
 
 class WorkOrderNumberCounter(Base):

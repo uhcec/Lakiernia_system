@@ -1,78 +1,77 @@
 # Definicja Systemu Farby - Draft
 
-Status: `draft po odpowiedziach uzytkownika z 2026-06-02; przed implementacja potrzebne jedno doprecyzowanie semantyczne`
+Status: `zalozenia potwierdzone 2026-06-02; pierwszy slice to magazyn farb + snapshot historyczny na zleceniu`
 
 ## 1. Co juz wynika z ustalen
 
 Potwierdzone kierunki:
 
-- To, co biuro wpisuje przy tworzeniu zlecenia dla farby, ma oznaczac aktualny stan magazynowy tej farby.
-- Gdy farby jest za malo, system ma to wyswietlic, a nie blokowac sam zapis zlecenia.
-- Automatyczne poprawki maja dzialac tak samo jak zwykle zlecenia automatyczne w zakresie farby.
+- Magazyn farb w tej aplikacji jest zrodlem prawdy dla aktualnego stanu farb.
+- Biuro przy tworzeniu zlecenia wybiera farbe i widzi aktualny stan, ale samo utworzenie zlecenia nie robi rezerwacji.
+- Alert `za malo farby` nie wchodzi do pierwszego slice'u, bo nie ma jeszcze potwierdzonej reguly liczenia wymaganej ilosci dla zlecenia.
+- Automatyczne poprawki maja dzialac tak samo jak zwykle zlecenia automatyczne w zakresie zuzycia farby.
+- Tylko automat zapisuje zuzycie farby.
+- Stan magazynowy nie moze zejsc ponizej zera.
+- Historia zlecenia ma zostac historyczna i nie moze sie zmieniac po pozniejszej edycji kartoteki farby.
 - QC, WZ i auth nie wchodza teraz do tego zakresu.
 - Pakowanie traktujemy jako zasob wylaczny, ale ten temat nie zmienia definicji farby.
 
 ## 2. Co to oznacza dla modelu danych
 
-Obecny kod nie modeluje magazynu farby. Obecny slice zapisuje na zleceniu:
+Docelowy pierwszy slice modeluje dwa rozne byty:
+
+1. biezacy magazyn farb,
+2. historyczny snapshot farby zapisany na zleceniu.
+
+Na zleceniu pozostaja:
 
 - `paint_code`
 - `paint_producer`
-- `planned_paint_quantity_kg`
+- `ral_code`
+- `paint_stock_snapshot_quantity_kg`
 - `consumed_paint_quantity_kg`
 
-W aktualnej implementacji `planned_paint_quantity_kg` nie oznacza stanu magazynowego. Oznacza ilosc przypisana do konkretnego zlecenia i sluzy jednoczesnie jako:
+W aktualnej definicji znaczenia sa nastepujace:
 
-- dane widoczne w UI jako plan dla zlecenia,
-- limit backendowy: zuzycie nie moze przekroczyc `planned_paint_quantity_kg`,
-- podstawa do wyliczenia `remaining_paint_quantity_kg`.
-
-To jest sprzeczne z nowym kierunkiem, w ktorym wartosc wpisana przez biuro ma oznaczac aktualny stan magazynowy, a nie alokacje dla pojedynczego zlecenia.
-
-Wniosek: nastepny krok implementacyjny nie powinien polegac na samej zmianie opisu pola. Trzeba rozdzielic dwa znaczenia:
-
-- stan magazynowy widziany przez biuro przy wpisywaniu zlecenia,
-- zapotrzebowanie / oczekiwane zuzycie / rzeczywiste zuzycie dla konkretnego zlecenia.
+- `paint_stock_snapshot_quantity_kg` to historyczny snapshot stanu magazynowego widziany przez biuro podczas wpisywania zlecenia,
+- `consumed_paint_quantity_kg` to faktyczne zuzycie wpisane przez automat,
+- biezacy stan magazynowy nie jest liczony ze snapshotow na zleceniach, tylko z ruchow magazynowych.
 
 ## 3. Minimalny model docelowy dla pierwszego magazynowego slice'u
 
-Rekomendowany model semantyczny:
+Potwierdzony model semantyczny:
 
 - `paint_code`, `paint_producer`, `ral_code` identyfikuja farbe potrzebna dla zlecenia.
+- System przechowuje kartoteke farby i biezacy stan magazynowy dla tej farby.
 - Biuro zapisuje na zleceniu snapshot: ile tej farby bylo dostepne w magazynie w momencie wpisywania zlecenia.
-- System wylicza albo przyjmuje zapotrzebowanie dla zlecenia jako osobna wartosc.
-- System wystawia stan logiczny typu `paint_shortage`: czy w chwili wpisania zlecenia farby bylo za malo wzgledem zapotrzebowania.
 - Automatyczna produkcja zapisuje faktyczne `consumed_paint_quantity_kg`.
+- Zapis zuzycia automatycznie zmniejsza biezacy stan magazynowy tej farby.
+- Dostawa automatycznie zwieksza biezacy stan magazynowy tej farby.
+- Reczna korekta magazynowa moze zwiekszac albo zmniejszac biezacy stan, ale musi byc auditowalna.
 - Automatyczne poprawki podlegaja tej samej logice co zwykle zlecenia automatyczne.
 - Pakowanie automatyczne nie powinno sie zamknac bez wpisanego zuzycia farby takze dla poprawek automatycznych.
+- Utworzenie zlecenia nie robi rezerwacji stanu magazynowego.
+- System nie pozwala zapisac ruchu, ktory spowodowalby stan ujemny.
 
 Istotna konsekwencja:
 
-- Jezeli pole biura oznacza stan magazynowy, to faktyczne zuzycie farby nie powinno byc ograniczane przez ten snapshot jako twardy limit per zlecenie.
-- Jesli chcemy miec limit per zlecenie, musi istniec osobna wartosc: zapotrzebowanie lub alokacja dla zlecenia.
+- Snapshot stanu magazynowego na zleceniu nie jest live stockiem po czasie; to sladowa wartosc historyczna.
+- Live stock jest liczony z kartoteki i ruchow magazynowych.
+- Zuzycie jest traktowane jako jednorazowy zapis produkcyjny, bez pozniejszej edycji przez operatora.
+- Bledy po zapisie sa naprawiane korekta magazynowa, nie przepisywaniem historii zlecenia.
 
-## 4. Jedno kluczowe doprecyzowanie przed kodem
+## 4. Aktualny proces aktualizacji stanu
 
-Przed implementacja trzeba ustalic, skad bierze sie wartosc zapotrzebowania dla zlecenia.
+Potwierdzony obieg pracy:
 
-Na ten moment sa logicznie trzy mozliwe warianty:
+- Biuro utrzymuje stan farb bezposrednio w tej aplikacji.
+- Przy dostawie biuro dopisuje ilosc przyjetej farby do stanu magazynowego.
+- Przy korekcie biuro recznie koryguje stan magazynowy z notatka.
+- Przy tworzeniu zlecenia biuro wskazuje farbe, a system pokazuje aktualny stan i zapisuje jego snapshot na zleceniu.
+- Automat wpisuje faktyczne zuzycie farby na zleceniu.
+- Zapis zuzycia automatycznie zmniejsza stan magazynowy.
 
-1. Automatycznie liczona z powierzchni.
-2. Wpisywana recznie przez biuro.
-3. Liczona automatycznie jako podpowiedz, ale z mozliwoscia nadpisania.
-
-Wczesniejsza formula robocza byla taka:
-
-- ponizej `70 m2` -> `area_m2 / 4`
-- powyzej `70 m2` -> `area_m2 / 6`
-
-Twoja odpowiedz `dana wprowadzona` najpewniej sugeruje, ze zapotrzebowanie nie powinno byc narzucone sama formula i musi istniec wartosc wpisywana recznie. To wymaga potwierdzenia jednym zdaniem przed zmiana modelu i migracji.
-
-Bez tego doprecyzowania nie da sie bezpiecznie zdecydowac, czy w bazie mamy miec:
-
-- tylko snapshot stanu magazynowego,
-- snapshot + reczne zapotrzebowanie,
-- snapshot + automatyczna sugestie zapotrzebowania.
+Wniosek: pierwszy magazynowy slice to aplikacyjny magazyn agregowany per farba plus historyczny snapshot na zleceniu.
 
 ## 5. O co chodzilo z partia / batch
 
@@ -89,29 +88,29 @@ Mozliwe poziomy szczegolowosci:
 3. `Partia rozliczana`
    System pilnuje, z ktorej konkretnej partii zeszla farba, czyli magazyn schodzi po partiach.
 
-Rekomendacja do pierwszego magazynowego slice'u: zaczac od wariantu 1 albo 2, nie od 3.
+Rekomendacja do pierwszego magazynowego slice'u: nie modelowac partii w ogole. Trzymac tylko laczny stan dla farby.
 
-## 6. Bezpieczna kolejnosc implementacji
+## 6. Bezpieczna kolejnosc dalszej implementacji
 
 Najbezpieczniejszy porzadek prac:
 
-1. Rozdzielic w modelu danych snapshot stanu magazynowego od zapotrzebowania/alokacji dla zlecenia.
-2. Dodac backendowy status braku farby i wyswietlac go w UI bez twardej blokady.
-3. Ujednolicic logike farby dla zwyklych automatow i automatycznych poprawek.
-4. Dopiero potem projektowac osobny magazyn przyjec, korekt i partii.
+1. Wprowadzic kartoteke farb i biezacy stan magazynowy per farba.
+2. Wprowadzic ruchy magazynowe: dostawa, zuzycie automatyczne, korekta reczna.
+3. Podpiac snapshot historyczny pod tworzenie zlecenia bez rezerwacji.
+4. Dopiero potem decydowac, czy aplikacja ma kiedys wejsc w partie i bardziej zlozone rozliczanie.
 
-## 7. Ryzyka, jesli zrobimy to za szybko bez rozdzielenia semantyki
+## 7. Ryzyka, jesli rozrosniemy to bez decyzji o zakresie
 
-- Backend zacznie traktowac stan magazynowy jak limit dla pojedynczego zlecenia, co da falszywe bledy walidacji.
-- UI bedzie pokazywalo `pozostalo` tak, jakby to byla rezerwacja dla zlecenia, mimo ze chodziloby o stan magazynowy.
-- Audit przestanie miec jasne znaczenie: nie bedzie wiadomo, czy zapis dotyczy stanu magazynu, planu zlecenia czy realnego zuzycia.
-- Korekty automatyczne odziedzicza zle semantycznie dane, jesli najpierw nie ustalimy zrodla zapotrzebowania.
+- Gdyby snapshot stanu byl traktowany jak live stock, UI zacznie sugerowac aktualnosc, ktorej ten snapshot nie ma.
+- Gdyby system zbyt szybko wrocil do dodatkowego pola zapotrzebowania bez jasnej decyzji biznesowej, znow wymiesza semantyke informacyjna i magazynowa.
+- Gdyby zapis zuzycia z automatu mogl byc wielokrotnie nadpisywany bez twardych zasad, magazyn zacznie gubic integralnosc stanu.
 
-## 8. Testy, ktore beda potrzebne po doprecyzowaniu
+## 8. Testy potrzebne i juz czesciowo wdrozone
 
+- zapis dostawy zwieksza stan magazynowy,
+- zapis recznej korekty aktualizuje stan i zachowuje powod/notatke,
 - zapis snapshotu stanu magazynowego przy tworzeniu zlecenia,
-- wyliczenie lub zapis zapotrzebowania dla zlecenia,
-- widoczne ostrzezenie o braku farby bez blokady zapisu,
 - ten sam obowiazek wpisania zuzycia dla zwyklych automatow i automatycznych poprawek,
-- brak mylnego limitowania zuzycia snapshotem magazynowym,
-- czytelne audit eventy rozrozniajace snapshot, zapotrzebowanie i zuzycie.
+- blokada zejscia ponizej zera,
+- brak rezerwacji przy tworzeniu zlecenia,
+- czytelne audit eventy rozrozniajace dostawe, korekte, snapshot i zuzycie.

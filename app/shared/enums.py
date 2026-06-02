@@ -19,6 +19,13 @@ WORK_ORDER_KIND_LABELS_PL = {
     "PRZEMALOWANKA": "Przemalowanka",
 }
 
+PAINT_STOCK_MOVEMENT_TYPE_LABELS_PL = {
+    "OPENING_BALANCE": "Saldo otwarcia",
+    "DELIVERY": "Dostawa",
+    "AUTOMATIC_CONSUMPTION": "Zużycie automatu",
+    "MANUAL_ADJUSTMENT": "Korekta ręczna",
+}
+
 STATION_ID_LABELS_PL = {
     "OFFICE": "Biuro",
     "MANAGER": "Kierownik",
@@ -63,6 +70,17 @@ class WorkOrderKind(StrEnum):
         return WORK_ORDER_KIND_LABELS_PL[self.value]
 
 
+class PaintStockMovementType(StrEnum):
+    OPENING_BALANCE = "OPENING_BALANCE"
+    DELIVERY = "DELIVERY"
+    AUTOMATIC_CONSUMPTION = "AUTOMATIC_CONSUMPTION"
+    MANUAL_ADJUSTMENT = "MANUAL_ADJUSTMENT"
+
+    @property
+    def polish_label(self) -> str:
+        return PAINT_STOCK_MOVEMENT_TYPE_LABELS_PL[self.value]
+
+
 class StationId(StrEnum):
     OFFICE = "OFFICE"
     MANAGER = "MANAGER"
@@ -90,6 +108,10 @@ def get_queue_namespace_label(queue_namespace: QueueNamespace) -> str:
 
 def get_work_order_kind_label(work_order_kind: WorkOrderKind) -> str:
     return WORK_ORDER_KIND_LABELS_PL[work_order_kind.value]
+
+
+def get_paint_stock_movement_type_label(movement_type: PaintStockMovementType) -> str:
+    return PAINT_STOCK_MOVEMENT_TYPE_LABELS_PL[movement_type.value]
 
 
 def get_station_id_label(station_id: StationId) -> str:

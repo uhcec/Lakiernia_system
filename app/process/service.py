@@ -9,12 +9,14 @@ from sqlalchemy.exc import IntegrityError
 from app.audit.context import StationContext, ensure_station_allowed
 from app.audit.models import AuditEvent
 from app.audit.repository import AuditRepository
+from app.paints.repository import PaintRepository
+from app.paints.service import PaintService
 from app.process.enums import CoatingType, ProcessDisplayStatus, ProcessStage, ProductionType, QuantityBatchType, StageStatus
 from app.process.models import WorkOrderQuantityBatch, WorkOrderStageState
 from app.process.repository import ProcessRepository
 from app.process.schemas import ProcessStageStatusRead, ProcessStageWorkOrderRead, StageStatusView
 from app.shared.enums import QueueNamespace, StationId, WorkOrderKind, WorkOrderStatus
-from app.shared.exceptions import InvalidProcessStageTransitionError, ResourceNotFoundError
+from app.shared.exceptions import InvalidPaintInventoryError, InvalidProcessStageTransitionError, ResourceNotFoundError
 from app.work_orders.number_allocator import WorkOrderNumberAllocator
 from app.work_orders.models import WorkOrder
 from app.work_orders.schemas import build_coating_type_view, build_production_type_view, build_queue_namespace_view, build_work_order_kind_view
@@ -32,10 +34,9 @@ class ProcessService:
         "Automatic production does not use manual start/finish. Finish HANGING to enter automatic production and complete from PACKING."
     )
     AUTOMATIC_PAINT_CONSUMPTION_REQUIRED_ERROR = "Automatic paint consumption must be recorded before packing can be completed."
-    AUTOMATIC_PAINT_CONSUMPTION_CONFIGURATION_ERROR = (
-        "Paint code and planned paint quantity must be configured before automatic paint consumption can be recorded."
-    )
+    AUTOMATIC_PAINT_CONSUMPTION_CONFIGURATION_ERROR = "Paint code must be configured before automatic paint consumption can be recorded."
     AUTOMATIC_PAINT_CONSUMPTION_STAGE_ERROR = "Automatic paint consumption can be recorded once HANGING has started."
+    AUTOMATIC_PAINT_CONSUMPTION_ALREADY_RECORDED_ERROR = "Automatic paint consumption cannot be edited after it has been saved. Use a manual office stock adjustment if a correction is required."
     QUEUE_RESOURCE_BLOCK_REASONS = {
         "HANGING": "Zawieszanie zajęte",
         "AUTOMATIC_LINE": "Linia automatyczna zajęta",
@@ -43,6 +44,7 @@ class ProcessService:
 
     def __init__(self, repository: ProcessRepository) -> None:
         self.repository = repository
+        self.paint_service = PaintService(PaintRepository(repository.session))
         self.number_allocator = WorkOrderNumberAllocator(repository.session)
         self.audit_repository = AuditRepository(repository.session)
 
@@ -517,17 +519,28 @@ class ProcessService:
                 raise InvalidProcessStageTransitionError(self.AUTOMATIC_PAINT_CONSUMPTION_STAGE_ERROR)
             if packing_state.status == StageStatus.DONE:
                 return self._to_stage_work_order_read(work_order, ProcessStage.PRODUCTION)
-            if work_order.paint_code is None or work_order.planned_paint_quantity_kg is None:
+            if work_order.paint_code is None:
                 raise InvalidProcessStageTransitionError(self.AUTOMATIC_PAINT_CONSUMPTION_CONFIGURATION_ERROR)
-            if consumed_paint_quantity_kg > work_order.planned_paint_quantity_kg:
-                raise InvalidProcessStageTransitionError(
-                    "Consumed paint quantity cannot exceed the planned paint quantity assigned to the work order."
-                )
 
             previous_value = work_order.consumed_paint_quantity_kg
             if previous_value == consumed_paint_quantity_kg:
                 return self._to_stage_work_order_read(work_order, ProcessStage.PRODUCTION)
+            if previous_value > 0:
+                raise InvalidProcessStageTransitionError(self.AUTOMATIC_PAINT_CONSUMPTION_ALREADY_RECORDED_ERROR)
 
+            try:
+                paint = self.paint_service.record_automatic_consumption(
+                    ral_code=work_order.ral_code,
+                    paint_producer=work_order.paint_producer,
+                    paint_code=work_order.paint_code,
+                    quantity_kg=consumed_paint_quantity_kg,
+                    work_order_id=work_order.id,
+                    station_context=station_context,
+                )
+            except InvalidPaintInventoryError as exc:
+                raise InvalidProcessStageTransitionError(exc.detail) from exc
+
+            work_order.paint_id = paint.id
             work_order.consumed_paint_quantity_kg = consumed_paint_quantity_kg
             work_order.updated_at = datetime.now(UTC)
             self._record_automatic_paint_consumption_audit_event(
@@ -809,7 +822,7 @@ class ProcessService:
 
     @staticmethod
     def _is_automatic_paint_tracking_required(work_order: WorkOrder) -> bool:
-        return work_order.production_type == ProductionType.AUTOMATIC and not work_order.is_correction
+        return work_order.production_type == ProductionType.AUTOMATIC
 
     def _ensure_automatic_paint_consumption_recorded_before_packing(self, work_order: WorkOrder) -> None:
         if not self._is_automatic_paint_tracking_required(work_order):
@@ -1355,6 +1368,7 @@ class ProcessService:
         station_context: StationContext | None = None,
     ) -> WorkOrder:
         correction_order = WorkOrder(
+            paint_id=parent_work_order.paint_id,
             order_number=self.number_allocator.allocate(),
             external_order_number=parent_work_order.external_order_number,
             title=parent_work_order.title,
@@ -1370,7 +1384,11 @@ class ProcessService:
             ral_code=parent_work_order.ral_code,
             paint_code=parent_work_order.paint_code,
             paint_producer=parent_work_order.paint_producer,
-            planned_paint_quantity_kg=None,
+            paint_stock_snapshot_quantity_kg=self.paint_service.lookup_current_stock(
+                ral_code=parent_work_order.ral_code,
+                paint_producer=parent_work_order.paint_producer,
+                paint_code=parent_work_order.paint_code,
+            ).current_quantity_kg,
             consumed_paint_quantity_kg=0,
             status=WorkOrderStatus.ENTERED,
             coating_type=parent_work_order.coating_type,
@@ -1497,10 +1515,9 @@ class ProcessService:
             details={
                 "stage": ProcessStage.PRODUCTION.value,
                 "paint_code": work_order.paint_code,
-                "planned_paint_quantity_kg": work_order.planned_paint_quantity_kg,
+                "paint_stock_snapshot_quantity_kg": work_order.paint_stock_snapshot_quantity_kg,
                 "previous_consumed_paint_quantity_kg": previous_value,
                 "consumed_paint_quantity_kg": consumed_paint_quantity_kg,
-                "remaining_paint_quantity_kg": work_order.remaining_paint_quantity_kg,
             },
         )
 
@@ -1772,9 +1789,8 @@ class ProcessService:
             ral_code=work_order.ral_code,
             paint_code=work_order.paint_code,
             paint_producer=work_order.paint_producer,
-            planned_paint_quantity_kg=work_order.planned_paint_quantity_kg,
+            paint_stock_snapshot_quantity_kg=work_order.paint_stock_snapshot_quantity_kg,
             consumed_paint_quantity_kg=work_order.consumed_paint_quantity_kg,
-            remaining_paint_quantity_kg=work_order.remaining_paint_quantity_kg,
             total_area_m2=work_order.total_area_m2,
             total_quantity=work_order.total_quantity,
             current_active_quantity=current_active_quantity,

@@ -385,42 +385,41 @@ Implementation decision needed:
 
 ### 11. Paint Inventory And Consumption
 
-Status: `SEMANTIC UPDATE CONFIRMED; current repo paint slice no longer matches intended stock-snapshot meaning`
+Status: `TARGET CONFIRMED for app-owned paint inventory + automatic consumption + historical work-order snapshot`
 
 Confirmed direction from 2026-05-30:
 
 - Work-order intake should keep paint identity on the work order.
-- The office-entered paint quantity should represent the current warehouse stock snapshot for that paint, not a per-work-order allocation.
-- Paint usage should be recorded so stock can be deducted.
+- The application-owned paint inventory is the source of truth for current stock.
+- Work-order creation should only show current stock for the selected paint; it must not reserve stock.
+- Work-order intake should store a historical stock snapshot for that paint, not a live mutable balance.
+- Paint usage should be recorded so stock is deducted automatically.
 - Automatic production is no longer display-only; the first confirmed station input is paint used/consumed, with room for additional fields after factory clarification.
 - This does not automatically mean automatic production gains manual start/finish stage actions.
 - Stock unit is kilograms.
-- Stock balance is aggregate per producer + RAL/color, not separate tracked stock per paint batch.
-- Paint receipt data should include producer, RAL/color, amount, supplier, and likely batch/lot as receipt metadata; no price, notes, or manually entered date.
-- The system must detect and report insufficient paint for an order.
-- Insufficient paint should be displayed, not hard-block work-order creation.
-- The factory answer says paint should be taken from stock after the work order is entered, based on the order requirement.
+- Stock balance is aggregate per paint card, not separate tracked stock per paint batch.
+- Paint receipt data should include amount, date, and optional note in the first slice.
+- The first slice does not detect or report insufficient paint for an order yet.
+- Stock should never be allowed to go below zero.
+- Manual office adjustments are part of the first slice.
 - Automatic production enters actual paint consumption manually.
 - Automatic correction work should use the same paint logic as other automatic work.
 - Packing should not be completable for automatic work until paint consumption is entered.
 
 Current repository behavior/evidence:
 
-- First implementation slice confirmed on 2026-06-02: office stores producer, paint code, RAL code, and planned paint quantity in kg directly on the work order; automatic production records actual consumed kg against that work-order allocation; no manual stock corrections are included.
-- The current office create form requires `paint_code` and `planned_paint_quantity_kg`, while backend schemas remain nullable for compatibility.
+- Current implementation stores `paint_code`, `paint_producer`, and `paint_stock_snapshot_quantity_kg` on the work order.
+- The current intake form still reflects the old snapshot-only flow and must be updated to read from the app-owned paint inventory.
 - Automatic-production paint consumption is recordable only by `AUTOMATIC_PRODUCTION`, once `HANGING` has started.
 - The frontend records paint usage through `20 kg` / `25 kg` carton selection plus remainder in the last carton; backend stores the resulting net consumed kg.
 - Standard automatic work is blocked in packing until `consumed_paint_quantity_kg > 0`.
-- Automatic correction orders copy paint identity from the parent but still have no paint allocation; they are excluded from the current hard block.
-- Current repo semantics still treat `planned_paint_quantity_kg` as per-order allocation and cap recorded consumption against it.
-- Current repo still shows remaining paint as a work-order-level remainder, not as a warehouse-stock snapshot versus a separate work-order demand.
+- Automatic correction orders copy paint identity from the parent and are included in the same paint-consumption requirement before packing completion.
+- Recorded consumption is not capped by the historical intake snapshot.
 
 Remaining decisions:
 
-- Define the source of work-order demand needed to detect shortage: manual value, automatic value from area, or automatic suggestion with manual override.
-- If area-based estimation remains part of the model, clarify how exactly 70 m2 is handled.
-- Clarify whether batch/lot is only receipt metadata or searchable/reportable data despite aggregate stock balance.
-- Decide whether the first warehouse slice should store only a stock snapshot on the work order or both stock snapshot and explicit work-order demand.
+- Confirm whether `ral_code + paint_producer + paint_code` is always a sufficient business identifier for one paint card.
+- Confirm the operational correction path for wrongly entered automatic consumption beyond manual office stock adjustment.
 
 ### 12. External Work-Order Number
 

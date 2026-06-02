@@ -6,13 +6,14 @@ import { PackingWorkOrdersPage } from "../src/components/PackingWorkOrdersPage";
 import { StageWorkOrdersPage } from "../src/components/StageWorkOrdersPage";
 import { WorkOrdersTable } from "../src/components/WorkOrdersTable";
 import { ApiError } from "../src/api/apiError";
+import { PaintInventoryPage } from "../src/pages/PaintInventoryPage";
 import { AutomaticProductionPage } from "../src/pages/AutomaticProductionPage";
 import { CreateWorkOrderPage } from "../src/pages/CreateWorkOrderPage";
 import { ManagerPanelPage } from "../src/pages/ManagerPanelPage";
 import { WorkOrdersListPage } from "../src/pages/WorkOrdersListPage";
 import { WorkOrderDetailPage } from "../src/pages/WorkOrderDetailPage";
 import type { StageWorkOrder } from "../src/types/process";
-import type { WorkOrder } from "../src/types/workOrders";
+import type { WorkOrder, WorkOrderRelationSummary } from "../src/types/workOrders";
 
 vi.mock("../src/api/managerApi", () => ({
   assignWorkOrderPlan: vi.fn(),
@@ -32,6 +33,14 @@ vi.mock("../src/api/processApi", () => ({
   fetchStageWorkOrders: vi.fn(),
   recordAutomaticPaintConsumption: vi.fn(),
   transitionStage: vi.fn(),
+}));
+
+vi.mock("../src/api/paintsApi", () => ({
+  fetchPaintMovements: vi.fn(),
+  fetchPaints: vi.fn(),
+  lookupPaintStock: vi.fn(),
+  recordPaintAdjustment: vi.fn(),
+  recordPaintDelivery: vi.fn(),
 }));
 
 vi.mock("../src/api/workOrdersApi", () => ({
@@ -77,6 +86,7 @@ vi.mock("../src/utils/workOrderDisplay", () => ({
 
 const managerApi = await import("../src/api/managerApi");
 const auditApi = await import("../src/api/auditApi");
+const paintsApi = await import("../src/api/paintsApi");
 const processApi = await import("../src/api/processApi");
 const workOrdersApi = await import("../src/api/workOrdersApi");
 
@@ -84,6 +94,11 @@ const fetchWorkOrderAuditEventsMock = vi.mocked(auditApi.fetchWorkOrderAuditEven
 const fetchCorrectionReasonReportMock = vi.mocked(managerApi.fetchCorrectionReasonReport);
 const fetchUnplannedWorkOrdersMock = vi.mocked(managerApi.fetchUnplannedWorkOrders);
 const fetchPlannedWorkOrdersMock = vi.mocked(managerApi.fetchPlannedWorkOrders);
+const fetchPaintsMock = vi.mocked(paintsApi.fetchPaints);
+const fetchPaintMovementsMock = vi.mocked(paintsApi.fetchPaintMovements);
+const lookupPaintStockMock = vi.mocked(paintsApi.lookupPaintStock);
+const recordPaintDeliveryMock = vi.mocked(paintsApi.recordPaintDelivery);
+const recordPaintAdjustmentMock = vi.mocked(paintsApi.recordPaintAdjustment);
 const assignWorkOrderPlanMock = vi.mocked(managerApi.assignWorkOrderPlan);
 const reorderWorkOrderQueueMock = vi.mocked(managerApi.reorderWorkOrderQueue);
 const fetchStageWorkOrdersMock = vi.mocked(processApi.fetchStageWorkOrders);
@@ -122,9 +137,8 @@ function buildWorkOrder(id: number, orderNumber: string, queuePosition: number, 
     ral_code: "RAL 9005",
     paint_code: "P-9005",
     paint_producer: "Test",
-    planned_paint_quantity_kg: 18.5,
+    paint_stock_snapshot_quantity_kg: 30,
     consumed_paint_quantity_kg: 0,
-    remaining_paint_quantity_kg: 18.5,
     status: { value: "ASSIGNED", label: "Przypisane" },
     process_status: { value: "PACKING", label: "Pakowanie" },
     coating_type: { value: "RAL", label: "RAL" },
@@ -168,9 +182,8 @@ function buildStageWorkOrder(
     ral_code: overrides.ral_code ?? "RAL 9005",
     paint_code: overrides.paint_code ?? "P-9005",
     paint_producer: overrides.paint_producer ?? "Test",
-    planned_paint_quantity_kg: overrides.planned_paint_quantity_kg ?? 18.5,
+    paint_stock_snapshot_quantity_kg: overrides.paint_stock_snapshot_quantity_kg ?? 30,
     consumed_paint_quantity_kg: overrides.consumed_paint_quantity_kg ?? 0,
-    remaining_paint_quantity_kg: overrides.remaining_paint_quantity_kg ?? 18.5,
     total_area_m2: overrides.total_area_m2 ?? null,
     total_quantity: overrides.total_quantity ?? 10,
     current_active_quantity: overrides.current_active_quantity ?? 10,
@@ -193,6 +206,33 @@ function buildStageWorkOrder(
   };
 }
 
+function buildWorkOrderRelationSummary(
+  overrides: Partial<WorkOrderRelationSummary> & Pick<WorkOrderRelationSummary, "id" | "order_number">,
+): WorkOrderRelationSummary {
+  return {
+    id: overrides.id,
+    order_number: overrides.order_number,
+    external_order_number: overrides.external_order_number ?? null,
+    title: overrides.title ?? overrides.order_number,
+    customer_name: overrides.customer_name ?? "Klient",
+    ral_code: overrides.ral_code ?? "RAL 9005",
+    paint_code: overrides.paint_code ?? "P-9005",
+    paint_stock_snapshot_quantity_kg: overrides.paint_stock_snapshot_quantity_kg ?? null,
+    total_area_m2: overrides.total_area_m2 ?? null,
+    total_quantity: overrides.total_quantity ?? 10,
+    completed_quantity: overrides.completed_quantity ?? 0,
+    current_active_quantity: overrides.current_active_quantity ?? 0,
+    planned_pickup_date: overrides.planned_pickup_date ?? null,
+    is_correction: overrides.is_correction ?? false,
+    is_historical_correction: overrides.is_historical_correction ?? false,
+    work_order_kind: overrides.work_order_kind ?? { value: "STANDARD", label: "Standardowe" },
+    is_ocynk: overrides.is_ocynk ?? false,
+    correction_reason_category: overrides.correction_reason_category ?? null,
+    correction_reason_note: overrides.correction_reason_note ?? null,
+    process_status: overrides.process_status ?? { value: "TO_BE_PLANNED", label: "Do zaplanowania" },
+  };
+}
+
 beforeEach(() => {
   fetchWorkOrderAuditEventsMock.mockReset();
   fetchWorkOrderAuditEventsMock.mockResolvedValue([]);
@@ -208,6 +248,11 @@ beforeEach(() => {
   completePackingMock.mockReset();
   createWorkOrderMock.mockReset();
   fetchWorkOrdersMock.mockReset();
+  fetchPaintsMock.mockReset();
+  fetchPaintMovementsMock.mockReset();
+  lookupPaintStockMock.mockReset();
+  recordPaintDeliveryMock.mockReset();
+  recordPaintAdjustmentMock.mockReset();
   fetchWorkOrderMock.mockReset();
   fetchWorkOrderAttachmentsMock.mockReset();
   getWorkOrderAttachmentDownloadUrlMock.mockReset();
@@ -233,6 +278,14 @@ describe("frontend state consistency", () => {
 
   it("submits external order number from the create form", async () => {
     createWorkOrderMock.mockResolvedValue({ ...buildWorkOrder(90, "WO-CREATE", 1), external_order_number: "EXT-77" });
+    lookupPaintStockMock.mockResolvedValue({
+      paint_id: 1,
+      ral_code: "RAL 7016",
+      paint_producer: "AkzoNobel",
+      paint_code: "P-7016",
+      current_quantity_kg: 30,
+      exists_in_inventory: true,
+    });
 
     render(
       <MemoryRouter>
@@ -248,7 +301,7 @@ describe("frontend state consistency", () => {
     fireEvent.change(screen.getByLabelText("Kod RAL"), { target: { value: "RAL 7016" } });
     fireEvent.change(screen.getByLabelText("Producent farby"), { target: { value: "AkzoNobel" } });
     fireEvent.change(screen.getByLabelText("Kod farby"), { target: { value: "P-7016" } });
-    fireEvent.change(screen.getByLabelText("Ilość farby [kg]"), { target: { value: "18.5" } });
+    await screen.findByText(/aktualny stan 30 kg/i);
     fireEvent.change(screen.getByLabelText("Data przyjęcia"), { target: { value: "2026-05-30" } });
     screen.getAllByLabelText("Do policzenia na produkcji").forEach((checkbox) => fireEvent.click(checkbox));
     fireEvent.click(screen.getByRole("button", { name: "Zapisz" }));
@@ -262,7 +315,6 @@ describe("frontend state consistency", () => {
           work_order_kind: "PRZEMALOWANKA",
           is_ocynk: true,
           paint_code: "P-7016",
-          planned_paint_quantity_kg: 18.5,
         }),
       );
     });
@@ -270,6 +322,14 @@ describe("frontend state consistency", () => {
 
   it("requires known profile and accessory quantities to sum to the total quantity", async () => {
     createWorkOrderMock.mockResolvedValue({ ...buildWorkOrder(91, "WO-CATEGORY-SUM", 1), total_quantity: 10, profiles_quantity: 8, accessories_quantity: 2 });
+    lookupPaintStockMock.mockResolvedValue({
+      paint_id: 1,
+      ral_code: "RAL 7016",
+      paint_producer: "AkzoNobel",
+      paint_code: "P-7016",
+      current_quantity_kg: 30,
+      exists_in_inventory: true,
+    });
 
     render(
       <MemoryRouter>
@@ -282,7 +342,7 @@ describe("frontend state consistency", () => {
     fireEvent.change(screen.getByLabelText("Kod RAL"), { target: { value: "RAL 7016" } });
     fireEvent.change(screen.getByLabelText("Producent farby"), { target: { value: "AkzoNobel" } });
     fireEvent.change(screen.getByLabelText("Kod farby"), { target: { value: "P-7016" } });
-    fireEvent.change(screen.getByLabelText("Ilość farby [kg]"), { target: { value: "18.5" } });
+    await screen.findByText(/aktualny stan 30 kg/i);
     fireEvent.change(screen.getByLabelText("Data przyjęcia"), { target: { value: "2026-05-30" } });
     fireEvent.change(screen.getByLabelText("Ilość całkowita"), { target: { value: "10" } });
     const categoryInputs = screen.getAllByPlaceholderText("Podaj ilość");
@@ -304,6 +364,163 @@ describe("frontend state consistency", () => {
           total_quantity: 10,
           profiles_quantity: 8,
           accessories_quantity: 2,
+        }),
+      );
+    });
+  });
+
+  it("records delivery and manual adjustment on the paint inventory page", async () => {
+    fetchPaintsMock
+      .mockResolvedValueOnce({
+        items: [
+          {
+            id: 11,
+            ral_code: "RAL 7016",
+            paint_producer: "AkzoNobel",
+            paint_code: "P-7016",
+            current_quantity_kg: 30,
+            created_at: "2026-06-02T10:00:00Z",
+            updated_at: "2026-06-02T10:00:00Z",
+          },
+        ],
+        total: 1,
+        limit: 100,
+        offset: 0,
+      })
+      .mockResolvedValueOnce({
+        items: [
+          {
+            id: 11,
+            ral_code: "RAL 7016",
+            paint_producer: "AkzoNobel",
+            paint_code: "P-7016",
+            current_quantity_kg: 45,
+            created_at: "2026-06-02T10:00:00Z",
+            updated_at: "2026-06-02T11:00:00Z",
+          },
+        ],
+        total: 1,
+        limit: 100,
+        offset: 0,
+      })
+      .mockResolvedValueOnce({
+        items: [
+          {
+            id: 11,
+            ral_code: "RAL 7016",
+            paint_producer: "AkzoNobel",
+            paint_code: "P-7016",
+            current_quantity_kg: 42,
+            created_at: "2026-06-02T10:00:00Z",
+            updated_at: "2026-06-02T12:00:00Z",
+          },
+        ],
+        total: 1,
+        limit: 100,
+        offset: 0,
+      });
+    fetchPaintMovementsMock
+      .mockResolvedValueOnce({
+        items: [],
+        total: 0,
+        limit: 100,
+        offset: 0,
+      })
+      .mockResolvedValueOnce({
+        items: [
+          {
+            id: 1,
+            paint_id: 11,
+            work_order_id: null,
+            movement_type: { value: "DELIVERY", label: "Dostawa" },
+            quantity_delta_kg: 15,
+            resulting_quantity_kg: 45,
+            movement_date: "2026-06-02",
+            note: "Dostawa poranna",
+            created_at: "2026-06-02T11:00:00Z",
+          },
+        ],
+        total: 1,
+        limit: 100,
+        offset: 0,
+      })
+      .mockResolvedValueOnce({
+        items: [
+          {
+            id: 2,
+            paint_id: 11,
+            work_order_id: null,
+            movement_type: { value: "MANUAL_ADJUSTMENT", label: "Korekta ręczna" },
+            quantity_delta_kg: -3,
+            resulting_quantity_kg: 42,
+            movement_date: "2026-06-02",
+            note: "Korekta stanu",
+            created_at: "2026-06-02T12:00:00Z",
+          },
+        ],
+        total: 1,
+        limit: 100,
+        offset: 0,
+      });
+    recordPaintDeliveryMock.mockResolvedValue({
+      id: 11,
+      ral_code: "RAL 7016",
+      paint_producer: "AkzoNobel",
+      paint_code: "P-7016",
+      current_quantity_kg: 45,
+      created_at: "2026-06-02T10:00:00Z",
+      updated_at: "2026-06-02T11:00:00Z",
+    });
+    recordPaintAdjustmentMock.mockResolvedValue({
+      id: 11,
+      ral_code: "RAL 7016",
+      paint_producer: "AkzoNobel",
+      paint_code: "P-7016",
+      current_quantity_kg: 42,
+      created_at: "2026-06-02T10:00:00Z",
+      updated_at: "2026-06-02T12:00:00Z",
+    });
+
+    render(
+      <MemoryRouter>
+        <PaintInventoryPage />
+      </MemoryRouter>,
+    );
+
+    await screen.findByText("RAL 7016");
+    fireEvent.change(screen.getAllByPlaceholderText("RAL")[0], { target: { value: "RAL 7016" } });
+    fireEvent.change(screen.getAllByPlaceholderText("Producent farby")[0], { target: { value: "AkzoNobel" } });
+    fireEvent.change(screen.getAllByPlaceholderText("Kod farby")[0], { target: { value: "P-7016" } });
+    fireEvent.change(screen.getByPlaceholderText("Ilość [kg]"), { target: { value: "15" } });
+    fireEvent.change(screen.getByPlaceholderText("Notatka opcjonalna"), { target: { value: "Dostawa poranna" } });
+    fireEvent.click(screen.getByRole("button", { name: "Zapisz dostawę" }));
+
+    await waitFor(() => {
+      expect(recordPaintDeliveryMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          ral_code: "RAL 7016",
+          paint_producer: "AkzoNobel",
+          paint_code: "P-7016",
+          quantity_kg: 15,
+        }),
+      );
+    });
+
+    fireEvent.change(screen.getAllByPlaceholderText("RAL")[1], { target: { value: "RAL 7016" } });
+    fireEvent.change(screen.getAllByPlaceholderText("Producent farby")[1], { target: { value: "AkzoNobel" } });
+    fireEvent.change(screen.getAllByPlaceholderText("Kod farby")[1], { target: { value: "P-7016" } });
+    fireEvent.change(screen.getByPlaceholderText("Korekta [+/- kg]"), { target: { value: "-3" } });
+    fireEvent.change(screen.getByPlaceholderText("Powód korekty"), { target: { value: "Korekta stanu" } });
+    fireEvent.click(screen.getByRole("button", { name: "Zapisz korektę" }));
+
+    await waitFor(() => {
+      expect(recordPaintAdjustmentMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          ral_code: "RAL 7016",
+          paint_producer: "AkzoNobel",
+          paint_code: "P-7016",
+          quantity_delta_kg: -3,
+          note: "Korekta stanu",
         }),
       );
     });
@@ -612,9 +829,7 @@ describe("frontend state consistency", () => {
           production_type: { value: "AUTOMATIC", label: "Automatyczna" },
           stage_status: { stage: "HANGING", status: { value: "IN_PROGRESS", label: "W toku" } },
           paint_code: "P-7016-MAT",
-          planned_paint_quantity_kg: 18.5,
           consumed_paint_quantity_kg: 0,
-          remaining_paint_quantity_kg: 18.5,
         }),
       ])
       .mockResolvedValueOnce([
@@ -624,9 +839,7 @@ describe("frontend state consistency", () => {
           production_type: { value: "AUTOMATIC", label: "Automatyczna" },
           stage_status: { stage: "HANGING", status: { value: "IN_PROGRESS", label: "W toku" } },
           paint_code: "P-7016-MAT",
-          planned_paint_quantity_kg: 18.5,
           consumed_paint_quantity_kg: 12.5,
-          remaining_paint_quantity_kg: 6,
         }),
       ]);
     recordAutomaticPaintConsumptionMock.mockResolvedValue({} as never);
@@ -638,13 +851,12 @@ describe("frontend state consistency", () => {
     fireEvent.click(screen.getByRole("button", { name: "Dodaj karton" }));
     fireEvent.change(screen.getByLabelText("Pozostało w ostatnim kartonie [kg]"), { target: { value: "12.5" } });
     expect(screen.getByText("Zużycie do zapisu: 12.5 kg")).toBeTruthy();
-    expect(screen.getByText("Pozostało po zapisie: 6 kg")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Zapisz zużycie farby" }));
 
     await waitFor(() => {
       expect(recordAutomaticPaintConsumptionMock).toHaveBeenCalledWith(15, { consumed_paint_quantity_kg: 12.5 });
     });
-    await screen.findByText("Pozostało: 6 kg");
+    await screen.findByText("Zużyto: 12.5 kg");
   });
 
   it("shows automatic active hanging in packing without packing actions", async () => {
@@ -1174,9 +1386,11 @@ describe("frontend state consistency", () => {
         parent_order: {
           id: 83,
           order_number: "WO-PARENT-MGR",
+          external_order_number: null,
           title: "WO-PARENT-MGR",
           customer_name: "Juliet",
           ral_code: "RAL 9005",
+          paint_code: "P-9005",
           total_area_m2: null,
           total_quantity: 10,
           completed_quantity: 6,
@@ -1186,6 +1400,8 @@ describe("frontend state consistency", () => {
           is_historical_correction: false,
           work_order_kind: { value: "STANDARD", label: "Standardowe" },
           is_ocynk: false,
+          correction_reason_category: null,
+          correction_reason_note: null,
           process_status: { value: "WAITING_FOR_CORRECTIONS", label: "Czeka na poprawki" },
         },
       },
@@ -1212,9 +1428,11 @@ describe("frontend state consistency", () => {
       parent_order: {
         id: 90,
         order_number: "WO-PARENT-PLAN",
+        external_order_number: null,
         title: "WO-PARENT-PLAN",
         customer_name: "Hotel",
         ral_code: "RAL 9005",
+        paint_code: "P-9005",
         total_area_m2: null,
         total_quantity: 10,
         completed_quantity: 6,
@@ -1293,23 +1511,18 @@ describe("frontend state consistency", () => {
         process_status: { value: "READY", label: "Gotowe" },
         coating_type: { value: "DECORAL", label: "Decoral" },
         correction_orders: [
-          {
+          buildWorkOrderRelationSummary({
             id: 2,
             order_number: "WO-CORR",
-            title: "WO-CORR",
             customer_name: "Alpha",
             ral_code: "RAL 9005",
-            total_area_m2: null,
+            paint_code: "P-9005",
             total_quantity: 3,
             completed_quantity: 3,
-            current_active_quantity: 0,
-            planned_pickup_date: null,
             is_correction: true,
             is_historical_correction: true,
-            work_order_kind: { value: "STANDARD", label: "Standardowe" },
-            is_ocynk: false,
             process_status: { value: "READY", label: "Gotowe" },
-          },
+          }),
         ],
       },
       {
@@ -1322,23 +1535,17 @@ describe("frontend state consistency", () => {
         process_status: { value: "READY", label: "Gotowe" },
         coating_type: { value: "DECORAL", label: "Decoral" },
         queue_namespace: { value: "CORRECTIONS", label: "Corrections" },
-        parent_order: {
+        parent_order: buildWorkOrderRelationSummary({
           id: 1,
           order_number: "WO-PARENT",
-          title: "WO-PARENT",
           customer_name: "Alpha",
           ral_code: "RAL 9005",
-          total_area_m2: null,
+          paint_code: "P-9005",
           total_quantity: 10,
           completed_quantity: 10,
           current_active_quantity: 0,
-          planned_pickup_date: null,
-          is_correction: false,
-          is_historical_correction: false,
-          work_order_kind: { value: "STANDARD", label: "Standardowe" },
-          is_ocynk: false,
           process_status: { value: "READY", label: "Gotowe" },
-        },
+        }),
       },
     ]);
 
@@ -1438,6 +1645,25 @@ describe("frontend state consistency", () => {
     await screen.findByText("Policzono na przygotowaniu");
     expect(screen.getByText("Rozbieżność ilości")).toBeTruthy();
     expect(screen.getByText("Przygotowanie: zadeklarowano 10, policzono 8 (-2 szt.)")).toBeTruthy();
+  });
+
+  it("renders paint snapshot and usage on work order detail", async () => {
+    fetchWorkOrderMock.mockResolvedValue({
+      ...buildWorkOrder(72, "WO-PAINT-DETAIL", 1, "Paint Client"),
+      paint_code: "RAL7016-MAT",
+      paint_stock_snapshot_quantity_kg: 12,
+      consumed_paint_quantity_kg: 16.2,
+    });
+
+    renderWorkOrderDetail(72);
+
+    await screen.findByText("Farba");
+    expect(screen.getByText("RAL7016-MAT")).toBeTruthy();
+    expect(screen.getByText("12 kg")).toBeTruthy();
+    expect(screen.getByText("16.2 kg")).toBeTruthy();
+    expect(
+      screen.getByText(/Stan przy przyjęciu to historyczny snapshot zapisany automatycznie z magazynu/),
+    ).toBeTruthy();
   });
 
   it("renders work order audit history on detail page", async () => {
@@ -1543,9 +1769,11 @@ describe("frontend state consistency", () => {
         {
           id: 72,
           order_number: "WO-CORR-DETAIL",
+          external_order_number: null,
           title: "WO-CORR-DETAIL",
           customer_name: "Echo",
           ral_code: "RAL 9005",
+          paint_code: "P-9005",
           total_area_m2: null,
           total_quantity: 3,
           completed_quantity: 3,
@@ -1555,6 +1783,8 @@ describe("frontend state consistency", () => {
           is_historical_correction: true,
           work_order_kind: { value: "STANDARD", label: "Standardowe" },
           is_ocynk: false,
+          correction_reason_category: null,
+          correction_reason_note: null,
           process_status: { value: "READY", label: "Gotowe" },
         },
       ],
@@ -1576,9 +1806,11 @@ describe("frontend state consistency", () => {
         {
           id: 75,
           order_number: "WO-CORR-ACTIVE",
+          external_order_number: null,
           title: "WO-CORR-ACTIVE",
           customer_name: "Golf",
           ral_code: "RAL 9005",
+          paint_code: "P-9005",
           total_area_m2: null,
           total_quantity: 4,
           completed_quantity: 1,
@@ -1588,6 +1820,8 @@ describe("frontend state consistency", () => {
           is_historical_correction: false,
           work_order_kind: { value: "STANDARD", label: "Standardowe" },
           is_ocynk: false,
+          correction_reason_category: null,
+          correction_reason_note: null,
           process_status: { value: "PACKING", label: "Pakowanie" },
         },
       ],

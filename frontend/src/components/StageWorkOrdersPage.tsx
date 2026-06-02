@@ -27,7 +27,6 @@ interface AutomaticPaintConsumptionPreview {
   drawnPaintQuantityKg: number | null;
   finalCartonRemainingKg: number | null;
   consumedPaintQuantityKg: number | null;
-  remainingAfterSaveKg: number | null;
   errorMessage: string | null;
 }
 
@@ -258,7 +257,6 @@ export function StageWorkOrdersPage({
         drawnPaintQuantityKg: null,
         finalCartonRemainingKg: null,
         consumedPaintQuantityKg: null,
-        remainingAfterSaveKg: workOrder.planned_paint_quantity_kg,
         errorMessage: null,
       };
     }
@@ -269,7 +267,6 @@ export function StageWorkOrdersPage({
         drawnPaintQuantityKg: draft.cartonWeightKg * draft.cartonCount,
         finalCartonRemainingKg: null,
         consumedPaintQuantityKg: null,
-        remainingAfterSaveKg: null,
         errorMessage: "Pozostałość w ostatnim kartonie musi być liczbą nieujemną.",
       };
     }
@@ -279,7 +276,6 @@ export function StageWorkOrdersPage({
         drawnPaintQuantityKg: draft.cartonWeightKg * draft.cartonCount,
         finalCartonRemainingKg,
         consumedPaintQuantityKg: null,
-        remainingAfterSaveKg: null,
         errorMessage: "Pozostałość w ostatnim kartonie nie może przekraczać wagi kartonu.",
       };
     }
@@ -291,21 +287,7 @@ export function StageWorkOrdersPage({
         drawnPaintQuantityKg,
         finalCartonRemainingKg,
         consumedPaintQuantityKg: null,
-        remainingAfterSaveKg: null,
         errorMessage: "Zużycie farby musi być dodatnią liczbą.",
-      };
-    }
-
-    if (
-      typeof workOrder.planned_paint_quantity_kg === "number"
-      && consumedPaintQuantityKg > workOrder.planned_paint_quantity_kg
-    ) {
-      return {
-        drawnPaintQuantityKg,
-        finalCartonRemainingKg,
-        consumedPaintQuantityKg,
-        remainingAfterSaveKg: null,
-        errorMessage: "Zużycie przekracza planowaną ilość farby przypisaną do zlecenia.",
       };
     }
 
@@ -313,10 +295,6 @@ export function StageWorkOrdersPage({
       drawnPaintQuantityKg,
       finalCartonRemainingKg,
       consumedPaintQuantityKg,
-      remainingAfterSaveKg:
-        typeof workOrder.planned_paint_quantity_kg === "number"
-          ? workOrder.planned_paint_quantity_kg - consumedPaintQuantityKg
-          : null,
       errorMessage: null,
     };
   }
@@ -447,13 +425,11 @@ export function StageWorkOrdersPage({
           const isActionButtonEnabled = isActionEnabled(workOrder);
           const showAutomaticPaintConsumption =
             isAutomaticProductionView &&
-            !workOrder.is_correction &&
             ((workOrder.stage_status.stage === "HANGING" && status === "IN_PROGRESS")
               || (workOrder.stage_status.stage === "PRODUCTION" && status !== "DONE"));
           const automaticPaintDraft = paintConsumptionDrafts[workOrder.id] ?? EMPTY_AUTOMATIC_PAINT_DRAFT;
           const automaticPaintPreview = buildAutomaticPaintConsumptionPreview(workOrder, automaticPaintDraft);
-          const hasAutomaticPaintConfiguration =
-            workOrder.paint_code !== null && workOrder.planned_paint_quantity_kg !== null;
+          const hasAutomaticPaintConfiguration = workOrder.paint_code !== null;
           const rowKey = `${workOrder.id}-${workOrder.batch_id ?? workOrder.id}-${stage}`;
           const countedDraft = countedQuantities[workOrder.id] ?? "";
           const correctionContext = correctionContextByOrderId[workOrder.id];
@@ -563,9 +539,8 @@ export function StageWorkOrdersPage({
                       <>
                         <div className="space-y-1 text-sm">
                           <p className="text-steel">Kod farby: {workOrder.paint_code ?? "-"}</p>
-                          <p className="text-steel">Plan farby: {formatPaintKg(workOrder.planned_paint_quantity_kg)}</p>
+                          <p className="text-steel">Stan przy przyjęciu: {formatPaintKg(workOrder.paint_stock_snapshot_quantity_kg ?? null)}</p>
                           <p className="text-steel">Zużyto: {formatPaintKg(workOrder.consumed_paint_quantity_kg)}</p>
-                          <p className="text-steel">Pozostało: {formatPaintKg(workOrder.remaining_paint_quantity_kg)}</p>
                         </div>
 
                         {showAutomaticPaintConsumption ? (
@@ -678,12 +653,11 @@ export function StageWorkOrdersPage({
                                 <p className="text-steel">Pobrano z kartonów: {formatPaintKg(automaticPaintPreview.drawnPaintQuantityKg)}</p>
                                 <p className="text-steel">Pozostało w ostatnim kartonie: {formatPaintKg(automaticPaintPreview.finalCartonRemainingKg)}</p>
                                 <p className="text-steel">Zużycie do zapisu: {formatPaintKg(automaticPaintPreview.consumedPaintQuantityKg)}</p>
-                                <p className="text-steel">Pozostało po zapisie: {formatPaintKg(automaticPaintPreview.remainingAfterSaveKg)}</p>
                               </div>
                             </div>
 
                             {!hasAutomaticPaintConfiguration ? (
-                              <p className="text-sm text-amber-800">Brak kodu farby lub planowanej ilości farby w zleceniu.</p>
+                              <p className="text-sm text-amber-800">Brak kodu farby w zleceniu.</p>
                             ) : automaticPaintPreview.errorMessage ? (
                               <p className="text-sm text-amber-800">{automaticPaintPreview.errorMessage}</p>
                             ) : null}

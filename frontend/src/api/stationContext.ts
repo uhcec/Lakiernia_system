@@ -17,6 +17,7 @@ const routeStationMappings: Array<[RegExp, StationId]> = [
   [/^\/produkcja-reczna(?:\/|$)/, "MANUAL_PRODUCTION"],
   [/^\/produkcja-decoral(?:\/|$)/, "DECORAL_PRODUCTION"],
   [/^\/pakowanie(?:\/|$)/, "PACKING"],
+  [/^\/farby(?:\/|$)/, "OFFICE"],
   [/^\/zlecenia(?:\/|$)/, "OFFICE"],
 ];
 

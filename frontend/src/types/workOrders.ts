@@ -84,6 +84,7 @@ export interface WorkOrderRelationSummary {
   customer_name: string;
   ral_code: string;
   paint_code: string | null;
+  paint_stock_snapshot_quantity_kg?: number | null;
   total_area_m2: number | null;
   total_quantity: number;
   completed_quantity: number;
@@ -120,9 +121,8 @@ export interface WorkOrder {
   ral_code: string;
   paint_code: string | null;
   paint_producer: string;
-  planned_paint_quantity_kg: number | null;
+  paint_stock_snapshot_quantity_kg?: number | null;
   consumed_paint_quantity_kg: number;
-  remaining_paint_quantity_kg: number | null;
   status: WorkOrderStatus;
   process_status: ProcessStatus;
   queue_blocked_by_resource: string | null;
@@ -168,9 +168,8 @@ export interface CreateWorkOrderRequest {
   total_quantity?: number;
   customer_name: string;
   ral_code: string;
-  paint_code?: string;
+  paint_code: string;
   paint_producer: string;
-  planned_paint_quantity_kg?: number;
   received_date: string;
   planned_pickup_date?: string;
   total_area_m2?: number;

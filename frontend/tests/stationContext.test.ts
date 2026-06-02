@@ -17,6 +17,7 @@ describe("station context", () => {
   it.each([
     ["/zlecenia", "OFFICE"],
     ["/zlecenia/nowe", "OFFICE"],
+    ["/farby", "OFFICE"],
     ["/kierownik", "MANAGER"],
     ["/przygotowanie", "SURFACE_PREPARATION"],
     ["/zawieszanie", "HANGING"],

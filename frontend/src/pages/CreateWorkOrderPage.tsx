@@ -1,6 +1,7 @@
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
+import { lookupPaintStock } from "../api/paintsApi";
 import { createWorkOrder } from "../api/workOrdersApi";
 import type { CoatingTypeValue, WorkOrderKindValue } from "../types/workOrders";
 
@@ -15,7 +16,6 @@ interface FormState {
   ral_code: string;
   paint_code: string;
   paint_producer: string;
-  planned_paint_quantity_kg: string;
   received_date: string;
   planned_pickup_date: string;
   total_area_m2: string;
@@ -38,7 +38,6 @@ const initialFormState: FormState = {
   ral_code: "",
   paint_code: "",
   paint_producer: "",
-  planned_paint_quantity_kg: "",
   received_date: "",
   planned_pickup_date: "",
   total_area_m2: "",
@@ -118,13 +117,133 @@ function categoryQuantityHintClasses(tone: ReturnType<typeof getCategoryQuantity
   }
 }
 
+type PaintAvailabilityState = {
+  text: string;
+  tone: "neutral" | "success" | "warning";
+  currentQuantityKg: number | null;
+};
+
+function getPaintAvailabilityHint(
+  formState: FormState,
+  paintLookupState: { currentQuantityKg: number | null; existsInInventory: boolean; isLoading: boolean; errorMessage: string | null },
+): PaintAvailabilityState {
+  const ralCode = formState.ral_code.trim();
+  const paintProducer = formState.paint_producer.trim();
+  const paintCode = formState.paint_code.trim();
+
+  if (!ralCode || !paintProducer || !paintCode) {
+    return {
+      text: "Farba: wpisz RAL, producenta i kod, aby zobaczyć aktualny stan.",
+      tone: "neutral",
+      currentQuantityKg: null,
+    };
+  }
+
+  if (paintLookupState.isLoading) {
+    return {
+      text: "Farba: sprawdzanie aktualnego stanu magazynowego...",
+      tone: "neutral",
+      currentQuantityKg: null,
+    };
+  }
+
+  if (paintLookupState.errorMessage) {
+    return {
+      text: `Farba: ${paintLookupState.errorMessage}`,
+      tone: "warning",
+      currentQuantityKg: null,
+    };
+  }
+
+  if (paintLookupState.currentQuantityKg === null) {
+    return {
+      text: "Farba: nie udało się ustalić aktualnego stanu.",
+      tone: "warning",
+      currentQuantityKg: null,
+    };
+  }
+
+  if (!paintLookupState.existsInInventory) {
+    return {
+      text: "Farba: brak kartoteki w magazynie. Przyjęcie zlecenia zapisze snapshot 0 kg, dopóki biuro nie doda dostawy lub korekty.",
+      tone: "warning",
+      currentQuantityKg: paintLookupState.currentQuantityKg,
+    };
+  }
+
+  return {
+    text: `Farba: aktualny stan ${paintLookupState.currentQuantityKg} kg. Ta wartość zostanie zapisana na zleceniu jako snapshot historyczny bez rezerwacji.`,
+    tone: "success",
+    currentQuantityKg: paintLookupState.currentQuantityKg,
+  };
+}
+
 export function CreateWorkOrderPage() {
   const navigate = useNavigate();
   const [formState, setFormState] = useState<FormState>(initialFormState);
   const [validationError, setValidationError] = useState<string | null>(null);
   const [apiError, setApiError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [paintLookupState, setPaintLookupState] = useState<{
+    currentQuantityKg: number | null;
+    existsInInventory: boolean;
+    isLoading: boolean;
+    errorMessage: string | null;
+  }>({
+    currentQuantityKg: null,
+    existsInInventory: false,
+    isLoading: false,
+    errorMessage: null,
+  });
   const categoryQuantityHint = getCategoryQuantityHint(formState);
+  const paintAvailabilityHint = getPaintAvailabilityHint(formState, paintLookupState);
+
+  useEffect(() => {
+    const ralCode = formState.ral_code.trim();
+    const paintProducer = formState.paint_producer.trim();
+    const paintCode = formState.paint_code.trim();
+
+    if (!ralCode || !paintProducer || !paintCode) {
+      setPaintLookupState({
+        currentQuantityKg: null,
+        existsInInventory: false,
+        isLoading: false,
+        errorMessage: null,
+      });
+      return;
+    }
+
+    let isActive = true;
+    setPaintLookupState((current) => ({ ...current, isLoading: true, errorMessage: null }));
+
+    lookupPaintStock({ ralCode, paintProducer, paintCode })
+      .then((lookup) => {
+        if (!isActive) {
+          return;
+        }
+        setPaintLookupState({
+          currentQuantityKg: lookup.current_quantity_kg,
+          existsInInventory: lookup.exists_in_inventory,
+          isLoading: false,
+          errorMessage: null,
+        });
+      })
+      .catch((error) => {
+        if (!isActive) {
+          return;
+        }
+        setPaintLookupState({
+          currentQuantityKg: null,
+          existsInInventory: false,
+          isLoading: false,
+          errorMessage: error instanceof Error ? error.message : "Nie udało się pobrać stanu farby",
+        });
+      });
+
+    return () => {
+      isActive = false;
+    };
+  }, [formState.paint_code, formState.paint_producer, formState.ral_code]);
 
   function updateField(fieldName: keyof FormState, value: string) {
     setFormState((current) => ({ ...current, [fieldName]: value }));
@@ -224,12 +343,6 @@ export function CreateWorkOrderPage() {
       return;
     }
 
-    const plannedPaintQuantityKg = parseOptionalPositiveNumber(formState.planned_paint_quantity_kg);
-    if (Number.isNaN(plannedPaintQuantityKg) || plannedPaintQuantityKg === undefined) {
-      setValidationError("Ilość farby [kg] musi być dodatnią liczbą");
-      return;
-    }
-
     setValidationError(null);
     setApiError(null);
     setIsSubmitting(true);
@@ -246,7 +359,6 @@ export function CreateWorkOrderPage() {
         ral_code: trimmedRalCode,
         paint_code: trimmedPaintCode,
         paint_producer: trimmedPaintProducer,
-        planned_paint_quantity_kg: plannedPaintQuantityKg,
         received_date: formState.received_date,
         planned_pickup_date: formState.planned_pickup_date || undefined,
         total_area_m2: totalArea,
@@ -369,18 +481,9 @@ export function CreateWorkOrderPage() {
               />
             </label>
 
-            <label className="flex flex-col gap-2">
-              <span className="text-sm font-medium text-ink">Ilość farby [kg]</span>
-              <input
-                type="number"
-                min="0"
-                step="0.01"
-                value={formState.planned_paint_quantity_kg}
-                onChange={(event) => updateField("planned_paint_quantity_kg", event.target.value)}
-                className="rounded-2xl border border-line bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-accent"
-                placeholder="np. 18.5"
-              />
-            </label>
+            <div className={["rounded-2xl border px-4 py-3 text-sm md:col-span-2", categoryQuantityHintClasses(paintAvailabilityHint.tone)].join(" ")}>
+              {paintAvailabilityHint.text}
+            </div>
 
             <label className="flex flex-col gap-2">
               <span className="text-sm font-medium text-ink">Data przyjęcia</span>
