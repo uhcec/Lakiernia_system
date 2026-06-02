@@ -148,11 +148,11 @@ Still open:
 
 Confirmed permission direction:
 
-- `OFFICE`: individual login; create/update intake, enter external work-order number, enter/select paint stock state once inventory exists, view discrepancies, manage attachments, mark completed order as issued/released, generate WZ when implemented
+- `OFFICE`: individual login; create/update intake, enter external work-order number, enter paint identity and planned paint allocation on the work order, later enter/select stock state once a shared inventory exists, view discrepancies, manage attachments, mark completed order as issued/released, generate WZ when implemented
 - `MANAGER`: assign production type, queue/reorder, view global queue and discrepancies, view paint/inventory warnings, view manager-only statistics
 - `SURFACE_PREPARATION`: start surface prep, enter counted quantity, confirm quantity discrepancy, finish surface prep after counted quantity exists
 - `HANGING`: start/finish hanging
-- `AUTOMATIC_PRODUCTION`: enter paint consumption once paint inventory exists; no manual start/finish for automatic production unless separately decided
+- `AUTOMATIC_PRODUCTION`: enter paint consumption in the current per-work-order allocation slice; no manual start/finish for automatic production unless separately decided
 - `MANUAL_PRODUCTION`: start/finish manual production
 - `PACKING`: enter counted/OK/correction quantities, profile/accessory correction split, correction reason/category, complete packing
 - `DECORAL_PRODUCTION`: start/finish Decoral production
@@ -169,12 +169,12 @@ Confirmed decisions from `docs/FACTORY_USAGE_NOTES.md`:
 - Quantity discrepancies should be recorded and confirmed at surface preparation, but should not block work orders for now. Surface-preparation finish requires counted quantity; start does not.
 - `Przemalowanka` is a standalone customer work order that skips surface preparation; `Ocynk` is a strong station-visible type/marker combinable with RAL or Decoral.
 - Office completed views support an issued/released marker for READY orders, separate from production READY state. The current station-identity layer restricts release marking to `OFFICE`; future individual logins still need a separate auth design.
-- Paint inventory/consumption needs station permission decisions. Intake paint-stock entry is needed, and automatic production is confirmed as an action-capable station for paint-consumption entry.
+- Paint first slice now has station permission decisions: office enters paint identity/planned kg on the work order, and `AUTOMATIC_PRODUCTION` records actual paint consumption for standard automatic work. Future shared inventory and stock-receipt actions still need separate permission design.
 - Quality-control production document generation should use the factory-provided template and may need audit/attachment rules depending on whether generated copies are persisted.
 
 Track these decisions in `docs/WORKFLOW_VALIDATION_CHECKLIST.md` before changing workflow semantics.
 
-These decisions unblock station permission design. Automatic-flow resource changes, backend station permission enforcement, manager warnings for currently modeled exclusive resources, and completed-order release status were implemented on 2026-05-30; discrepancy recording, new work types, paint inventory, and quality-document generation still need focused implementation design before code changes.
+These decisions unblock station permission design. Automatic-flow resource changes, backend station permission enforcement, manager warnings for currently modeled exclusive resources, completed-order release status, and the first paint-allocation/consumption slice are implemented. Shared inventory, login/role enforcement, and quality-document generation still need further design.
 
 ## Implementation Plan
 

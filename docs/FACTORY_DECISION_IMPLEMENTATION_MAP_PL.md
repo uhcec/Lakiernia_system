@@ -102,25 +102,28 @@ Ryzyko:
 
 Obecnie:
 
-- Zlecenie ma producenta farby i RAL.
-- Nie ma modelu stanu magazynowego ani ruchow magazynowych.
-- Automat ma w przyszlosci wpisywac zuzycie farby.
+- Zlecenie ma producenta farby, RAL, kod farby i planowana ilosc farby [kg] zapisana bezposrednio na zleceniu.
+- Nadal nie ma wspolnego modelu stanu magazynowego ani ruchow magazynowych.
+- Automat wpisuje zuzycie farby bezposrednio na zleceniu.
+- UI automatu uzywa modelu kartonow `20 kg` / `25 kg` i pozostalosci w ostatnim kartonie, a backend zapisuje netto zuzyte kg.
 - Potwierdzono kg jako jednostke.
 - Stan ma byc laczny dla producenta + RAL/koloru, nie per batch magazynowy.
 - Przyjecie farby powinno zbierac producenta, RAL/kolor, ilosc kg, dostawce i prawdopodobnie partie jako metadane przyjecia; bez ceny, uwag i recznej daty.
 - System ma wykrywac i zglaszac za mala ilosc farby.
 - Zapotrzebowanie: ponizej 70 m2 -> `area_m2 / 4`; powyzej 70 m2 -> `area_m2 / 6`.
 - Odpowiedz fabryki mowi, ze farba ma byc zdejmowana ze stanu po wpisaniu zlecenia wedlug zapotrzebowania.
-- Zuzycie wpisuje recznie produkcja automatyczna, takze dla poprawek automatycznych.
-- Pakowania automatycznego nie powinno dac sie zakonczyc bez wpisanego zuzycia farby.
+- Zuzycie wpisuje recznie produkcja automatyczna.
+- Pakowania automatycznego standardowego nie powinno dac sie zakonczyc bez wpisanego zuzycia farby.
+- Automatyczne poprawki nie maja jeszcze wlasnej alokacji farby i nie sa objete obecnym hard-blockiem.
 
-Minimum nadal potrzebne do implementacji:
+Minimum nadal potrzebne do pelnego modulu magazynu:
 
 - Czy ruch po wpisaniu zlecenia jest twardym zdjeciem ze stanu czy rezerwacja, oraz jak rozliczamy go z pozniejszym faktycznym zuzyciem wpisanym na automacie.
 - Czy brak farby jest twarda blokada, czy ostrzezenie wymagajace obejscia.
 - Jak traktowac dokladnie 70 m2.
 - Czy partia ma byc tylko metadana przyjecia, czy ma byc wyszukiwalna/raportowana mimo braku stocku per batch.
 - Kto moze dodawac stan i kto moze korygowac pomylki magazynowe.
+- Jak automatyczne poprawki maja dostawac i rozliczac farbe.
 
 Prawdopodobny model, jesli odpowiedzi beda kompletne:
 

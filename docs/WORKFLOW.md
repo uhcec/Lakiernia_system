@@ -31,12 +31,12 @@ Office intake should support operational and traceability fields needed later by
 Confirmed needs:
 - client-facing/external work-order number (`external_order_number`) is captured separately from the internal system work-order number
 - `external_order_number` is optional, not unique, and duplicate values should be allowed without warning or blocking
-- paint identity and paint stock state should be captured or selected at intake before planning/production
-- paint stock data must not be free-floating display text only; it needs a future inventory model so production consumption can be audited and deducted safely
+- paint identity and a paint allocation or stock reference should be captured at intake before planning/production
+- the current first slice stores paint identity and planned paint quantity directly on the work order, but a future shared inventory model is still needed if stock receipts and deductions are meant to be global and auditable
 
 Open implementation design:
-- whether paint stock is stored as a snapshot on the work order, a link to an inventory batch/item, or both
-- how to handle intake when the required paint exists physically but is not yet represented in the inventory module
+- whether the current per-work-order paint snapshot should remain the source of truth or later link to a shared inventory batch/item model
+- how to handle intake when the required paint exists physically but is not yet represented in the future inventory module
 
 ## Stage Model
 
@@ -46,11 +46,11 @@ Configured stages:
 
 Actionable stage sequence depends on production type:
 - `MANUAL`: all configured stages are actionable
-- `AUTOMATIC`: `PRODUCTION` does not use manual start/finish stage actions, but the automatic production station is allowed to record paint consumption once paint inventory exists
+- `AUTOMATIC`: `PRODUCTION` does not use manual start/finish stage actions, but the automatic production station is allowed to record paint consumption through the current paint-allocation slice
 
 Automatic constraints:
 - Cannot start/finish `PRODUCTION` directly for `AUTOMATIC`
-- Automatic production is no longer display-only: it should allow paint-consumption entry as a separate audited inventory action.
+- Automatic production is no longer display-only: it should allow paint-consumption entry as a separate audited paint-consumption action.
 - `HANGING` start transitions automatic flow forward
 - The automatic production panel must show upcoming and active automatic flow from the moment a work order is ready for `HANGING`, including `HANGING` not-started/in-progress rows, so the automatic operator sees the day's workflow before the line is occupied.
 - The packing panel must show active automatic work while `HANGING` is still in progress, but as a read-only `HANGING` row. Packing completion remains blocked until `HANGING` is `DONE`.
@@ -269,7 +269,7 @@ Current enforcement:
 - Wrong-station mutating requests return `403` for current office, manager, process, packing, and completed-release actions.
 - `SYSTEM` and `UNKNOWN` remain compatibility station identities for legacy/system paths.
 - Station-origin links to work-order details preserve the source station identity. Detail pages reached from production stations are read-only for office/manager mutations while keeping drawings/attachments downloadable.
-- Future paint-consumption actions must define their own allowed station rules when the paint inventory model is added.
+- Current automatic paint-consumption action is restricted to `AUTOMATIC_PRODUCTION`; future shared inventory or stock-receipt actions still need their own allowed-station rules.
 - Future auth/role work must add users, login sessions, role checks, and audit actor fields without weakening station-context checks.
 
 ## Quantity Discrepancy Visibility
@@ -339,6 +339,7 @@ The first implemented paint slice uses per-work-order paint allocation instead o
 Confirmed non-conflicting needs:
 - paint stock unit is kilograms
 - office intake stores `paint_producer`, `paint_code`, `ral_code`, and `planned_paint_quantity_kg` on the work order
+- the current office create UI requires `paint_code` and `planned_paint_quantity_kg`; API schemas remain nullable for compatibility with staged rollout
 - automatic production records actual paint consumption manually; manual production is not currently confirmed to record paint consumption
 - automatic production enters paint usage in carton workflow terms: the operator chooses carton size (`20 kg` or `25 kg`), adds how many cartons were taken, and enters how much remained in the final carton
 - the carton workflow is converted into net consumed paint for the work order as `taken cartons * carton size - remaining paint in the final carton`
@@ -346,6 +347,7 @@ Confirmed non-conflicting needs:
 - automatic production may start entering paint consumption once `HANGING` has started; it does not need to wait for `HANGING` to finish
 - packing completion for automatic work should be blocked until required paint consumption has been entered, so departments remind each other to complete the required production data
 - recorded consumption reduces the remaining paint quantity assigned to that work order through an audited system action
+- work-order and stage read models expose planned, consumed, and remaining paint quantities for the current slice
 - automatic production is allowed to enter paint used/consumed; it is no longer a display-only panel
 
 Open implementation design:

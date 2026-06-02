@@ -30,7 +30,7 @@ Obecne glowne wejscia w aplikacji:
 
 Obecnie obslugiwane zadania:
 
-- Dodanie nowego zlecenia z klientem, technologia, RAL, producentem farby, data przyjecia, planowanym odbiorem, iloscia calkowita, powierzchnia, profile/akcesoria, `Przemalowanka`, `Ocynk`, numerem zewnetrznym i notatkami.
+- Dodanie nowego zlecenia z klientem, technologia, RAL, producentem farby, kodem farby, planowana iloscia farby [kg], data przyjecia, planowanym odbiorem, iloscia calkowita, powierzchnia, profile/akcesoria, `Przemalowanka`, `Ocynk`, numerem zewnetrznym i notatkami.
 - Oznaczenie zlecenia jako niekompletne na przyjeciu.
 - Przeglad zlecen w praktycznych grupach: `Zlecenia`, `Na produkcji`, `Gotowe`.
 - Wyszukiwanie po numerze zewnetrznym.
@@ -47,7 +47,7 @@ Mocne strony:
 Ryzyka i pytania:
 
 - Numer zewnetrzny jest potwierdzony jako opcjonalny, nieunikalny i dopuszczajacy duplikaty.
-- Przyjecie zlecenia nie wymaga jeszcze danych magazynu farby, bo model magazynu/rezerwacji nie jest zaimplementowany.
+- Przyjecie zlecenia wymaga juz kodu farby i planowanej ilosci farby [kg] w pierwszym slicie farbowym, ale nadal nie ma modelu magazynu/rezerwacji i wykrywania brakow.
 - Dokument kontroli jakosci nie istnieje; wiemy, ze ma byc generowany przez biuro przed produkcja z szablonu Excel, ale brakuje pliku i mapowania komorek.
 - Wydanie zlecenia jest docelowo akcja biura i powinno generowac WZ; obecny system ma tylko marker wydania.
 
@@ -129,7 +129,7 @@ Mocne strony:
 
 Ryzyka i pytania:
 
-- Tablet automatyczny ma miec wpisywanie zuzycia farby, a pakowania automatycznego nie powinno dac sie zakonczyc bez wpisanego zuzycia. Nadal brakuje modelu magazynu i decyzji o rezerwacji/rozliczeniu stanu.
+- Tablet automatyczny ma juz wpisywanie zuzycia farby i blokuje zakonczenie standardowego pakowania automatycznego bez wpisanego zuzycia. Nadal brakuje modelu magazynu, decyzji o rezerwacji/rozliczeniu stanu i obslugi automatycznych poprawek.
 - Nie jest zdecydowane, czy automat kiedys potrzebuje wlasnych start/finish produkcji; obecnie nie.
 
 ## Produkcja reczna

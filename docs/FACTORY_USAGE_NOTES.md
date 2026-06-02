@@ -22,7 +22,7 @@ Use `docs/WORKFLOW_VALIDATION_CHECKLIST.md` as the active checklist before chang
 	- `Na produkcji`: all work orders currently on the factory floor.
 	- `Gotowe`: completed work orders, with the ability for office to mark whether the READY order has been issued/released.
 - Needs an additional external client/order number field separate from the internal system work-order number. Confirmed on 2026-06-01: this field is optional, not unique, may be empty, and duplicate values should be allowed.
-- Should require paint stock/state information when entering a work order, once the paint inventory model exists. Paint shortage should be detected using the order surface-area formula and inventory state.
+- Current first paint slice requires paint identity and planned paint quantity on the work order at intake. Shared stock-state selection and shortage detection against a global inventory remain future work.
 - Should see whether surface-preparation counted quantity differs from the declared client quantity.
 - Office and manager should generally have the same broad access to process information.
 - Office generates the Excel-based production quality-control document before production once the factory template is provided.
@@ -72,9 +72,9 @@ Use `docs/WORKFLOW_VALIDATION_CHECKLIST.md` as the active checklist before chang
 - Automatic production work orders appear here.
 - Confirmed update from 2026-05-30: the automatic production tablet is no longer display-only.
 - Confirmed update from 2026-05-30: this tablet should also show the automatic hanging queue from the moment work is ready for hanging, so the automatic operator can see the day's workflow before the line is physically occupied.
-- Automatic production should be able to enter paint consumption so stock is deducted from inventory once the paint inventory model exists.
-- Automatic production is the confirmed production station for manual paint-consumption entry. Automatic correction work should record paint consumption as well.
-- Packing should not be completable for automatic work until paint consumption has been entered.
+- Automatic production can now enter paint consumption against the work-order paint allocation. Shared stock deduction remains future inventory work.
+- Automatic production is the confirmed production station for manual paint-consumption entry. Automatic correction work is still expected to need paint consumption later, but the current first slice does not yet allocate paint to correction orders.
+- Packing should not be completable for standard automatic work until paint consumption has been entered. Automatic correction work remains a later extension.
 - Automatic production still does not need manual start/finish clicks for the automatic `PRODUCTION` stage unless that is separately decided.
 - Only one work order can be in automatic production at a time.
 - Packing later handles completion of the automatic path.
@@ -141,7 +141,7 @@ Use `docs/WORKFLOW_VALIDATION_CHECKLIST.md` as the active checklist before chang
 - Confirmed station permissions: station identity should remain audited, invalid station actions should be impossible in the UI, and current backend enforcement rejects wrong-station mutating requests for office, manager, process, packing, and release-marker actions.
 - Confirmed automatic overlap: hanging can start the next automatic order after the previous hanging stage is finished, while preserving one active work order per physical station/resource.
 - Quality-control production document generation: the factory has a ready Excel template to be filled by the program. Office generates it before production. Confirmed system-filled fields so far are internal work-order number, paint, and company/customer; the real template still needs to be provided/checked before implementation.
-- Paint inventory: unit is kg; stock balance is aggregate per producer + RAL/color; receipt should include producer, RAL/color, kg amount, supplier, and likely batch/lot as receipt metadata, with no price, notes, or manual date. The system must detect/report insufficient paint. Requirement formula is below 70 m2: `area_m2 / 4`; above 70 m2: `area_m2 / 6`. The factory answer says paint should be taken from stock after the work order is entered. Open details: exactly 70 m2, warning versus hard block, and whether order-entry stock movement is a hard deduction or reservation reconciled with later automatic-production consumption.
+- Paint inventory: the first implemented slice stores paint producer, paint code, RAL code, and planned paint quantity directly on the work order, then records actual automatic-production consumption against that per-order allocation. There is still no shared stock ledger, receipt flow, shortage calculation, or reservation-vs-deduction policy. Open details for the future inventory module: exactly 70 m2, warning versus hard block, whether order-entry stock movement is a hard deduction or reservation reconciled with later automatic-production consumption, receipt/batch metadata, and how automatic corrections should receive paint allocation.
 - Completed-order issue/release marker: completed work orders are markable as issued/released by office only, separate from production READY state. Future WZ document generation is desired but needs template/design.
 - Manager queue history: completed/READY work orders should trail out of the active planning range when manager planning or queue updates need active slots. If immutable original priority evidence is needed later, add a dedicated history/audit field instead of overloading live `queue_position`.
 - Packing exclusivity: user wants to clarify with a factory friend whether packing can have only one physically started work order at a time, and how that applies to automatic work that is visible in packing while hanging/automatic flow is still active.

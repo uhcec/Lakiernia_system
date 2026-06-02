@@ -177,7 +177,7 @@ Current repository behavior/evidence:
 
 Implementation decision needed:
 
-- Add explicit authorization for future paint-consumption actions when the paint inventory/consumption model is designed.
+- Extend authorization design for future shared-inventory actions such as stock receipt, stock correction, or broader paint-ledger operations.
 - Design users, login/session handling, roles, manager-only statistics checks, and audit actor fields.
 - Decide whether production station login identifies only the station, the operator, or both.
 
@@ -187,7 +187,7 @@ Expected permission direction to validate:
 - `MANAGER`: assign production type, queue/reorder, view global queue and manager-only statistics
 - `SURFACE_PREPARATION`: enter counted quantity, start/finish surface prep
 - `HANGING`: start/finish hanging
-- `AUTOMATIC_PRODUCTION`: enter paint consumption once paint inventory exists; no manual start/finish for automatic production unless separately decided
+- `AUTOMATIC_PRODUCTION`: enter paint consumption in the current per-work-order allocation slice; no manual start/finish for automatic production unless separately decided
 - `MANUAL_PRODUCTION`: start/finish manual production
 - `PACKING`: enter counted/OK/correction quantities, enter profile/accessory correction split, complete packing
 - `DECORAL_PRODUCTION`: start/finish Decoral production
@@ -386,11 +386,11 @@ Implementation decision needed:
 
 ### 11. Paint Inventory And Consumption
 
-Status: `CONFIRMED with implementation design and edge-case questions needed`
+Status: `PARTIALLY IMPLEMENTED; per-work-order allocation and automatic consumption are live, shared inventory policy is still open`
 
 Confirmed direction from 2026-05-30:
 
-- Work-order intake should force paint stock/state entry once inventory exists.
+- Work-order intake should force paint identity plus the current paint allocation/stock-state fields required by the implemented slice, and later any shared inventory selection once that module exists.
 - Paint usage should be recorded so stock can be deducted.
 - Automatic production is no longer display-only; the first confirmed station input is paint used/consumed, with room for additional fields after factory clarification.
 - This does not automatically mean automatic production gains manual start/finish stage actions.
@@ -401,16 +401,25 @@ Confirmed direction from 2026-05-30:
 - Estimated requirement formula: below 70 m2 -> `area_m2 / 4`; above 70 m2 -> `area_m2 / 6`.
 - The factory answer says paint should be taken from stock after the work order is entered, based on the order requirement.
 - Automatic production enters actual paint consumption manually.
-- Automatic correction work should record paint consumption like other automatic work.
+- Automatic correction work should eventually record paint consumption like other automatic work.
 - Packing should not be completable for automatic work until paint consumption is entered.
 
-Implementation decision needed:
+Current repository behavior/evidence:
 
 - First implementation slice confirmed on 2026-06-02: office stores producer, paint code, RAL code, and planned paint quantity in kg directly on the work order; automatic production records actual consumed kg against that work-order allocation; no manual stock corrections are included.
+- The current office create form requires `paint_code` and `planned_paint_quantity_kg`, while backend schemas remain nullable for compatibility.
+- Automatic-production paint consumption is recordable only by `AUTOMATIC_PRODUCTION`, once `HANGING` has started.
+- The frontend records paint usage through `20 kg` / `25 kg` carton selection plus remainder in the last carton; backend stores the resulting net consumed kg.
+- Standard automatic work is blocked in packing until `consumed_paint_quantity_kg > 0`.
+- Automatic correction orders copy paint identity from the parent but still have no paint allocation; they are excluded from the current hard block.
+
+Remaining decisions:
+
 - Define whether a later inventory module should replace or extend this per-work-order allocation model.
 - Clarify whether insufficient paint should be a blocking error or a warning if a shared stock module is added later.
 - Clarify how exactly 70 m2 is handled by the formula if automatic estimation is added.
 - Clarify whether batch/lot is only receipt metadata or searchable/reportable data despite aggregate stock balance.
+- Decide how automatic correction orders should receive and settle paint allocation in a later slice.
 
 ### 12. External Work-Order Number
 
