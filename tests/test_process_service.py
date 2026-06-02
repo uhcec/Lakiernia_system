@@ -35,8 +35,10 @@ def build_work_order_create(
         total_quantity=total_quantity,
         customer_name="ACME",
         ral_code="RAL 7016",
+        paint_code="P-7016",
         paint_producer="AkzoNobel",
         received_date="2026-05-25",
+        total_area_m2=24.0,
         profiles_to_count=True,
         accessories_to_count=True,
     )
@@ -426,6 +428,34 @@ def test_automatic_hanging_finish_marks_hanging_done(db_session: Session) -> Non
 
     assert response.stage_status.stage == ProcessStage.HANGING
     assert response.stage_status.status.value == StageStatus.DONE
+
+
+def test_automatic_hanging_finish_recovers_from_stale_automatic_line_lock(db_session: Session) -> None:
+    work_order_service, process_service, manager_service, _, process_repository = build_services(db_session)
+
+    automatic_order = create_ral_work_order(work_order_service, "Automatic stale line lock")
+    stale_owner = create_ral_work_order(work_order_service, "Stale line lock owner")
+    manager_service.assign_plan(
+        automatic_order.id,
+        WorkOrderPlanAssignRequest(production_type=ProductionType.AUTOMATIC, queue_position=1),
+    )
+    manager_service.assign_plan(
+        stale_owner.id,
+        WorkOrderPlanAssignRequest(production_type=ProductionType.AUTOMATIC, queue_position=2),
+    )
+    process_service.transition_stage(automatic_order.id, ProcessStage.SURFACE_PREPARATION, StageStatus.IN_PROGRESS)
+    process_service.transition_stage(automatic_order.id, ProcessStage.SURFACE_PREPARATION, StageStatus.DONE)
+    process_service.transition_stage(automatic_order.id, ProcessStage.HANGING, StageStatus.IN_PROGRESS)
+
+    process_repository.acquire_resource_lock("AUTOMATIC_LINE", stale_owner.id)
+
+    response = process_service.finish_stage(automatic_order.id, ProcessStage.HANGING)
+    refreshed_lock = process_repository.get_resource_lock("AUTOMATIC_LINE")
+
+    assert response.stage_status.stage == ProcessStage.HANGING
+    assert response.stage_status.status.value == StageStatus.DONE
+    assert refreshed_lock is not None
+    assert refreshed_lock.work_order_id == automatic_order.id
 
 
 def test_decoral_path_goes_after_packing_for_manual_orders(db_session: Session) -> None:

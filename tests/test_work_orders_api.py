@@ -12,6 +12,7 @@ def build_create_payload(**overrides: object) -> dict:
         "paint_code": "P-7016",
         "paint_producer": "AkzoNobel",
         "received_date": "2026-05-25",
+        "total_area_m2": 24.0,
         "profiles_to_count": True,
         "accessories_to_count": True,
     }
@@ -195,6 +196,7 @@ def test_create_work_order(test_client: TestClient) -> None:
     assert body["paint_producer"] == "Tiger"
     assert body["paint_stock_snapshot_quantity_kg"] == 40.0
     assert body["consumed_paint_quantity_kg"] == 0
+    assert body["predicted_paint_quantity_kg"] == 11.0
     assert "planned_paint_quantity_kg" not in body
     assert "has_paint_shortage" not in body
     assert "paint_shortage_quantity_kg" not in body
@@ -248,6 +250,7 @@ def test_create_work_order_keeps_only_paint_snapshot_and_consumption_fields(test
     assert response.status_code == 201
     assert response.json()["paint_stock_snapshot_quantity_kg"] == 9.5
     assert response.json()["consumed_paint_quantity_kg"] == 0
+    assert response.json()["predicted_paint_quantity_kg"] == pytest.approx(6.0)
     assert "has_paint_shortage" not in response.json()
     assert "paint_shortage_quantity_kg" not in response.json()
     assert "remaining_paint_quantity_kg" not in response.json()
@@ -281,13 +284,40 @@ def test_create_work_order_with_missing_optional_fields(test_client: TestClient)
         test_client,
         title="Optional fields omitted",
         planned_pickup_date=None,
-        total_area_m2=None,
     )
 
     assert response.status_code == 201
     assert response.json()["external_order_number"] is None
     assert response.json()["planned_pickup_date"] is None
-    assert response.json()["total_area_m2"] is None
+    assert response.json()["total_area_m2"] == 24.0
+
+
+def test_create_work_order_rejects_missing_total_area(test_client: TestClient) -> None:
+    payload = build_create_payload()
+    payload.pop("total_area_m2")
+
+    response = test_client.post("/work-orders", json=payload)
+
+    assert response.status_code == 422
+    assert response.json()["detail"][0]["loc"] == ["body", "total_area_m2"]
+
+
+def test_create_work_order_predicts_paint_quantity_using_100_m2_threshold(test_client: TestClient) -> None:
+    below_threshold_response = create_work_order(
+        test_client,
+        title="Below threshold",
+        total_area_m2=96.0,
+    )
+    at_threshold_response = create_work_order(
+        test_client,
+        title="At threshold",
+        total_area_m2=100.0,
+    )
+
+    assert below_threshold_response.status_code == 201
+    assert below_threshold_response.json()["predicted_paint_quantity_kg"] == 24.0
+    assert at_threshold_response.status_code == 201
+    assert at_threshold_response.json()["predicted_paint_quantity_kg"] == 17.0
 
 
 def test_external_order_number_can_be_updated_and_cleared(test_client: TestClient) -> None:

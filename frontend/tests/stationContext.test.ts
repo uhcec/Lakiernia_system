@@ -119,8 +119,10 @@ function buildCreateWorkOrderRequest(): CreateWorkOrderRequest {
     total_quantity: 10,
     customer_name: "ACME",
     ral_code: "RAL 7016",
+    paint_code: "P-7016",
     paint_producer: "AkzoNobel",
     received_date: "2026-05-29",
+    total_area_m2: 24,
     profiles_to_count: true,
     accessories_to_count: true,
   };

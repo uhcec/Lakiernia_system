@@ -16,6 +16,7 @@ def build_create_payload(
         "paint_code": "P-7016",
         "paint_producer": "AkzoNobel",
         "received_date": "2026-05-25",
+        "total_area_m2": 24.0,
         "profiles_to_count": True,
         "accessories_to_count": True,
     }
@@ -426,6 +427,7 @@ def test_automatic_production_can_record_paint_consumption_after_hanging_start(t
         "status": {"value": "IN_PROGRESS", "label": "W trakcie"},
     }
     assert response.json()["paint_code"] == "P-7016"
+    assert response.json()["current_paint_stock_quantity_kg"] == 18.75
     assert response.json()["paint_stock_snapshot_quantity_kg"] == 30.0
     assert response.json()["consumed_paint_quantity_kg"] == 11.25
     assert "planned_paint_quantity_kg" not in response.json()
@@ -507,6 +509,7 @@ def test_automatic_correction_requires_and_records_paint_consumption(test_client
     )
 
     assert paint_response.status_code == 200
+    assert paint_response.json()["current_paint_stock_quantity_kg"] == 16.25
     assert paint_response.json()["paint_stock_snapshot_quantity_kg"] == 17.5
     assert paint_response.json()["consumed_paint_quantity_kg"] == 1.25
     assert finish_response.status_code == 200

@@ -1776,6 +1776,11 @@ class ProcessService:
             work_order,
             batch_quantity if batch_quantity is not None else current_active_quantity,
         )
+        current_paint_stock_quantity_kg = self.paint_service.lookup_current_stock(
+            ral_code=work_order.ral_code,
+            paint_producer=work_order.paint_producer,
+            paint_code=work_order.paint_code,
+        ).current_quantity_kg
 
         return ProcessStageWorkOrderRead(
             id=work_order.id,
@@ -1789,6 +1794,7 @@ class ProcessService:
             ral_code=work_order.ral_code,
             paint_code=work_order.paint_code,
             paint_producer=work_order.paint_producer,
+            current_paint_stock_quantity_kg=current_paint_stock_quantity_kg,
             paint_stock_snapshot_quantity_kg=work_order.paint_stock_snapshot_quantity_kg,
             consumed_paint_quantity_kg=work_order.consumed_paint_quantity_kg,
             total_area_m2=work_order.total_area_m2,
@@ -1923,13 +1929,47 @@ class ProcessService:
     def _acquire_stage_resource_locks(self, work_order: WorkOrder, stage: ProcessStage, target_status: StageStatus) -> None:
         resource_keys = self._get_stage_resource_keys(work_order, stage, target_status)
         for resource_key in resource_keys:
-            try:
-                self.repository.acquire_resource_lock(resource_key, work_order.id)
-            except ValueError as exc:
-                raise self._build_resource_conflict_error(resource_key) from exc
-            except IntegrityError as exc:
-                self.repository.rollback()
-                raise self._build_resource_conflict_error(resource_key) from exc
+            self._acquire_resource_lock_with_stale_recovery(resource_key, work_order)
+
+    def _acquire_resource_lock_with_stale_recovery(self, resource_key: str, work_order: WorkOrder) -> None:
+        try:
+            self.repository.acquire_resource_lock(resource_key, work_order.id)
+            return
+        except ValueError:
+            if not self._release_stale_resource_lock(resource_key):
+                raise self._build_resource_conflict_error(resource_key)
+        except IntegrityError:
+            self.repository.rollback()
+            if not self._release_stale_resource_lock(resource_key):
+                raise self._build_resource_conflict_error(resource_key)
+
+        try:
+            self.repository.acquire_resource_lock(resource_key, work_order.id)
+        except ValueError as exc:
+            raise self._build_resource_conflict_error(resource_key) from exc
+        except IntegrityError as exc:
+            self.repository.rollback()
+            raise self._build_resource_conflict_error(resource_key) from exc
+
+    def _release_stale_resource_lock(self, resource_key: str) -> bool:
+        existing_lock = self.repository.get_resource_lock(resource_key)
+        if existing_lock is None:
+            return False
+
+        lock_owner = self.repository.get_work_order_with_stage_states(existing_lock.work_order_id)
+        if lock_owner is None:
+            self.repository.release_resource_lock(resource_key, existing_lock.work_order_id)
+            return True
+
+        if resource_key == "HANGING" and not self._has_active_hanging_work(lock_owner):
+            self.repository.release_resource_lock(resource_key, existing_lock.work_order_id)
+            return True
+
+        if resource_key == "AUTOMATIC_LINE" and not self._occupies_automatic_line(lock_owner):
+            self.repository.release_resource_lock(resource_key, existing_lock.work_order_id)
+            return True
+
+        return False
 
     def _release_inactive_resource_locks(self, work_order: WorkOrder) -> None:
         for resource_lock in self.repository.list_resource_locks_for_work_order(work_order.id):

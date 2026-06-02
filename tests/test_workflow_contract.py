@@ -45,8 +45,10 @@ def build_work_order_create(
         total_quantity=total_quantity,
         customer_name="ACME",
         ral_code="RAL 7016",
+        paint_code="P-7016",
         paint_producer="AkzoNobel",
         received_date="2026-05-25",
+        total_area_m2=24.0,
         profiles_to_count=True,
         accessories_to_count=True,
     )

@@ -94,6 +94,9 @@ class ProcessRepository:
             self.session.delete(existing_lock)
             self.session.flush()
 
+    def get_resource_lock(self, resource_key: str) -> ProcessResourceLock | None:
+        return self.session.get(ProcessResourceLock, resource_key)
+
     def list_resource_locks_for_work_order(self, work_order_id: int) -> Sequence[ProcessResourceLock]:
         statement = select(ProcessResourceLock).where(ProcessResourceLock.work_order_id == work_order_id)
         return self.session.scalars(statement).all()

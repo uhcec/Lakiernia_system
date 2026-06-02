@@ -526,10 +526,15 @@ export function WorkOrderDetailPage() {
                         <p className="text-xs font-semibold uppercase tracking-[0.14em] text-steel">Zużyto</p>
                         <p className="mt-2 font-semibold text-ink">{formatPaintKg(workOrder.consumed_paint_quantity_kg)}</p>
                       </div>
+                      <div className="rounded-2xl border border-line/70 bg-mist/35 px-4 py-3 min-w-0">
+                        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-steel">Predykcja</p>
+                        <p className="mt-2 font-semibold text-ink">{formatPaintKg(workOrder.predicted_paint_quantity_kg)}</p>
+                      </div>
                     </div>
                     <p className="mt-4 text-sm text-steel">
                       Stan przy przyjęciu to historyczny snapshot zapisany automatycznie z magazynu podczas tworzenia lub
-                      zmiany konfiguracji farby na zleceniu. System nie pokazuje tutaj bieżącego globalnego stanu magazynu.
+                      zmiany konfiguracji farby na zleceniu. Predykcja wynika z metrażu zlecenia i służy tylko jako
+                      podpowiedź planistyczna. System nie pokazuje tutaj bieżącego globalnego stanu magazynu.
                     </p>
                   </dd>
                 </div>

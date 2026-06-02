@@ -10,8 +10,10 @@ def build_create_payload(title: str, coating_type: str = "RAL", **overrides: obj
         "total_quantity": 100,
         "customer_name": "ACME",
         "ral_code": "RAL 7016",
+        "paint_code": "P-7016",
         "paint_producer": "AkzoNobel",
         "received_date": "2026-05-25",
+        "total_area_m2": 24.0,
         "profiles_to_count": True,
         "accessories_to_count": True,
     }
@@ -163,6 +165,32 @@ def test_list_planned_work_orders_sorted_by_queue_position(test_client: TestClie
 
     assert response.status_code == 200
     assert [item["queue_position"] for item in response.json()] == [10, 20, 30]
+
+
+def test_manager_work_orders_expose_current_paint_shortage_signal(test_client: TestClient) -> None:
+    delivery_response = test_client.post(
+        "/paints/deliveries",
+        json={
+            "ral_code": "RAL 7016",
+            "paint_producer": "AkzoNobel",
+            "paint_code": "P-7016",
+            "quantity_kg": 12,
+            "movement_date": "2026-05-25",
+        },
+        headers={"X-Station-Id": "OFFICE"},
+    )
+    assert delivery_response.status_code == 201
+
+    created = create_work_order(test_client, "Paint shortage queue", total_area_m2=100.0)
+
+    unplanned_response = test_client.get("/manager/work-orders/unplanned")
+
+    assert unplanned_response.status_code == 200
+    item = next(entry for entry in unplanned_response.json() if entry["id"] == created["id"])
+    assert item["predicted_paint_quantity_kg"] == 17.0
+    assert item["current_paint_stock_quantity_kg"] == 12.0
+    assert item["paint_inventory_insufficient_for_prediction"] is True
+    assert item["paint_inventory_shortage_quantity_kg"] == 5.0
 
 
 def test_manager_queue_warns_when_hanging_resource_blocks_next_order(test_client: TestClient) -> None:

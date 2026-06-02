@@ -121,6 +121,10 @@ export interface WorkOrder {
   ral_code: string;
   paint_code: string | null;
   paint_producer: string;
+  predicted_paint_quantity_kg?: number | null;
+  current_paint_stock_quantity_kg?: number | null;
+  paint_inventory_insufficient_for_prediction: boolean;
+  paint_inventory_shortage_quantity_kg?: number | null;
   paint_stock_snapshot_quantity_kg?: number | null;
   consumed_paint_quantity_kg: number;
   status: WorkOrderStatus;
@@ -172,7 +176,7 @@ export interface CreateWorkOrderRequest {
   paint_producer: string;
   received_date: string;
   planned_pickup_date?: string;
-  total_area_m2?: number;
+  total_area_m2: number;
   is_incomplete_on_arrival?: boolean;
   profiles_quantity?: number;
   profiles_to_count: boolean;

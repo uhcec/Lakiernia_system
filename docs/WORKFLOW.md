@@ -341,6 +341,10 @@ Confirmed non-conflicting needs:
 - paint identity belongs on the work order
 - the paint inventory inside this application becomes the source of truth for current stock balance
 - office intake stores a historical snapshot of the current paint stock seen at the moment the work order is entered
+- office intake requires `total_area_m2`; work-order creation should be blocked until area is provided
+- work-order read models expose a predicted paint demand derived from `total_area_m2` for planning visibility only; it does not reserve stock and does not replace real consumed paint
+- predicted paint demand formula is `total_area_m2 / 4` when the order is below `100 m2`, and `total_area_m2 / 6` when the order is at least `100 m2`; the displayed planning value is rounded to whole kilograms
+- office intake should warn when the rounded predicted paint demand is greater than the current paint stock, so the operator knows the paint will not be enough and must be ordered
 - work-order creation only shows current stock for the selected paint; it does not reserve stock
 - automatic production records actual paint consumption manually; manual production is not currently confirmed to record paint consumption
 - automatic paint corrections consume stock the same way as standard automatic work

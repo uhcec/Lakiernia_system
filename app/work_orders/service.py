@@ -32,6 +32,8 @@ from app.work_orders.schemas import (
     WorkOrderStatusOption,
     WorkOrderStatusView,
     WorkOrderUpdate,
+    calculate_paint_shortage_quantity_kg,
+    calculate_predicted_paint_quantity_kg,
     build_work_order_attachment_read,
     build_coating_type_view,
     build_process_status_view,
@@ -77,6 +79,15 @@ class WorkOrderService:
     def build_status_view(cls, process_status: ProcessDisplayStatus) -> WorkOrderStatusView:
         status = cls.derive_status(process_status)
         return WorkOrderStatusView(value=status, label=get_work_order_status_label(status))
+
+    def _get_current_paint_stock_quantity_kg(self, work_order: WorkOrder) -> float | None:
+        if not work_order.ral_code or not work_order.paint_producer or not work_order.paint_code:
+            return None
+        return self.paint_service.lookup_current_stock(
+            ral_code=work_order.ral_code,
+            paint_producer=work_order.paint_producer,
+            paint_code=work_order.paint_code,
+        ).current_quantity_kg
 
     def create_work_order(self, payload: WorkOrderCreate, station_context: StationContext | None = None) -> WorkOrderRead:
         self._ensure_office_station_action(station_context, "office work-order actions")
@@ -617,6 +628,13 @@ class WorkOrderService:
         total_progress_quantity = self.process_service.get_total_progress_quantity(work_order)
         process_status = self.process_service.get_display_status(work_order)
 
+        predicted_paint_quantity_kg = calculate_predicted_paint_quantity_kg(work_order.total_area_m2)
+        current_paint_stock_quantity_kg = self._get_current_paint_stock_quantity_kg(work_order)
+        paint_inventory_shortage_quantity_kg = calculate_paint_shortage_quantity_kg(
+            predicted_paint_quantity_kg,
+            current_paint_stock_quantity_kg,
+        )
+
         return WorkOrderRead(
             id=work_order.id,
             order_number=work_order.order_number,
@@ -648,6 +666,10 @@ class WorkOrderService:
             ral_code=work_order.ral_code,
             paint_code=work_order.paint_code,
             paint_producer=work_order.paint_producer,
+            predicted_paint_quantity_kg=predicted_paint_quantity_kg,
+            current_paint_stock_quantity_kg=current_paint_stock_quantity_kg,
+            paint_inventory_insufficient_for_prediction=paint_inventory_shortage_quantity_kg is not None,
+            paint_inventory_shortage_quantity_kg=paint_inventory_shortage_quantity_kg,
             paint_stock_snapshot_quantity_kg=work_order.paint_stock_snapshot_quantity_kg,
             consumed_paint_quantity_kg=work_order.consumed_paint_quantity_kg,
             status=self.build_status_view(process_status),

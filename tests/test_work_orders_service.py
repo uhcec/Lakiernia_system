@@ -25,6 +25,7 @@ def build_incomplete_work_order_payload(**overrides: object) -> WorkOrderCreate:
         "paint_code": "P-7016",
         "paint_producer": "AkzoNobel",
         "received_date": date(2026, 5, 25),
+        "total_area_m2": 24.0,
         "is_incomplete_on_arrival": True,
         "profiles_to_count": True,
         "accessories_to_count": True,

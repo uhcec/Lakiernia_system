@@ -539,7 +539,7 @@ export function StageWorkOrdersPage({
                       <>
                         <div className="space-y-1 text-sm">
                           <p className="text-steel">Kod farby: {workOrder.paint_code ?? "-"}</p>
-                          <p className="text-steel">Stan przy przyjęciu: {formatPaintKg(workOrder.paint_stock_snapshot_quantity_kg ?? null)}</p>
+                          <p className="text-steel">Aktualny stan farby: {formatPaintKg(workOrder.current_paint_stock_quantity_kg ?? null)}</p>
                           <p className="text-steel">Zużyto: {formatPaintKg(workOrder.consumed_paint_quantity_kg)}</p>
                         </div>
 

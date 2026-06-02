@@ -1,4 +1,5 @@
 from datetime import date, datetime
+from decimal import ROUND_CEILING, ROUND_HALF_UP, Decimal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -166,7 +167,7 @@ class WorkOrderCreate(BaseModel):
     is_ocynk: bool = False
     received_date: date
     planned_pickup_date: date | None = None
-    total_area_m2: float | None = Field(default=None, gt=0)
+    total_area_m2: float = Field(gt=0)
     is_incomplete_on_arrival: bool = False
     profiles_quantity: int | None = Field(default=None, ge=0)
     profiles_to_count: bool = False
@@ -241,6 +242,10 @@ class WorkOrderRead(BaseModel):
     ral_code: str
     paint_code: str | None = None
     paint_producer: str
+    predicted_paint_quantity_kg: float | None = None
+    current_paint_stock_quantity_kg: float | None = None
+    paint_inventory_insufficient_for_prediction: bool = False
+    paint_inventory_shortage_quantity_kg: float | None = None
     paint_stock_snapshot_quantity_kg: float | None = None
     consumed_paint_quantity_kg: float
     status: WorkOrderStatusView = Field(description="Derived compatibility field. Lifecycle truth comes from process_status and stage_states.")
@@ -300,6 +305,29 @@ def build_stage_status_info_view(status: StageStatus) -> StageStatusInfoView:
 
 def build_quantity_batch_type_view(batch_type: QuantityBatchType) -> QuantityBatchTypeView:
     return QuantityBatchTypeView(value=batch_type, label=get_quantity_batch_type_label(batch_type))
+
+
+def calculate_predicted_paint_quantity_kg(total_area_m2: float | None) -> float | None:
+    if total_area_m2 is None:
+        return None
+    predicted_quantity = total_area_m2 / 4 if total_area_m2 < 100 else total_area_m2 / 6
+    return float(Decimal(str(predicted_quantity)).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+
+
+def calculate_paint_shortage_quantity_kg(
+    predicted_paint_quantity_kg: float | None,
+    current_paint_stock_quantity_kg: float | None,
+) -> float | None:
+    if predicted_paint_quantity_kg is None or current_paint_stock_quantity_kg is None:
+        return None
+    if predicted_paint_quantity_kg <= current_paint_stock_quantity_kg:
+        return None
+    return float(
+        Decimal(str(predicted_paint_quantity_kg - current_paint_stock_quantity_kg)).quantize(
+            Decimal("1"),
+            rounding=ROUND_CEILING,
+        )
+    )
 
 
 def build_work_order_relation_summary(work_order: "WorkOrder") -> WorkOrderRelationSummaryRead:

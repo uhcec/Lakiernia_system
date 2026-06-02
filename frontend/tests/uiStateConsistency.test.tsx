@@ -137,6 +137,10 @@ function buildWorkOrder(id: number, orderNumber: string, queuePosition: number, 
     ral_code: "RAL 9005",
     paint_code: "P-9005",
     paint_producer: "Test",
+    predicted_paint_quantity_kg: null,
+    current_paint_stock_quantity_kg: 30,
+    paint_inventory_insufficient_for_prediction: false,
+    paint_inventory_shortage_quantity_kg: null,
     paint_stock_snapshot_quantity_kg: 30,
     consumed_paint_quantity_kg: 0,
     status: { value: "ASSIGNED", label: "Przypisane" },
@@ -182,6 +186,7 @@ function buildStageWorkOrder(
     ral_code: overrides.ral_code ?? "RAL 9005",
     paint_code: overrides.paint_code ?? "P-9005",
     paint_producer: overrides.paint_producer ?? "Test",
+    current_paint_stock_quantity_kg: overrides.current_paint_stock_quantity_kg ?? 30,
     paint_stock_snapshot_quantity_kg: overrides.paint_stock_snapshot_quantity_kg ?? 30,
     consumed_paint_quantity_kg: overrides.consumed_paint_quantity_kg ?? 0,
     total_area_m2: overrides.total_area_m2 ?? null,
@@ -303,6 +308,8 @@ describe("frontend state consistency", () => {
     fireEvent.change(screen.getByLabelText("Kod farby"), { target: { value: "P-7016" } });
     await screen.findByText(/aktualny stan 30 kg/i);
     fireEvent.change(screen.getByLabelText("Data przyjęcia"), { target: { value: "2026-05-30" } });
+    fireEvent.change(screen.getByLabelText(/Powierzchnia całkowita/i), { target: { value: "84" } });
+    expect(screen.getByText(/Predykcja zużycia: 21 kg/i)).toBeTruthy();
     screen.getAllByLabelText("Do policzenia na produkcji").forEach((checkbox) => fireEvent.click(checkbox));
     fireEvent.click(screen.getByRole("button", { name: "Zapisz" }));
 
@@ -315,9 +322,40 @@ describe("frontend state consistency", () => {
           work_order_kind: "PRZEMALOWANKA",
           is_ocynk: true,
           paint_code: "P-7016",
+          total_area_m2: 84,
         }),
       );
     });
+  });
+
+  it("warns when predicted paint demand exceeds current stock and says to order more paint", async () => {
+    createWorkOrderMock.mockResolvedValue({ ...buildWorkOrder(92, "WO-CREATE-WARN", 1) });
+    lookupPaintStockMock.mockResolvedValue({
+      paint_id: 1,
+      ral_code: "RAL 7016",
+      paint_producer: "AkzoNobel",
+      paint_code: "P-7016",
+      current_quantity_kg: 12,
+      exists_in_inventory: true,
+    });
+
+    render(
+      <MemoryRouter>
+        <CreateWorkOrderPage />
+      </MemoryRouter>,
+    );
+
+    fireEvent.change(screen.getByLabelText("Klient"), { target: { value: "ACME" } });
+    fireEvent.change(screen.getByLabelText("Technologia"), { target: { value: "RAL" } });
+    fireEvent.change(screen.getByLabelText("Kod RAL"), { target: { value: "RAL 7016" } });
+    fireEvent.change(screen.getByLabelText("Producent farby"), { target: { value: "AkzoNobel" } });
+    fireEvent.change(screen.getByLabelText("Kod farby"), { target: { value: "P-7016" } });
+    await screen.findByText(/aktualny stan 12 kg/i);
+    fireEvent.change(screen.getByLabelText(/Powierzchnia całkowita/i), { target: { value: "100" } });
+
+    expect(screen.getByText(/Predykcja zużycia: 17 kg/i)).toBeTruthy();
+    expect(screen.getByText(/Aktualny stan magazynu nie wystarczy/i)).toBeTruthy();
+    expect(screen.getByText(/trzeba domówić farbę/i)).toBeTruthy();
   });
 
   it("requires known profile and accessory quantities to sum to the total quantity", async () => {
@@ -345,6 +383,7 @@ describe("frontend state consistency", () => {
     await screen.findByText(/aktualny stan 30 kg/i);
     fireEvent.change(screen.getByLabelText("Data przyjęcia"), { target: { value: "2026-05-30" } });
     fireEvent.change(screen.getByLabelText("Ilość całkowita"), { target: { value: "10" } });
+    fireEvent.change(screen.getByLabelText(/Powierzchnia całkowita/i), { target: { value: "96" } });
     const categoryInputs = screen.getAllByPlaceholderText("Podaj ilość");
     fireEvent.change(categoryInputs[0], { target: { value: "8" } });
     fireEvent.change(categoryInputs[1], { target: { value: "1" } });
@@ -364,6 +403,7 @@ describe("frontend state consistency", () => {
           total_quantity: 10,
           profiles_quantity: 8,
           accessories_quantity: 2,
+            total_area_m2: 96,
         }),
       );
     });
@@ -829,6 +869,7 @@ describe("frontend state consistency", () => {
           production_type: { value: "AUTOMATIC", label: "Automatyczna" },
           stage_status: { stage: "HANGING", status: { value: "IN_PROGRESS", label: "W toku" } },
           paint_code: "P-7016-MAT",
+          current_paint_stock_quantity_kg: 30,
           consumed_paint_quantity_kg: 0,
         }),
       ])
@@ -839,6 +880,7 @@ describe("frontend state consistency", () => {
           production_type: { value: "AUTOMATIC", label: "Automatyczna" },
           stage_status: { stage: "HANGING", status: { value: "IN_PROGRESS", label: "W toku" } },
           paint_code: "P-7016-MAT",
+          current_paint_stock_quantity_kg: 17.5,
           consumed_paint_quantity_kg: 12.5,
         }),
       ]);
@@ -847,6 +889,7 @@ describe("frontend state consistency", () => {
     render(<AutomaticProductionPage />);
 
     await screen.findByText("WO-AUTO-PAINT :: Klient");
+  expect(screen.getByText("Aktualny stan farby: 30 kg")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "25 kg" }));
     fireEvent.click(screen.getByRole("button", { name: "Dodaj karton" }));
     fireEvent.change(screen.getByLabelText("Pozostało w ostatnim kartonie [kg]"), { target: { value: "12.5" } });
@@ -857,6 +900,7 @@ describe("frontend state consistency", () => {
       expect(recordAutomaticPaintConsumptionMock).toHaveBeenCalledWith(15, { consumed_paint_quantity_kg: 12.5 });
     });
     await screen.findByText("Zużyto: 12.5 kg");
+    expect(screen.getByText("Aktualny stan farby: 17.5 kg")).toBeTruthy();
   });
 
   it("shows automatic active hanging in packing without packing actions", async () => {
@@ -1500,6 +1544,27 @@ describe("frontend state consistency", () => {
     expect(screen.getByText("Przygotowanie: zadeklarowano 10, policzono 8 (-2 szt.)")).toBeTruthy();
   });
 
+  it("shows paint shortage warning in manager planner cards", async () => {
+    fetchUnplannedWorkOrdersMock.mockResolvedValue([
+      {
+        ...buildWorkOrder(86, "WO-MANAGER-PAINT", 1, "Lemon"),
+        total_area_m2: 100,
+        predicted_paint_quantity_kg: 17,
+        current_paint_stock_quantity_kg: 12,
+        paint_inventory_insufficient_for_prediction: true,
+        paint_inventory_shortage_quantity_kg: 5,
+      },
+    ]);
+    fetchPlannedWorkOrdersMock.mockResolvedValue([]);
+
+    render(<ManagerPanelPage />);
+
+    await screen.findByText("WO-MANAGER-PAINT :: Lemon");
+    expect(screen.getByText("Farby nie starczy na to zlecenie.")).toBeTruthy();
+    expect(screen.getByText(/Predykcja: 17 kg. Aktualny stan: 12 kg. Brakuje około 5 kg/i)).toBeTruthy();
+    expect(screen.getByText(/trzeba domówić farbę/i)).toBeTruthy();
+  });
+
   it("renders completed correction quantity context from manager payload after decoral merge", async () => {
     fetchUnplannedWorkOrdersMock.mockResolvedValue([]);
     fetchPlannedWorkOrdersMock.mockResolvedValue([
@@ -1651,6 +1716,7 @@ describe("frontend state consistency", () => {
     fetchWorkOrderMock.mockResolvedValue({
       ...buildWorkOrder(72, "WO-PAINT-DETAIL", 1, "Paint Client"),
       paint_code: "RAL7016-MAT",
+      predicted_paint_quantity_kg: 18,
       paint_stock_snapshot_quantity_kg: 12,
       consumed_paint_quantity_kg: 16.2,
     });
@@ -1661,6 +1727,7 @@ describe("frontend state consistency", () => {
     expect(screen.getByText("RAL7016-MAT")).toBeTruthy();
     expect(screen.getByText("12 kg")).toBeTruthy();
     expect(screen.getByText("16.2 kg")).toBeTruthy();
+    expect(screen.getByText("18 kg")).toBeTruthy();
     expect(
       screen.getByText(/Stan przy przyjęciu to historyczny snapshot zapisany automatycznie z magazynu/),
     ).toBeTruthy();

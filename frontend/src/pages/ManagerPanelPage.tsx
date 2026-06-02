@@ -179,6 +179,30 @@ function badgeClasses(tone: DisplayBadge["tone"]): string {
   }
 }
 
+function formatPaintKg(value: number | null | undefined): string {
+  if (value === null || value === undefined) {
+    return "-";
+  }
+
+  return `${value} kg`;
+}
+
+function renderPaintShortageWarning(workOrder: WorkOrder) {
+  if (!workOrder.paint_inventory_insufficient_for_prediction) {
+    return null;
+  }
+
+  return (
+    <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+      <p className="font-semibold">Farby nie starczy na to zlecenie.</p>
+      <p className="mt-1">
+        Predykcja: {formatPaintKg(workOrder.predicted_paint_quantity_kg)}. Aktualny stan: {formatPaintKg(workOrder.current_paint_stock_quantity_kg)}.
+        Brakuje około {formatPaintKg(workOrder.paint_inventory_shortage_quantity_kg)} i trzeba domówić farbę.
+      </p>
+    </div>
+  );
+}
+
 export function ManagerPanelPage() {
   const [queueFilter, setQueueFilter] = useState<QueueFilter>("ALL");
   const [unplannedWorkOrders, setUnplannedWorkOrders] = useState<WorkOrder[]>([]);
@@ -500,6 +524,7 @@ export function ManagerPanelPage() {
                   {getWorkOrderActiveCorrectionsText(workOrder) ? (
                     <p className="text-sm text-rose-700">{getWorkOrderActiveCorrectionsText(workOrder)}</p>
                   ) : null}
+                  {renderPaintShortageWarning(workOrder)}
                 </div>
               </div>
 
@@ -755,6 +780,7 @@ export function ManagerPanelPage() {
                         {getWorkOrderActiveCorrectionsText(workOrder) ? (
                           <p className="mt-2 text-sm text-rose-700">{getWorkOrderActiveCorrectionsText(workOrder)}</p>
                         ) : null}
+                        <div className="mt-3">{renderPaintShortageWarning(workOrder)}</div>
                       </div>
 
                       <div className="grid gap-4 md:grid-cols-[1fr_160px]">

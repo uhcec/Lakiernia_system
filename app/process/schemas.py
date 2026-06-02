@@ -26,6 +26,7 @@ class ProcessStageWorkOrderRead(BaseModel):
     ral_code: str
     paint_code: str | None = None
     paint_producer: str
+    current_paint_stock_quantity_kg: float | None = None
     paint_stock_snapshot_quantity_kg: float | None = None
     consumed_paint_quantity_kg: float
     total_area_m2: float | None = None

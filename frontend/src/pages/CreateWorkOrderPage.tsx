@@ -117,6 +117,22 @@ function categoryQuantityHintClasses(tone: ReturnType<typeof getCategoryQuantity
   }
 }
 
+function calculatePredictedPaintQuantityKg(totalAreaM2: number | undefined): number | null {
+  if (totalAreaM2 === undefined || Number.isNaN(totalAreaM2)) {
+    return null;
+  }
+  const predictedQuantity = totalAreaM2 < 100 ? totalAreaM2 / 4 : totalAreaM2 / 6;
+  return Math.round(predictedQuantity);
+}
+
+function formatPaintKg(value: number | null): string {
+  if (value === null) {
+    return "-";
+  }
+
+  return `${Number(value.toFixed(3)).toString()} kg`;
+}
+
 type PaintAvailabilityState = {
   text: string;
   tone: "neutral" | "success" | "warning";
@@ -178,6 +194,38 @@ function getPaintAvailabilityHint(
   };
 }
 
+function getPredictedPaintHint(
+  formState: FormState,
+  paintLookupState: { currentQuantityKg: number | null; existsInInventory: boolean; isLoading: boolean; errorMessage: string | null },
+): { text: string; tone: "neutral" | "success" | "warning" } {
+  const totalArea = parseOptionalPositiveNumber(formState.total_area_m2);
+
+  if (Number.isNaN(totalArea)) {
+    return { text: "Predykcja zużycia: popraw powierzchnię całkowitą.", tone: "warning" };
+  }
+
+  if (totalArea === undefined) {
+    return { text: "Predykcja zużycia: podaj powierzchnię całkowitą, aby wyliczyć zapotrzebowanie farby.", tone: "neutral" };
+  }
+
+  const divisor = totalArea < 100 ? 4 : 6;
+  const predictedQuantity = calculatePredictedPaintQuantityKg(totalArea);
+  const currentQuantityKg = paintLookupState.currentQuantityKg;
+
+  if (predictedQuantity !== null && currentQuantityKg !== null && predictedQuantity > currentQuantityKg) {
+    const missingQuantityKg = Math.round(predictedQuantity - currentQuantityKg);
+    return {
+      text: `Predykcja zużycia: ${formatPaintKg(predictedQuantity)} (${totalArea} m2 / ${divisor}). Aktualny stan magazynu nie wystarczy. Brakuje około ${formatPaintKg(missingQuantityKg)} i trzeba domówić farbę.`,
+      tone: "warning",
+    };
+  }
+
+  return {
+    text: `Predykcja zużycia: ${formatPaintKg(predictedQuantity)} (${totalArea} m2 / ${divisor}). To tylko podpowiedź planistyczna, bez wpływu na stan magazynu i bez zapisu realnego zużycia.`,
+    tone: "success",
+  };
+}
+
 export function CreateWorkOrderPage() {
   const navigate = useNavigate();
   const [formState, setFormState] = useState<FormState>(initialFormState);
@@ -197,6 +245,7 @@ export function CreateWorkOrderPage() {
   });
   const categoryQuantityHint = getCategoryQuantityHint(formState);
   const paintAvailabilityHint = getPaintAvailabilityHint(formState, paintLookupState);
+  const predictedPaintHint = getPredictedPaintHint(formState, paintLookupState);
 
   useEffect(() => {
     const ralCode = formState.ral_code.trim();
@@ -338,6 +387,10 @@ export function CreateWorkOrderPage() {
     }
 
     const totalArea = parseOptionalPositiveNumber(formState.total_area_m2);
+    if (totalArea === undefined) {
+      setValidationError("Powierzchnia całkowita jest wymagana");
+      return;
+    }
     if (Number.isNaN(totalArea)) {
       setValidationError("Powierzchnia całkowita musi być dodatnią liczbą");
       return;
@@ -527,9 +580,13 @@ export function CreateWorkOrderPage() {
                 value={formState.total_area_m2}
                 onChange={(event) => updateField("total_area_m2", event.target.value)}
                 className="rounded-2xl border border-line bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-accent"
-                placeholder="Opcjonalnie"
+                placeholder="np. 42.5"
               />
             </label>
+
+            <div className={["rounded-2xl border px-4 py-3 text-sm md:col-span-2", categoryQuantityHintClasses(predictedPaintHint.tone)].join(" ")}>
+              {predictedPaintHint.text}
+            </div>
 
             <label className="md:col-span-2 flex items-center gap-3 rounded-3xl border border-line/80 bg-mist/40 px-4 py-4 text-sm text-ink">
               <input

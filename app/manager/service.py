@@ -8,6 +8,8 @@ from sqlalchemy.exc import IntegrityError
 from app.audit.context import StationContext, ensure_station_allowed
 from app.audit.models import AuditEvent
 from app.audit.repository import AuditRepository
+from app.paints.repository import PaintRepository
+from app.paints.service import PaintService
 from app.process.enums import ProcessDisplayStatus
 from app.process.repository import ProcessRepository
 from app.process.service import ProcessService
@@ -27,6 +29,8 @@ from app.work_orders.schemas import (
     WorkOrderQuantityBatchRead,
     WorkOrderRelationSummaryRead,
     WorkOrderStageStateRead,
+    calculate_paint_shortage_quantity_kg,
+    calculate_predicted_paint_quantity_kg,
     build_coating_type_view,
     build_queue_namespace_view,
     build_process_stage_view,
@@ -47,7 +51,17 @@ class ManagerService:
     def __init__(self, repository: ManagerRepository) -> None:
         self.repository = repository
         self.process_service = ProcessService(ProcessRepository(repository.session))
+        self.paint_service = PaintService(PaintRepository(repository.session))
         self.audit_repository = AuditRepository(repository.session)
+
+    def _get_current_paint_stock_quantity_kg(self, work_order: WorkOrder) -> float | None:
+        if not work_order.ral_code or not work_order.paint_producer or not work_order.paint_code:
+            return None
+        return self.paint_service.lookup_current_stock(
+            ral_code=work_order.ral_code,
+            paint_producer=work_order.paint_producer,
+            paint_code=work_order.paint_code,
+        ).current_quantity_kg
 
     def list_unplanned_work_orders(self) -> list[WorkOrderRead]:
         return [self._to_read_model(work_order) for work_order in self.repository.list_unplanned_work_orders()]
@@ -433,6 +447,12 @@ class ManagerService:
         pending_correction_quantity = self.process_service.get_pending_correction_quantity(work_order)
         total_progress_quantity = self.process_service.get_total_progress_quantity(work_order)
         queue_resource_block = self.process_service.get_queue_resource_block(work_order)
+        predicted_paint_quantity_kg = calculate_predicted_paint_quantity_kg(work_order.total_area_m2)
+        current_paint_stock_quantity_kg = self._get_current_paint_stock_quantity_kg(work_order)
+        paint_inventory_shortage_quantity_kg = calculate_paint_shortage_quantity_kg(
+            predicted_paint_quantity_kg,
+            current_paint_stock_quantity_kg,
+        )
 
         return WorkOrderRead(
             id=work_order.id,
@@ -465,6 +485,10 @@ class ManagerService:
             ral_code=work_order.ral_code,
             paint_code=work_order.paint_code,
             paint_producer=work_order.paint_producer,
+            predicted_paint_quantity_kg=predicted_paint_quantity_kg,
+            current_paint_stock_quantity_kg=current_paint_stock_quantity_kg,
+            paint_inventory_insufficient_for_prediction=paint_inventory_shortage_quantity_kg is not None,
+            paint_inventory_shortage_quantity_kg=paint_inventory_shortage_quantity_kg,
             paint_stock_snapshot_quantity_kg=work_order.paint_stock_snapshot_quantity_kg,
             consumed_paint_quantity_kg=work_order.consumed_paint_quantity_kg,
             status=WorkOrderService.build_status_view(self.process_service.get_display_status(work_order)),
