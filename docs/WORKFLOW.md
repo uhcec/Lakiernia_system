@@ -31,11 +31,11 @@ Office intake should support operational and traceability fields needed later by
 Confirmed needs:
 - client-facing/external work-order number (`external_order_number`) is captured separately from the internal system work-order number
 - `external_order_number` is optional, not unique, and duplicate values should be allowed without warning or blocking
-- paint identity and a paint allocation or stock reference should be captured at intake before planning/production
-- the current first slice stores paint identity and planned paint quantity directly on the work order, but a future shared inventory model is still needed if stock receipts and deductions are meant to be global and auditable
+- paint identity and a paint stock snapshot or stock reference should be captured at intake before planning/production
+- the current repo slice still stores planned paint quantity directly on the work order, but the confirmed direction is to reinterpret the office-entered paint quantity as current warehouse stock and later separate that from work-order demand
 
 Open implementation design:
-- whether the current per-work-order paint snapshot should remain the source of truth or later link to a shared inventory batch/item model
+- whether the work-order stock snapshot later links to a shared inventory batch/item model and how work-order demand is stored alongside it
 - how to handle intake when the required paint exists physically but is not yet represented in the future inventory module
 
 ## Stage Model
@@ -338,21 +338,24 @@ The first implemented paint slice uses per-work-order paint allocation instead o
 
 Confirmed non-conflicting needs:
 - paint stock unit is kilograms
-- office intake stores `paint_producer`, `paint_code`, `ral_code`, and `planned_paint_quantity_kg` on the work order
-- the current office create UI requires `paint_code` and `planned_paint_quantity_kg`; API schemas remain nullable for compatibility with staged rollout
+- paint identity still belongs on the work order, but the next intended semantic step is different from the current repo slice: the office-entered paint quantity should represent current warehouse stock for that paint, not a per-work-order allocation
+- because warehouse stock and per-order need are different meanings, the model must separate stock snapshot from work-order demand/allocation before further paint implementation
 - automatic production records actual paint consumption manually; manual production is not currently confirmed to record paint consumption
 - automatic production enters paint usage in carton workflow terms: the operator chooses carton size (`20 kg` or `25 kg`), adds how many cartons were taken, and enters how much remained in the final carton
 - the carton workflow is converted into net consumed paint for the work order as `taken cartons * carton size - remaining paint in the final carton`
-- while the operator is filling that carton workflow, the panel should preview the remaining paint assigned to the work order after subtracting taken cartons and adding back the final-carton remainder
+- while the operator is filling that carton workflow, the panel should preview the remaining paint relevant to that work order according to the final chosen semantics; current repo behavior still previews remaining per-order allocation
 - automatic production may start entering paint consumption once `HANGING` has started; it does not need to wait for `HANGING` to finish
+- insufficient paint should be visible to users, but the current confirmed direction is warning/visibility rather than a hard creation-time block
 - packing completion for automatic work should be blocked until required paint consumption has been entered, so departments remind each other to complete the required production data
-- recorded consumption reduces the remaining paint quantity assigned to that work order through an audited system action
-- work-order and stage read models expose planned, consumed, and remaining paint quantities for the current slice
+- automatic correction work should follow the same paint logic as standard automatic work in the intended workflow, even though current repo behavior does not yet implement that
+- recorded consumption must stay audited, but it should not be validated against a warehouse-stock snapshot as if that snapshot were a per-order cap
+- current repo read models expose planned, consumed, and remaining paint quantities for the per-order allocation slice; that surface will need to change when stock snapshot and work-order demand are separated
 - automatic production is allowed to enter paint used/consumed; it is no longer a display-only panel
 
 Open implementation design:
+- define the separate work-order demand value needed to decide whether paint is missing; current confirmed direction is that shortage should be shown, but not hard-block creation
+- clarify whether work-order demand is manual, automatic from area, or automatic with manual override
 - shared stock receipts, supplier and batch metadata, and manual stock corrections remain future work
-- automatic correction-order paint allocation remains future work; the current packing hard-block applies to standard automatic work orders only
 - keep the automatic `PRODUCTION` stage transition model separate from paint consumption: automatic production should not gain manual production start/finish unless separately decided
 
 ## Process Action Safety

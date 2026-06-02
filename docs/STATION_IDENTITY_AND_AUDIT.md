@@ -148,11 +148,11 @@ Still open:
 
 Confirmed permission direction:
 
-- `OFFICE`: individual login; create/update intake, enter external work-order number, enter paint identity and planned paint allocation on the work order, later enter/select stock state once a shared inventory exists, view discrepancies, manage attachments, mark completed order as issued/released, generate WZ when implemented
+- `OFFICE`: individual login; create/update intake, enter external work-order number, enter paint identity plus the current stock snapshot fields required by the paint slice, later enter/select stock state once a shared inventory exists, view discrepancies, manage attachments, mark completed order as issued/released, generate WZ when implemented
 - `MANAGER`: assign production type, queue/reorder, view global queue and discrepancies, view paint/inventory warnings, view manager-only statistics
 - `SURFACE_PREPARATION`: start surface prep, enter counted quantity, confirm quantity discrepancy, finish surface prep after counted quantity exists
 - `HANGING`: start/finish hanging
-- `AUTOMATIC_PRODUCTION`: enter paint consumption in the current per-work-order allocation slice; no manual start/finish for automatic production unless separately decided
+- `AUTOMATIC_PRODUCTION`: enter paint consumption for automatic work according to the current paint slice implementation; no manual start/finish for automatic production unless separately decided
 - `MANUAL_PRODUCTION`: start/finish manual production
 - `PACKING`: enter counted/OK/correction quantities, profile/accessory correction split, correction reason/category, complete packing
 - `DECORAL_PRODUCTION`: start/finish Decoral production

@@ -187,7 +187,7 @@ Expected permission direction to validate:
 - `MANAGER`: assign production type, queue/reorder, view global queue and manager-only statistics
 - `SURFACE_PREPARATION`: enter counted quantity, start/finish surface prep
 - `HANGING`: start/finish hanging
-- `AUTOMATIC_PRODUCTION`: enter paint consumption in the current per-work-order allocation slice; no manual start/finish for automatic production unless separately decided
+- `AUTOMATIC_PRODUCTION`: enter paint consumption for automatic work in the current paint slice implementation; no manual start/finish for automatic production unless separately decided
 - `MANUAL_PRODUCTION`: start/finish manual production
 - `PACKING`: enter counted/OK/correction quantities, enter profile/accessory correction split, complete packing
 - `DECORAL_PRODUCTION`: start/finish Decoral production
@@ -355,15 +355,14 @@ Current repository behavior/evidence:
 - Packing actions are station-authorized, but there is no dedicated `PACKING` resource lock.
 - Automatic orders can be visible in packing while hanging is still in progress, but those rows are read-only and cannot be completed until hanging is finished.
 
-Implementation decision needed:
+Implementation direction confirmed on 2026-06-02:
 
-- Decide whether a `PACKING` resource lock should be added.
-- Decide whether automatic rows shown in packing before completion eligibility count as occupying packing, automatic line, neither, or a separate waiting state.
+- Add a `PACKING` resource lock in a later implementation slice.
+- Treat automatic rows shown in packing before completion eligibility as visible waiting context, not as actively occupying started packing.
 
 Why this matters:
 
-- Treating packing as an exclusive resource would change backend conflicts, station UI availability, and chaos/concurrency coverage.
-- Implementing it before clarifying automatic waiting visibility could block legitimate work or hide useful station context.
+- Packing exclusivity will change backend conflicts, station UI availability, and chaos/concurrency coverage, so it needs focused implementation and regression coverage.
 
 ### 10. Quality-Control Production Document
 
@@ -386,11 +385,12 @@ Implementation decision needed:
 
 ### 11. Paint Inventory And Consumption
 
-Status: `PARTIALLY IMPLEMENTED; per-work-order allocation and automatic consumption are live, shared inventory policy is still open`
+Status: `SEMANTIC UPDATE CONFIRMED; current repo paint slice no longer matches intended stock-snapshot meaning`
 
 Confirmed direction from 2026-05-30:
 
-- Work-order intake should force paint identity plus the current paint allocation/stock-state fields required by the implemented slice, and later any shared inventory selection once that module exists.
+- Work-order intake should keep paint identity on the work order.
+- The office-entered paint quantity should represent the current warehouse stock snapshot for that paint, not a per-work-order allocation.
 - Paint usage should be recorded so stock can be deducted.
 - Automatic production is no longer display-only; the first confirmed station input is paint used/consumed, with room for additional fields after factory clarification.
 - This does not automatically mean automatic production gains manual start/finish stage actions.
@@ -398,10 +398,10 @@ Confirmed direction from 2026-05-30:
 - Stock balance is aggregate per producer + RAL/color, not separate tracked stock per paint batch.
 - Paint receipt data should include producer, RAL/color, amount, supplier, and likely batch/lot as receipt metadata; no price, notes, or manually entered date.
 - The system must detect and report insufficient paint for an order.
-- Estimated requirement formula: below 70 m2 -> `area_m2 / 4`; above 70 m2 -> `area_m2 / 6`.
+- Insufficient paint should be displayed, not hard-block work-order creation.
 - The factory answer says paint should be taken from stock after the work order is entered, based on the order requirement.
 - Automatic production enters actual paint consumption manually.
-- Automatic correction work should eventually record paint consumption like other automatic work.
+- Automatic correction work should use the same paint logic as other automatic work.
 - Packing should not be completable for automatic work until paint consumption is entered.
 
 Current repository behavior/evidence:
@@ -412,14 +412,15 @@ Current repository behavior/evidence:
 - The frontend records paint usage through `20 kg` / `25 kg` carton selection plus remainder in the last carton; backend stores the resulting net consumed kg.
 - Standard automatic work is blocked in packing until `consumed_paint_quantity_kg > 0`.
 - Automatic correction orders copy paint identity from the parent but still have no paint allocation; they are excluded from the current hard block.
+- Current repo semantics still treat `planned_paint_quantity_kg` as per-order allocation and cap recorded consumption against it.
+- Current repo still shows remaining paint as a work-order-level remainder, not as a warehouse-stock snapshot versus a separate work-order demand.
 
 Remaining decisions:
 
-- Define whether a later inventory module should replace or extend this per-work-order allocation model.
-- Clarify whether insufficient paint should be a blocking error or a warning if a shared stock module is added later.
-- Clarify how exactly 70 m2 is handled by the formula if automatic estimation is added.
+- Define the source of work-order demand needed to detect shortage: manual value, automatic value from area, or automatic suggestion with manual override.
+- If area-based estimation remains part of the model, clarify how exactly 70 m2 is handled.
 - Clarify whether batch/lot is only receipt metadata or searchable/reportable data despite aggregate stock balance.
-- Decide how automatic correction orders should receive and settle paint allocation in a later slice.
+- Decide whether the first warehouse slice should store only a stock snapshot on the work order or both stock snapshot and explicit work-order demand.
 
 ### 12. External Work-Order Number
 
