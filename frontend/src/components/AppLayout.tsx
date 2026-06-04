@@ -106,27 +106,6 @@ function PlusIcon(props: SVGProps<SVGSVGElement>) {
   );
 }
 
-function TuszkoLogoMark() {
-  return (
-    <svg viewBox="0 0 188 84" aria-hidden="true" className="h-14 w-[7.2rem]">
-      <defs>
-        <linearGradient id="tuszkoOrange" x1="0" x2="1" y1="0.1" y2="0.9">
-          <stop offset="0%" stopColor="#ff9a2f" />
-          <stop offset="100%" stopColor="#f06a21" />
-        </linearGradient>
-        <linearGradient id="tuszkoViolet" x1="0" x2="1" y1="0.2" y2="0.8">
-          <stop offset="0%" stopColor="#3b1f77" />
-          <stop offset="100%" stopColor="#24124f" />
-        </linearGradient>
-      </defs>
-      <path d="M18 21h54l-6.5 10.5H42.5v8.8h26.6l-6.4 10.4H42.5V61H29.2V31.5H18Z" fill="url(#tuszkoOrange)" />
-      <path d="M43 10.5h48.8L84.8 21H58.4v9.6H45.1V21.1l-9.8-10.6Z" fill="url(#tuszkoOrange)" />
-      <path d="M92.8 63.2c4.4 0 8-3.6 8-8.1s-3.6-8.1-8-8.1-8 3.6-8 8.1 3.6 8.1 8 8.1Z" fill="url(#tuszkoViolet)" />
-      <path d="M84.6 30.8h38.4c17.1 0 31-13.9 31-31h13.3c0 24.4-19.8 44.3-44.3 44.3h-21.7v38.5H87.9V44.1H71.7Z" fill="url(#tuszkoViolet)" transform="translate(0 1)" />
-      <path d="M127.2 19.6h42.3l-5.9 9.8h-36.4Z" fill="url(#tuszkoViolet)" />
-    </svg>
-  );
-}
 
 const primaryNavigation: NavigationItem[] = [
   { to: "/zlecenia", label: "Zlecenia", icon: ClipboardIcon },
@@ -171,11 +150,9 @@ export function AppLayout() {
         <aside className="flex w-full flex-col gap-4 lg:w-[220px] lg:flex-none">
 
           {/* Logo */}
-          <div className="rounded-[1.9rem] bg-white px-5 py-5 shadow-panel ring-1 ring-brand-line/70">
-            <div className="flex flex-col items-center text-center">
-              <TuszkoLogoMark />
-              <p className="mt-2 text-[2rem] font-black uppercase tracking-[0.08em] leading-none text-brand-ink">TUSZKO</p>
-              <p className="mt-1.5 text-[0.6rem] font-bold uppercase tracking-[0.3em] text-brand-muted">Lakiernia proszkowa</p>
+          <div className="rounded-[1.9rem] bg-white px-4 py-5 shadow-panel ring-1 ring-brand-line/70">
+            <div className="flex items-center justify-center">
+              <img src="/logo.png" alt="TUSZKO Lakiernia Proszkowa" className="w-full max-w-[160px] h-auto" />
             </div>
           </div>
 
