@@ -149,110 +149,78 @@ export function AppLayout() {
   const location = useLocation();
 
   function getSectionTitle(pathname: string): string {
-    if (pathname.startsWith("/farby")) {
-      return "Farby";
-    }
-
-    if (pathname.startsWith("/audyt")) {
-      return "Audyt";
-    }
-
-    if (pathname.startsWith("/kierownik")) {
-      return "Kierownik";
-    }
-
-    if (pathname.startsWith("/produkcja-reczna")) {
-      return "Produkcja ręczna";
-    }
-
-    if (pathname.startsWith("/produkcja-automat")) {
-      return "Produkcja: Automat";
-    }
-
-    if (pathname.startsWith("/produkcja-decoral")) {
-      return "Produkcja Decoral";
-    }
-
-    if (pathname.startsWith("/pakowanie")) {
-      return "Pakowanie";
-    }
-
-    if (pathname.startsWith("/zawieszanie")) {
-      return "Zawieszanie";
-    }
-
-    if (pathname.startsWith("/przygotowanie")) {
-      return "Przygotowanie powierzchni";
-    }
-
-    if (pathname.startsWith("/zlecenia/nowe")) {
-      return "Nowe zlecenie";
-    }
-
-    if (pathname.startsWith("/zlecenia/")) {
-      return "Szczegóły zlecenia";
-    }
-
+    if (pathname.startsWith("/farby")) return "Farby";
+    if (pathname.startsWith("/audyt")) return "Audyt";
+    if (pathname.startsWith("/kierownik")) return "Kierownik";
+    if (pathname.startsWith("/produkcja-reczna")) return "Produkcja ręczna";
+    if (pathname.startsWith("/produkcja-automat")) return "Produkcja: Automat";
+    if (pathname.startsWith("/produkcja-decoral")) return "Produkcja Decoral";
+    if (pathname.startsWith("/pakowanie")) return "Pakowanie";
+    if (pathname.startsWith("/zawieszanie")) return "Zawieszanie";
+    if (pathname.startsWith("/przygotowanie")) return "Przygotowanie powierzchni";
+    if (pathname.startsWith("/zlecenia/nowe")) return "Nowe zlecenie";
+    if (pathname.startsWith("/zlecenia/")) return "Szczegóły zlecenia";
     return "Zlecenia";
   }
 
   return (
     <div className="min-h-screen bg-shell">
       <div className="mx-auto flex min-h-screen w-full max-w-[1520px] flex-col px-3 py-3 sm:px-4 lg:flex-row lg:gap-5 lg:px-5 lg:py-4">
-        <aside className="office-sidebar flex w-full flex-col gap-5 lg:w-[240px] lg:flex-none">
-          <div className="rounded-[1.9rem] bg-white px-6 py-6 shadow-panel ring-1 ring-brand-line/70">
-            <div className="flex flex-col items-center border-b border-brand-line/80 pb-5 text-center">
+
+        {/* Sidebar */}
+        <aside className="flex w-full flex-col gap-4 lg:w-[220px] lg:flex-none">
+
+          {/* Logo */}
+          <div className="rounded-[1.9rem] bg-white px-5 py-5 shadow-panel ring-1 ring-brand-line/70">
+            <div className="flex flex-col items-center text-center">
               <TuszkoLogoMark />
-              <p className="mt-2 text-[2.15rem] font-black uppercase tracking-[0.08em] leading-none text-brand-ink">TUSZKO</p>
-              <p className="mt-2 text-[0.62rem] font-bold uppercase tracking-[0.32em] text-brand-muted">Lakiernia proszkowa</p>
-            </div>
-            <div className="mt-5 rounded-[1.15rem] bg-brand-900 px-4 py-3.5 text-white shadow-brand-soft">
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-white/68">Panel operacyjny</p>
-              <p className="mt-1 text-[0.95rem] font-semibold">{getSectionTitle(location.pathname)}</p>
+              <p className="mt-2 text-[2rem] font-black uppercase tracking-[0.08em] leading-none text-brand-ink">TUSZKO</p>
+              <p className="mt-1.5 text-[0.6rem] font-bold uppercase tracking-[0.3em] text-brand-muted">Lakiernia proszkowa</p>
             </div>
           </div>
 
-          <div className="rounded-[1.9rem] bg-white px-4 py-4 shadow-panel ring-1 ring-brand-line/70">
-            <nav className="space-y-2">
+          {/* Navigation */}
+          <div className="rounded-[1.9rem] bg-white px-3 py-3 shadow-panel ring-1 ring-brand-line/70">
+            <nav className="space-y-1">
               {primaryNavigation.map((item) => (
                 <NavLink
                   key={item.to}
                   to={item.to}
                   className={({ isActive }) =>
                     [
-                      "group flex items-center gap-3 rounded-[1.15rem] px-4 py-3 text-sm font-semibold transition",
+                      "group flex items-center gap-3 rounded-[1rem] px-3 py-2.5 text-sm font-semibold transition",
                       isActive
                         ? "bg-brand-900 text-white shadow-brand"
                         : "text-brand-muted hover:bg-brand-surface hover:text-brand-ink",
                     ].join(" ")
                   }
                 >
-                  <span className="flex h-9 w-9 items-center justify-center rounded-xl border border-current/10 bg-current/5">
-                    <item.icon className="h-[1.05rem] w-[1.05rem]" />
+                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-current/10 bg-current/5">
+                    <item.icon className="h-[1rem] w-[1rem]" />
                   </span>
                   <span>{item.label}</span>
                 </NavLink>
               ))}
             </nav>
 
-            <div className="my-4 h-px bg-brand-line" />
+            <div className="my-3 h-px bg-brand-line" />
 
-            <nav className="space-y-2">
+            <nav className="space-y-1">
               {secondaryNavigation.map((item) => (
                 <NavLink
                   key={item.to}
                   to={item.to}
                   className={({ isActive }) =>
                     [
-                      "group flex items-center gap-3 rounded-[1.15rem] px-4 py-3 text-sm font-semibold transition",
+                      "group flex items-center gap-3 rounded-[1rem] px-3 py-2.5 text-sm font-semibold transition",
                       item.accent || isActive
-                        ? "bg-brand-warm text-brand-ink shadow-[0_12px_26px_rgba(255,140,32,0.22)] hover:bg-brand-warm-strong"
+                        ? "bg-brand-warm text-brand-ink shadow-[0_8px_20px_rgba(255,140,32,0.2)] hover:bg-brand-warm-strong"
                         : "text-brand-muted hover:bg-brand-surface hover:text-brand-ink",
                     ].join(" ")
                   }
                 >
-                  <span className="flex h-9 w-9 items-center justify-center rounded-xl border border-current/10 bg-white/40">
-                    <item.icon className="h-[1.05rem] w-[1.05rem]" />
+                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-current/10 bg-white/40">
+                    <item.icon className="h-[1rem] w-[1rem]" />
                   </span>
                   <span>{item.label}</span>
                 </NavLink>
@@ -260,41 +228,32 @@ export function AppLayout() {
             </nav>
           </div>
 
-          <div className="mt-auto rounded-[1.9rem] bg-white px-5 py-5 shadow-panel ring-1 ring-brand-line/70">
-            <p className="text-sm font-semibold text-brand-ink">TUSZKO Lakiernia Proszkowa</p>
-            <p className="mt-2 text-sm leading-6 text-brand-muted">System sterowania produkcją dla stanowisk biurowych i produkcyjnych.</p>
-            <p className="mt-3 text-xs font-semibold uppercase tracking-[0.18em] text-brand-muted">Wersja 2.1.0</p>
+          {/* Footer info */}
+          <div className="mt-auto rounded-[1.9rem] bg-white px-4 py-4 shadow-panel ring-1 ring-brand-line/70">
+            <p className="text-xs font-semibold text-brand-ink">TUSZKO Lakiernia Proszkowa</p>
+            <p className="mt-1 text-xs leading-5 text-brand-muted">System sterowania produkcją.</p>
+            <p className="mt-2 text-[0.6rem] font-semibold uppercase tracking-[0.18em] text-brand-muted">Wersja 2.1.0</p>
           </div>
         </aside>
 
+        {/* Main content */}
         <div className="flex min-w-0 flex-1 flex-col gap-4">
+
+          {/* Header */}
           <header className="rounded-[1.9rem] bg-white px-5 py-4 shadow-panel ring-1 ring-brand-line/70 sm:px-6">
-            <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+            <div className="flex items-center justify-between gap-4">
               <div className="min-w-0">
                 <p className="text-xs font-semibold uppercase tracking-[0.2em] text-brand-muted">Panel operacyjny</p>
-                <h1 className="mt-1 text-[1.85rem] font-bold text-brand-ink">{getSectionTitle(location.pathname)}</h1>
+                <h1 className="mt-0.5 truncate text-[1.6rem] font-bold text-brand-ink">{getSectionTitle(location.pathname)}</h1>
               </div>
-              <nav className="flex flex-wrap items-center gap-2">
-                {primaryNavigation.concat(secondaryNavigation).map((item) => (
-                  <NavLink
-                    key={`top-${item.to}`}
-                    to={item.to}
-                    className={({ isActive }) =>
-                      [
-                        "inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition",
-                        item.accent
-                          ? "bg-brand-warm text-brand-ink hover:bg-brand-warm-strong"
-                          : isActive
-                            ? "bg-brand-900 text-white shadow-brand-soft"
-                            : "bg-brand-surface text-brand-muted hover:text-brand-ink",
-                      ].join(" ")
-                    }
-                  >
-                    <item.icon className="h-[0.95rem] w-[0.95rem]" />
-                    {item.label}
-                  </NavLink>
-                ))}
-              </nav>
+              <NavLink
+                to="/zlecenia/nowe"
+                className="inline-flex shrink-0 items-center gap-2 rounded-full bg-brand-warm px-5 py-2.5 text-sm font-semibold text-brand-ink transition hover:bg-brand-warm-strong"
+              >
+                <PlusIcon className="h-4 w-4" />
+                <span className="hidden sm:inline">Dodaj zlecenie</span>
+                <span className="sm:hidden">Dodaj</span>
+              </NavLink>
             </div>
           </header>
 

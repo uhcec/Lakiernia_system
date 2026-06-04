@@ -5,12 +5,12 @@ export default {
   theme: {
     extend: {
       colors: {
-        ink: "#15202b",
-        mist: "#eef3f7",
-        steel: "#5f7183",
-        line: "#d6e0e8",
-        accent: "#0f766e",
-        accentSoft: "#d9f3ef",
+        ink: "#1f2152",
+        mist: "#f4efff",
+        steel: "#6d7093",
+        line: "#e7e3f4",
+        accent: "#24124f",
+        accentSoft: "#ede8ff",
         brand: {
           100: "#efe8ff",
           800: "#31215e",
