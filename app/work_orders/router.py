@@ -1,7 +1,7 @@
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, Form, Query, Response, UploadFile, status
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.audit.context import StationContext, get_station_context
@@ -94,6 +94,19 @@ def update_work_order_release_status(
 	station_context: Annotated[StationContext, Depends(get_station_context)],
 ) -> WorkOrderRead:
 	return service.update_release_status(work_order_id, payload, station_context=station_context)
+
+
+@router.get("/{work_order_id}/quality-control-document")
+def download_quality_control_document(
+    work_order_id: int,
+    service: Annotated[WorkOrderService, Depends(get_work_order_service)],
+) -> StreamingResponse:
+    buffer, filename = service.generate_quality_control_document(work_order_id)
+    return StreamingResponse(
+        buffer,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename=\"{filename}\""},
+    )
 
 
 @router.post("/{work_order_id}/attachments", response_model=WorkOrderAttachmentRead, status_code=status.HTTP_201_CREATED)

@@ -1,4 +1,7 @@
+import io
 import json
+import queue as _queue
+import threading
 from datetime import UTC, date, datetime
 from pathlib import Path
 from uuid import uuid4
@@ -45,6 +48,55 @@ from app.work_orders.schemas import (
     build_work_order_kind_view,
     build_production_type_view,
 )
+
+
+class _ExcelPdfConverter:
+    """
+    Persistent worker thread that keeps one Excel instance alive for the
+    lifetime of the process. All conversions are serialized through this
+    thread so COM thread-affinity is respected and Excel is never restarted
+    between requests.
+    """
+
+    def __init__(self) -> None:
+        self._q: _queue.Queue = _queue.Queue()
+        t = threading.Thread(target=self._worker, daemon=True, name="excel-pdf-worker")
+        t.start()
+
+    def _worker(self) -> None:
+        import pythoncom
+        import win32com.client
+
+        pythoncom.CoInitialize()
+        excel = win32com.client.Dispatch("Excel.Application")
+        excel.Visible = False
+        excel.DisplayAlerts = False
+        excel.AskToUpdateLinks = False
+        while True:
+            task = self._q.get()
+            if task is None:
+                break
+            xlsx_str, pdf_str, done_event, err_box = task
+            try:
+                wb = excel.Workbooks.Open(xlsx_str, UpdateLinks=0, ReadOnly=1)
+                wb.ExportAsFixedFormat(0, pdf_str)
+                wb.Close(False)
+            except Exception as exc:
+                err_box.append(exc)
+            finally:
+                done_event.set()
+
+    def convert(self, xlsx_path: Path, pdf_path: Path, timeout: float = 60.0) -> None:
+        done_event = threading.Event()
+        err_box: list[Exception] = []
+        self._q.put((str(xlsx_path.resolve()), str(pdf_path.resolve()), done_event, err_box))
+        if not done_event.wait(timeout=timeout):
+            raise RuntimeError("Konwersja PDF przekroczyła limit czasu.")
+        if err_box:
+            raise err_box[0]
+
+
+_excel_pdf_converter = _ExcelPdfConverter()
 
 
 class WorkOrderService:
@@ -459,6 +511,32 @@ class WorkOrderService:
         absolute_path = self._resolve_attachment_storage_path(attachment, require_exists=True)
         assert absolute_path is not None
         return build_work_order_attachment_read(attachment), absolute_path
+
+    def generate_quality_control_document(self, work_order_id: int) -> tuple[io.BytesIO, str]:
+        import tempfile
+        import openpyxl
+
+        work_order = self._get_existing_work_order(work_order_id)
+
+        paint_parts = [p for p in [work_order.ral_code, work_order.paint_producer, work_order.paint_code] if p]
+        paint_description = " / ".join(paint_parts) if paint_parts else "-"
+
+        template_path = Path(__file__).parent.parent / "static" / "templates" / "karta_kontroli_jakosci.xlsx"
+
+        wb = openpyxl.load_workbook(template_path)
+        ws = wb.active
+        ws["A4"] = work_order.order_number
+        ws["D5"] = work_order.customer_name
+        ws["D6"] = paint_description
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            xlsx_path = Path(tmp_dir) / f"KJ_{work_order.order_number}.xlsx"
+            pdf_path = Path(tmp_dir) / f"KJ_{work_order.order_number}.pdf"
+            wb.save(xlsx_path)
+            _excel_pdf_converter.convert(xlsx_path, pdf_path)
+            pdf_bytes = pdf_path.read_bytes()
+
+        return io.BytesIO(pdf_bytes), f"KJ_{work_order.order_number}.pdf"
 
     def delete_attachment(
         self,

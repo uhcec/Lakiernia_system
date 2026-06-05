@@ -7,6 +7,7 @@ import {
   deleteWorkOrderAttachment,
   fetchWorkOrder,
   fetchWorkOrderAttachments,
+  getQualityControlDocumentUrl,
   getWorkOrderAttachmentDownloadUrl,
   markWorkOrderCompleteArrival,
   updateWorkOrderReleaseStatus,
@@ -185,6 +186,7 @@ export function WorkOrderDetailPage() {
   const canCompleteArrival = effectiveStationId === "OFFICE";
   const canManageAttachments = effectiveStationId === "OFFICE";
   const canUpdateReleaseStatus = effectiveStationId === "OFFICE";
+  const canGenerateQualityControlDocument = effectiveStationId === "OFFICE";
   const [workOrder, setWorkOrder] = useState<WorkOrder | null>(null);
   const [attachments, setAttachments] = useState<WorkOrderAttachment[]>([]);
   const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
@@ -449,12 +451,23 @@ export function WorkOrderDetailPage() {
               ) : null}
             </div>
           </div>
-          <Link
-            to={getStationPanelPath(effectiveStationId)}
-            className="inline-flex items-center justify-center rounded-full border border-line bg-white px-5 py-3 text-sm font-medium text-steel transition hover:border-accent hover:text-accent"
-          >
-            Wróć do listy
-          </Link>
+          <div className="flex flex-wrap items-center gap-3">
+            {canGenerateQualityControlDocument && workOrder ? (
+              <a
+                href={getQualityControlDocumentUrl(workOrder.id)}
+                download={`KJ_${workOrder.order_number}.pdf`}
+                className="inline-flex items-center justify-center rounded-full bg-accent px-5 py-3 text-sm font-medium text-white transition hover:bg-teal-700"
+              >
+                Karta kontroli jakości
+              </a>
+            ) : null}
+            <Link
+              to={getStationPanelPath(effectiveStationId)}
+              className="inline-flex items-center justify-center rounded-full border border-line bg-white px-5 py-3 text-sm font-medium text-steel transition hover:border-accent hover:text-accent"
+            >
+              Wróć do listy
+            </Link>
+          </div>
         </div>
       </section>
 

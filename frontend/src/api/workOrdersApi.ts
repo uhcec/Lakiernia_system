@@ -189,3 +189,7 @@ export async function deleteWorkOrderAttachment(workOrderId: number, attachmentI
 export function getWorkOrderAttachmentDownloadUrl(workOrderId: number, attachmentId: number): string {
   return createApiUrl(`/work-orders/${workOrderId}/attachments/${attachmentId}/download`);
 }
+
+export function getQualityControlDocumentUrl(workOrderId: number): string {
+  return createApiUrl(`/work-orders/${workOrderId}/quality-control-document`);
+}
