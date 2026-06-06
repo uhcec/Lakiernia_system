@@ -11,6 +11,8 @@ from sqlalchemy import delete, select
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session
 
+from app.auth.models import User
+from app.auth.service import hash_password
 from app.core.config import get_settings, get_work_order_attachments_path
 from app.database import models as _models  # noqa: F401
 from app.database.session import get_session_factory
@@ -29,6 +31,32 @@ from app.work_orders.service import WorkOrderService
 
 
 PDF_BYTES = b"%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\ntrailer\n<<>>\n%%EOF\n"
+
+_PAINT_BY_RAL: dict[str, tuple[str, str]] = {
+    "RAL 7016": ("TIG-7016-MA", "Tiger"),
+    "RAL 9005": ("AKZ-9005-MA", "AkzoNobel"),
+    "RAL 7035": ("AKZ-7035-GL", "AkzoNobel"),
+    "RAL 3020": ("SHW-3020-GL", "Sherwin-Williams"),
+    "RAL 5010": ("TIG-5010-MA", "Tiger"),
+    "D-200":    ("DCR-200",     "Decoral System"),
+    "D-310":    ("DCR-310",     "Decoral System"),
+    "RAL 8017": ("AKZ-8017-MA", "AkzoNobel"),
+    "RAL 9010": ("AKZ-9010-GL", "AkzoNobel"),
+    "RAL 7040": ("TIG-7040-MA", "Tiger"),
+    "RAL 5005": ("SHW-5005-MA", "Sherwin-Williams"),
+    "RAL 6021": ("IGP-6021-GL", "IGP"),
+    "RAL 3003": ("TIG-3003-MA", "Tiger"),
+    "RAL 7010": ("AKZ-7010-MA", "AkzoNobel"),
+    "RAL 7020": ("TIG-7020-GL", "Tiger"),
+    "RAL 7030": ("SHW-7030-MA", "Sherwin-Williams"),
+    "RAL 1013": ("AKZ-1013-GL", "AkzoNobel"),
+    "RAL 6029": ("TIG-6029-MA", "Tiger"),
+    "RAL 6018": ("IGP-6018-GL", "IGP"),
+    "RAL 7031": ("AKZ-7031-MA", "AkzoNobel"),
+    "RAL 7032": ("AKZ-7032-GL", "AkzoNobel"),
+    "RAL 7033": ("TIG-7033-MA", "Tiger"),
+    "RAL 9018": ("SHW-9018-GL", "Sherwin-Williams"),
+}
 
 
 @dataclass(slots=True)
@@ -87,6 +115,19 @@ def run_alembic_upgrade(repo_root: Path) -> None:
     command.upgrade(alembic_config, "head")
 
 
+_STATION_USERS = [
+    ("biuro", "bi1", "OFFICE", False),
+    ("kierownik", "ki1", "MANAGER", False),
+    ("przygotowanie", "prz1", "SURFACE_PREPARATION", False),
+    ("zawieszanie", "zaw1", "HANGING", False),
+    ("produkcja-reczna", "rec1", "MANUAL_PRODUCTION", False),
+    ("produkcja-automat", "aut1", "AUTOMATIC_PRODUCTION", False),
+    ("pakowanie", "pak1", "PACKING", False),
+    ("decoral", "dec1", "DECORAL_PRODUCTION", False),
+    ("admin", "adm1", "OFFICE", True),
+]
+
+
 def reset_app_data(session: Session) -> None:
     attachments_root = get_work_order_attachments_path()
     if attachments_root.exists():
@@ -97,7 +138,18 @@ def reset_app_data(session: Session) -> None:
     session.execute(delete(WorkOrderStageState))
     session.execute(delete(WorkOrderQuantityBatch))
     session.execute(delete(WorkOrder))
+    session.execute(delete(User))
     session.commit()
+
+    for login, password, station_id, is_admin in _STATION_USERS:
+        session.add(User(
+            login=login,
+            hashed_password=hash_password(password),
+            station_id=station_id,
+            is_admin=is_admin,
+        ))
+    session.commit()
+    print(f"Seeded {len(_STATION_USERS)} users.")
 
 
 def seed_all_use_cases(session: Session) -> list[SeededScenario]:
@@ -117,7 +169,7 @@ def seed_all_use_cases(session: Session) -> list[SeededScenario]:
         title="Biuro - kompletne zlecenie",
         coating_type=CoatingType.RAL,
         total_quantity=24,
-        customer_name="Office Client",
+        customer_name="Profiltech Sp. z o.o.",
         ral_code="RAL 7016",
         profiles_quantity=18,
         accessories_quantity=6,
@@ -138,7 +190,7 @@ def seed_all_use_cases(session: Session) -> list[SeededScenario]:
         title="Biuro - brakujace elementy",
         coating_type=CoatingType.RAL,
         total_quantity=12,
-        customer_name="Incomplete Client",
+        customer_name="Metal-Bud Zając",
         ral_code="RAL 9005",
         is_incomplete_on_arrival=True,
         profiles_quantity=12,
@@ -160,7 +212,7 @@ def seed_all_use_cases(session: Session) -> list[SeededScenario]:
         title="Biuro - do oznaczenia jako kompletne",
         coating_type=CoatingType.RAL,
         total_quantity=15,
-        customer_name="Return Client",
+        customer_name="Okno-System",
         ral_code="RAL 7035",
         is_incomplete_on_arrival=True,
         profiles_to_count=True,
@@ -182,7 +234,7 @@ def seed_all_use_cases(session: Session) -> list[SeededScenario]:
         title="RAL manual - przygotowanie",
         coating_type=CoatingType.RAL,
         total_quantity=20,
-        customer_name="Manual Flow",
+        customer_name="Aluminco",
         ral_code="RAL 3020",
         profiles_quantity=18,
         accessories_quantity=2,
@@ -205,7 +257,7 @@ def seed_all_use_cases(session: Session) -> list[SeededScenario]:
         title="RAL automat - przygotowanie",
         coating_type=CoatingType.RAL,
         total_quantity=18,
-        customer_name="Auto Surface",
+        customer_name="Balkon-Tech Sp. z o.o.",
         ral_code="RAL 5010",
         profiles_quantity=15,
         accessories_quantity=3,
@@ -228,7 +280,7 @@ def seed_all_use_cases(session: Session) -> list[SeededScenario]:
         title="Decoral manual - gotowe do decoral",
         coating_type=CoatingType.DECORAL,
         total_quantity=9,
-        customer_name="Decoral Manual",
+        customer_name="Fasada Polska",
         ral_code="D-200",
         profiles_quantity=8,
         accessories_quantity=1,
@@ -253,7 +305,7 @@ def seed_all_use_cases(session: Session) -> list[SeededScenario]:
         title="Decoral automat - gotowe do decoral",
         coating_type=CoatingType.DECORAL,
         total_quantity=11,
-        customer_name="Decoral Auto",
+        customer_name="Fasada Polska",
         ral_code="D-310",
         profiles_quantity=9,
         accessories_quantity=2,
@@ -265,6 +317,7 @@ def seed_all_use_cases(session: Session) -> list[SeededScenario]:
     finish_surface_preparation(process_service, decoral_automatic.id)
     process_service.start_stage(decoral_automatic.id, ProcessStage.HANGING)
     process_service.finish_stage(decoral_automatic.id, ProcessStage.HANGING)
+    _set_consumed_paint(process_service, decoral_automatic.id, kg=1.0)
     process_service.complete_packing(decoral_automatic.id, counted_quantity=11, ok_quantity=11, correction_quantity=0)
     scenarios.append(
         scenario(
@@ -281,7 +334,7 @@ def seed_all_use_cases(session: Session) -> list[SeededScenario]:
         title="Pakowanie - podzial 7 i 3",
         coating_type=CoatingType.RAL,
         total_quantity=10,
-        customer_name="Packing Split",
+        customer_name="Profiltech Sp. z o.o.",
         ral_code="RAL 8017",
         profiles_quantity=9,
         accessories_quantity=1,
@@ -305,7 +358,7 @@ def seed_all_use_cases(session: Session) -> list[SeededScenario]:
         title="Poprawka - rodzic i dziecko",
         coating_type=CoatingType.RAL,
         total_quantity=10,
-        customer_name="Correction Parent",
+        customer_name="Alumar",
         ral_code="RAL 9010",
         profiles_quantity=8,
         accessories_quantity=2,
@@ -350,7 +403,7 @@ def seed_all_use_cases(session: Session) -> list[SeededScenario]:
         title="Zalacznik PDF",
         coating_type=CoatingType.RAL,
         total_quantity=6,
-        customer_name="Attachment Client",
+        customer_name="Konstruktor Sp. z o.o.",
         ral_code="RAL 7040",
         profiles_quantity=5,
         accessories_quantity=1,
@@ -372,7 +425,7 @@ def seed_all_use_cases(session: Session) -> list[SeededScenario]:
         title="Checkpoint - rowne przygotowanie",
         coating_type=CoatingType.RAL,
         total_quantity=8,
-        customer_name="Checkpoint Equal",
+        customer_name="Metal-Bud Zając",
         ral_code="RAL 5005",
         profiles_quantity=7,
         accessories_quantity=1,
@@ -396,7 +449,7 @@ def seed_all_use_cases(session: Session) -> list[SeededScenario]:
         title="Checkpoint - rozne przygotowanie",
         coating_type=CoatingType.RAL,
         total_quantity=8,
-        customer_name="Checkpoint Diff",
+        customer_name="Aluminco",
         ral_code="RAL 6021",
         profiles_quantity=7,
         accessories_quantity=1,
@@ -420,7 +473,7 @@ def seed_all_use_cases(session: Session) -> list[SeededScenario]:
         title="Checkpoint - roznica w pakowaniu",
         coating_type=CoatingType.RAL,
         total_quantity=10,
-        customer_name="Packing Diff",
+        customer_name="Balkon-Tech Sp. z o.o.",
         ral_code="RAL 3003",
         profiles_quantity=9,
         accessories_quantity=1,
@@ -440,13 +493,14 @@ def seed_all_use_cases(session: Session) -> list[SeededScenario]:
         )
     )
 
+    _queue_demo_customers = ["Technoalum", "Stalmet", "Okno-System"]
     for index in range(1, 4):
         queue_demo = create_work_order(
             work_order_service,
             title=f"Kolejka managera {index}",
             coating_type=CoatingType.RAL,
             total_quantity=5 + index,
-            customer_name="Queue Demo",
+            customer_name=_queue_demo_customers[index - 1],
             ral_code=f"RAL 70{index}0",
             profiles_quantity=4 + index,
             accessories_quantity=1,
@@ -469,7 +523,7 @@ def seed_all_use_cases(session: Session) -> list[SeededScenario]:
         title="Wieloetapowa poprawka - rodzic",
         coating_type=CoatingType.RAL,
         total_quantity=10,
-        customer_name="Multi Round",
+        customer_name="Alumar",
         ral_code="RAL 1013",
         profiles_quantity=9,
         accessories_quantity=1,
@@ -550,7 +604,7 @@ def seed_all_use_cases(session: Session) -> list[SeededScenario]:
         title="Automat + poprawka - rodzic",
         coating_type=CoatingType.RAL,
         total_quantity=10,
-        customer_name="Automatic Correction",
+        customer_name="Profiltech Sp. z o.o.",
         ral_code="RAL 6029",
         profiles_quantity=9,
         accessories_quantity=1,
@@ -605,7 +659,7 @@ def seed_all_use_cases(session: Session) -> list[SeededScenario]:
         title="RAL automat - zawieszanie i pakowanie",
         coating_type=CoatingType.RAL,
         total_quantity=14,
-        customer_name="Auto Hanging",
+        customer_name="Technoalum",
         ral_code="RAL 6018",
         profiles_quantity=12,
         accessories_quantity=2,
@@ -631,7 +685,7 @@ def seed_all_use_cases(session: Session) -> list[SeededScenario]:
         title="Konflikt kolejki - zajeta pozycja",
         coating_type=CoatingType.RAL,
         total_quantity=7,
-        customer_name="Queue Conflict",
+        customer_name="Balkon-Tech Sp. z o.o.",
         ral_code="RAL 7031",
         profiles_quantity=6,
         accessories_quantity=1,
@@ -648,7 +702,7 @@ def seed_all_use_cases(session: Session) -> list[SeededScenario]:
         title="Konflikt kolejki - ruch na zajeta pozycje",
         coating_type=CoatingType.RAL,
         total_quantity=8,
-        customer_name="Queue Conflict",
+        customer_name="Metal-Bud Zając",
         ral_code="RAL 7032",
         profiles_quantity=7,
         accessories_quantity=1,
@@ -664,7 +718,7 @@ def seed_all_use_cases(session: Session) -> list[SeededScenario]:
         title="Konflikt kolejki - kandydat do bledu",
         coating_type=CoatingType.RAL,
         total_quantity=9,
-        customer_name="Queue Conflict",
+        customer_name="Stalmet",
         ral_code="RAL 7033",
         profiles_quantity=8,
         accessories_quantity=1,
@@ -706,7 +760,7 @@ def seed_all_use_cases(session: Session) -> list[SeededScenario]:
         title="Historia poprawek - zakonczony lancuch",
         coating_type=CoatingType.RAL,
         total_quantity=10,
-        customer_name="History Chain",
+        customer_name="Konstruktor Sp. z o.o.",
         ral_code="RAL 9018",
         profiles_quantity=9,
         accessories_quantity=1,
@@ -804,13 +858,15 @@ def create_work_order(
     accessories_to_count: bool = False,
     notes: str | None = None,
 ):
+    paint_code, paint_producer = _PAINT_BY_RAL.get(ral_code, ("FARBA-SEED", "AkzoNobel"))
     payload = WorkOrderCreate(
         title=title,
         total_quantity=total_quantity,
         description=title,
         customer_name=customer_name,
         ral_code=ral_code,
-        paint_producer="AkzoNobel",
+        paint_code=paint_code,
+        paint_producer=paint_producer,
         coating_type=coating_type,
         received_date=date.today(),
         planned_pickup_date=date.today() + timedelta(days=7),
@@ -859,6 +915,7 @@ def advance_to_packing(process_service: ProcessService, work_order_id: int, *, c
     if work_order.production_type == ProductionType.AUTOMATIC:
         process_service.start_stage(work_order_id, ProcessStage.HANGING)
         process_service.finish_stage(work_order_id, ProcessStage.HANGING)
+        _set_consumed_paint(process_service, work_order_id, kg=1.0)
         return
 
     process_service.start_stage(work_order_id, ProcessStage.PRODUCTION)
@@ -914,6 +971,15 @@ def set_stage_counted_quantity(
     stage_state.counted_quantity = counted_quantity
     stage_state.updated_at = datetime.now(UTC)
     session.commit()
+
+
+def _set_consumed_paint(process_service: ProcessService, work_order_id: int, *, kg: float) -> None:
+    """Bypass paint stock check for seed data — set consumed quantity directly."""
+    from app.work_orders.models import WorkOrder as _WO
+    wo = process_service.repository.session.get(_WO, work_order_id)
+    if wo is not None:
+        wo.consumed_paint_quantity_kg = kg
+        process_service.repository.session.flush()
 
 
 def scenario(code: str, order_number: str, purpose: str, page: str, details: str) -> SeededScenario:
