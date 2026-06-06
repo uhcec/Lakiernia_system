@@ -181,7 +181,7 @@ def test_create_work_order(test_client: TestClient) -> None:
 
     assert response.status_code == 201
     assert body["id"] == 1
-    assert body["order_number"].startswith("WO-")
+    assert body["order_number"].isdigit()
     assert body["external_order_number"] == "EXT-2026/15"
     assert body["is_released_to_client"] is False
     assert body["released_to_client_at"] is None
@@ -275,7 +275,7 @@ def test_create_work_order_without_title_uses_order_number_as_fallback(test_clie
 
     assert response.status_code == 201
     body = response.json()
-    assert body["order_number"].startswith("WO-")
+    assert body["order_number"].isdigit()
     assert body["title"] == body["order_number"]
 
 

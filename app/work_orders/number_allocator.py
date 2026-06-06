@@ -7,6 +7,8 @@ from sqlalchemy.orm import Session
 
 from app.work_orders.models import WorkOrderNumberCounter
 
+_GLOBAL_COUNTER_KEY = 0
+
 
 class WorkOrderNumberAllocator:
     def __init__(self, session: Session) -> None:
@@ -14,15 +16,14 @@ class WorkOrderNumberAllocator:
 
     def allocate(self) -> str:
         allocation_time = datetime.now(UTC)
-        year = allocation_time.year
-        next_value = self._increment_counter(year, allocation_time)
-        return f"WO-{year}-{next_value:04d}"
+        next_value = self._increment_counter(allocation_time)
+        return f"{next_value:04d}"
 
-    def _increment_counter(self, year: int, allocation_time: datetime) -> int:
+    def _increment_counter(self, allocation_time: datetime) -> int:
         for _ in range(2):
             next_value = self.session.execute(
                 update(WorkOrderNumberCounter)
-                .where(WorkOrderNumberCounter.year == year)
+                .where(WorkOrderNumberCounter.year == _GLOBAL_COUNTER_KEY)
                 .values(
                     last_value=WorkOrderNumberCounter.last_value + 1,
                     updated_at=allocation_time,
@@ -32,14 +33,14 @@ class WorkOrderNumberAllocator:
             if next_value is not None:
                 return int(next_value)
 
-            self._ensure_counter_row(year, allocation_time)
+            self._ensure_counter_row(allocation_time)
 
-        raise RuntimeError(f"Unable to allocate work order number for year {year}.")
+        raise RuntimeError("Unable to allocate work order number.")
 
-    def _ensure_counter_row(self, year: int, allocation_time: datetime) -> None:
+    def _ensure_counter_row(self, allocation_time: datetime) -> None:
         dialect_name = self.session.get_bind().dialect.name
         values = {
-            "year": year,
+            "year": _GLOBAL_COUNTER_KEY,
             "last_value": 0,
             "created_at": allocation_time,
             "updated_at": allocation_time,

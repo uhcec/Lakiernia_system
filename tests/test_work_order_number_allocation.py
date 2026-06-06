@@ -69,7 +69,7 @@ def test_normal_creation_increments_counter(db_session: Session) -> None:
 
     first = work_order_service.create_work_order(build_work_order_create("Counter 1"))
     second = work_order_service.create_work_order(build_work_order_create("Counter 2"))
-    counter = db_session.get(WorkOrderNumberCounter, int(first.order_number.split("-")[1]))
+    counter = db_session.get(WorkOrderNumberCounter, 0)
 
     assert first.order_number.endswith("0001")
     assert second.order_number.endswith("0002")
@@ -77,7 +77,7 @@ def test_normal_creation_increments_counter(db_session: Session) -> None:
     assert counter.last_value == 2
 
 
-def test_correction_child_uses_same_yearly_sequence(db_session: Session) -> None:
+def test_correction_child_uses_same_global_sequence(db_session: Session) -> None:
     work_order_service, process_service, manager_service, work_order_repository, _ = build_services(db_session)
 
     parent = work_order_service.create_work_order(build_work_order_create("Parent order"))
