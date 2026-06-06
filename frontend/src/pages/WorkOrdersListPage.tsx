@@ -188,7 +188,7 @@ export function WorkOrdersListPage() {
           <div className="flex items-center gap-4">
             <MetricIcon label="ETA" className="bg-rose-50 text-rose-700" />
             <div>
-              <p className="text-sm font-semibold text-brand-muted">Opoznione</p>
+              <p className="text-sm font-semibold text-brand-muted">Po terminie</p>
               <p className="text-4xl font-bold text-brand-ink">{delayedCount}</p>
               <p className="text-sm text-brand-muted">Po terminie</p>
             </div>

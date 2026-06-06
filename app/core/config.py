@@ -26,6 +26,10 @@ class Settings(BaseSettings):
         gt=0,
         description="Maximum allowed attachment size in bytes.",
     )
+    jwt_secret: str = Field(
+        default="lakiernia-tuszko-secret-2026",
+        description="Secret key for signing JWT tokens.",
+    )
 
     model_config = SettingsConfigDict(
         env_file=".env",

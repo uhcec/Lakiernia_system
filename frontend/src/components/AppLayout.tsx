@@ -1,6 +1,8 @@
 import { NavLink, Outlet, useLocation } from "react-router-dom";
-import { ClipboardList, UserCog, FlaskConical, Hand, Factory, Package, Palette, ShieldCheck, Plus } from "lucide-react";
+import { ClipboardList, UserCog, FlaskConical, Hand, Factory, Package, Palette, ShieldCheck, Plus, LogOut } from "lucide-react";
 import type { SVGProps } from "react";
+import { isFullAccessUser, useAuth } from "../context/AuthContext";
+import { getStationPanelPath, type StationId } from "../api/stationContext";
 
 type NavigationItem = {
   to: string;
@@ -46,8 +48,27 @@ const secondaryNavigation: NavigationItem[] = [
   { to: "/zlecenia/nowe", label: "Dodaj zlecenie", icon: Plus, accent: true },
 ];
 
+const stationLabels: Record<string, string> = {
+  OFFICE: "Biuro",
+  MANAGER: "Kierownik",
+  SURFACE_PREPARATION: "Przygotowanie",
+  HANGING: "Zawieszanie",
+  MANUAL_PRODUCTION: "Produkcja ręczna",
+  AUTOMATIC_PRODUCTION: "Produkcja automat",
+  PACKING: "Pakowanie",
+  DECORAL_PRODUCTION: "Produkcja Decoral",
+};
+
 export function AppLayout() {
   const location = useLocation();
+  const { user, logout } = useAuth();
+  const fullAccess = isFullAccessUser(user);
+
+  const visiblePrimary = fullAccess
+    ? primaryNavigation
+    : primaryNavigation.filter((item) => item.to === getStationPanelPath(user?.station_id as StationId));
+
+  const visibleSecondary = fullAccess ? secondaryNavigation : [];
 
   function getSectionTitle(pathname: string): string {
     if (pathname.startsWith("/farby")) return "Farby";
@@ -81,7 +102,7 @@ export function AppLayout() {
           {/* Navigation */}
           <div className="rounded-[1.9rem] bg-white px-3 py-3 shadow-panel ring-1 ring-brand-line/70">
             <nav className="space-y-1">
-              {primaryNavigation.map((item) => (
+              {visiblePrimary.map((item) => (
                 <NavLink
                   key={item.to}
                   to={item.to}
@@ -102,35 +123,55 @@ export function AppLayout() {
               ))}
             </nav>
 
-            <div className="my-3 h-px bg-brand-line" />
-
-            <nav className="space-y-1">
-              {secondaryNavigation.map((item) => (
-                <NavLink
-                  key={item.to}
-                  to={item.to}
-                  className={({ isActive }) =>
-                    [
-                      "group flex items-center gap-3 rounded-[1rem] px-3 py-2.5 text-sm font-semibold transition",
-                      item.accent || isActive
-                        ? "bg-brand-warm text-brand-ink shadow-[0_8px_20px_rgba(255,140,32,0.2)] hover:bg-brand-warm-strong"
-                        : "text-brand-muted hover:bg-brand-surface hover:text-brand-ink",
-                    ].join(" ")
-                  }
-                >
-                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-current/10 bg-white/40">
-                    <item.icon className="h-[1rem] w-[1rem]" strokeWidth={1.8} />
-                  </span>
-                  <span>{item.label}</span>
-                </NavLink>
-              ))}
-            </nav>
+            {visibleSecondary.length > 0 && (
+              <>
+                <div className="my-3 h-px bg-brand-line" />
+                <nav className="space-y-1">
+                  {visibleSecondary.map((item) => (
+                    <NavLink
+                      key={item.to}
+                      to={item.to}
+                      className={({ isActive }) =>
+                        [
+                          "group flex items-center gap-3 rounded-[1rem] px-3 py-2.5 text-sm font-semibold transition",
+                          item.accent || isActive
+                            ? "bg-brand-warm text-brand-ink shadow-[0_8px_20px_rgba(255,140,32,0.2)] hover:bg-brand-warm-strong"
+                            : "text-brand-muted hover:bg-brand-surface hover:text-brand-ink",
+                        ].join(" ")
+                      }
+                    >
+                      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-current/10 bg-white/40">
+                        <item.icon className="h-[1rem] w-[1rem]" strokeWidth={1.8} />
+                      </span>
+                      <span>{item.label}</span>
+                    </NavLink>
+                  ))}
+                </nav>
+              </>
+            )}
           </div>
 
-          {/* Footer info */}
+          {/* User info + logout */}
           <div className="mt-auto rounded-[1.9rem] bg-white px-4 py-4 shadow-panel ring-1 ring-brand-line/70">
             <p className="text-xs font-semibold text-brand-ink">TUSZKO Lakiernia Proszkowa</p>
             <p className="mt-1 text-xs leading-5 text-brand-muted">System sterowania produkcją.</p>
+            {user && (
+              <div className="mt-3 flex items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="truncate text-[0.65rem] font-semibold text-brand-ink">{stationLabels[user.station_id] ?? user.station_id}</p>
+                  {user.is_admin && (
+                    <p className="text-[0.6rem] font-semibold uppercase tracking-[0.15em] text-amber-600">Admin</p>
+                  )}
+                </div>
+                <button
+                  onClick={logout}
+                  title="Wyloguj"
+                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-brand-muted transition hover:bg-brand-surface hover:text-brand-ink"
+                >
+                  <LogOut className="h-3.5 w-3.5" strokeWidth={1.8} />
+                </button>
+              </div>
+            )}
             <p className="mt-2 text-[0.6rem] font-semibold uppercase tracking-[0.18em] text-brand-muted">Wersja 2.1.0</p>
           </div>
         </aside>
@@ -145,14 +186,16 @@ export function AppLayout() {
                 <p className="text-xs font-semibold uppercase tracking-[0.2em] text-brand-muted">Panel operacyjny</p>
                 <h1 className="mt-0.5 truncate text-[1.6rem] font-bold text-brand-ink">{getSectionTitle(location.pathname)}</h1>
               </div>
-              <NavLink
-                to="/zlecenia/nowe"
-                className="inline-flex shrink-0 items-center gap-2 rounded-full bg-brand-warm px-5 py-2.5 text-sm font-semibold text-brand-ink transition hover:bg-brand-warm-strong"
-              >
-                <Plus className="h-4 w-4" strokeWidth={1.8} />
-                <span className="hidden sm:inline">Dodaj zlecenie</span>
-                <span className="sm:hidden">Dodaj</span>
-              </NavLink>
+              {fullAccess && (
+                <NavLink
+                  to="/zlecenia/nowe"
+                  className="inline-flex shrink-0 items-center gap-2 rounded-full bg-brand-warm px-5 py-2.5 text-sm font-semibold text-brand-ink transition hover:bg-brand-warm-strong"
+                >
+                  <Plus className="h-4 w-4" strokeWidth={1.8} />
+                  <span className="hidden sm:inline">Dodaj zlecenie</span>
+                  <span className="sm:hidden">Dodaj</span>
+                </NavLink>
+              )}
             </div>
           </header>
 

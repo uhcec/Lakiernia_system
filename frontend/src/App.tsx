@@ -1,11 +1,13 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 
 import { AppLayout } from "./components/AppLayout";
+import { ProtectedRoute } from "./components/ProtectedRoute";
 import { AuditEventsPage } from "./pages/AuditEventsPage";
 import { AutomaticProductionPage } from "./pages/AutomaticProductionPage";
 import { CreateWorkOrderPage } from "./pages/CreateWorkOrderPage";
 import { DecoralProductionPage } from "./pages/DecoralProductionPage";
 import { HangingPage } from "./pages/HangingPage";
+import { LoginPage } from "./pages/LoginPage";
 import { ManualProductionPage } from "./pages/ManualProductionPage";
 import { ManagerPanelPage } from "./pages/ManagerPanelPage";
 import { PackingPage } from "./pages/PackingPage";
@@ -17,8 +19,15 @@ import { WorkOrdersListPage } from "./pages/WorkOrdersListPage";
 export default function App() {
   return (
     <Routes>
+      <Route path="/login" element={<LoginPage />} />
       <Route path="/" element={<Navigate to="/zlecenia" replace />} />
-      <Route element={<AppLayout />}>
+      <Route
+        element={
+          <ProtectedRoute>
+            <AppLayout />
+          </ProtectedRoute>
+        }
+      >
         <Route path="/audyt" element={<AuditEventsPage />} />
         <Route path="/farby" element={<PaintInventoryPage />} />
         <Route path="/kierownik" element={<ManagerPanelPage />} />

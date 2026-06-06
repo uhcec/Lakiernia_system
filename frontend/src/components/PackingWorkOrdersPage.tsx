@@ -495,15 +495,13 @@ export function PackingWorkOrdersPage() {
                 </div>
 
                 <div className="border-t border-line/80 pt-4 lg:border-l lg:border-t-0 lg:pl-5 lg:pt-0">
-                  {!isPackingStage ? (
-                    <div className="flex h-full flex-col justify-center gap-3">
-                      <span className="inline-flex w-fit rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800">
-                        Czeka na koniec zawieszania
-                      </span>
-                      <p className="text-sm text-steel">Pakowanie pozostaje zablokowane do zakończenia zawieszania.</p>
-                    </div>
-                  ) : isPackingInProgress ? (
+                  {!isPackingStage || isPackingInProgress ? (
                     <div className="space-y-4">
+                      {!isPackingStage ? (
+                        <span className="inline-flex w-fit rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800">
+                          Czeka na koniec zawieszania
+                        </span>
+                      ) : null}
                       <div className="grid gap-3 sm:grid-cols-3">
                         <label className="space-y-1 text-sm font-medium text-steel">
                           <span>Policzono</span>
@@ -611,7 +609,7 @@ export function PackingWorkOrdersPage() {
 
                       <button
                         type="button"
-                        disabled={isSubmitting || !isDraftValid}
+                        disabled={isSubmitting || !isDraftValid || !isPackingStage}
                         onClick={() => void handlePackingSubmit(workOrder)}
                         className="inline-flex w-full items-center justify-center rounded-lg bg-accent px-4 py-3 text-sm font-semibold text-white transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:bg-teal-300"
                       >

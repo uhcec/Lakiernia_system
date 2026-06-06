@@ -4,11 +4,17 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app.auth.dependencies import get_current_user
+from app.auth.models import User
 from app.core.config import get_settings
 from app.database.base import Base
 from app.database import models  # noqa: F401
 from app.database.session import get_db_session
 from app.main import create_app
+
+
+def _mock_admin_user() -> User:
+    return User(id=1, login="admin", hashed_password="", station_id="OFFICE", is_admin=True)
 
 
 @pytest.fixture(autouse=True)
@@ -60,6 +66,7 @@ def test_client() -> TestClient:
 
     app = create_app()
     app.dependency_overrides[get_db_session] = override_get_db_session
+    app.dependency_overrides[get_current_user] = _mock_admin_user
 
     with TestClient(app) as client:
         yield client
