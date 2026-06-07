@@ -3,7 +3,6 @@ import { Link } from "react-router-dom";
 
 import { fetchWorkOrders } from "../api/workOrdersApi";
 import { OfficeWorkOrdersTable } from "../components/OfficeWorkOrdersTable";
-import { WorkOrdersTable } from "../components/WorkOrdersTable";
 import type { ProcessStatusValue, WorkOrder } from "../types/workOrders";
 
 type OfficeBucket = "INTAKE" | "PRODUCTION" | "READY";
@@ -277,9 +276,7 @@ export function WorkOrdersListPage() {
             Brak zleceń w wybranej grupie
           </div>
         ) : (
-          activeBucket === "INTAKE"
-            ? <OfficeWorkOrdersTable workOrders={visibleWorkOrders} />
-            : <WorkOrdersTable workOrders={visibleWorkOrders} />
+          <OfficeWorkOrdersTable workOrders={visibleWorkOrders} />
         )}
       </section>
     </main>

@@ -106,13 +106,31 @@ function OfficeWorkOrderRow({ workOrder }: { workOrder: WorkOrder }) {
           {workOrder.completed_quantity} / {workOrder.total_quantity} szt.
         </p>
         <div className="flex flex-wrap gap-1.5">
-          <span className="inline-flex rounded-full bg-brand-surface px-2.5 py-0.5 text-[11px] font-semibold text-brand-muted">
-            Gotowe: {workOrder.completed_quantity}
-          </span>
-          {workOrder.current_active_quantity > 0 && (
-            <span className="inline-flex rounded-full bg-amber-50 px-2.5 py-0.5 text-[11px] font-semibold text-amber-700">
-              Aktywne: {workOrder.current_active_quantity}
-            </span>
+          {workOrder.process_status.value === "READY" ? (
+            <>
+              <span className="inline-flex rounded-full bg-emerald-100 px-2.5 py-0.5 text-[11px] font-semibold text-emerald-700">
+                Gotowe
+              </span>
+              <span className={[
+                "inline-flex rounded-full px-2.5 py-0.5 text-[11px] font-semibold",
+                workOrder.is_released_to_client
+                  ? "bg-emerald-100 text-emerald-700"
+                  : "bg-brand-surface text-brand-muted",
+              ].join(" ")}>
+                {workOrder.is_released_to_client ? "Wydane" : "Do wydania"}
+              </span>
+            </>
+          ) : (
+            <>
+              <span className="inline-flex rounded-full bg-brand-surface px-2.5 py-0.5 text-[11px] font-semibold text-brand-muted">
+                Gotowe: {workOrder.completed_quantity}
+              </span>
+              {workOrder.current_active_quantity > 0 && (
+                <span className="inline-flex rounded-full bg-amber-50 px-2.5 py-0.5 text-[11px] font-semibold text-amber-700">
+                  Aktywne: {workOrder.current_active_quantity}
+                </span>
+              )}
+            </>
           )}
         </div>
       </div>
