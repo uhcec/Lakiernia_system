@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { fetchWorkOrders } from "../api/workOrdersApi";
+import { OfficeWorkOrdersTable } from "../components/OfficeWorkOrdersTable";
 import { WorkOrdersTable } from "../components/WorkOrdersTable";
 import type { ProcessStatusValue, WorkOrder } from "../types/workOrders";
 
@@ -276,7 +277,9 @@ export function WorkOrdersListPage() {
             Brak zleceń w wybranej grupie
           </div>
         ) : (
-          <WorkOrdersTable workOrders={visibleWorkOrders} />
+          activeBucket === "INTAKE"
+            ? <OfficeWorkOrdersTable workOrders={visibleWorkOrders} />
+            : <WorkOrdersTable workOrders={visibleWorkOrders} />
         )}
       </section>
     </main>
