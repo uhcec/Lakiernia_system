@@ -12,6 +12,7 @@ from app.manager.repository import ManagerRepository
 from app.manager.schemas import (
     CorrectionReasonReportItem,
     WorkOrderPlanAssignRequest,
+    WorkOrderProductionTypeUpdateRequest,
     WorkOrderQueuePositionUpdateRequest,
     WorkOrderQueueReorderBatchRequest,
 )
@@ -66,6 +67,16 @@ def assign_plan(
     station_context: Annotated[StationContext, Depends(get_station_context)],
 ) -> WorkOrderRead:
     return service.assign_plan(work_order_id, payload, station_context=station_context)
+
+
+@router.patch("/work-orders/{work_order_id}/production-type", response_model=WorkOrderRead)
+def update_production_type(
+    work_order_id: int,
+    payload: WorkOrderProductionTypeUpdateRequest,
+    service: Annotated[ManagerService, Depends(get_manager_service)],
+    station_context: Annotated[StationContext, Depends(get_station_context)],
+) -> WorkOrderRead:
+    return service.update_production_type(work_order_id, payload, station_context=station_context)
 
 
 @router.patch("/work-orders/{work_order_id}/queue-position", response_model=WorkOrderRead)

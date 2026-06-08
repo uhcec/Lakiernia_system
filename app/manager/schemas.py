@@ -12,6 +12,12 @@ class WorkOrderPlanAssignRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class WorkOrderProductionTypeUpdateRequest(BaseModel):
+    production_type: ProductionType
+
+    model_config = ConfigDict(extra="forbid")
+
+
 class WorkOrderQueuePositionUpdateRequest(BaseModel):
     queue_position: int = Field(ge=1)
 

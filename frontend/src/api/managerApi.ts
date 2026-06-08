@@ -4,6 +4,7 @@ import type {
   AssignWorkOrderPlanRequest,
   CorrectionReasonReportItem,
   ReorderQueueRequest,
+  UpdateProductionTypeRequest,
   UpdateQueuePositionRequest,
 } from "../types/manager";
 import type { WorkOrder } from "../types/workOrders";
@@ -83,6 +84,27 @@ export async function assignWorkOrderPlan(workOrderId: number, payload: AssignWo
 
   if (!response.ok) {
     throw await createApiError(response, "Nie udało się zaplanować zlecenia");
+  }
+
+  return response.json() as Promise<WorkOrder>;
+}
+
+export async function updateWorkOrderProductionType(
+  workOrderId: number,
+  payload: UpdateProductionTypeRequest,
+): Promise<WorkOrder> {
+  const response = await fetch(createApiUrl(`/manager/work-orders/${workOrderId}/production-type`), {
+    method: "PATCH",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+      ...getCurrentStationHeaders(),
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    throw await createApiError(response, "Nie udało się zmienić typu produkcji");
   }
 
   return response.json() as Promise<WorkOrder>;

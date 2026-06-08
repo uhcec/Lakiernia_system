@@ -7,6 +7,7 @@ import {
   fetchUnplannedWorkOrders,
   getCorrectionReasonReportExportUrl,
   reorderWorkOrderQueue,
+  updateWorkOrderProductionType,
 } from "../api/managerApi";
 import type { CorrectionReasonReportItem } from "../types/manager";
 import type { ProductionTypeValue, WorkOrder } from "../types/workOrders";
@@ -37,6 +38,7 @@ interface PlanDraft {
 }
 
 type QueueFilter = "ALL" | "NORMAL" | "CORRECTIONS";
+type UnplannedSort = "NONE" | "COLOR" | "COMPANY" | "DEADLINE";
 
 interface AuthoritativeQueueSnapshot {
   active: WorkOrder[];
@@ -109,6 +111,28 @@ function logQueueDebug(label: string, payload: unknown) {
   console.groupCollapsed(`[queue-debug] ${label}`);
   console.log(payload);
   console.groupEnd();
+}
+
+function sortUnplannedWorkOrders(workOrders: WorkOrder[], sort: UnplannedSort): WorkOrder[] {
+  if (sort === "NONE") {
+    return workOrders;
+  }
+
+  return [...workOrders].sort((a, b) => {
+    if (sort === "COLOR") {
+      return a.ral_code.localeCompare(b.ral_code, "pl");
+    }
+    if (sort === "COMPANY") {
+      return a.customer_name.localeCompare(b.customer_name, "pl");
+    }
+    if (sort === "DEADLINE") {
+      if (!a.planned_pickup_date && !b.planned_pickup_date) return 0;
+      if (!a.planned_pickup_date) return 1;
+      if (!b.planned_pickup_date) return -1;
+      return a.planned_pickup_date.localeCompare(b.planned_pickup_date);
+    }
+    return 0;
+  });
 }
 
 function filterQueueByType(workOrders: WorkOrder[], queueFilter: QueueFilter): WorkOrder[] {
@@ -205,6 +229,7 @@ function renderPaintShortageWarning(workOrder: WorkOrder) {
 
 export function ManagerPanelPage() {
   const [queueFilter, setQueueFilter] = useState<QueueFilter>("ALL");
+  const [unplannedSort, setUnplannedSort] = useState<UnplannedSort>("NONE");
   const [unplannedWorkOrders, setUnplannedWorkOrders] = useState<WorkOrder[]>([]);
   const [activePlannedWorkOrders, setActivePlannedWorkOrders] = useState<WorkOrder[]>([]);
   const [completedPlannedWorkOrders, setCompletedPlannedWorkOrders] = useState<WorkOrder[]>([]);
@@ -217,11 +242,15 @@ export function ManagerPanelPage() {
   const [isSavingQueueOrder, setIsSavingQueueOrder] = useState(false);
   const [hasPendingQueueChanges, setHasPendingQueueChanges] = useState(false);
   const [draggedWorkOrderId, setDraggedWorkOrderId] = useState<number | null>(null);
+  const [changingProductionTypeId, setChangingProductionTypeId] = useState<number | null>(null);
   const [showCompleted, setShowCompleted] = useState(false);
   const [queueRevision, setQueueRevision] = useState<string | null>(null);
   const authoritativeQueueRef = useRef<AuthoritativeQueueSnapshot | null>(null);
 
-  const filteredUnplannedWorkOrders = filterQueueByType(unplannedWorkOrders, queueFilter);
+  const filteredUnplannedWorkOrders = sortUnplannedWorkOrders(
+    filterQueueByType(unplannedWorkOrders, queueFilter),
+    unplannedSort,
+  );
   const filteredActivePlannedWorkOrders = filterQueueByType(activePlannedWorkOrders, queueFilter);
   const filteredCompletedPlannedWorkOrders = filterQueueByType(completedPlannedWorkOrders, queueFilter);
   const isAllQueueFilter = queueFilter === "ALL";
@@ -449,6 +478,34 @@ export function ManagerPanelPage() {
     void saveQueueOrder(reorderedWorkOrders);
   }
 
+  function canChangeProductionType(workOrder: WorkOrder): boolean {
+    if (workOrder.process_status.value === "READY") return false;
+    if (!workOrder.production_type) return false;
+    const blockingStages = new Set(["HANGING", "PRODUCTION"]);
+    const blockingStatuses = new Set(["IN_PROGRESS", "DONE"]);
+    return !workOrder.stage_states.some(
+      (ss) => blockingStages.has(ss.stage.value) && blockingStatuses.has(ss.status.value),
+    );
+  }
+
+  async function handleChangeProductionType(workOrderId: number, newType: ProductionTypeValue) {
+    setChangingProductionTypeId(workOrderId);
+    setErrorMessage(null);
+    setSuccessMessage(null);
+
+    try {
+      await updateWorkOrderProductionType(workOrderId, { production_type: newType });
+      await loadManagerData();
+      setSuccessMessage("Typ produkcji został zmieniony");
+    } catch (error) {
+      const message = getMutationErrorMessage(error, "Nie udało się zmienić typu produkcji");
+      await loadManagerData({ preserveErrorMessage: true });
+      setErrorMessage(message);
+    } finally {
+      setChangingProductionTypeId(null);
+    }
+  }
+
   function renderActiveQueue(workOrders: WorkOrder[]) {
     return (
       <div className="space-y-3">
@@ -529,9 +586,38 @@ export function ManagerPanelPage() {
               </div>
 
               <div className="flex flex-wrap items-center gap-3 text-sm text-steel">
-                <span className="inline-flex rounded-full bg-mist px-3 py-1 font-medium text-ink">
-                  {getProductionTypeLabel(workOrder.production_type?.value)}
-                </span>
+                {canChangeProductionType(workOrder) ? (
+                  <div className="inline-flex rounded-2xl border border-line bg-mist p-0.5">
+                    {productionTypeOptions.map((option) => {
+                      const isSelected = workOrder.production_type?.value === option.value;
+                      const isChanging = changingProductionTypeId === workOrder.id;
+                      return (
+                        <button
+                          key={option.value}
+                          type="button"
+                          disabled={isChanging}
+                          onClick={() => {
+                            if (!isSelected) {
+                              void handleChangeProductionType(workOrder.id, option.value);
+                            }
+                          }}
+                          className={[
+                            "rounded-xl px-3 py-1.5 text-xs font-semibold transition",
+                            isSelected
+                              ? "bg-white text-ink shadow-sm"
+                              : "text-steel hover:text-accent disabled:cursor-not-allowed",
+                          ].join(" ")}
+                        >
+                          {isChanging && !isSelected ? "..." : option.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <span className="inline-flex rounded-full bg-mist px-3 py-1 font-medium text-ink">
+                    {getProductionTypeLabel(workOrder.production_type?.value)}
+                  </span>
+                )}
                 <a
                   href={buildWorkOrderDetailHref(workOrder.id, "MANAGER")}
                   className="inline-flex rounded-full border border-line bg-white px-3 py-1 font-medium text-accent transition hover:border-accent/50"
@@ -716,10 +802,37 @@ export function ManagerPanelPage() {
 
       <section className="grid gap-6 xl:grid-cols-[1.1fr_1.4fr]">
         <div className="rounded-[2rem] border border-white/70 bg-white/80 p-6 shadow-panel backdrop-blur sm:p-8">
-          <div className="mb-5 flex items-start justify-between gap-4">
+          <div className="mb-5 space-y-3">
             <div>
               <h3 className="text-2xl font-semibold text-ink">Do zaplanowania</h3>
               <p className="mt-1 text-sm text-steel">Wybierz typ produkcji i nadaj miejsce w kolejce.</p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs font-semibold uppercase tracking-[0.12em] text-steel">Sortowanie:</span>
+              <div className="inline-flex flex-wrap rounded-2xl border border-line bg-mist p-1 gap-1">
+                {(
+                  [
+                    { value: "NONE", label: "Domyślnie" },
+                    { value: "COLOR", label: "Kolor" },
+                    { value: "COMPANY", label: "Firma" },
+                    { value: "DEADLINE", label: "Termin" },
+                  ] as Array<{ value: UnplannedSort; label: string }>
+                ).map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => setUnplannedSort(option.value)}
+                    className={[
+                      "rounded-xl px-3 py-1.5 text-xs font-semibold transition",
+                      unplannedSort === option.value
+                        ? "bg-white text-ink shadow-sm"
+                        : "text-steel hover:text-accent",
+                    ].join(" ")}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
 

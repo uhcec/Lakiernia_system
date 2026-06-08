@@ -9,6 +9,10 @@ export interface UpdateQueuePositionRequest {
   queue_position: number;
 }
 
+export interface UpdateProductionTypeRequest {
+  production_type: ProductionTypeValue;
+}
+
 export interface ReorderQueueItemRequest {
   work_order_id: number;
   queue_position: number;

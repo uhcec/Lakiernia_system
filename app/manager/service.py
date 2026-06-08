@@ -17,10 +17,12 @@ from app.manager.repository import ManagerRepository
 from app.manager.schemas import (
     CorrectionReasonReportItem,
     WorkOrderPlanAssignRequest,
+    WorkOrderProductionTypeUpdateRequest,
     WorkOrderQueuePositionUpdateRequest,
     WorkOrderQueueReorderBatchRequest,
     WorkOrderQueueReorderRequest,
 )
+from app.process.enums import ProcessStage, StageStatus
 from app.shared.enums import StationId, WorkOrderStatus
 from app.shared.exceptions import InvalidManagerPlanningError, ResourceNotFoundError
 from app.work_orders.models import WorkOrder
@@ -194,6 +196,42 @@ class ManagerService:
                 self.repository.rollback()
                 raise
 
+            return self._to_read_model(work_order)
+
+    def update_production_type(
+        self,
+        work_order_id: int,
+        payload: WorkOrderProductionTypeUpdateRequest,
+        station_context: StationContext | None = None,
+    ) -> WorkOrderRead:
+        self._ensure_manager_station_action(station_context)
+        with _QUEUE_MUTATION_LOCK:
+            work_order = self._get_existing_work_order(work_order_id)
+            if not self._is_planned(work_order):
+                raise InvalidManagerPlanningError(f"Work order {work_order_id} must be planned before changing production type.")
+            if work_order.production_type == payload.production_type:
+                return self._to_read_model(work_order)
+            self._ensure_production_not_started(work_order)
+
+            previous_production_type = work_order.production_type
+            now = datetime.now(UTC)
+            work_order.production_type = payload.production_type
+            work_order.updated_at = now
+            self.process_service.prepare_correction_work_order_for_planning(work_order)
+            self._record_audit_event(
+                event_type="manager.production_type_changed",
+                station_context=station_context,
+                work_order=work_order,
+                target_type="work_order",
+                target_id=work_order.id,
+                summary=f"Changed production type for work order {work_order.order_number}.",
+                details={
+                    "previous_production_type": previous_production_type.value if previous_production_type else None,
+                    "production_type": payload.production_type.value,
+                },
+            )
+
+            self.repository.commit()
             return self._to_read_model(work_order)
 
     def reorder_queue(
@@ -409,6 +447,16 @@ class ManagerService:
     @staticmethod
     def _sort_queue_rows(work_orders: list[WorkOrder]) -> list[WorkOrder]:
         return sorted(work_orders, key=lambda work_order: (work_order.queue_position or 0, work_order.id))
+
+    @staticmethod
+    def _ensure_production_not_started(work_order: WorkOrder) -> None:
+        blocking_stages = {ProcessStage.HANGING, ProcessStage.PRODUCTION}
+        blocking_statuses = {StageStatus.IN_PROGRESS, StageStatus.DONE}
+        for stage_state in work_order.stage_states:
+            if stage_state.stage in blocking_stages and stage_state.status in blocking_statuses:
+                raise InvalidManagerPlanningError(
+                    f"Cannot change production type: stage {stage_state.stage.value} has already started."
+                )
 
     @staticmethod
     def _is_planned(work_order: WorkOrder) -> bool:
