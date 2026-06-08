@@ -78,7 +78,18 @@ class _ExcelPdfConverter:
                 break
             xlsx_str, pdf_str, done_event, err_box = task
             try:
-                wb = excel.Workbooks.Open(xlsx_str, UpdateLinks=0, ReadOnly=1)
+                wb = excel.Workbooks.Open(xlsx_str, UpdateLinks=0, ReadOnly=0)
+                ws = wb.Worksheets(1)
+                ws.Range("D6").Font.Size = 16
+                ws.Range("D6").Font.Bold = True
+                ps = ws.PageSetup
+                ps.PaperSize = 9  # A4
+                ps.Orientation = 1  # portrait
+                ps.CenterHorizontally = True
+                ps.CenterVertically = True
+                ps.Zoom = False
+                ps.FitToPagesWide = 1
+                ps.FitToPagesTall = 1
                 wb.ExportAsFixedFormat(0, pdf_str)
                 wb.Close(False)
             except Exception as exc:

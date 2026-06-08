@@ -1,4 +1,4 @@
-import { ChangeEvent, FormEvent, useEffect, useState } from "react";
+import { ChangeEvent, FormEvent, useCallback, useEffect, useState } from "react";
 import { Link, useLocation, useParams } from "react-router-dom";
 
 import { fetchWorkOrderAuditEvents } from "../api/auditApi";
@@ -187,6 +187,7 @@ export function WorkOrderDetailPage() {
   const canManageAttachments = effectiveStationId === "OFFICE";
   const canUpdateReleaseStatus = effectiveStationId === "OFFICE";
   const canGenerateQualityControlDocument = effectiveStationId === "OFFICE";
+  const [isDownloadingQcDoc, setIsDownloadingQcDoc] = useState(false);
   const [workOrder, setWorkOrder] = useState<WorkOrder | null>(null);
   const [attachments, setAttachments] = useState<WorkOrderAttachment[]>([]);
   const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
@@ -204,6 +205,27 @@ export function WorkOrderDetailPage() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [attachmentType, setAttachmentType] = useState("");
   const [attachmentDescription, setAttachmentDescription] = useState("");
+
+  const handleDownloadQcDocument = useCallback(async (wo: WorkOrder) => {
+    setIsDownloadingQcDoc(true);
+    try {
+      const response = await fetch(getQualityControlDocumentUrl(wo.id));
+      if (!response.ok) throw new Error("Błąd pobierania dokumentu");
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `KJ_${wo.order_number}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      alert("Nie udało się pobrać karty kontroli jakości.");
+    } finally {
+      setIsDownloadingQcDoc(false);
+    }
+  }, []);
 
   async function loadWorkOrder(workOrderId: number) {
     setIsLoading(true);
@@ -453,13 +475,13 @@ export function WorkOrderDetailPage() {
           </div>
           <div className="flex flex-wrap items-center gap-3">
             {canGenerateQualityControlDocument && workOrder ? (
-              <a
-                href={getQualityControlDocumentUrl(workOrder.id)}
-                download={`KJ_${workOrder.order_number}.pdf`}
-                className="inline-flex items-center justify-center rounded-full bg-accent px-5 py-3 text-sm font-medium text-white transition hover:bg-teal-700"
+              <button
+                onClick={() => handleDownloadQcDocument(workOrder)}
+                disabled={isDownloadingQcDoc}
+                className="inline-flex items-center justify-center rounded-full bg-accent px-5 py-3 text-sm font-medium text-white transition hover:bg-teal-700 disabled:opacity-60"
               >
-                Karta kontroli jakości
-              </a>
+                {isDownloadingQcDoc ? "Pobieranie…" : "Karta kontroli jakości"}
+              </button>
             ) : null}
             <Link
               to={getStationPanelPath(effectiveStationId)}
