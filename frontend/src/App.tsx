@@ -12,6 +12,7 @@ import { ManualProductionPage } from "./pages/ManualProductionPage";
 import { ManagerPanelPage } from "./pages/ManagerPanelPage";
 import { PackingPage } from "./pages/PackingPage";
 import { PaintInventoryPage } from "./pages/PaintInventoryPage";
+import { StatystykiPage } from "./pages/StatystykiPage";
 import { SurfacePreparationPage } from "./pages/SurfacePreparationPage";
 import { WorkOrderDetailPage } from "./pages/WorkOrderDetailPage";
 import { WorkOrdersListPage } from "./pages/WorkOrdersListPage";
@@ -30,6 +31,7 @@ export default function App() {
       >
         <Route path="/audyt" element={<AuditEventsPage />} />
         <Route path="/farby" element={<PaintInventoryPage />} />
+        <Route path="/statystyki" element={<StatystykiPage />} />
         <Route path="/kierownik" element={<ManagerPanelPage />} />
         <Route path="/przygotowanie" element={<SurfacePreparationPage />} />
         <Route path="/zawieszanie" element={<HangingPage />} />

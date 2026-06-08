@@ -163,6 +163,24 @@ export interface WorkOrdersListResponse {
   offset: number;
 }
 
+export interface UpdateWorkOrderRequest {
+  title?: string | null;
+  external_order_number?: string | null;
+  description?: string | null;
+  customer_name?: string;
+  ral_code?: string;
+  paint_code?: string | null;
+  paint_producer?: string;
+  received_date?: string;
+  planned_pickup_date?: string | null;
+  total_area_m2?: number;
+  profiles_quantity?: number | null;
+  profiles_to_count?: boolean;
+  accessories_quantity?: number | null;
+  accessories_to_count?: boolean;
+  notes?: string | null;
+}
+
 export interface CreateWorkOrderRequest {
   title?: string;
   external_order_number?: string;

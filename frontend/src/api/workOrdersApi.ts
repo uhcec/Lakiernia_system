@@ -1,6 +1,6 @@
 import { createApiError } from "./apiError";
 import { getCurrentStationHeaders } from "./stationContext";
-import type { CreateWorkOrderRequest, WorkOrder, WorkOrderAttachment, WorkOrdersListResponse } from "../types/workOrders";
+import type { CreateWorkOrderRequest, UpdateWorkOrderRequest, WorkOrder, WorkOrderAttachment, WorkOrdersListResponse } from "../types/workOrders";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL?.trim();
 
@@ -85,6 +85,26 @@ export async function fetchWorkOrder(workOrderId: number): Promise<WorkOrder> {
 
   if (!response.ok) {
     throw await createApiError(response, "Nie udało się pobrać zlecenia");
+  }
+
+  return response.json() as Promise<WorkOrder>;
+}
+
+export async function updateWorkOrder(workOrderId: number, payload: UpdateWorkOrderRequest): Promise<WorkOrder> {
+  const url = createApiUrl(`/work-orders/${workOrderId}`);
+
+  const response = await fetch(url, {
+    method: "PATCH",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+      ...getCurrentStationHeaders(),
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    throw await createApiError(response, "Nie udało się zaktualizować zlecenia");
   }
 
   return response.json() as Promise<WorkOrder>;

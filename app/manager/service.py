@@ -1,8 +1,9 @@
 import json
-from datetime import UTC, datetime
-
+from datetime import UTC, date, datetime
+from typing import Literal
 from threading import RLock
 
+from sqlalchemy import case, func, select
 from sqlalchemy.exc import IntegrityError
 
 from app.audit.context import StationContext, ensure_station_allowed
@@ -10,12 +11,15 @@ from app.audit.models import AuditEvent
 from app.audit.repository import AuditRepository
 from app.paints.repository import PaintRepository
 from app.paints.service import PaintService
-from app.process.enums import ProcessDisplayStatus
+from app.process.enums import CoatingType, ProcessDisplayStatus, ProductionType
+from app.process.models import WorkOrderStageState
 from app.process.repository import ProcessRepository
 from app.process.service import ProcessService
 from app.manager.repository import ManagerRepository
 from app.manager.schemas import (
     CorrectionReasonReportItem,
+    ThroughputPeriod,
+    ThroughputStats,
     WorkOrderPlanAssignRequest,
     WorkOrderProductionTypeUpdateRequest,
     WorkOrderQueuePositionUpdateRequest,
@@ -80,6 +84,135 @@ class ManagerService:
             )
             for category, work_order_count, total_correction_quantity in self.repository.list_correction_reason_report()
         ]
+
+    def get_throughput_stats(
+        self,
+        date_from: date,
+        date_to: date,
+        group_by: Literal["day", "week", "month"] = "day",
+    ) -> ThroughputStats:
+        session = self.repository.session
+        date_fmt = {"day": "%Y-%m-%d", "week": "%Y-%W", "month": "%Y-%m"}[group_by]
+
+        packing_done = (
+            select(
+                WorkOrderStageState.work_order_id,
+                WorkOrderStageState.updated_at.label("packing_done_at"),
+            )
+            .where(
+                WorkOrderStageState.stage == ProcessStage.PACKING,
+                WorkOrderStageState.status == StageStatus.DONE,
+            )
+            .subquery()
+        )
+
+        period_expr = func.strftime(date_fmt, packing_done.c.packing_done_at)
+
+        throughput_rows = session.execute(
+            select(
+                period_expr.label("period"),
+                func.sum(
+                    case(
+                        (
+                            (WorkOrder.coating_type == CoatingType.RAL)
+                            & (WorkOrder.production_type == ProductionType.MANUAL),
+                            func.coalesce(WorkOrder.total_area_m2, 0.0),
+                        ),
+                        else_=0.0,
+                    )
+                ).label("m2_manual"),
+                func.sum(
+                    case(
+                        (
+                            (WorkOrder.coating_type == CoatingType.RAL)
+                            & (WorkOrder.production_type == ProductionType.AUTOMATIC),
+                            func.coalesce(WorkOrder.total_area_m2, 0.0),
+                        ),
+                        else_=0.0,
+                    )
+                ).label("m2_automatic"),
+                func.sum(
+                    case(
+                        (
+                            WorkOrder.coating_type == CoatingType.DECORAL,
+                            func.coalesce(WorkOrder.total_area_m2, 0.0),
+                        ),
+                        else_=0.0,
+                    )
+                ).label("m2_decoral"),
+                func.sum(func.coalesce(WorkOrder.total_area_m2, 0.0)).label("m2_total"),
+                func.count(WorkOrder.id).label("orders_count"),
+            )
+            .join(packing_done, WorkOrder.id == packing_done.c.work_order_id)
+            .where(
+                WorkOrder.is_correction == False,  # noqa: E712
+                func.date(packing_done.c.packing_done_at) >= date_from,
+                func.date(packing_done.c.packing_done_at) <= date_to,
+            )
+            .group_by(period_expr)
+            .order_by(period_expr)
+        ).all()
+
+        corrections_rows = session.execute(
+            select(
+                func.strftime(date_fmt, WorkOrder.created_at).label("period"),
+                func.sum(WorkOrder.total_quantity).label("correction_pieces"),
+                func.count(WorkOrder.id).label("correction_orders_count"),
+            )
+            .where(
+                WorkOrder.is_correction == True,  # noqa: E712
+                func.date(WorkOrder.created_at) >= date_from,
+                func.date(WorkOrder.created_at) <= date_to,
+            )
+            .group_by(func.strftime(date_fmt, WorkOrder.created_at))
+        ).all()
+
+        without_m2_count = session.execute(
+            select(func.count(WorkOrder.id))
+            .join(packing_done, WorkOrder.id == packing_done.c.work_order_id)
+            .where(
+                WorkOrder.is_correction == False,  # noqa: E712
+                func.date(packing_done.c.packing_done_at) >= date_from,
+                func.date(packing_done.c.packing_done_at) <= date_to,
+                WorkOrder.total_area_m2.is_(None),
+            )
+        ).scalar() or 0
+
+        throughput_by_period = {row.period: row for row in throughput_rows}
+        corrections_by_period = {row.period: row for row in corrections_rows}
+        all_period_keys = sorted(set(throughput_by_period) | set(corrections_by_period))
+
+        periods: list[ThroughputPeriod] = []
+        for key in all_period_keys:
+            t = throughput_by_period.get(key)
+            c = corrections_by_period.get(key)
+            periods.append(
+                ThroughputPeriod(
+                    period_start=_parse_period_start(key, group_by),
+                    period_label=_format_period_label(key, group_by),
+                    m2_manual=round(float(t.m2_manual) if t else 0.0, 2),
+                    m2_automatic=round(float(t.m2_automatic) if t else 0.0, 2),
+                    m2_decoral=round(float(t.m2_decoral) if t else 0.0, 2),
+                    m2_total=round(float(t.m2_total) if t else 0.0, 2),
+                    orders_count=int(t.orders_count) if t else 0,
+                    correction_pieces=int(c.correction_pieces) if c else 0,
+                    correction_orders_count=int(c.correction_orders_count) if c else 0,
+                )
+            )
+
+        totals = ThroughputPeriod(
+            period_start=date_from,
+            period_label="Razem",
+            m2_manual=round(sum(p.m2_manual for p in periods), 2),
+            m2_automatic=round(sum(p.m2_automatic for p in periods), 2),
+            m2_decoral=round(sum(p.m2_decoral for p in periods), 2),
+            m2_total=round(sum(p.m2_total for p in periods), 2),
+            orders_count=sum(p.orders_count for p in periods),
+            correction_pieces=sum(p.correction_pieces for p in periods),
+            correction_orders_count=sum(p.correction_orders_count for p in periods),
+        )
+
+        return ThroughputStats(periods=periods, totals=totals, orders_without_m2_count=without_m2_count)
 
     def assign_plan(
         self,
@@ -594,7 +727,7 @@ class ManagerService:
             updated_at=work_order.updated_at,
         )
 
-    def _get_ordered_stage_states(self, work_order: WorkOrder):
+    def _get_ordered_stage_states(self, work_order: WorkOrder):  # noqa: ANN201
         stage_order = {
             stage: index
             for index, stage in enumerate(self.process_service.get_stage_sequence_for_work_order(work_order))
@@ -617,3 +750,29 @@ class ManagerService:
         summary.process_status = build_process_status_view(self.process_service.get_display_status(work_order))
         summary.is_historical_correction = self.process_service.is_historical_correction(work_order)
         return summary
+
+
+def _parse_period_start(period_key: str, group_by: str) -> date:
+    if group_by == "day":
+        return date.fromisoformat(period_key)
+    if group_by == "month":
+        year, month = period_key.split("-")
+        return date(int(year), int(month), 1)
+    # week: "YYYY-WW"
+    year, week = period_key.split("-")
+    # ISO Monday of that week
+    return date.fromisocalendar(int(year), int(week) + 1, 1) if int(week) < 52 else date(int(year), 12, 28)
+
+
+def _format_period_label(period_key: str, group_by: str) -> str:
+    if group_by == "day":
+        d = date.fromisoformat(period_key)
+        return d.strftime("%d.%m.%Y")
+    if group_by == "month":
+        year, month = period_key.split("-")
+        month_names = ["Styczeń", "Luty", "Marzec", "Kwiecień", "Maj", "Czerwiec",
+                       "Lipiec", "Sierpień", "Wrzesień", "Październik", "Listopad", "Grudzień"]
+        return f"{month_names[int(month) - 1]} {year}"
+    # week
+    year, week = period_key.split("-")
+    return f"Tydzień {int(week) + 1}, {year}"

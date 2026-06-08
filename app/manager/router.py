@@ -1,8 +1,9 @@
 import csv
+from datetime import date
 from io import StringIO
-from typing import Annotated
+from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
@@ -11,6 +12,7 @@ from app.database.session import get_db_session
 from app.manager.repository import ManagerRepository
 from app.manager.schemas import (
     CorrectionReasonReportItem,
+    ThroughputStats,
     WorkOrderPlanAssignRequest,
     WorkOrderProductionTypeUpdateRequest,
     WorkOrderQueuePositionUpdateRequest,
@@ -39,6 +41,16 @@ def list_planned_work_orders(
     service: Annotated[ManagerService, Depends(get_manager_service)],
 ) -> list[WorkOrderRead]:
     return service.list_planned_work_orders()
+
+
+@router.get("/stats/throughput", response_model=ThroughputStats)
+def get_throughput_stats(
+    date_from: Annotated[date, Query()],
+    date_to: Annotated[date, Query()],
+    group_by: Annotated[Literal["day", "week", "month"], Query()] = "day",
+    service: Annotated[ManagerService, Depends(get_manager_service)] = ...,
+) -> ThroughputStats:
+    return service.get_throughput_stats(date_from, date_to, group_by)
 
 
 @router.get("/corrections/reason-report", response_model=list[CorrectionReasonReportItem])

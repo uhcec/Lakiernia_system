@@ -10,6 +10,8 @@ export type StationId =
   | "UNKNOWN";
 
 const routeStationMappings: Array<[RegExp, StationId]> = [
+  [/^\/audyt(?:\/|$)/, "MANAGER"],
+  [/^\/statystyki(?:\/|$)/, "MANAGER"],
   [/^\/kierownik(?:\/|$)/, "MANAGER"],
   [/^\/przygotowanie(?:\/|$)/, "SURFACE_PREPARATION"],
   [/^\/zawieszanie(?:\/|$)/, "HANGING"],

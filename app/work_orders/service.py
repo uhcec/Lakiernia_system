@@ -212,7 +212,11 @@ class WorkOrderService:
         payload: WorkOrderUpdate,
         station_context: StationContext | None = None,
     ) -> WorkOrderRead:
-        self._ensure_office_station_action(station_context, "office work-order actions")
+        ensure_station_allowed(
+            station_context,
+            allowed_station_ids={StationId.OFFICE, StationId.MANAGER},
+            action="work-order update",
+        )
         work_order = self._get_existing_work_order(work_order_id)
         updates = payload.model_dump(exclude_unset=True)
         validated_payload = self._validate_work_order_state(work_order, updates)

@@ -10,11 +10,12 @@ import {
   getQualityControlDocumentUrl,
   getWorkOrderAttachmentDownloadUrl,
   markWorkOrderCompleteArrival,
+  updateWorkOrder,
   updateWorkOrderReleaseStatus,
   uploadWorkOrderAttachment,
 } from "../api/workOrdersApi";
 import type { AuditEvent, AuditStationId } from "../types/audit";
-import type { WorkOrder, WorkOrderAttachment } from "../types/workOrders";
+import type { UpdateWorkOrderRequest, WorkOrder, WorkOrderAttachment } from "../types/workOrders";
 import {
   formatWorkOrderPrimaryInfo,
   getWorkOrderActiveCorrectionsText,
@@ -172,6 +173,44 @@ function isHistoricalWorkOrder(workOrder: WorkOrder): boolean {
   return workOrder.process_status.value === "READY";
 }
 
+interface EditFormState {
+  title: string;
+  external_order_number: string;
+  customer_name: string;
+  description: string;
+  ral_code: string;
+  paint_producer: string;
+  paint_code: string;
+  received_date: string;
+  planned_pickup_date: string;
+  total_area_m2: string;
+  profiles_to_count: boolean;
+  profiles_quantity: string;
+  accessories_to_count: boolean;
+  accessories_quantity: string;
+  notes: string;
+}
+
+function buildEditFormState(wo: WorkOrder): EditFormState {
+  return {
+    title: wo.title ?? "",
+    external_order_number: wo.external_order_number ?? "",
+    customer_name: wo.customer_name,
+    description: wo.description ?? "",
+    ral_code: wo.ral_code,
+    paint_producer: wo.paint_producer,
+    paint_code: wo.paint_code ?? "",
+    received_date: wo.received_date,
+    planned_pickup_date: wo.planned_pickup_date ?? "",
+    total_area_m2: wo.total_area_m2 != null ? String(wo.total_area_m2) : "",
+    profiles_to_count: wo.profiles_to_count,
+    profiles_quantity: wo.profiles_quantity != null ? String(wo.profiles_quantity) : "",
+    accessories_to_count: wo.accessories_to_count,
+    accessories_quantity: wo.accessories_quantity != null ? String(wo.accessories_quantity) : "",
+    notes: wo.notes ?? "",
+  };
+}
+
 function buildHistoricalCorrectionDeltaText(
   correctionOrder: WorkOrder["correction_orders"][number],
   parentWorkOrder: WorkOrder,
@@ -187,6 +226,7 @@ export function WorkOrderDetailPage() {
   const canManageAttachments = effectiveStationId === "OFFICE";
   const canUpdateReleaseStatus = effectiveStationId === "OFFICE";
   const canGenerateQualityControlDocument = effectiveStationId === "OFFICE";
+  const canEditWorkOrder = effectiveStationId === "OFFICE" || effectiveStationId === "MANAGER";
   const [isDownloadingQcDoc, setIsDownloadingQcDoc] = useState(false);
   const [workOrder, setWorkOrder] = useState<WorkOrder | null>(null);
   const [attachments, setAttachments] = useState<WorkOrderAttachment[]>([]);
@@ -205,6 +245,10 @@ export function WorkOrderDetailPage() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [attachmentType, setAttachmentType] = useState("");
   const [attachmentDescription, setAttachmentDescription] = useState("");
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [editForm, setEditForm] = useState<EditFormState | null>(null);
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
+  const [editErrorMessage, setEditErrorMessage] = useState<string | null>(null);
 
   const handleDownloadQcDocument = useCallback(async (wo: WorkOrder) => {
     setIsDownloadingQcDoc(true);
@@ -226,6 +270,71 @@ export function WorkOrderDetailPage() {
       setIsDownloadingQcDoc(false);
     }
   }, []);
+
+  function handleOpenEditModal() {
+    if (!workOrder) return;
+    setEditForm(buildEditFormState(workOrder));
+    setEditErrorMessage(null);
+    setIsEditModalOpen(true);
+  }
+
+  function handleEditFormChange(field: keyof EditFormState, value: string | boolean) {
+    setEditForm((prev) => (prev ? { ...prev, [field]: value } : prev));
+  }
+
+  async function handleSaveEdit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!id || !editForm) return;
+
+    const payload: UpdateWorkOrderRequest = {};
+
+    if (editForm.title.trim()) payload.title = editForm.title.trim();
+    else payload.title = null;
+
+    payload.external_order_number = editForm.external_order_number.trim() || null;
+    payload.customer_name = editForm.customer_name.trim();
+    payload.description = editForm.description.trim() || null;
+    payload.ral_code = editForm.ral_code.trim();
+    payload.paint_producer = editForm.paint_producer.trim();
+    payload.paint_code = editForm.paint_code.trim() || null;
+    payload.received_date = editForm.received_date;
+    payload.planned_pickup_date = editForm.planned_pickup_date || null;
+    payload.notes = editForm.notes.trim() || null;
+
+    const areaValue = parseFloat(editForm.total_area_m2);
+    if (!editForm.total_area_m2 || isNaN(areaValue) || areaValue <= 0) {
+      setEditErrorMessage("Metraż musi być liczbą większą od 0.");
+      return;
+    }
+    payload.total_area_m2 = areaValue;
+
+    payload.profiles_to_count = editForm.profiles_to_count;
+    if (editForm.profiles_to_count) {
+      payload.profiles_quantity = null;
+    } else {
+      payload.profiles_quantity = editForm.profiles_quantity !== "" ? parseInt(editForm.profiles_quantity, 10) : null;
+    }
+
+    payload.accessories_to_count = editForm.accessories_to_count;
+    if (editForm.accessories_to_count) {
+      payload.accessories_quantity = null;
+    } else {
+      payload.accessories_quantity = editForm.accessories_quantity !== "" ? parseInt(editForm.accessories_quantity, 10) : null;
+    }
+
+    setIsSavingEdit(true);
+    setEditErrorMessage(null);
+
+    try {
+      await updateWorkOrder(Number(id), payload);
+      await Promise.all([loadWorkOrder(Number(id)), loadAuditEvents(Number(id))]);
+      setIsEditModalOpen(false);
+    } catch (error) {
+      setEditErrorMessage(error instanceof Error ? error.message : "Nie udało się zapisać zmian");
+    } finally {
+      setIsSavingEdit(false);
+    }
+  }
 
   async function loadWorkOrder(workOrderId: number) {
     setIsLoading(true);
@@ -481,6 +590,14 @@ export function WorkOrderDetailPage() {
                 className="inline-flex items-center justify-center rounded-full bg-accent px-5 py-3 text-sm font-medium text-white transition hover:bg-teal-700 disabled:opacity-60"
               >
                 {isDownloadingQcDoc ? "Pobieranie…" : "Karta kontroli jakości"}
+              </button>
+            ) : null}
+            {canEditWorkOrder && workOrder ? (
+              <button
+                onClick={handleOpenEditModal}
+                className="inline-flex items-center justify-center rounded-full border border-accent bg-white px-5 py-3 text-sm font-medium text-accent transition hover:bg-accent hover:text-white"
+              >
+                Edytuj zlecenie
               </button>
             ) : null}
             <Link
@@ -1004,6 +1121,227 @@ export function WorkOrderDetailPage() {
             )}
           </section>
         </>
+      ) : null}
+
+      {isEditModalOpen && editForm ? (
+        <div
+          className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 px-4 py-8 backdrop-blur-sm"
+          onClick={(e) => { if (e.target === e.currentTarget) setIsEditModalOpen(false); }}
+        >
+          <div className="w-full max-w-2xl rounded-[2rem] border border-white/70 bg-white shadow-panel">
+            <div className="flex items-center justify-between border-b border-line/80 px-8 py-6">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">Edycja</p>
+                <h2 className="mt-1 text-2xl font-semibold text-ink">Dane zlecenia</h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsEditModalOpen(false)}
+                className="rounded-full p-2 text-steel transition hover:bg-mist hover:text-ink"
+                aria-label="Zamknij"
+              >
+                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            <form onSubmit={(e) => void handleSaveEdit(e)} className="p-8">
+              <div className="grid gap-5 sm:grid-cols-2">
+                <div className="sm:col-span-2">
+                  <label className="block text-sm font-medium text-steel">Firma / Klient *</label>
+                  <input
+                    type="text"
+                    required
+                    value={editForm.customer_name}
+                    onChange={(e) => handleEditFormChange("customer_name", e.target.value)}
+                    className="mt-1 w-full rounded-2xl border border-line bg-mist/40 px-4 py-2.5 text-base text-ink focus:border-accent focus:outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-steel">Nr zewnętrzny</label>
+                  <input
+                    type="text"
+                    value={editForm.external_order_number}
+                    onChange={(e) => handleEditFormChange("external_order_number", e.target.value)}
+                    className="mt-1 w-full rounded-2xl border border-line bg-mist/40 px-4 py-2.5 text-base text-ink focus:border-accent focus:outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-steel">Nazwa zlecenia</label>
+                  <input
+                    type="text"
+                    value={editForm.title}
+                    onChange={(e) => handleEditFormChange("title", e.target.value)}
+                    className="mt-1 w-full rounded-2xl border border-line bg-mist/40 px-4 py-2.5 text-base text-ink focus:border-accent focus:outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-steel">Kod RAL *</label>
+                  <input
+                    type="text"
+                    required
+                    value={editForm.ral_code}
+                    onChange={(e) => handleEditFormChange("ral_code", e.target.value)}
+                    className="mt-1 w-full rounded-2xl border border-line bg-mist/40 px-4 py-2.5 text-base text-ink focus:border-accent focus:outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-steel">Producent farby *</label>
+                  <input
+                    type="text"
+                    required
+                    value={editForm.paint_producer}
+                    onChange={(e) => handleEditFormChange("paint_producer", e.target.value)}
+                    className="mt-1 w-full rounded-2xl border border-line bg-mist/40 px-4 py-2.5 text-base text-ink focus:border-accent focus:outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-steel">Kod farby</label>
+                  <input
+                    type="text"
+                    value={editForm.paint_code}
+                    onChange={(e) => handleEditFormChange("paint_code", e.target.value)}
+                    className="mt-1 w-full rounded-2xl border border-line bg-mist/40 px-4 py-2.5 text-base text-ink focus:border-accent focus:outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-steel">Data przyjęcia *</label>
+                  <input
+                    type="date"
+                    required
+                    value={editForm.received_date}
+                    onChange={(e) => handleEditFormChange("received_date", e.target.value)}
+                    className="mt-1 w-full rounded-2xl border border-line bg-mist/40 px-4 py-2.5 text-base text-ink focus:border-accent focus:outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-steel">Planowany odbiór</label>
+                  <input
+                    type="date"
+                    value={editForm.planned_pickup_date}
+                    onChange={(e) => handleEditFormChange("planned_pickup_date", e.target.value)}
+                    className="mt-1 w-full rounded-2xl border border-line bg-mist/40 px-4 py-2.5 text-base text-ink focus:border-accent focus:outline-none"
+                  />
+                </div>
+
+                <div className="sm:col-span-2">
+                  <label className="block text-sm font-medium text-steel">Metraż (m²) *</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0.01"
+                    required
+                    value={editForm.total_area_m2}
+                    onChange={(e) => handleEditFormChange("total_area_m2", e.target.value)}
+                    className="mt-1 w-full rounded-2xl border border-line bg-mist/40 px-4 py-2.5 text-base text-ink focus:border-accent focus:outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-steel">Ilość profili</label>
+                  <div className="mt-1 flex flex-col gap-2">
+                    <label className="flex items-center gap-2 text-sm text-steel">
+                      <input
+                        type="checkbox"
+                        checked={editForm.profiles_to_count}
+                        onChange={(e) => handleEditFormChange("profiles_to_count", e.target.checked)}
+                        className="rounded"
+                      />
+                      Do policzenia na produkcji
+                    </label>
+                    {!editForm.profiles_to_count && (
+                      <input
+                        type="number"
+                        min="0"
+                        value={editForm.profiles_quantity}
+                        onChange={(e) => handleEditFormChange("profiles_quantity", e.target.value)}
+                        placeholder="Ilość"
+                        className="w-full rounded-2xl border border-line bg-mist/40 px-4 py-2.5 text-base text-ink focus:border-accent focus:outline-none"
+                      />
+                    )}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-steel">Ilość akcesoriów</label>
+                  <div className="mt-1 flex flex-col gap-2">
+                    <label className="flex items-center gap-2 text-sm text-steel">
+                      <input
+                        type="checkbox"
+                        checked={editForm.accessories_to_count}
+                        onChange={(e) => handleEditFormChange("accessories_to_count", e.target.checked)}
+                        className="rounded"
+                      />
+                      Do policzenia na produkcji
+                    </label>
+                    {!editForm.accessories_to_count && (
+                      <input
+                        type="number"
+                        min="0"
+                        value={editForm.accessories_quantity}
+                        onChange={(e) => handleEditFormChange("accessories_quantity", e.target.value)}
+                        placeholder="Ilość"
+                        className="w-full rounded-2xl border border-line bg-mist/40 px-4 py-2.5 text-base text-ink focus:border-accent focus:outline-none"
+                      />
+                    )}
+                  </div>
+                </div>
+
+                <div className="sm:col-span-2">
+                  <label className="block text-sm font-medium text-steel">Opis</label>
+                  <textarea
+                    rows={2}
+                    value={editForm.description}
+                    onChange={(e) => handleEditFormChange("description", e.target.value)}
+                    className="mt-1 w-full rounded-2xl border border-line bg-mist/40 px-4 py-2.5 text-base text-ink focus:border-accent focus:outline-none"
+                  />
+                </div>
+
+                <div className="sm:col-span-2">
+                  <label className="block text-sm font-medium text-steel">Notatki</label>
+                  <textarea
+                    rows={2}
+                    value={editForm.notes}
+                    onChange={(e) => handleEditFormChange("notes", e.target.value)}
+                    className="mt-1 w-full rounded-2xl border border-line bg-mist/40 px-4 py-2.5 text-base text-ink focus:border-accent focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              {editErrorMessage ? (
+                <div className="mt-5 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+                  {editErrorMessage}
+                </div>
+              ) : null}
+
+              <div className="mt-6 flex justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setIsEditModalOpen(false)}
+                  disabled={isSavingEdit}
+                  className="inline-flex items-center justify-center rounded-full border border-line bg-white px-5 py-2.5 text-sm font-medium text-steel transition hover:border-accent hover:text-accent disabled:opacity-60"
+                >
+                  Anuluj
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSavingEdit}
+                  className="inline-flex items-center justify-center rounded-full bg-accent px-6 py-2.5 text-sm font-medium text-white transition hover:bg-teal-700 disabled:opacity-60"
+                >
+                  {isSavingEdit ? "Zapisywanie…" : "Zapisz zmiany"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
       ) : null}
     </main>
   );

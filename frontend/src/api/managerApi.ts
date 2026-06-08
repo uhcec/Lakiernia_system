@@ -4,6 +4,7 @@ import type {
   AssignWorkOrderPlanRequest,
   CorrectionReasonReportItem,
   ReorderQueueRequest,
+  ThroughputStats,
   UpdateProductionTypeRequest,
   UpdateQueuePositionRequest,
 } from "../types/manager";
@@ -65,6 +66,30 @@ export async function fetchCorrectionReasonReport(): Promise<CorrectionReasonRep
   }
 
   return response.json() as Promise<CorrectionReasonReportItem[]>;
+}
+
+export async function fetchThroughputStats(
+  dateFrom: string,
+  dateTo: string,
+  groupBy: "day" | "week" | "month",
+): Promise<ThroughputStats> {
+  const url = new URL(createApiUrl("/manager/stats/throughput"), window.location.origin);
+  url.searchParams.set("date_from", dateFrom);
+  url.searchParams.set("date_to", dateTo);
+  url.searchParams.set("group_by", groupBy);
+  const finalUrl = createApiUrl("/manager/stats/throughput").startsWith("http")
+    ? url.toString()
+    : `${url.pathname}${url.search}`;
+
+  const response = await fetch(finalUrl, {
+    headers: { Accept: "application/json", ...getCurrentStationHeaders() },
+  });
+
+  if (!response.ok) {
+    throw await createApiError(response, "Nie udało się pobrać statystyk przepustowości");
+  }
+
+  return response.json() as Promise<ThroughputStats>;
 }
 
 export function getCorrectionReasonReportExportUrl(): string {

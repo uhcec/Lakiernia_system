@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useLocation } from "react-router-dom";
-import { ClipboardList, UserCog, FlaskConical, Hand, Factory, Package, Palette, ShieldCheck, Plus, LogOut } from "lucide-react";
+import { BarChart2, ClipboardList, UserCog, FlaskConical, Hand, Factory, Package, Palette, ShieldCheck, Plus, LogOut } from "lucide-react";
 import type { SVGProps } from "react";
 import { isFullAccessUser, useAuth } from "../context/AuthContext";
 import { getStationPanelPath, type StationId } from "../api/stationContext";
@@ -44,6 +44,7 @@ const primaryNavigation: NavigationItem[] = [
 
 const secondaryNavigation: NavigationItem[] = [
   { to: "/farby", label: "Farby", icon: Palette },
+  { to: "/statystyki", label: "Statystyki", icon: BarChart2 },
   { to: "/audyt", label: "Audyt", icon: ShieldCheck },
   { to: "/zlecenia/nowe", label: "Dodaj zlecenie", icon: Plus, accent: true },
 ];
@@ -72,6 +73,7 @@ export function AppLayout() {
 
   function getSectionTitle(pathname: string): string {
     if (pathname.startsWith("/farby")) return "Farby";
+    if (pathname.startsWith("/statystyki")) return "Statystyki";
     if (pathname.startsWith("/audyt")) return "Audyt";
     if (pathname.startsWith("/kierownik")) return "Kierownik";
     if (pathname.startsWith("/produkcja-reczna")) return "Produkcja ręczna";
