@@ -2,6 +2,7 @@ import { Calendar, Clock } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 
 import type { WorkOrder } from "../types/workOrders";
+import { RalColorDot } from "./RalColorDot";
 
 function stageClasses(value: WorkOrder["process_status"]["value"]): string {
   switch (value) {
@@ -61,7 +62,7 @@ function OfficeWorkOrderRow({ workOrder }: { workOrder: WorkOrder }) {
       {/* ZLECENIE */}
       <div className="w-52 flex-none px-5 py-3.5">
         <p className="text-lg font-bold leading-tight text-brand-ink">
-          #{workOrder.order_number}
+          {workOrder.order_number}
         </p>
         <p className="mt-0.5 truncate text-sm leading-snug text-brand-muted">
           {workOrder.customer_name}
@@ -71,7 +72,7 @@ function OfficeWorkOrderRow({ workOrder }: { workOrder: WorkOrder }) {
       {/* RAL */}
       <div className="w-32 flex-none px-4 py-3.5">
         <div className="flex items-center gap-2">
-          <span className="h-4 w-4 flex-none rounded-full border border-brand-line bg-brand-900/85" />
+          <RalColorDot ralCode={workOrder.ral_code} />
           <span className="text-sm font-semibold text-brand-ink">{workOrder.ral_code}</span>
         </div>
       </div>

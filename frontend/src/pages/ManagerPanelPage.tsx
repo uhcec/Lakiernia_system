@@ -19,8 +19,8 @@ import {
   moveWorkOrderWithinQueueSlots,
 } from "../utils/queueReorder";
 import { buildWorkOrderDetailHref } from "../api/stationContext";
+import { WorkOrderPrimaryInfoLine } from "../components/WorkOrderPrimaryInfoLine";
 import {
-  formatWorkOrderPrimaryInfo,
   getWorkOrderActiveCorrectionsText,
   getWorkOrderAttentionBadges,
   getWorkOrderBadgeStack,
@@ -490,7 +490,7 @@ export function ManagerPanelPage() {
                         : "Przełącz na Wszystkie, aby zmieniać kolejność"}
                     </span>
                   </div>
-                  <h4 className="text-lg font-semibold text-ink">{formatWorkOrderPrimaryInfo(workOrder)}</h4>
+                  <h4 className="text-lg font-semibold text-ink"><WorkOrderPrimaryInfoLine workOrder={workOrder} /></h4>
                   <div className="flex flex-wrap gap-2">
                     {[...getWorkOrderBadgeStack(workOrder), ...getWorkOrderAttentionBadges(workOrder)].map((badge) => (
                       <span
@@ -572,7 +572,7 @@ export function ManagerPanelPage() {
                 <tr key={workOrder.id} className="border-t border-line/80 text-ink">
                     <td className="px-5 py-4 font-semibold">{workOrder.queue_position ?? "-"}</td>
                     <td className="px-5 py-4 font-semibold">{workOrder.order_number}</td>
-                    <td className="px-5 py-4 text-steel">{formatWorkOrderPrimaryInfo(workOrder)}</td>
+                    <td className="px-5 py-4 text-steel"><WorkOrderPrimaryInfoLine workOrder={workOrder} /></td>
                     <td className="px-5 py-4">
                       {workOrder.is_correction ? (
                         <span className="inline-flex rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800">
@@ -746,7 +746,7 @@ export function ManagerPanelPage() {
                     <div className="flex flex-col gap-4">
                       <div>
                         <p className="text-xs font-semibold uppercase tracking-[0.14em] text-accent">{workOrder.order_number}</p>
-                        <h4 className="mt-2 text-lg font-semibold text-ink">{formatWorkOrderPrimaryInfo(workOrder)}</h4>
+                        <h4 className="mt-2 text-lg font-semibold text-ink"><WorkOrderPrimaryInfoLine workOrder={workOrder} /></h4>
                         <div className="mt-2 flex flex-wrap gap-2">
                           {[...getWorkOrderBadgeStack(workOrder), ...getWorkOrderAttentionBadges(workOrder)].map((badge) => (
                             <span
