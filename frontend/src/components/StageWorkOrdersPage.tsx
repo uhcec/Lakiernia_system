@@ -453,7 +453,14 @@ export function StageWorkOrdersPage({
                         <span className="inline-flex rounded-full bg-mist px-3 py-1 text-xs font-semibold text-steel">
                           Poz. {workOrder.queue_position ?? "-"}
                         </span>
-                        <span className="text-lg font-semibold text-ink">{workOrder.order_number}</span>
+                        <span className={`text-lg font-semibold ${workOrder.completed_quantity > 0 && workOrder.completed_quantity < workOrder.total_quantity ? "text-amber-700" : "text-ink"}`}>
+                          {workOrder.completed_quantity > 0 && workOrder.completed_quantity < workOrder.total_quantity ? `P${workOrder.order_number}` : workOrder.order_number}
+                        </span>
+                        {workOrder.completed_quantity > 0 && workOrder.completed_quantity < workOrder.total_quantity && (
+                          <span className="inline-flex rounded-full bg-amber-100 px-2 py-1 text-xs font-semibold text-amber-700">
+                            {workOrder.completed_quantity}/{workOrder.total_quantity} szt.
+                          </span>
+                        )}
                         <span className="inline-flex rounded-full bg-mist px-3 py-1 text-xs font-semibold text-ink">
                           {workOrder.stage_status.status.label}
                         </span>

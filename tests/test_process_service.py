@@ -16,6 +16,7 @@ from app.process.enums import CoatingType, ProcessStage, ProductionType, Quantit
 from app.process.models import ProcessResourceLock
 from app.process.repository import ProcessRepository
 from app.process.service import ProcessService
+from app.paints.schemas import PaintDeliveryCreate
 from app.shared.enums import QueueNamespace, StationId, WorkOrderStatus
 from app.shared.exceptions import InvalidManagerPlanningError, InvalidProcessStageTransitionError
 from app.work_orders.repository import WorkOrderRepository
@@ -61,7 +62,11 @@ def build_services(
 
 def advance_to_production(process_service: ProcessService, work_order_id: int) -> None:
     work_order = process_service.get_work_order_process(work_order_id)
-    if work_order.is_correction:
+    is_correction_round = (
+        work_order.active_batch is not None
+        and work_order.active_batch.parent_batch_id is not None
+    )
+    if work_order.is_correction or is_correction_round:
         if work_order.production_type != ProductionType.MANUAL:
             process_service.transition_stage(work_order_id, ProcessStage.HANGING, StageStatus.IN_PROGRESS)
             process_service.finish_stage(work_order_id, ProcessStage.HANGING)
@@ -82,6 +87,16 @@ def advance_to_packing(process_service: ProcessService, work_order_id: int) -> N
         if production_state.status == StageStatus.NOT_STARTED:
             process_service.transition_stage(work_order_id, ProcessStage.PRODUCTION, StageStatus.IN_PROGRESS)
         process_service.transition_stage(work_order_id, ProcessStage.PRODUCTION, StageStatus.DONE)
+    elif work_order.production_type == ProductionType.AUTOMATIC:
+        process_service.paint_service.record_delivery(
+            PaintDeliveryCreate(
+                ral_code=work_order.ral_code,
+                paint_producer=work_order.paint_producer,
+                paint_code=work_order.paint_code or "P-UNKNOWN",
+                quantity_kg=100.0,
+            )
+        )
+        process_service.record_automatic_paint_consumption(work_order_id, consumed_paint_quantity_kg=1.0)
     work_order = process_service.get_work_order_process(work_order_id)
     packing_state = next(stage for stage in work_order.stage_states if stage.stage == ProcessStage.PACKING)
     if packing_state.status == StageStatus.NOT_STARTED:
@@ -248,10 +263,10 @@ def test_packing_correction_records_packing_and_correction_audit_events(db_sessi
     ).all()
     event_types = [event.event_type for event in events]
 
-    assert "work_order.correction_created" in event_types
+    assert "work_order.returned_to_correction_planning" in event_types
     assert "process.packing.completed" in event_types
     packing_event = next(event for event in events if event.event_type == "process.packing.completed")
-    correction_event = next(event for event in events if event.event_type == "work_order.correction_created")
+    correction_event = next(event for event in events if event.event_type == "work_order.returned_to_correction_planning")
     assert json.loads(packing_event.details_json or "{}") == {
         "stage": "PACKING",
         "batch_id": 1,
@@ -262,10 +277,9 @@ def test_packing_correction_records_packing_and_correction_audit_events(db_sessi
         "correction_accessories_quantity": 5,
     }
     correction_details = json.loads(correction_event.details_json or "{}")
-    assert correction_details["correction_profiles_quantity"] == 25
-    assert correction_details["correction_accessories_quantity"] == 5
     assert correction_details["correction_reason_category"] == "wtrącenia"
-    assert correction_details["correction_reason_note"] == "widoczne punkty"
+    assert correction_details["ok_quantity"] == 70
+    assert correction_details["correction_quantity"] == 30
 
 
 def test_stage_transitions_forward(db_session: Session) -> None:
@@ -527,8 +541,8 @@ def test_automatic_production_preview_cannot_be_started_directly(db_session: Ses
     assert str(exc_info.value) == ProcessService.AUTOMATIC_PRODUCTION_MANUAL_ACTION_ERROR
 
 
-def test_corrections_create_new_unplanned_orders(db_session: Session) -> None:
-    work_order_service, process_service, manager_service, work_order_repository, process_repository = build_services(db_session)
+def test_corrections_reset_order_to_unplanned_state(db_session: Session) -> None:
+    work_order_service, process_service, manager_service, _, process_repository = build_services(db_session)
 
     manual_order = create_ral_work_order(work_order_service, "Manual correction")
     automatic_order = create_ral_work_order(work_order_service, "Automatic correction")
@@ -546,25 +560,19 @@ def test_corrections_create_new_unplanned_orders(db_session: Session) -> None:
     complete_packing(process_service, automatic_order.id, ok_quantity=90, correction_quantity=10)
     manual_work_order = process_repository.get_work_order_with_stage_states(manual_order.id)
     automatic_work_order = process_repository.get_work_order_with_stage_states(automatic_order.id)
-    all_work_orders = work_order_repository.list(limit=20, offset=0)
-    correction_orders = [work_order for work_order in all_work_orders if work_order.is_correction]
 
     assert manual_work_order is not None
     assert automatic_work_order is not None
-    assert manual_work_order.total_quantity == 100
-    assert automatic_work_order.total_quantity == 100
-    assert manual_work_order.completed_quantity == 0
-    assert automatic_work_order.completed_quantity == 0
-    assert process_service.get_display_status(manual_work_order).value == "WAITING_FOR_CORRECTIONS"
-    assert process_service.get_display_status(automatic_work_order).value == "WAITING_FOR_CORRECTIONS"
+    assert manual_work_order.completed_quantity == 90
+    assert automatic_work_order.completed_quantity == 90
+    assert manual_work_order.current_active_quantity == 10
+    assert automatic_work_order.current_active_quantity == 10
+    assert process_service.get_display_status(manual_work_order).value == "TO_BE_PLANNED"
+    assert process_service.get_display_status(automatic_work_order).value == "TO_BE_PLANNED"
+    assert manual_work_order.production_type is None
+    assert automatic_work_order.production_type is None
     assert process_service.is_visible_in_stage(manual_work_order, ProcessStage.PRODUCTION, ProductionType.MANUAL) is False
     assert process_service.is_visible_in_stage(automatic_work_order, ProcessStage.HANGING) is False
-    assert process_service.is_visible_in_stage(automatic_work_order, ProcessStage.PRODUCTION, ProductionType.AUTOMATIC) is False
-    assert len(correction_orders) == 2
-    assert {correction_order.parent_order_id for correction_order in correction_orders} == {manual_order.id, automatic_order.id}
-    assert all(correction_order.queue_namespace == QueueNamespace.CORRECTIONS for correction_order in correction_orders)
-    assert all(correction_order.production_type is None for correction_order in correction_orders)
-    assert all(correction_order.queue_position is None for correction_order in correction_orders)
 
 
 def test_decoral_automatic_mixed_split_waits_for_correction_child(db_session: Session) -> None:
@@ -621,8 +629,10 @@ def test_station_and_correction_rows_derive_profile_accessory_quantities_from_op
             total_quantity=10,
             customer_name="ACME",
             ral_code="RAL 7016",
+            paint_code="P-7016",
             paint_producer="AkzoNobel",
             received_date="2026-05-25",
+            total_area_m2=5.0,
             profiles_quantity=10,
             profiles_to_count=False,
             accessories_quantity=0,
@@ -665,8 +675,10 @@ def test_mixed_profile_accessory_partial_rows_preserve_explicit_correction_categ
             total_quantity=10,
             customer_name="ACME",
             ral_code="RAL 7016",
+            paint_code="P-7016",
             paint_producer="AkzoNobel",
             received_date="2026-05-25",
+            total_area_m2=5.0,
             profiles_quantity=8,
             profiles_to_count=False,
             accessories_quantity=2,
@@ -740,8 +752,8 @@ def test_decoral_split_moves_ok_quantity_to_decoral_and_child_to_painting_flow(d
     assert stage_states[ProcessStage.PRODUCTION] == StageStatus.NOT_STARTED
 
 
-def test_correction_order_cannot_enter_surface_preparation(db_session: Session) -> None:
-    work_order_service, process_service, manager_service, work_order_repository, process_repository = build_services(db_session)
+def test_correction_round_cannot_enter_surface_preparation(db_session: Session) -> None:
+    work_order_service, process_service, manager_service, _, process_repository = build_services(db_session)
 
     created = create_ral_work_order(work_order_service, "Correction skips surface prep")
     manager_service.assign_plan(
@@ -750,17 +762,16 @@ def test_correction_order_cannot_enter_surface_preparation(db_session: Session) 
     )
     advance_to_packing(process_service, created.id)
     complete_packing(process_service, created.id, ok_quantity=90, correction_quantity=10)
-    correction_order = next(work_order for work_order in work_order_repository.list(limit=20, offset=0) if work_order.is_correction)
     manager_service.assign_plan(
-        correction_order.id,
-        WorkOrderPlanAssignRequest(production_type=ProductionType.MANUAL, queue_position=2),
+        created.id,
+        WorkOrderPlanAssignRequest(production_type=ProductionType.MANUAL, queue_position=1),
     )
 
     with pytest.raises(InvalidProcessStageTransitionError) as exc_info:
-        process_service.start_stage(correction_order.id, ProcessStage.SURFACE_PREPARATION, counted_quantity=10)
+        process_service.start_stage(created.id, ProcessStage.SURFACE_PREPARATION, counted_quantity=10)
 
-    planned_correction = process_repository.get_work_order_with_stage_states(correction_order.id)
-    assert str(exc_info.value) == "Correction orders do not go through surface preparation."
+    planned_correction = process_repository.get_work_order_with_stage_states(created.id)
+    assert str(exc_info.value) == "Correction rounds do not go through surface preparation."
     assert planned_correction is not None
     stage_states = {stage_state.stage: stage_state.status for stage_state in planned_correction.stage_states}
     assert stage_states[ProcessStage.SURFACE_PREPARATION] == StageStatus.DONE
@@ -908,7 +919,7 @@ def test_incomplete_order_cannot_be_forced_into_stage_queue_by_direct_update(db_
 
 
 def test_complete_packing_splits_ok_and_correction_quantities(db_session: Session) -> None:
-    work_order_service, process_service, manager_service, work_order_repository, process_repository = build_services(db_session)
+    work_order_service, process_service, manager_service, _, process_repository = build_services(db_session)
 
     created = create_ral_work_order(work_order_service, "Split packing")
     manager_service.assign_plan(
@@ -919,26 +930,22 @@ def test_complete_packing_splits_ok_and_correction_quantities(db_session: Sessio
 
     response = complete_packing(process_service, created.id, ok_quantity=90, correction_quantity=10)
     work_order = process_repository.get_work_order_with_stage_states(created.id)
-    correction_order = next(work_order for work_order in work_order_repository.list(limit=20, offset=0) if work_order.is_correction)
 
     assert response.stage_status.stage == ProcessStage.PACKING
     assert work_order is not None
-    assert work_order.completed_quantity == 0
+    assert work_order.completed_quantity == 90
     assert work_order.total_quantity == 100
-    assert work_order.current_active_quantity == 0
-    assert len(work_order.quantity_batches) == 1
-    assert process_service.get_display_status(work_order).value == "WAITING_FOR_CORRECTIONS"
-    assert process_service.get_waiting_ok_quantity(work_order) == 90
-    assert correction_order.parent_order_id == created.id
-    assert correction_order.total_quantity == 10
-    assert correction_order.production_type is None
-    assert correction_order.queue_position is None
+    assert work_order.current_active_quantity == 10
+    assert len(work_order.quantity_batches) == 2
+    assert process_service.get_display_status(work_order).value == "TO_BE_PLANNED"
+    assert work_order.production_type is None
+    assert work_order.queue_position is None
 
     stage_states = {stage_state.stage: stage_state.status for stage_state in work_order.stage_states}
     assert stage_states[ProcessStage.SURFACE_PREPARATION] == StageStatus.DONE
     assert stage_states[ProcessStage.HANGING] == StageStatus.NOT_STARTED
-    assert stage_states[ProcessStage.PRODUCTION] == StageStatus.DONE
-    assert stage_states[ProcessStage.PACKING] == StageStatus.DONE
+    assert stage_states[ProcessStage.PRODUCTION] == StageStatus.NOT_STARTED
+    assert stage_states[ProcessStage.PACKING] == StageStatus.NOT_STARTED
 
 
 # docs/WORKFLOW.md scenario S01 (RAL + MANUAL + none)
@@ -962,8 +969,8 @@ def test_complete_packing_full_ok_marks_work_order_ready(db_session: Session) ->
     assert process_service.get_display_status(work_order).value == "READY"
 
 
-def test_complete_packing_full_correction_creates_new_unplanned_order(db_session: Session) -> None:
-    work_order_service, process_service, manager_service, work_order_repository, process_repository = build_services(db_session)
+def test_complete_packing_full_correction_resets_order_to_planning(db_session: Session) -> None:
+    work_order_service, process_service, manager_service, _, process_repository = build_services(db_session)
 
     created = create_ral_work_order(work_order_service, "Full correction")
     manager_service.assign_plan(
@@ -974,20 +981,20 @@ def test_complete_packing_full_correction_creates_new_unplanned_order(db_session
 
     response = complete_packing(process_service, created.id, ok_quantity=0, correction_quantity=100)
     work_order = process_repository.get_work_order_with_stage_states(created.id)
-    correction_order = next(work_order for work_order in work_order_repository.list(limit=20, offset=0) if work_order.is_correction)
 
     assert response.stage_status.stage == ProcessStage.PACKING
     assert work_order is not None
     assert work_order.completed_quantity == 0
     assert work_order.total_quantity == 100
-    assert work_order.current_active_quantity == 0
-    assert process_service.get_display_status(work_order).value == "WAITING_FOR_CORRECTIONS"
-    assert correction_order.parent_order_id == created.id
-    assert correction_order.total_quantity == 100
+    assert work_order.current_active_quantity == 100
+    assert len(work_order.quantity_batches) == 2
+    assert process_service.get_display_status(work_order).value == "TO_BE_PLANNED"
+    assert work_order.production_type is None
+    assert work_order.queue_position is None
 
 
-def test_multiple_packing_corrections_can_chain_across_new_orders(db_session: Session) -> None:
-    work_order_service, process_service, manager_service, work_order_repository, process_repository = build_services(db_session)
+def test_multiple_packing_correction_rounds_accumulate_on_same_order(db_session: Session) -> None:
+    work_order_service, process_service, manager_service, _, process_repository = build_services(db_session)
 
     created = create_ral_work_order(work_order_service, "Multiple corrections")
     manager_service.assign_plan(
@@ -997,30 +1004,27 @@ def test_multiple_packing_corrections_can_chain_across_new_orders(db_session: Se
     advance_to_packing(process_service, created.id)
     complete_packing(process_service, created.id, ok_quantity=70, correction_quantity=30)
 
-    first_correction = next(work_order for work_order in work_order_repository.list(limit=20, offset=0) if work_order.is_correction)
+    # Re-plan for second correction round
     manager_service.assign_plan(
-        first_correction.id,
+        created.id,
         WorkOrderPlanAssignRequest(production_type=ProductionType.MANUAL, queue_position=2),
     )
-    advance_to_packing(process_service, first_correction.id)
-    complete_packing(process_service, first_correction.id, ok_quantity=20, correction_quantity=10)
+    advance_to_packing(process_service, created.id)
+    complete_packing(process_service, created.id, ok_quantity=20, correction_quantity=10)
 
     work_order = process_repository.get_work_order_with_stage_states(created.id)
-    all_correction_orders = [work_order for work_order in work_order_repository.list(limit=20, offset=0) if work_order.is_correction]
 
     assert work_order is not None
-    assert work_order.completed_quantity == 0
+    assert work_order.completed_quantity == 90
     assert work_order.total_quantity == 100
-    assert work_order.current_active_quantity == 0
-    assert process_service.get_display_status(work_order).value == "WAITING_FOR_CORRECTIONS"
-    assert len(all_correction_orders) == 2
-    assert any(correction_order.parent_order_id == created.id and correction_order.total_quantity == 30 for correction_order in all_correction_orders)
-    assert any(correction_order.parent_order_id == first_correction.id and correction_order.total_quantity == 10 for correction_order in all_correction_orders)
+    assert work_order.current_active_quantity == 10
+    assert len(work_order.quantity_batches) == 3
+    assert process_service.get_display_status(work_order).value == "TO_BE_PLANNED"
 
 
 # docs/WORKFLOW.md scenario S05 (RAL + MANUAL + correction after packing)
-def test_completed_ral_correction_child_merges_back_into_parent(db_session: Session) -> None:
-    work_order_service, process_service, manager_service, work_order_repository, process_repository = build_services(db_session)
+def test_completed_ral_correction_round_finalizes_order(db_session: Session) -> None:
+    work_order_service, process_service, manager_service, _, process_repository = build_services(db_session)
 
     created = work_order_service.create_work_order(
         build_work_order_create(title="RAL correction merge", coating_type=CoatingType.RAL, total_quantity=10)
@@ -1032,28 +1036,30 @@ def test_completed_ral_correction_child_merges_back_into_parent(db_session: Sess
     advance_to_packing(process_service, created.id)
     complete_packing(process_service, created.id, ok_quantity=7, correction_quantity=3)
 
-    correction_order = next(work_order for work_order in work_order_repository.list(limit=20, offset=0) if work_order.is_correction)
+    work_order = process_repository.get_work_order_with_stage_states(created.id)
+    assert work_order is not None
+    assert work_order.completed_quantity == 7
+    assert process_service.get_display_status(work_order).value == "TO_BE_PLANNED"
+
+    # Re-plan parent for correction round
     manager_service.assign_plan(
-        correction_order.id,
+        created.id,
         WorkOrderPlanAssignRequest(production_type=ProductionType.MANUAL, queue_position=2),
     )
-    advance_to_packing(process_service, correction_order.id)
-    complete_packing(process_service, correction_order.id, ok_quantity=3, correction_quantity=0)
+    advance_to_packing(process_service, created.id)
+    complete_packing(process_service, created.id, ok_quantity=3, correction_quantity=0)
 
-    parent_work_order = process_repository.get_work_order_with_stage_states(created.id)
-    completed_correction = process_repository.get_work_order_with_stage_states(correction_order.id)
+    final_work_order = process_repository.get_work_order_with_stage_states(created.id)
 
-    assert parent_work_order is not None
-    assert completed_correction is not None
-    assert parent_work_order.completed_quantity == 10
-    assert parent_work_order.total_quantity == 10
-    assert process_service.get_display_status(parent_work_order).value == "READY"
-    assert completed_correction.parent_order_id == created.id
+    assert final_work_order is not None
+    assert final_work_order.completed_quantity == 10
+    assert final_work_order.total_quantity == 10
+    assert process_service.get_display_status(final_work_order).value == "READY"
 
 
 # docs/WORKFLOW.md scenario S09 (RAL + MANUAL + multi-round correction)
-def test_multi_round_ral_correction_chain_merges_back_into_original_parent(db_session: Session) -> None:
-    work_order_service, process_service, manager_service, work_order_repository, process_repository = build_services(db_session)
+def test_multi_round_ral_correction_cycles_on_same_order_until_ready(db_session: Session) -> None:
+    work_order_service, process_service, manager_service, _, process_repository = build_services(db_session)
 
     created = work_order_service.create_work_order(
         build_work_order_create(title="RAL multi-round correction merge", coating_type=CoatingType.RAL, total_quantity=10)
@@ -1065,40 +1071,37 @@ def test_multi_round_ral_correction_chain_merges_back_into_original_parent(db_se
     advance_to_packing(process_service, created.id)
     complete_packing(process_service, created.id, ok_quantity=7, correction_quantity=3)
 
-    first_correction = next(work_order for work_order in work_order_repository.list(limit=20, offset=0) if work_order.parent_order_id == created.id)
+    work_order = process_repository.get_work_order_with_stage_states(created.id)
+    assert work_order.completed_quantity == 7
+    assert work_order.current_active_quantity == 3
+    assert process_service.get_display_status(work_order).value == "TO_BE_PLANNED"
+
+    # Round 2
     manager_service.assign_plan(
-        first_correction.id,
+        created.id,
         WorkOrderPlanAssignRequest(production_type=ProductionType.MANUAL, queue_position=2),
     )
-    advance_to_packing(process_service, first_correction.id)
-    complete_packing(process_service, first_correction.id, ok_quantity=2, correction_quantity=1)
+    advance_to_packing(process_service, created.id)
+    complete_packing(process_service, created.id, ok_quantity=2, correction_quantity=1)
 
-    second_correction = next(
-        work_order for work_order in work_order_repository.list(limit=20, offset=0) if work_order.parent_order_id == first_correction.id
-    )
+    work_order = process_repository.get_work_order_with_stage_states(created.id)
+    assert work_order.completed_quantity == 9
+    assert work_order.current_active_quantity == 1
+    assert process_service.get_display_status(work_order).value == "TO_BE_PLANNED"
+
+    # Round 3 - final
     manager_service.assign_plan(
-        second_correction.id,
+        created.id,
         WorkOrderPlanAssignRequest(production_type=ProductionType.MANUAL, queue_position=3),
     )
-    advance_to_packing(process_service, second_correction.id)
-    complete_packing(process_service, second_correction.id, ok_quantity=1, correction_quantity=0)
+    advance_to_packing(process_service, created.id)
+    complete_packing(process_service, created.id, ok_quantity=1, correction_quantity=0)
 
-    parent_work_order = process_repository.get_work_order_with_stage_states(created.id)
-    completed_first_correction = process_repository.get_work_order_with_stage_states(first_correction.id)
-    completed_second_correction = process_repository.get_work_order_with_stage_states(second_correction.id)
-
-    assert parent_work_order is not None
-    assert completed_first_correction is not None
-    assert completed_second_correction is not None
-    assert process_service.get_display_status(parent_work_order).value == "READY"
-    assert process_service.get_display_status(completed_first_correction).value == "READY"
-    assert process_service.get_display_status(completed_second_correction).value == "READY"
-    assert parent_work_order.completed_quantity == parent_work_order.total_quantity
-    assert parent_work_order.current_active_quantity == 0
-    assert completed_first_correction.completed_quantity == completed_first_correction.total_quantity
-    assert completed_first_correction.current_active_quantity == 0
-    assert completed_second_correction.completed_quantity == completed_second_correction.total_quantity
-    assert completed_second_correction.current_active_quantity == 0
+    final = process_repository.get_work_order_with_stage_states(created.id)
+    assert final is not None
+    assert process_service.get_display_status(final).value == "READY"
+    assert final.completed_quantity == 10
+    assert final.current_active_quantity == 0
 
 
 # docs/WORKFLOW.md scenario S07 (DECORAL + MANUAL + correction after packing)
@@ -1165,7 +1168,7 @@ def test_fully_packed_order_cannot_reopen_any_stage(db_session: Session) -> None
     assert str(exc_info.value) == "Cannot reopen process stages because the work order has no active quantity remaining."
 
 
-def test_original_order_cannot_continue_workflow_after_correction_split(db_session: Session) -> None:
+def test_order_in_correction_round_cannot_reopen_stages_before_replanning(db_session: Session) -> None:
     work_order_service, process_service, manager_service, _, process_repository = build_services(db_session)
 
     created = create_ral_work_order(work_order_service, "Correction continues workflow")
@@ -1179,16 +1182,16 @@ def test_original_order_cannot_continue_workflow_after_correction_split(db_sessi
     work_order = process_repository.get_work_order_with_stage_states(created.id)
 
     assert work_order is not None
-    assert work_order.current_active_quantity == 0
+    assert work_order.current_active_quantity == 20
 
     with pytest.raises(InvalidProcessStageTransitionError) as exc_info:
         process_service.reopen_stage(created.id, ProcessStage.PRODUCTION)
 
-    assert str(exc_info.value) == "Cannot reopen process stages because the work order has no active quantity remaining."
+    assert "Cannot reopen stage PRODUCTION from NOT_STARTED" in str(exc_info.value)
 
 
-def test_duplicate_packing_completion_is_idempotent_and_does_not_create_second_child(db_session: Session) -> None:
-    work_order_service, process_service, manager_service, work_order_repository, process_repository = build_services(db_session)
+def test_duplicate_packing_completion_is_idempotent_and_does_not_create_second_correction_batch(db_session: Session) -> None:
+    work_order_service, process_service, manager_service, _, process_repository = build_services(db_session)
 
     created = create_ral_work_order(work_order_service, "Duplicate packing completion")
     manager_service.assign_plan(
@@ -1201,15 +1204,13 @@ def test_duplicate_packing_completion_is_idempotent_and_does_not_create_second_c
     second_response = complete_packing(process_service, created.id, ok_quantity=90, correction_quantity=10)
 
     parent = process_repository.get_work_order_with_stage_states(created.id)
-    correction_orders = [order for order in work_order_repository.list(limit=20, offset=0) if order.parent_order_id == created.id]
 
     assert first_response.stage_status.stage == ProcessStage.PACKING
     assert second_response.stage_status.stage == ProcessStage.PACKING
     assert parent is not None
-    assert parent.completed_quantity == 0
-    assert parent.current_active_quantity == 0
-    assert len(correction_orders) == 1
-    assert correction_orders[0].total_quantity == 10
+    assert parent.completed_quantity == 90
+    assert parent.current_active_quantity == 10
+    assert len(parent.quantity_batches) == 2
 
 
 def test_duplicate_decoral_stage_finish_is_idempotent_and_does_not_double_apply_quantity(db_session: Session) -> None:
@@ -1238,8 +1239,8 @@ def test_duplicate_decoral_stage_finish_is_idempotent_and_does_not_double_apply_
     assert process_service.get_display_status(work_order).value == "READY"
 
 
-def test_repeated_correction_split_does_not_create_second_child(db_session: Session) -> None:
-    work_order_service, process_service, manager_service, work_order_repository, _ = build_services(db_session)
+def test_repeated_packing_completion_does_not_create_duplicate_correction_batch(db_session: Session) -> None:
+    work_order_service, process_service, manager_service, _, process_repository = build_services(db_session)
 
     created = create_ral_work_order(work_order_service, "Repeated correction split")
     manager_service.assign_plan(
@@ -1251,10 +1252,12 @@ def test_repeated_correction_split_does_not_create_second_child(db_session: Sess
     complete_packing(process_service, created.id, ok_quantity=80, correction_quantity=20)
     complete_packing(process_service, created.id, ok_quantity=80, correction_quantity=20)
 
-    correction_orders = [order for order in work_order_repository.list(limit=20, offset=0) if order.parent_order_id == created.id]
+    work_order = process_repository.get_work_order_with_stage_states(created.id)
 
-    assert len(correction_orders) == 1
-    assert correction_orders[0].total_quantity == 20
+    assert len(work_order.quantity_batches) == 2
+    active_batches = [b for b in work_order.quantity_batches if b.is_active]
+    assert len(active_batches) == 1
+    assert active_batches[0].quantity == 20
 
 
 def test_parallel_packing_completion_is_serialized_and_does_not_duplicate_child_creation(tmp_path) -> None:
@@ -1296,10 +1299,8 @@ def test_parallel_packing_completion_is_serialized_and_does_not_duplicate_child_
 
         verify_session = session_factory()
         try:
-            work_order_repository = WorkOrderRepository(verify_session)
             process_repository = ProcessRepository(verify_session)
             parent = process_repository.get_work_order_with_stage_states(created.id)
-            correction_orders = [order for order in work_order_repository.list(limit=20, offset=0) if order.parent_order_id == created.id]
         finally:
             verify_session.close()
     finally:
@@ -1309,10 +1310,9 @@ def test_parallel_packing_completion_is_serialized_and_does_not_duplicate_child_
     assert first_response.stage_status.stage == ProcessStage.PACKING
     assert second_response.stage_status.stage == ProcessStage.PACKING
     assert parent is not None
-    assert parent.completed_quantity == 0
-    assert parent.current_active_quantity == 0
-    assert len(correction_orders) == 1
-    assert correction_orders[0].total_quantity == 15
+    assert parent.completed_quantity == 85
+    assert parent.current_active_quantity == 15
+    assert len(parent.quantity_batches) == 2
 
 
 def test_parallel_automatic_hanging_start_allows_only_one_order_to_acquire_hanging(tmp_path) -> None:
@@ -1693,8 +1693,8 @@ def test_s08_decoral_automatic_correction_split_and_merge(db_session: Session) -
 
 
 # docs/WORKFLOW.md scenario S10 (RAL + AUTOMATIC + multi-round correction)
-def test_s10_ral_automatic_multi_round_correction_chain_merges(db_session: Session) -> None:
-    work_order_service, process_service, manager_service, work_order_repository, process_repository = build_services(db_session)
+def test_s10_ral_automatic_multi_round_correction_cycles_on_same_order(db_session: Session) -> None:
+    work_order_service, process_service, manager_service, _, process_repository = build_services(db_session)
 
     created = create_ral_work_order(work_order_service, "S10 RAL automatic multi-round")
     manager_service.assign_plan(
@@ -1705,44 +1705,37 @@ def test_s10_ral_automatic_multi_round_correction_chain_merges(db_session: Sessi
     advance_to_packing(process_service, created.id)
     complete_packing(process_service, created.id, ok_quantity=70, correction_quantity=30)
 
-    first_correction = next(
-        work_order for work_order in work_order_repository.list(limit=20, offset=0) if work_order.parent_order_id == created.id
-    )
+    work_order = process_repository.get_work_order_with_stage_states(created.id)
+    assert work_order.completed_quantity == 70
+    assert work_order.current_active_quantity == 30
+    assert process_service.get_display_status(work_order).value == "TO_BE_PLANNED"
+
+    # Round 2 - automatic correction
     manager_service.assign_plan(
-        first_correction.id,
+        created.id,
         WorkOrderPlanAssignRequest(production_type=ProductionType.AUTOMATIC, queue_position=2),
     )
-    advance_to_packing(process_service, first_correction.id)
-    complete_packing(process_service, first_correction.id, ok_quantity=20, correction_quantity=10)
+    advance_to_packing(process_service, created.id)
+    complete_packing(process_service, created.id, ok_quantity=20, correction_quantity=10)
 
-    second_correction = next(
-        work_order
-        for work_order in work_order_repository.list(limit=20, offset=0)
-        if work_order.parent_order_id == first_correction.id
-    )
+    work_order = process_repository.get_work_order_with_stage_states(created.id)
+    assert work_order.completed_quantity == 90
+    assert work_order.current_active_quantity == 10
+    assert process_service.get_display_status(work_order).value == "TO_BE_PLANNED"
+
+    # Round 3 - final
     manager_service.assign_plan(
-        second_correction.id,
+        created.id,
         WorkOrderPlanAssignRequest(production_type=ProductionType.AUTOMATIC, queue_position=3),
     )
-    advance_to_packing(process_service, second_correction.id)
-    complete_packing(process_service, second_correction.id, ok_quantity=10, correction_quantity=0)
+    advance_to_packing(process_service, created.id)
+    complete_packing(process_service, created.id, ok_quantity=10, correction_quantity=0)
 
-    parent_work_order = process_repository.get_work_order_with_stage_states(created.id)
-    completed_first_correction = process_repository.get_work_order_with_stage_states(first_correction.id)
-    completed_second_correction = process_repository.get_work_order_with_stage_states(second_correction.id)
-
-    assert parent_work_order is not None
-    assert completed_first_correction is not None
-    assert completed_second_correction is not None
-    assert process_service.get_display_status(parent_work_order).value == "READY"
-    assert process_service.get_display_status(completed_first_correction).value == "READY"
-    assert process_service.get_display_status(completed_second_correction).value == "READY"
-    assert parent_work_order.completed_quantity == parent_work_order.total_quantity
-    assert parent_work_order.current_active_quantity == 0
-    assert completed_first_correction.completed_quantity == completed_first_correction.total_quantity
-    assert completed_first_correction.current_active_quantity == 0
-    assert completed_second_correction.completed_quantity == completed_second_correction.total_quantity
-    assert completed_second_correction.current_active_quantity == 0
+    final = process_repository.get_work_order_with_stage_states(created.id)
+    assert final is not None
+    assert process_service.get_display_status(final).value == "READY"
+    assert final.completed_quantity == 100
+    assert final.current_active_quantity == 0
 
 
 # docs/WORKFLOW.md scenario S11 (DECORAL + MANUAL + multi-round correction)

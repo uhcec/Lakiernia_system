@@ -66,7 +66,7 @@ def create_packing_correction(
     correction_quantity: int,
     correction_reason_category: str,
 ) -> dict:
-    created = create_work_order(test_client, title=title, coating_type="RAL", total_quantity=100)
+    created = create_work_order(test_client, title=title, coating_type="DECORAL", total_quantity=100)
 
     plan_response = test_client.post(
         f"/manager/work-orders/{created['id']}/plan",
@@ -262,7 +262,7 @@ def test_cannot_plan_incomplete_order(test_client: TestClient) -> None:
     assert response.json()["detail"] == "Cannot plan incomplete order. Mark as complete first."
 
 
-def test_packing_correction_creates_new_unplanned_work_order(test_client: TestClient) -> None:
+def test_ral_packing_correction_resets_order_to_unplanned(test_client: TestClient) -> None:
     created = create_work_order(
         test_client,
         title="Correction planning",
@@ -299,19 +299,20 @@ def test_packing_correction_creates_new_unplanned_work_order(test_client: TestCl
         },
     )
 
-    response = test_client.get("/manager/work-orders/unplanned")
+    unplanned_response = test_client.get("/manager/work-orders/unplanned")
+    detail = test_client.get(f"/work-orders/{created['id']}")
 
     assert packing_response.status_code == 200
-    assert response.status_code == 200
-    correction_order = next(item for item in response.json() if item["is_correction"] is True)
-    assert correction_order["total_quantity"] == 8
-    assert correction_order["correction_reason_category"] == "niedomalowanie"
-    assert correction_order["correction_reason_note"] == "dolna listwa"
-    assert correction_order["parent_order"]["id"] == created["id"]
-    assert correction_order["planned_pickup_date"] == "2026-06-18"
-    assert correction_order["parent_order"]["planned_pickup_date"] == "2026-06-18"
-    assert correction_order["queue_namespace"] == {"value": "CORRECTIONS", "label": "Corrections"}
-    assert correction_order["queue_position"] is None
+    assert unplanned_response.status_code == 200
+    order_in_unplanned = next(item for item in unplanned_response.json() if item["id"] == created["id"])
+    assert order_in_unplanned["process_status"]["value"] == "TO_BE_PLANNED"
+    assert order_in_unplanned["queue_position"] is None
+    assert detail.json()["completed_quantity"] == 92
+    assert detail.json()["current_active_quantity"] == 8
+    assert detail.json()["correction_reason_category"] == "niedomalowanie"
+    assert detail.json()["correction_reason_note"] == "dolna listwa"
+    all_orders = test_client.get("/work-orders").json()["items"]
+    assert len(all_orders) == 1
 
 
 def test_correction_reason_report_aggregates_correction_children(test_client: TestClient) -> None:
@@ -387,6 +388,22 @@ def test_completed_decoral_correction_preserves_correction_quantity_context_in_m
     )
     test_client.post(f"/process/work-orders/{created['id']}/stages/HANGING/start")
     test_client.post(f"/process/work-orders/{created['id']}/stages/HANGING/finish")
+    test_client.post(
+        "/paints/deliveries",
+        json={
+            "ral_code": "RAL 7016",
+            "paint_producer": "AkzoNobel",
+            "paint_code": "P-7016",
+            "quantity_kg": 50.0,
+            "movement_date": "2026-05-25",
+        },
+        headers={"X-Station-Id": "OFFICE"},
+    )
+    test_client.post(
+        f"/process/work-orders/{created['id']}/automatic-production/paint-consumption",
+        json={"consumed_paint_quantity_kg": 5.0},
+        headers={"X-Station-Id": "AUTOMATIC_PRODUCTION"},
+    )
     parent_pack_response = test_client.post(
         f"/process/work-orders/{created['id']}/packing/complete",
         json={
@@ -417,6 +434,11 @@ def test_completed_decoral_correction_preserves_correction_quantity_context_in_m
     test_client.post(f"/process/work-orders/{correction_order['id']}/stages/HANGING/start")
     test_client.post(f"/process/work-orders/{correction_order['id']}/stages/HANGING/finish")
     test_client.post(
+        f"/process/work-orders/{correction_order['id']}/automatic-production/paint-consumption",
+        json={"consumed_paint_quantity_kg": 2.0},
+        headers={"X-Station-Id": "AUTOMATIC_PRODUCTION"},
+    )
+    test_client.post(
         f"/process/work-orders/{correction_order['id']}/packing/complete",
         json={"counted_quantity": 3, "ok_quantity": 3, "correction_quantity": 0},
     )
@@ -443,9 +465,9 @@ def test_completed_decoral_correction_preserves_correction_quantity_context_in_m
     assert parent_item["correction_orders"][0]["is_historical_correction"] is True
 
 
-def test_corrections_are_listed_in_shared_unplanned_queue(test_client: TestClient) -> None:
+def test_ral_corrections_reset_order_to_unplanned_queue(test_client: TestClient) -> None:
     created = create_work_order(test_client, title="Correction namespace", coating_type="RAL", total_quantity=100)
-    create_work_order(test_client, title="Regular unplanned", coating_type="RAL", total_quantity=50)
+    regular = create_work_order(test_client, title="Regular unplanned", coating_type="RAL", total_quantity=50)
 
     test_client.post(
         f"/manager/work-orders/{created['id']}/plan",
@@ -474,11 +496,15 @@ def test_corrections_are_listed_in_shared_unplanned_queue(test_client: TestClien
     response = test_client.get("/manager/work-orders/unplanned")
 
     assert response.status_code == 200
-    assert any(item["is_correction"] is False for item in response.json())
-    assert any(item["is_correction"] is True for item in response.json())
+    unplanned_ids = [item["id"] for item in response.json()]
+    assert created["id"] in unplanned_ids
+    assert regular["id"] in unplanned_ids
+    reset_order = next(item for item in response.json() if item["id"] == created["id"])
+    assert reset_order["process_status"]["value"] == "TO_BE_PLANNED"
+    assert reset_order["queue_position"] is None
 
 
-def test_same_queue_position_is_not_allowed_between_normal_and_correction_orders(test_client: TestClient) -> None:
+def test_same_queue_position_is_not_allowed_between_normal_and_correction_rounds(test_client: TestClient) -> None:
     main_order = create_work_order(test_client, "Main queue")
     correction_parent = create_work_order(test_client, "Correction parent")
 
@@ -511,14 +537,8 @@ def test_same_queue_position_is_not_allowed_between_normal_and_correction_orders
         },
     )
 
-    correction_order = next(
-        item
-        for item in test_client.get("/manager/work-orders/unplanned").json()
-        if item["parent_order"]["id"] == correction_parent["id"]
-    )
-
     correction_plan_response = test_client.post(
-        f"/manager/work-orders/{correction_order['id']}/plan",
+        f"/manager/work-orders/{correction_parent['id']}/plan",
         json={"production_type": "MANUAL", "queue_position": 1},
     )
 
@@ -527,7 +547,7 @@ def test_same_queue_position_is_not_allowed_between_normal_and_correction_orders
     assert correction_plan_response.json()["detail"] == "Queue position 1 is already taken."
 
 
-def test_reorder_accepts_mixed_normal_and_correction_orders(test_client: TestClient) -> None:
+def test_reorder_accepts_normal_and_correction_round_orders(test_client: TestClient) -> None:
     main_order = create_work_order(test_client, "Main reorder")
     correction_parent = create_work_order(test_client, "Correction reorder parent")
 
@@ -559,29 +579,23 @@ def test_reorder_accepts_mixed_normal_and_correction_orders(test_client: TestCli
         },
     )
 
-    correction_order = next(
-        item
-        for item in test_client.get("/manager/work-orders/unplanned").json()
-        if item["parent_order"]["id"] == correction_parent["id"]
-    )
     correction_plan_response = test_client.post(
-        f"/manager/work-orders/{correction_order['id']}/plan",
+        f"/manager/work-orders/{correction_parent['id']}/plan",
         json={"production_type": "MANUAL", "queue_position": 3},
     )
 
     response = post_queue_reorder(
         test_client,
         [
-            {"work_order_id": correction_order["id"], "queue_position": 1},
+            {"work_order_id": correction_parent["id"], "queue_position": 1},
             {"work_order_id": main_order["id"], "queue_position": 2},
-            {"work_order_id": correction_parent["id"], "queue_position": 3},
         ],
         get_queue_revision(test_client),
     )
 
     assert correction_plan_response.status_code == 200
     assert response.status_code == 200
-    assert [item["id"] for item in response.json()] == [correction_order["id"], main_order["id"], correction_parent["id"]]
+    assert [item["id"] for item in response.json()] == [correction_parent["id"], main_order["id"]]
 
 
 def test_complete_order_can_still_be_planned(test_client: TestClient) -> None:
@@ -836,7 +850,7 @@ def test_drag_drop_reorder_still_works(test_client: TestClient) -> None:
     ]
 
 
-def test_reorder_mixed_normal_and_correction_orders_preserves_global_queue_positions(test_client: TestClient) -> None:
+def test_reorder_correction_round_and_normal_orders_preserves_global_queue_positions(test_client: TestClient) -> None:
     main_order = create_work_order(test_client, "Global queue main")
     ready_order = create_work_order(test_client, "Global queue ready")
     correction_parent = create_work_order(test_client, "Global queue correction")
@@ -887,35 +901,30 @@ def test_reorder_mixed_normal_and_correction_orders_preserves_global_queue_posit
         },
     )
 
-    correction_order = next(
-        item
-        for item in test_client.get("/manager/work-orders/unplanned").json()
-        if item["parent_order"]["id"] == correction_parent["id"]
-    )
     correction_plan_response = test_client.post(
-        f"/manager/work-orders/{correction_order['id']}/plan",
+        f"/manager/work-orders/{correction_parent['id']}/plan",
         json={"production_type": "MANUAL", "queue_position": 3},
     )
 
     response = post_queue_reorder(
         test_client,
         [
-            {"work_order_id": correction_order["id"], "queue_position": 1},
+            {"work_order_id": correction_parent["id"], "queue_position": 1},
             {"work_order_id": main_order["id"], "queue_position": 2},
-            {"work_order_id": correction_parent["id"], "queue_position": 3},
         ],
         get_queue_revision(test_client),
     )
 
     assert correction_plan_response.status_code == 200
     assert response.status_code == 200
-    assert [(item["id"], item["queue_position"]) for item in response.json()] == [
-        (correction_order["id"], 1),
-        (main_order["id"], 2),
-        (correction_parent["id"], 3),
-        (ready_order["id"], 4),
-    ]
-    assert len({item["queue_position"] for item in response.json()}) == len(response.json())
+    result_positions = [(item["id"], item["queue_position"]) for item in response.json()]
+    correction_item = next(item for item in response.json() if item["id"] == correction_parent["id"])
+    main_item = next(item for item in response.json() if item["id"] == main_order["id"])
+    assert correction_item["queue_position"] == 1
+    assert main_item["queue_position"] == 2
+    assert len({item["queue_position"] for item in response.json() if item["queue_position"] is not None}) == len(
+        [item for item in response.json() if item["queue_position"] is not None]
+    )
 
 
 def test_bulk_reorder_rejects_positions_taken_by_unmentioned_planned_orders(test_client: TestClient) -> None:

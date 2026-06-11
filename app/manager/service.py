@@ -423,11 +423,16 @@ class ManagerService:
             ) + 1
 
             for work_order in temporarily_repositioned_work_orders:
-                work_order.queue_position = temporary_queue_position
-                work_order.updated_at = now
-                temporary_queue_position += 1
+                if work_order.production_type is not None:
+                    work_order.queue_position = temporary_queue_position
+                    work_order.updated_at = now
+                    temporary_queue_position += 1
 
-            self.repository.session.flush()
+            try:
+                self.repository.session.flush()
+            except IntegrityError:
+                self.repository.rollback()
+                raise InvalidManagerPlanningError("Queue reorder conflicts with current queue state.")
 
             for item in items:
                 work_order = existing_work_orders[item.work_order_id]

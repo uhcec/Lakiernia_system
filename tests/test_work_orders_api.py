@@ -799,31 +799,24 @@ def test_list_work_orders(test_client: TestClient) -> None:
 def test_list_work_orders_includes_quantity_progress_fields(test_client: TestClient) -> None:
     created = create_work_order(test_client, title="Progress list", coating_type="RAL", total_quantity=100).json()
     test_client.post(f"/manager/work-orders/{created['id']}/plan", json={"production_type": "MANUAL", "queue_position": 1})
-    for stage in ["SURFACE_PREPARATION", "HANGING", "PRODUCTION"]:
-        if stage == "SURFACE_PREPARATION":
-            start_surface_preparation(test_client, created["id"])
-        else:
-            test_client.post(f"/process/work-orders/{created['id']}/stages/{stage}/start")
-        test_client.post(f"/process/work-orders/{created['id']}/stages/{stage}/finish")
+    start_surface_preparation(test_client, created["id"])
+    test_client.post(f"/process/work-orders/{created['id']}/stages/SURFACE_PREPARATION/finish")
+    test_client.post(f"/process/work-orders/{created['id']}/stages/PRODUCTION/start")
+    test_client.post(f"/process/work-orders/{created['id']}/stages/PRODUCTION/finish")
     test_client.post(f"/process/work-orders/{created['id']}/stages/PACKING/start")
     complete_packing_request(test_client, created["id"], counted_quantity=100, ok_quantity=98, correction_quantity=2)
 
     response = test_client.get("/work-orders")
     original_item = next(item for item in response.json()["items"] if item["id"] == created["id"])
-    correction_item = next(item for item in response.json()["items"] if item["is_correction"] is True)
 
     assert response.status_code == 200
     assert original_item["total_quantity"] == 100
-    assert original_item["completed_quantity"] == 0
-    assert original_item["current_active_quantity"] == 0
-    assert original_item["waiting_ok_quantity"] == 98
-    assert original_item["pending_correction_quantity"] == 2
-    assert original_item["total_progress_quantity"] == 98
-    assert original_item["process_status"] == {"value": "WAITING_FOR_CORRECTIONS", "label": "Czeka na poprawki"}
-    assert original_item["status"] == {"value": "IN_PROGRESS", "label": "W trakcie"}
-    assert correction_item["total_quantity"] == 2
-    assert correction_item["status"] == {"value": "ENTERED", "label": "Wprowadzone"}
-    assert correction_item["parent_order"]["id"] == created["id"]
+    assert original_item["completed_quantity"] == 98
+    assert original_item["current_active_quantity"] == 2
+    assert original_item["process_status"] == {"value": "TO_BE_PLANNED", "label": "Do zaplanowania"}
+    assert original_item["status"] == {"value": "ENTERED", "label": "Wprowadzone"}
+    all_items = response.json()["items"]
+    assert all(item["is_correction"] is False for item in all_items)
 
 
 def test_list_work_orders_can_filter_by_process_status(test_client: TestClient) -> None:
@@ -1056,7 +1049,7 @@ def test_manager_station_cannot_update_release_status(test_client: TestClient) -
     assert response.status_code == 403
 
 
-def test_work_order_detail_returns_parent_and_correction_orders(test_client: TestClient) -> None:
+def test_work_order_detail_shows_correction_round_data_on_parent(test_client: TestClient) -> None:
     created = create_work_order(
         test_client,
         title="Correction history",
@@ -1065,12 +1058,10 @@ def test_work_order_detail_returns_parent_and_correction_orders(test_client: Tes
         external_order_number="CLIENT-CORR-1",
     ).json()
     test_client.post(f"/manager/work-orders/{created['id']}/plan", json={"production_type": "MANUAL", "queue_position": 1})
-    for stage in ["SURFACE_PREPARATION", "HANGING", "PRODUCTION"]:
-        if stage == "SURFACE_PREPARATION":
-            start_surface_preparation(test_client, created["id"])
-        else:
-            test_client.post(f"/process/work-orders/{created['id']}/stages/{stage}/start")
-        test_client.post(f"/process/work-orders/{created['id']}/stages/{stage}/finish")
+    start_surface_preparation(test_client, created["id"])
+    test_client.post(f"/process/work-orders/{created['id']}/stages/SURFACE_PREPARATION/finish")
+    test_client.post(f"/process/work-orders/{created['id']}/stages/PRODUCTION/start")
+    test_client.post(f"/process/work-orders/{created['id']}/stages/PRODUCTION/finish")
     test_client.post(f"/process/work-orders/{created['id']}/stages/PACKING/start")
     complete_packing_request(
         test_client,
@@ -1081,28 +1072,17 @@ def test_work_order_detail_returns_parent_and_correction_orders(test_client: Tes
         correction_reason_category="inne",
         correction_reason_note="opis od pakowania",
     )
-    correction_order = next(
-        item
-        for item in test_client.get("/manager/work-orders/unplanned").json()
-        if item["parent_order"]["id"] == created["id"]
-    )
 
     response = test_client.get(f"/work-orders/{created['id']}")
-    correction_response = test_client.get(f"/work-orders/{correction_order['id']}")
+    body = response.json()
 
     assert response.status_code == 200
-    assert response.json()["is_correction"] is False
-    assert response.json()["parent_order"] is None
-    assert len(response.json()["correction_orders"]) == 1
-    assert response.json()["correction_orders"][0]["id"] == correction_order["id"]
-    assert response.json()["correction_orders"][0]["total_quantity"] == 10
-    assert response.json()["correction_orders"][0]["external_order_number"] == "CLIENT-CORR-1"
-    assert response.json()["correction_orders"][0]["correction_reason_category"] == "inne"
-    assert response.json()["correction_orders"][0]["correction_reason_note"] == "opis od pakowania"
-    assert correction_response.status_code == 200
-    assert correction_response.json()["is_correction"] is True
-    assert correction_response.json()["external_order_number"] == "CLIENT-CORR-1"
-    assert correction_response.json()["correction_reason_category"] == "inne"
-    assert correction_response.json()["correction_reason_note"] == "opis od pakowania"
-    assert correction_response.json()["parent_order"]["id"] == created["id"]
-    assert correction_response.json()["correction_orders"] == []
+    assert body["is_correction"] is False
+    assert body["parent_order"] is None
+    assert body["correction_orders"] == []
+    assert body["completed_quantity"] == 90
+    assert body["current_active_quantity"] == 10
+    assert body["external_order_number"] == "CLIENT-CORR-1"
+    assert body["correction_reason_category"] == "inne"
+    assert body["correction_reason_note"] == "opis od pakowania"
+    assert body["process_status"]["value"] == "TO_BE_PLANNED"

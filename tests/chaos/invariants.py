@@ -67,6 +67,7 @@ def assert_planned_orders_have_valid_intake_data(db_session: Session) -> None:
                     "description": work_order.description,
                     "customer_name": work_order.customer_name,
                     "ral_code": work_order.ral_code,
+                    "paint_code": work_order.paint_code,
                     "paint_producer": work_order.paint_producer,
                     "coating_type": work_order.coating_type,
                     "received_date": work_order.received_date,

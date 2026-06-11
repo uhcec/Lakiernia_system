@@ -155,7 +155,11 @@ def test_ocynk_marker_preserves_ral_decoral_route_semantics(db_session: Session)
 
 def advance_to_packing(process_service: ProcessService, work_order_id: int) -> None:
     work_order = process_service.get_work_order_process(work_order_id)
-    if not work_order.is_correction:
+    is_correction_round = (
+        work_order.active_batch is not None
+        and work_order.active_batch.parent_batch_id is not None
+    )
+    if not work_order.is_correction and not is_correction_round:
         process_service.transition_stage(work_order_id, ProcessStage.SURFACE_PREPARATION, StageStatus.IN_PROGRESS)
         process_service.transition_stage(work_order_id, ProcessStage.SURFACE_PREPARATION, StageStatus.DONE)
     if work_order.production_type == ProductionType.AUTOMATIC:
@@ -185,8 +189,8 @@ def complete_packing(
     )
 
 
-def test_s05_ral_manual_correction_child_close_merges_parent(db_session: Session) -> None:
-    work_order_service, process_service, manager_service, work_order_repository, process_repository = build_services(db_session)
+def test_s05_ral_manual_correction_round_cycles_parent_to_ready(db_session: Session) -> None:
+    work_order_service, process_service, manager_service, _, process_repository = build_services(db_session)
 
     parent_id = create_planned_work_order(
         work_order_service,
@@ -201,31 +205,23 @@ def test_s05_ral_manual_correction_child_close_merges_parent(db_session: Session
 
     parent_after_split = process_repository.get_work_order_with_stage_states(parent_id)
     assert parent_after_split is not None
-    assert process_service.get_display_status(parent_after_split).value == "WAITING_FOR_CORRECTIONS"
+    assert process_service.get_display_status(parent_after_split).value == "TO_BE_PLANNED"
+    assert parent_after_split.completed_quantity == 7
+    assert parent_after_split.current_active_quantity == 3
 
-    correction_order = next(
-        item for item in work_order_repository.list(limit=20, offset=0) if item.parent_order_id == parent_id
-    )
     manager_service.assign_plan(
-        correction_order.id,
-        WorkOrderPlanAssignRequest(production_type=ProductionType.MANUAL, queue_position=2),
+        parent_id,
+        WorkOrderPlanAssignRequest(production_type=ProductionType.MANUAL, queue_position=1),
     )
-    advance_to_packing(process_service, correction_order.id)
-    complete_packing(process_service, correction_order.id, ok_quantity=3, correction_quantity=0)
+    advance_to_packing(process_service, parent_id)
+    complete_packing(process_service, parent_id, ok_quantity=3, correction_quantity=0)
 
     parent_final = process_repository.get_work_order_with_stage_states(parent_id)
-    child_final = process_repository.get_work_order_with_stage_states(correction_order.id)
 
     assert parent_final is not None
-    assert child_final is not None
     assert process_service.get_display_status(parent_final).value == "READY"
-    assert process_service.get_display_status(child_final).value == "READY"
     assert parent_final.completed_quantity == parent_final.total_quantity
     assert parent_final.current_active_quantity == 0
-    assert process_service.get_waiting_ok_quantity(parent_final) == 0
-    assert process_service.get_pending_correction_quantity(parent_final) == 0
-    assert child_final.completed_quantity == child_final.total_quantity
-    assert child_final.current_active_quantity == 0
 
 
 def test_workflow_contract_core_invariants(db_session: Session) -> None:
@@ -265,7 +261,7 @@ def test_workflow_contract_core_invariants(db_session: Session) -> None:
 
     assert s05_parent is not None
     assert process_service.get_display_status(s05_parent).value != "READY"
-    assert s05_parent.completed_quantity + process_service.get_waiting_ok_quantity(s05_parent) + process_service.get_pending_correction_quantity(s05_parent) == s05_parent.total_quantity
+    assert s05_parent.completed_quantity + s05_parent.current_active_quantity == s05_parent.total_quantity
 
     # S07: DECORAL + MANUAL + correction split -> parent stays non-READY while correction open, READY only after full close.
     s07_id = create_planned_work_order(

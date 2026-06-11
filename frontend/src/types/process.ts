@@ -36,6 +36,7 @@ export interface StageWorkOrder {
   consumed_paint_quantity_kg: number;
   total_area_m2: number | null;
   total_quantity: number;
+  completed_quantity: number;
   current_active_quantity: number;
   batch_quantity: number | null;
   planned_quantity: number;

@@ -9,10 +9,16 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.auth.dependencies import get_current_user
+from app.auth.models import User
 from app.database import models  # noqa: F401
 from app.database.base import Base
 from app.database.session import get_db_session
 from app.main import create_app
+
+
+def _mock_admin_user() -> User:
+    return User(id=1, login="admin", hashed_password="", station_id="OFFICE", is_admin=True)
 
 
 ALLOWED_CHAOS_STATUS_CODES = {200, 201, 204, 409, 422}
@@ -92,6 +98,7 @@ class ChaosEnvironment:
                 session.close()
 
         self.app.dependency_overrides[get_db_session] = override_get_db_session
+        self.app.dependency_overrides[get_current_user] = _mock_admin_user
         self._event_log: list[ChaosEvent] = []
         self._event_lock = Lock()
         self._clients: list[TestClient] = []

@@ -301,8 +301,10 @@ def build_work_order_payload(*, coating_type: str = "RAL") -> dict:
         "total_quantity": 10,
         "customer_name": "ACME",
         "ral_code": "RAL 7016",
+        "paint_code": "P-7016",
         "paint_producer": "AkzoNobel",
         "received_date": "2026-05-30",
+        "total_area_m2": 20.0,
         "profiles_to_count": True,
         "accessories_to_count": True,
     }

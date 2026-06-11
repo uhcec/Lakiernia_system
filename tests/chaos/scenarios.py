@@ -380,7 +380,8 @@ def scenario_correction_planning_collides_with_parent_completion(env: ChaosEnvir
 
 def scenario_correction_completion_races_parent_duplicate_packing(env: ChaosEnvironment):
     seeder = env.create_actor_client("Seeder-Correction-Completion-Race")
-    parent = create_planned_work_order(seeder, "Correction Completion Parent Duplicate", 1)
+    # DECORAL still creates child correction orders; this preserves the race scenario semantics
+    parent = create_planned_work_order(seeder, "Correction Completion Parent Duplicate", 1, coating_type="DECORAL")
     advance_to_packing(seeder, parent["id"])
     split_response = seeder.post(
         f"/process/work-orders/{parent['id']}/packing/complete",
@@ -394,6 +395,7 @@ def scenario_correction_completion_races_parent_duplicate_packing(env: ChaosEnvi
         },
     )
     assert split_response.status_code == 200
+    parent_batch_id = split_response.json()["batch_id"]
     correction_order = get_direct_correction_children(seeder, parent["id"])[0]
     manager = ManagerAgent(env.create_actor_client("ManagerAgent-Correction-Completion"))
     plan_response = manager.plan(correction_order["id"], production_type="MANUAL", queue_position=2)
@@ -421,6 +423,12 @@ def scenario_correction_completion_races_parent_duplicate_packing(env: ChaosEnvi
             ok_quantity=90,
             correction_quantity=10,
         )
+
+    # Complete DECORAL steps to reach READY state
+    seeder.post(f"/process/work-orders/{parent['id']}/batches/{parent_batch_id}/stages/DECORAL_PRODUCTION/start")
+    seeder.post(f"/process/work-orders/{parent['id']}/batches/{parent_batch_id}/stages/DECORAL_PRODUCTION/finish")
+    seeder.post(f"/process/work-orders/{correction_order['id']}/stages/DECORAL_PRODUCTION/start")
+    seeder.post(f"/process/work-orders/{correction_order['id']}/stages/DECORAL_PRODUCTION/finish")
 
     parent_detail = get_work_order_detail(seeder, parent["id"])
     correction_detail = get_work_order_detail(seeder, correction_order["id"])
@@ -683,10 +691,9 @@ def scenario_correction_uses_actual_split(env: ChaosEnvironment):
         correction_quantity=5,
     )
 
-    children = get_direct_correction_children(seeder, created["id"])
-    assert len(children) == 1
-    assert children[0]["total_quantity"] == 5
     detail = get_work_order_detail(seeder, created["id"])
-    assert detail["pending_correction_quantity"] == 5
+    assert detail["completed_quantity"] == 90
+    assert detail["current_active_quantity"] == 5
+    assert detail["process_status"]["value"] == "TO_BE_PLANNED"
 
     return [packing_response]

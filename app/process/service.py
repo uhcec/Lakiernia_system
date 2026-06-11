@@ -395,6 +395,9 @@ class ProcessService:
             if packing_state.status == StageStatus.DONE:
                 return self._to_idempotent_packing_response(work_order)
 
+            if self._is_in_correction_round(work_order) and packing_state.status == StageStatus.NOT_STARTED:
+                return self._to_idempotent_packing_response(work_order)
+
             if work_order.production_type == ProductionType.AUTOMATIC and hanging_state.status == StageStatus.IN_PROGRESS:
                 raise InvalidProcessStageTransitionError("Automatic hanging must be finished before packing.")
 
@@ -416,12 +419,15 @@ class ProcessService:
                 raise InvalidProcessStageTransitionError("Packing quantities cannot be negative.")
 
             planned_quantity = active_batch.quantity
-            actual_received_quantity = self._get_surface_preparation_actual_quantity(work_order)
-            required_counted_quantity = actual_received_quantity if actual_received_quantity is not None else planned_quantity
+            if self._is_in_correction_round(work_order):
+                required_counted_quantity = planned_quantity
+            else:
+                actual_received_quantity = self._get_surface_preparation_actual_quantity(work_order)
+                required_counted_quantity = actual_received_quantity if actual_received_quantity is not None else planned_quantity
             if counted_quantity != required_counted_quantity:
                 raise InvalidProcessStageTransitionError(
                     "Policzona ilość musi odpowiadać rzeczywistej ilości z przygotowania powierzchni."
-                    if actual_received_quantity is not None
+                    if not self._is_in_correction_round(work_order) and self._get_surface_preparation_actual_quantity(work_order) is not None
                     else "Policzona ilość różni się od planowanej. Wyjaśnij brakujące sztuki."
                 )
 
@@ -431,19 +437,32 @@ class ProcessService:
             production_state = self._get_stage_state(work_order, ProcessStage.PRODUCTION)
 
             if correction_quantity > 0:
-                response_stage, response_batch = self._complete_packing_with_correction_order(
-                    work_order,
-                    active_batch,
-                    packing_state,
-                    production_state,
-                    planned_quantity=planned_quantity,
-                    ok_quantity=ok_quantity,
-                    correction_quantity=correction_quantity,
-                    correction_category_fields=correction_category_fields,
-                    correction_reason_category=normalized_correction_reason_category,
-                    correction_reason_note=normalized_correction_reason_note,
-                    station_context=station_context,
-                )
+                if work_order.coating_type == CoatingType.DECORAL:
+                    response_stage, response_batch = self._complete_packing_with_correction_order(
+                        work_order,
+                        active_batch,
+                        packing_state,
+                        production_state,
+                        planned_quantity=active_batch.quantity,
+                        ok_quantity=ok_quantity,
+                        correction_quantity=correction_quantity,
+                        correction_category_fields=correction_category_fields,
+                        correction_reason_category=normalized_correction_reason_category,
+                        correction_reason_note=normalized_correction_reason_note,
+                        station_context=station_context,
+                    )
+                else:
+                    self._reset_to_correction_planning(
+                        work_order,
+                        active_batch,
+                        ok_quantity=ok_quantity,
+                        correction_quantity=correction_quantity,
+                        correction_reason_category=normalized_correction_reason_category,
+                        correction_reason_note=normalized_correction_reason_note,
+                        station_context=station_context,
+                    )
+                    response_stage = ProcessStage.PACKING
+                    response_batch = None
                 self._release_inactive_resource_locks(work_order)
                 self._record_packing_audit_event(
                     work_order=work_order,
@@ -459,7 +478,7 @@ class ProcessService:
                 if response_batch is not None:
                     refreshed_batch = self._get_batch(refreshed_work_order, response_batch.id)
                     return self._to_stage_work_order_read(refreshed_work_order, response_stage, batch=refreshed_batch)
-                return self._to_stage_work_order_read(refreshed_work_order, response_stage)
+                return self._to_stage_work_order_read(refreshed_work_order, ProcessStage.PACKING)
             else:
                 packing_state.status = StageStatus.DONE
                 packing_state.updated_at = datetime.now(UTC)
@@ -939,7 +958,10 @@ class ProcessService:
 
     @staticmethod
     def _skips_surface_preparation(work_order: WorkOrder) -> bool:
-        return work_order.is_correction or work_order.work_order_kind == WorkOrderKind.PRZEMALOWANKA
+        if work_order.is_correction or work_order.work_order_kind == WorkOrderKind.PRZEMALOWANKA:
+            return True
+        active_batch = work_order.active_batch
+        return active_batch is not None and active_batch.parent_batch_id is not None
 
     @staticmethod
     def _omits_surface_preparation_stage(work_order: WorkOrder) -> bool:
@@ -952,7 +974,9 @@ class ProcessService:
     def _get_surface_preparation_skipped_message(work_order: WorkOrder) -> str:
         if work_order.is_correction:
             return "Correction orders do not go through surface preparation."
-        return "Przemalowanka work orders do not go through surface preparation."
+        if work_order.work_order_kind == WorkOrderKind.PRZEMALOWANKA:
+            return "Przemalowanka work orders do not go through surface preparation."
+        return "Correction rounds do not go through surface preparation."
 
     def _is_visible_in_automatic_production_preview(
         self,
@@ -1265,14 +1289,25 @@ class ProcessService:
             created_batches.append(ok_batch)
 
         if correction_quantity > 0:
-            self._create_correction_work_order(
-                work_order,
-                correction_quantity,
-                correction_category_fields=correction_category_fields,
-                correction_reason_category=correction_reason_category,
-                correction_reason_note=correction_reason_note,
-                station_context=station_context,
-            )
+            if work_order.coating_type == CoatingType.DECORAL:
+                self._create_correction_work_order(
+                    work_order,
+                    correction_quantity,
+                    correction_category_fields=correction_category_fields,
+                    correction_reason_category=correction_reason_category,
+                    correction_reason_note=correction_reason_note,
+                    station_context=station_context,
+                )
+            else:
+                self._reset_to_correction_planning(
+                    work_order,
+                    batch,
+                    ok_quantity=ok_quantity,
+                    correction_quantity=correction_quantity,
+                    correction_reason_category=correction_reason_category,
+                    correction_reason_note=correction_reason_note,
+                    station_context=station_context,
+                )
         elif ok_quantity > 0:
             work_order.completed_quantity += ok_quantity
 
@@ -1427,11 +1462,79 @@ class ProcessService:
         return persisted_correction_order
 
     def prepare_correction_work_order_for_planning(self, work_order: WorkOrder) -> None:
-        if not work_order.is_correction:
+        if not work_order.is_correction and not self._is_in_correction_round(work_order):
             return
 
         return_stage = self.get_correction_return_stage(work_order)
         self._reset_stage_states_for_active_batch(work_order, return_stage)
+
+    @staticmethod
+    def _is_in_correction_round(work_order: WorkOrder) -> bool:
+        active_batch = work_order.active_batch
+        return active_batch is not None and active_batch.parent_batch_id is not None
+
+    def _reset_to_correction_planning(
+        self,
+        work_order: WorkOrder,
+        active_batch: WorkOrderQuantityBatch,
+        ok_quantity: int,
+        correction_quantity: int,
+        correction_reason_category: str | None,
+        correction_reason_note: str | None,
+        station_context: StationContext | None = None,
+    ) -> None:
+        work_order.completed_quantity += ok_quantity
+
+        active_batch.is_active = False
+        active_batch.current_stage = ProcessStage.PACKING
+        active_batch.current_stage_status = StageStatus.DONE
+
+        correction_batch = WorkOrderQuantityBatch(
+            work_order_id=work_order.id,
+            quantity=correction_quantity,
+            type=QuantityBatchType.CORRECTION,
+            parent_batch_id=active_batch.id,
+            is_active=True,
+            current_stage=None,
+            current_stage_status=None,
+            is_partial=True,
+        )
+        self.repository.add_quantity_batch(correction_batch)
+        work_order.current_active_batch_id = correction_batch.id
+
+        work_order.correction_reason_category = correction_reason_category
+        work_order.correction_reason_note = correction_reason_note
+
+        current_timestamp = datetime.now(UTC)
+        for stage_state in work_order.stage_states:
+            if stage_state.stage == ProcessStage.SURFACE_PREPARATION:
+                stage_state.status = StageStatus.DONE
+            elif stage_state.stage == ProcessStage.PACKING:
+                stage_state.status = StageStatus.NOT_STARTED
+                stage_state.counted_quantity = None
+            else:
+                stage_state.status = StageStatus.NOT_STARTED
+            stage_state.updated_at = current_timestamp
+
+        work_order.production_type = None
+        work_order.queue_position = None
+        work_order.consumed_paint_quantity_kg = 0
+
+        self._record_audit_event(
+            event_type="work_order.returned_to_correction_planning",
+            station_context=station_context,
+            work_order=work_order,
+            target_type="work_order",
+            target_id=work_order.id,
+            summary=f"Returned work order {work_order.order_number} to planning for correction ({correction_quantity} pcs, {ok_quantity} ok so far).",
+            details={
+                "ok_quantity": ok_quantity,
+                "correction_quantity": correction_quantity,
+                "accumulated_completed_quantity": work_order.completed_quantity,
+                "total_quantity": work_order.total_quantity,
+                "correction_reason_category": correction_reason_category,
+            },
+        )
 
     def _record_stage_audit_event(
         self,
@@ -1595,7 +1698,7 @@ class ProcessService:
 
     @staticmethod
     def _uses_batch_tracking(work_order: WorkOrder) -> bool:
-        return any(batch.current_stage is not None for batch in work_order.quantity_batches)
+        return any(batch.current_stage is not None for batch in work_order.active_batches)
 
     @staticmethod
     def _get_batch(work_order: WorkOrder, batch_id: int) -> WorkOrderQuantityBatch:
@@ -1786,6 +1889,7 @@ class ProcessService:
             id=work_order.id,
             batch_id=batch_id,
             is_correction=work_order.is_correction,
+            completed_quantity=work_order.completed_quantity,
             is_historical_correction=self.is_historical_correction(work_order),
             work_order_kind=build_work_order_kind_view(work_order.work_order_kind),
             is_ocynk=work_order.is_ocynk,
@@ -1850,6 +1954,10 @@ class ProcessService:
         _ = stage_state
         if batch is not None:
             return batch.quantity
+
+        active_batch = work_order.active_batch
+        if active_batch is not None and active_batch.parent_batch_id is not None:
+            return active_batch.quantity
 
         return work_order.total_quantity
 
@@ -2054,6 +2162,8 @@ class ProcessService:
             return stage_state.counted_quantity
 
         if batch is None:
+            if self._is_in_correction_round(work_order):
+                return None
             return self._get_surface_preparation_actual_quantity(work_order)
 
         return None

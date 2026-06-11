@@ -1539,7 +1539,8 @@ describe("frontend state consistency", () => {
 
     render(<ManagerPanelPage />);
 
-    await screen.findByText("WO-MANAGER-DISCREPANCY");
+    const matches = await screen.findAllByText("WO-MANAGER-DISCREPANCY");
+    expect(matches.length).toBeGreaterThan(0);
     expect(screen.getByText("RÓŻNICA: -2 SZT.")).toBeTruthy();
     expect(screen.getByText("Przygotowanie: zadeklarowano 10, policzono 8 (-2 szt.)")).toBeTruthy();
   });

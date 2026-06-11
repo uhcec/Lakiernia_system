@@ -355,14 +355,14 @@ def seed_all_use_cases(session: Session) -> list[SeededScenario]:
 
     correction_parent = create_work_order(
         work_order_service,
-        title="Poprawka - rodzic i dziecko",
+        title="Poprawka - zlecenie w trakcie korekty",
         coating_type=CoatingType.RAL,
         total_quantity=10,
         customer_name="Alumar",
         ral_code="RAL 9010",
         profiles_quantity=8,
         accessories_quantity=2,
-        notes="I. Rodzic po pakowaniu z poprawka 3 szt.",
+        notes="I. Poprawka 3 szt. — zlecenie wróciło do planowania.",
     )
     assign_plan(manager_service, correction_parent.id, ProductionType.MANUAL, queue_position)
     queue_position += 10
@@ -376,25 +376,15 @@ def seed_all_use_cases(session: Session) -> list[SeededScenario]:
         correction_accessories_quantity=1,
         correction_reason_category="niedomalowanie",
     )
-    correction_child = get_latest_correction_child(work_order_repository, correction_parent.id)
-    assign_plan(manager_service, correction_child.id, ProductionType.MANUAL, queue_position)
+    assign_plan(manager_service, correction_parent.id, ProductionType.MANUAL, queue_position)
     queue_position += 10
     scenarios.append(
         scenario(
             "I",
             correction_parent.order_number,
-            "Parent order that generated a child correction order",
-            "Packing / Work order details",
+            "Order returned to planning after correction — 7 OK, 3 correction",
+            "Manager panel / Production",
             correction_parent.notes or "",
-        )
-    )
-    scenarios.append(
-        scenario(
-            "I",
-            correction_child.order_number,
-            "Child correction order planned in shared manager queue",
-            "Manager panel (Corrections filter)",
-            correction_child.notes or "",
         )
     )
 
@@ -520,7 +510,7 @@ def seed_all_use_cases(session: Session) -> list[SeededScenario]:
 
     multi_round_parent = create_work_order(
         work_order_service,
-        title="Wieloetapowa poprawka - rodzic",
+        title="Wieloetapowa poprawka - dwie rundy",
         coating_type=CoatingType.RAL,
         total_quantity=10,
         customer_name="Alumar",
@@ -528,8 +518,8 @@ def seed_all_use_cases(session: Session) -> list[SeededScenario]:
         profiles_quantity=9,
         accessories_quantity=1,
         notes=(
-            "M1. Screen: Szczegoly zlecenia / Pakowanie. Click: otworz rodzica i przejdz do historii poprawek. "
-            "Expect: rodzic ma 7 OK, czeka na ostatnia poprawke 1 szt. przez lancuch poprawek."
+            "M1. Screen: Panel managera — niezaplanowane. Click: zaplanuj ostatnia runde poprawki (1 szt.) i wykonaj pelna sciezke manualna. "
+            "Expect: 9 OK wczesniej, ostatnia runda 1 szt. — po zakonczeniu rodzic przejdzie na Gotowe 10/10."
         ),
     )
     assign_plan(manager_service, multi_round_parent.id, ProductionType.MANUAL, queue_position)
@@ -544,18 +534,11 @@ def seed_all_use_cases(session: Session) -> list[SeededScenario]:
         correction_accessories_quantity=1,
         correction_reason_category="niedomalowanie",
     )
-
-    multi_round_first_child = get_latest_correction_child(work_order_repository, multi_round_parent.id)
-    multi_round_first_child.notes = (
-        "M2. Screen: Szczegoly zlecenia dziecka. Click: sprawdz, ze to dziecko ma juz wynik 2 OK / 1 poprawka. "
-        "Expect: status dalej Czeka na poprawki, a ostatnie dziecko 1 szt. jest jeszcze nieplanowane."
-    )
-    work_order_repository.commit()
-    assign_plan(manager_service, multi_round_first_child.id, ProductionType.MANUAL, queue_position)
+    assign_plan(manager_service, multi_round_parent.id, ProductionType.MANUAL, queue_position)
     queue_position += 10
-    advance_to_packing(process_service, multi_round_first_child.id, counted_quantity=3)
+    advance_to_packing(process_service, multi_round_parent.id, counted_quantity=3)
     process_service.complete_packing(
-        multi_round_first_child.id,
+        multi_round_parent.id,
         counted_quantity=3,
         ok_quantity=2,
         correction_quantity=1,
@@ -564,44 +547,19 @@ def seed_all_use_cases(session: Session) -> list[SeededScenario]:
         correction_reason_category="inne",
         correction_reason_note="Druga runda poprawki w danych testowych.",
     )
-
-    multi_round_last_child = get_latest_correction_child(work_order_repository, multi_round_first_child.id)
-    multi_round_last_child.notes = (
-        "M3. Screen: Panel managera / niezaplanowane. Click: zaplanuj te ostatnia poprawke, wykonaj pelna sciezke manualna i zakoncz pakowanie 1/0. "
-        "Expect: to zlecenie, jego rodzic i oryginalny rodzic przejda na Gotowe 10/10."
-    )
-    work_order_repository.commit()
     scenarios.append(
         scenario(
             "M",
             multi_round_parent.order_number,
-            "Manual multi-round correction parent waiting for the last correction link",
-            "Work order details / Packing",
+            "Manual multi-round order waiting for final correction round — 9 OK, 1 szt. pending",
+            "Manager panel / Production",
             multi_round_parent.notes or "",
-        )
-    )
-    scenarios.append(
-        scenario(
-            "M",
-            multi_round_first_child.order_number,
-            "Intermediate correction order already split into 2 OK and 1 more correction",
-            "Work order details",
-            multi_round_first_child.notes or "",
-        )
-    )
-    scenarios.append(
-        scenario(
-            "M",
-            multi_round_last_child.order_number,
-            "Final unplanned correction order in shared queue",
-            "Manager panel (Corrections filter)",
-            multi_round_last_child.notes or "",
         )
     )
 
     automatic_parent = create_work_order(
         work_order_service,
-        title="Automat + poprawka - rodzic",
+        title="Automat + poprawka - runda korekcyjna",
         coating_type=CoatingType.RAL,
         total_quantity=10,
         customer_name="Profiltech Sp. z o.o.",
@@ -609,8 +567,8 @@ def seed_all_use_cases(session: Session) -> list[SeededScenario]:
         profiles_quantity=9,
         accessories_quantity=1,
         notes=(
-            "N1. Screen: Szczegoly zlecenia / Pakowanie. Click: sprawdz rodzica po rozdziale 8 OK / 2 poprawka. "
-            "Expect: rodzic ma status Czeka na poprawki i czeka na dziecko automatyczne."
+            "N1. Screen: Pakowanie. Click: zakoncz pakowanie poprawki automatycznej counted 2, OK 2, correction 0. "
+            "Expect: zlecenie przejdzie na Gotowe 10/10."
         ),
     )
     assign_plan(manager_service, automatic_parent.id, ProductionType.AUTOMATIC, queue_position)
@@ -625,32 +583,16 @@ def seed_all_use_cases(session: Session) -> list[SeededScenario]:
         correction_accessories_quantity=1,
         correction_reason_category="wtrącenia",
     )
-
-    automatic_child = get_latest_correction_child(work_order_repository, automatic_parent.id)
-    automatic_child.notes = (
-        "N2. Screen: Pakowanie. Click: zakoncz pakowanie automatycznej poprawki counted 2, OK 2, correction 0. "
-        "Expect: dziecko i rodzic przejda na Gotowe 10/10 bez recznej zmiany statusu."
-    )
-    work_order_repository.commit()
-    assign_plan(manager_service, automatic_child.id, ProductionType.AUTOMATIC, queue_position)
+    assign_plan(manager_service, automatic_parent.id, ProductionType.AUTOMATIC, queue_position)
     queue_position += 10
-    advance_to_packing(process_service, automatic_child.id, counted_quantity=2)
+    advance_to_packing(process_service, automatic_parent.id, counted_quantity=2)
     scenarios.append(
         scenario(
             "N",
             automatic_parent.order_number,
-            "Automatic parent waiting for a correction child to merge back",
-            "Work order details / Packing",
-            automatic_parent.notes or "",
-        )
-    )
-    scenarios.append(
-        scenario(
-            "N",
-            automatic_child.order_number,
-            "Automatic correction child already positioned in packing for final completion",
+            "Automatic correction round in packing — 8 OK so far, 2 correction ready for completion",
             "Packing",
-            automatic_child.notes or "",
+            automatic_parent.notes or "",
         )
     )
 
@@ -757,7 +699,7 @@ def seed_all_use_cases(session: Session) -> list[SeededScenario]:
 
     history_parent = create_work_order(
         work_order_service,
-        title="Historia poprawek - zakonczony lancuch",
+        title="Historia poprawek - zakonczony lancuch rund",
         coating_type=CoatingType.RAL,
         total_quantity=10,
         customer_name="Konstruktor Sp. z o.o.",
@@ -765,8 +707,8 @@ def seed_all_use_cases(session: Session) -> list[SeededScenario]:
         profiles_quantity=9,
         accessories_quantity=1,
         notes=(
-            "P1. Screen: Szczegoly zlecenia. Click: otworz rodzica i przejdz po relacjach rodzic-dziecko. "
-            "Expect: caly lancuch poprawek jest zakonczony, a rodzic ma Gotowe 10/10."
+            "P1. Screen: Szczegoly zlecenia. Click: sprawdz wycofana ilosc i status Gotowe. "
+            "Expect: zlecenie jest Gotowe 10/10, przeszlo przez dwie rundy korekcyjne."
         ),
     )
     assign_plan(manager_service, history_parent.id, ProductionType.MANUAL, queue_position)
@@ -781,18 +723,11 @@ def seed_all_use_cases(session: Session) -> list[SeededScenario]:
         correction_accessories_quantity=1,
         correction_reason_category="niedomalowanie",
     )
-
-    history_first_child = get_latest_correction_child(work_order_repository, history_parent.id)
-    history_first_child.notes = (
-        "P2. Screen: Szczegoly pierwszej poprawki. Click: sprawdz relacje z rodzicem i kolejnym dzieckiem. "
-        "Expect: pierwsza poprawka jest tez zakonczona i zachowuje historie laczenia."
-    )
-    work_order_repository.commit()
-    assign_plan(manager_service, history_first_child.id, ProductionType.MANUAL, queue_position)
+    assign_plan(manager_service, history_parent.id, ProductionType.MANUAL, queue_position)
     queue_position += 10
-    advance_to_packing(process_service, history_first_child.id, counted_quantity=3)
+    advance_to_packing(process_service, history_parent.id, counted_quantity=3)
     process_service.complete_packing(
-        history_first_child.id,
+        history_parent.id,
         counted_quantity=3,
         ok_quantity=2,
         correction_quantity=1,
@@ -801,42 +736,17 @@ def seed_all_use_cases(session: Session) -> list[SeededScenario]:
         correction_reason_category="inne",
         correction_reason_note="Powtorna poprawka w historii testowej.",
     )
-
-    history_second_child = get_latest_correction_child(work_order_repository, history_first_child.id)
-    history_second_child.notes = (
-        "P3. Screen: Szczegoly drugiej poprawki. Click: sprawdz, ze to ostatnie ogniwo zostalo zakonczone 1/0. "
-        "Expect: wszystkie trzy zlecenia sa Gotowe, a historia korekt zostaje zachowana."
-    )
-    work_order_repository.commit()
-    assign_plan(manager_service, history_second_child.id, ProductionType.MANUAL, queue_position)
+    assign_plan(manager_service, history_parent.id, ProductionType.MANUAL, queue_position)
     queue_position += 10
-    advance_to_packing(process_service, history_second_child.id, counted_quantity=1)
-    process_service.complete_packing(history_second_child.id, counted_quantity=1, ok_quantity=1, correction_quantity=0)
+    advance_to_packing(process_service, history_parent.id, counted_quantity=1)
+    process_service.complete_packing(history_parent.id, counted_quantity=1, ok_quantity=1, correction_quantity=0)
     scenarios.append(
         scenario(
             "P",
             history_parent.order_number,
-            "Completed parent with a preserved multi-step correction history chain",
-            "Work order details",
+            "Completed order after two correction rounds — history preserved in quantity batches",
+            "Work order details / Gotowe",
             history_parent.notes or "",
-        )
-    )
-    scenarios.append(
-        scenario(
-            "P",
-            history_first_child.order_number,
-            "Completed first correction with its own correction history",
-            "Work order details",
-            history_first_child.notes or "",
-        )
-    )
-    scenarios.append(
-        scenario(
-            "P",
-            history_second_child.order_number,
-            "Completed final correction closing the history chain",
-            "Work order details",
-            history_second_child.notes or "",
         )
     )
 
@@ -907,7 +817,11 @@ def finish_surface_preparation(process_service: ProcessService, work_order_id: i
 
 def advance_to_packing(process_service: ProcessService, work_order_id: int, *, counted_quantity: int) -> None:
     work_order = process_service.get_work_order_process(work_order_id)
-    skips_surface_preparation = work_order.is_correction or work_order.work_order_kind == WorkOrderKind.PRZEMALOWANKA
+    is_correction_round = (
+        work_order.active_batch is not None
+        and work_order.active_batch.parent_batch_id is not None
+    )
+    skips_surface_preparation = work_order.is_correction or work_order.work_order_kind == WorkOrderKind.PRZEMALOWANKA or is_correction_round
     if not skips_surface_preparation:
         start_surface_preparation(process_service, work_order_id, counted_quantity=counted_quantity)
         finish_surface_preparation(process_service, work_order_id)

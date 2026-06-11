@@ -61,8 +61,8 @@ function OfficeWorkOrderRow({ workOrder }: { workOrder: WorkOrder }) {
     >
       {/* ZLECENIE */}
       <div className="w-52 flex-none px-5 py-3.5">
-        <p className="text-lg font-bold leading-tight text-brand-ink">
-          {workOrder.order_number}
+        <p className={`text-lg font-bold leading-tight ${workOrder.completed_quantity > 0 && workOrder.completed_quantity < workOrder.total_quantity ? "text-amber-700" : "text-brand-ink"}`}>
+          {workOrder.completed_quantity > 0 && workOrder.completed_quantity < workOrder.total_quantity ? `P${workOrder.order_number}` : workOrder.order_number}
         </p>
         <p className="mt-0.5 truncate text-sm leading-snug text-brand-muted">
           {workOrder.customer_name}

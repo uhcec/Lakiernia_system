@@ -16,6 +16,7 @@ import {
 } from "../api/workOrdersApi";
 import type { AuditEvent, AuditStationId } from "../types/audit";
 import type { UpdateWorkOrderRequest, WorkOrder, WorkOrderAttachment } from "../types/workOrders";
+import { WorkOrderPrimaryInfoLine } from "../components/WorkOrderPrimaryInfoLine";
 import {
   formatWorkOrderPrimaryInfo,
   getWorkOrderActiveCorrectionsText,
@@ -550,7 +551,7 @@ export function WorkOrderDetailPage() {
           <div className="space-y-2">
             <p className="text-sm font-semibold uppercase tracking-[0.18em] text-accent">Szczegóły zlecenia</p>
             <div>
-              <h2 className="text-3xl font-semibold text-ink sm:text-4xl">{workOrder ? formatWorkOrderPrimaryInfo(workOrder) : "Zlecenie"}</h2>
+              <h2 className="text-3xl font-semibold text-ink sm:text-4xl">{workOrder ? <WorkOrderPrimaryInfoLine workOrder={workOrder} /> : "Zlecenie"}</h2>
               <p className="mt-2 max-w-3xl text-sm leading-6 text-steel sm:text-base">
                 Podgląd danych biurowych, planowania i aktualnych etapów procesu bez możliwości edycji.
               </p>
@@ -635,7 +636,7 @@ export function WorkOrderDetailPage() {
                 <div>
                   <dt className="text-sm font-medium text-steel">Dane główne</dt>
                   <dd className="mt-1 flex flex-wrap items-center gap-2 text-base font-semibold text-ink">
-                    <span>{formatWorkOrderPrimaryInfo(workOrder)}</span>
+                    <WorkOrderPrimaryInfoLine workOrder={workOrder} />
                     {getWorkOrderBadgeStack(workOrder).map((badge) => (
                       <span
                         key={`details-${badge.label}`}

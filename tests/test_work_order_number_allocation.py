@@ -17,10 +17,10 @@ from app.work_orders.schemas import WorkOrderCreate
 from app.work_orders.service import WorkOrderService
 
 
-def build_work_order_create(title: str, *, total_quantity: int = 100) -> WorkOrderCreate:
+def build_work_order_create(title: str, *, total_quantity: int = 100, coating_type: CoatingType = CoatingType.RAL) -> WorkOrderCreate:
     return WorkOrderCreate(
         title=title,
-        coating_type=CoatingType.RAL,
+        coating_type=coating_type,
         total_quantity=total_quantity,
         customer_name="ACME",
         ral_code="RAL 7016",
@@ -77,10 +77,10 @@ def test_normal_creation_increments_counter(db_session: Session) -> None:
     assert counter.last_value == 2
 
 
-def test_correction_child_uses_same_global_sequence(db_session: Session) -> None:
+def test_decoral_correction_child_uses_same_global_sequence(db_session: Session) -> None:
     work_order_service, process_service, manager_service, work_order_repository, _ = build_services(db_session)
 
-    parent = work_order_service.create_work_order(build_work_order_create("Parent order"))
+    parent = work_order_service.create_work_order(build_work_order_create("Parent DECORAL order", coating_type=CoatingType.DECORAL))
     move_to_packing(process_service, manager_service, parent.id)
     process_service.complete_packing(
         parent.id,
@@ -96,6 +96,29 @@ def test_correction_child_uses_same_global_sequence(db_session: Session) -> None
     assert parent.order_number.endswith("0001")
     assert len(correction_orders) == 1
     assert correction_orders[0].order_number.endswith("0002")
+
+
+def test_ral_correction_round_does_not_consume_order_number(db_session: Session) -> None:
+    work_order_service, process_service, manager_service, work_order_repository, _ = build_services(db_session)
+
+    parent = work_order_service.create_work_order(build_work_order_create("Parent RAL order"))
+    move_to_packing(process_service, manager_service, parent.id)
+    process_service.complete_packing(
+        parent.id,
+        counted_quantity=100,
+        ok_quantity=80,
+        correction_quantity=20,
+        correction_profiles_quantity=20,
+        correction_accessories_quantity=0,
+        correction_reason_category="niedomalowanie",
+    )
+    all_orders = work_order_repository.list(limit=20, offset=0)
+
+    assert parent.order_number.endswith("0001")
+    assert len(all_orders) == 1
+    counter = db_session.get(WorkOrderNumberCounter, 0)
+    assert counter is not None
+    assert counter.last_value == 1
 
 
 def test_concurrent_normal_creation_produces_unique_numbers(tmp_path) -> None:
@@ -134,7 +157,7 @@ def test_concurrent_normal_creation_produces_unique_numbers(tmp_path) -> None:
     assert sorted(persisted_numbers) == sorted(order_numbers)
 
 
-def test_mixed_normal_and_correction_creation_produces_unique_numbers(tmp_path) -> None:
+def test_mixed_normal_and_decoral_correction_creation_produces_unique_numbers(tmp_path) -> None:
     database_path = tmp_path / "mixed_number_allocation.db"
     engine = create_engine(
         f"sqlite:///{database_path}",
@@ -148,7 +171,7 @@ def test_mixed_normal_and_correction_creation_produces_unique_numbers(tmp_path) 
         setup_session = session_factory()
         try:
             work_order_service, process_service, manager_service, _, _ = build_services(setup_session)
-            parent = work_order_service.create_work_order(build_work_order_create("Correction parent"))
+            parent = work_order_service.create_work_order(build_work_order_create("Correction parent", coating_type=CoatingType.DECORAL))
             move_to_packing(process_service, manager_service, parent.id)
         finally:
             setup_session.close()
@@ -164,8 +187,8 @@ def test_mixed_normal_and_correction_creation_produces_unique_numbers(tmp_path) 
         def create_correction_child() -> str:
             session = session_factory()
             try:
-                process_service = ProcessService(ProcessRepository(session))
-                process_service.complete_packing(
+                svc = ProcessService(ProcessRepository(session))
+                svc.complete_packing(
                     parent.id,
                     counted_quantity=100,
                     ok_quantity=85,

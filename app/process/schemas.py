@@ -23,6 +23,7 @@ class ProcessStageWorkOrderRead(BaseModel):
     is_ocynk: bool = False
     order_number: str
     title: str
+    completed_quantity: int = 0
     ral_code: str
     paint_code: str | None = None
     paint_producer: str
