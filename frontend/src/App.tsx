@@ -4,6 +4,7 @@ import { AppLayout } from "./components/AppLayout";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { AuditEventsPage } from "./pages/AuditEventsPage";
 import { AutomaticProductionPage } from "./pages/AutomaticProductionPage";
+import { ClientsPage } from "./pages/ClientsPage";
 import { CreateWorkOrderPage } from "./pages/CreateWorkOrderPage";
 import { DecoralProductionPage } from "./pages/DecoralProductionPage";
 import { HangingPage } from "./pages/HangingPage";
@@ -31,6 +32,7 @@ export default function App() {
       >
         <Route path="/audyt" element={<AuditEventsPage />} />
         <Route path="/farby" element={<PaintInventoryPage />} />
+        <Route path="/klienci" element={<ClientsPage />} />
         <Route path="/statystyki" element={<StatystykiPage />} />
         <Route path="/kierownik" element={<ManagerPanelPage />} />
         <Route path="/przygotowanie" element={<SurfacePreparationPage />} />

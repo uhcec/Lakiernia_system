@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useLocation } from "react-router-dom";
-import { BarChart2, ClipboardList, UserCog, FlaskConical, Hand, Factory, Package, Palette, ShieldCheck, Plus, LogOut } from "lucide-react";
+import { BarChart2, ClipboardList, UserCog, FlaskConical, Hand, Factory, Package, Palette, ShieldCheck, Plus, LogOut, Users, UserPlus } from "lucide-react";
 import type { SVGProps } from "react";
 import { isFullAccessUser, useAuth } from "../context/AuthContext";
 import { getStationPanelPath, type StationId } from "../api/stationContext";
@@ -43,6 +43,7 @@ const primaryNavigation: NavigationItem[] = [
 ];
 
 const secondaryNavigation: NavigationItem[] = [
+  { to: "/klienci", label: "Klienci", icon: Users },
   { to: "/farby", label: "Farby", icon: Palette },
   { to: "/statystyki", label: "Statystyki", icon: BarChart2 },
   { to: "/audyt", label: "Audyt", icon: ShieldCheck },
@@ -60,18 +61,26 @@ const stationLabels: Record<string, string> = {
   DECORAL_PRODUCTION: "Produkcja Decoral",
 };
 
+const navActiveClass = "bg-gradient-to-r from-[#f2761b] to-[#f59446] text-white shadow-lg shadow-[#f2761b]/30";
+const navIdleClass = "text-brand-muted hover:bg-brand-surface hover:text-brand-ink";
+const navBase = "group flex items-center gap-3 rounded-[1rem] px-3 py-2.5 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#f2761b]/50";
+
 export function AppLayout() {
   const location = useLocation();
   const { user, logout } = useAuth();
   const fullAccess = isFullAccessUser(user);
+  const isClientsPage = location.pathname.startsWith("/klienci");
 
   const visiblePrimary = fullAccess
     ? primaryNavigation
     : primaryNavigation.filter((item) => item.to === getStationPanelPath(user?.station_id as StationId));
 
   const visibleSecondary = fullAccess ? secondaryNavigation : [];
+  const biuroItems = visibleSecondary.filter((item) => !item.accent);
+  const accentItems = visibleSecondary.filter((item) => item.accent);
 
   function getSectionTitle(pathname: string): string {
+    if (pathname.startsWith("/klienci")) return "Klienci";
     if (pathname.startsWith("/farby")) return "Farby";
     if (pathname.startsWith("/statystyki")) return "Statystyki";
     if (pathname.startsWith("/audyt")) return "Audyt";
@@ -103,43 +112,48 @@ export function AppLayout() {
 
           {/* Navigation */}
           <div className="rounded-[1.9rem] bg-white px-3 py-3 shadow-panel ring-1 ring-brand-line/70">
-            <nav className="space-y-1">
-              {visiblePrimary.map((item) => (
-                <NavLink
-                  key={item.to}
-                  to={item.to}
-                  className={({ isActive }) =>
-                    [
-                      "group flex items-center gap-3 rounded-[1rem] px-3 py-2.5 text-sm font-semibold transition",
-                      isActive
-                        ? "bg-brand-900 text-white shadow-brand"
-                        : "text-brand-muted hover:bg-brand-surface hover:text-brand-ink",
-                    ].join(" ")
-                  }
-                >
-                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-current/10 bg-current/5">
-                    <item.icon className="h-[1rem] w-[1rem]" strokeWidth={1.8} />
-                  </span>
-                  <span>{item.label}</span>
-                </NavLink>
-              ))}
-            </nav>
 
-            {visibleSecondary.length > 0 && (
+            {/* PRODUKCJA section */}
+            {visiblePrimary.length > 0 && (
               <>
-                <div className="my-3 h-px bg-brand-line" />
+                {fullAccess && (
+                  <p className="px-2 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-widest text-[#a59cb8]">
+                    Produkcja
+                  </p>
+                )}
                 <nav className="space-y-1">
-                  {visibleSecondary.map((item) => (
+                  {visiblePrimary.map((item) => (
                     <NavLink
                       key={item.to}
                       to={item.to}
                       className={({ isActive }) =>
-                        [
-                          "group flex items-center gap-3 rounded-[1rem] px-3 py-2.5 text-sm font-semibold transition",
-                          item.accent || isActive
-                            ? "bg-brand-warm text-brand-ink shadow-[0_8px_20px_rgba(255,140,32,0.2)] hover:bg-brand-warm-strong"
-                            : "text-brand-muted hover:bg-brand-surface hover:text-brand-ink",
-                        ].join(" ")
+                        [navBase, isActive ? navActiveClass : navIdleClass].join(" ")
+                      }
+                    >
+                      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-current/10 bg-current/5">
+                        <item.icon className="h-[1rem] w-[1rem]" strokeWidth={1.8} />
+                      </span>
+                      <span>{item.label}</span>
+                    </NavLink>
+                  ))}
+                </nav>
+              </>
+            )}
+
+            {/* BIURO section */}
+            {visibleSecondary.length > 0 && (
+              <>
+                <div className="my-3 h-px bg-brand-line" />
+                <p className="px-2 pb-1 text-[10px] font-semibold uppercase tracking-widest text-[#a59cb8]">
+                  Biuro
+                </p>
+                <nav className="space-y-1">
+                  {biuroItems.map((item) => (
+                    <NavLink
+                      key={item.to}
+                      to={item.to}
+                      className={({ isActive }) =>
+                        [navBase, isActive ? navActiveClass : navIdleClass].join(" ")
                       }
                     >
                       <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-current/10 bg-white/40">
@@ -149,6 +163,22 @@ export function AppLayout() {
                     </NavLink>
                   ))}
                 </nav>
+                {accentItems.length > 0 && (
+                  <div className="mt-2 space-y-1">
+                    {accentItems.map((item) => (
+                      <NavLink
+                        key={item.to}
+                        to={item.to}
+                        className={[navBase, "bg-brand-warm text-brand-ink shadow-[0_8px_20px_rgba(255,140,32,0.2)] hover:bg-brand-warm-strong"].join(" ")}
+                      >
+                        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-current/10 bg-white/40">
+                          <item.icon className="h-[1rem] w-[1rem]" strokeWidth={1.8} />
+                        </span>
+                        <span>{item.label}</span>
+                      </NavLink>
+                    ))}
+                  </div>
+                )}
               </>
             )}
           </div>
@@ -189,14 +219,26 @@ export function AppLayout() {
                 <h1 className="mt-0.5 truncate text-[1.6rem] font-bold text-brand-ink">{getSectionTitle(location.pathname)}</h1>
               </div>
               {fullAccess && (
-                <NavLink
-                  to="/zlecenia/nowe"
-                  className="inline-flex shrink-0 items-center gap-2 rounded-full bg-brand-warm px-5 py-2.5 text-sm font-semibold text-brand-ink transition hover:bg-brand-warm-strong"
-                >
-                  <Plus className="h-4 w-4" strokeWidth={1.8} />
-                  <span className="hidden sm:inline">Dodaj zlecenie</span>
-                  <span className="sm:hidden">Dodaj</span>
-                </NavLink>
+                isClientsPage ? (
+                  <button
+                    type="button"
+                    onClick={() => document.dispatchEvent(new CustomEvent("clients:open-add-form"))}
+                    className="inline-flex shrink-0 items-center gap-2 rounded-full bg-brand-warm px-5 py-2.5 text-sm font-semibold text-brand-ink transition hover:bg-brand-warm-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#f2761b]/50"
+                  >
+                    <UserPlus className="h-4 w-4" strokeWidth={1.8} />
+                    <span className="hidden sm:inline">Dodaj klienta</span>
+                    <span className="sm:hidden">Dodaj</span>
+                  </button>
+                ) : (
+                  <NavLink
+                    to="/zlecenia/nowe"
+                    className="inline-flex shrink-0 items-center gap-2 rounded-full bg-brand-warm px-5 py-2.5 text-sm font-semibold text-brand-ink transition hover:bg-brand-warm-strong"
+                  >
+                    <Plus className="h-4 w-4" strokeWidth={1.8} />
+                    <span className="hidden sm:inline">Dodaj zlecenie</span>
+                    <span className="sm:hidden">Dodaj</span>
+                  </NavLink>
+                )
               )}
             </div>
           </header>

@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
+import { fetchClients } from "../api/clientsApi";
 import { lookupPaintStock } from "../api/paintsApi";
 import { createWorkOrder } from "../api/workOrdersApi";
 import type { CoatingTypeValue, WorkOrderKindValue } from "../types/workOrders";
@@ -232,6 +233,7 @@ export function CreateWorkOrderPage() {
   const [validationError, setValidationError] = useState<string | null>(null);
   const [apiError, setApiError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [clientNameSuggestions, setClientNameSuggestions] = useState<string[]>([]);
   const [paintLookupState, setPaintLookupState] = useState<{
     currentQuantityKg: number | null;
     existsInInventory: boolean;
@@ -243,6 +245,22 @@ export function CreateWorkOrderPage() {
     isLoading: false,
     errorMessage: null,
   });
+  useEffect(() => {
+    let isActive = true;
+    fetchClients()
+      .then((response) => {
+        if (isActive) {
+          setClientNameSuggestions(response.items.map((client) => client.company_name));
+        }
+      })
+      .catch(() => {
+        // Suggestions are a convenience only; ignore load failures.
+      });
+    return () => {
+      isActive = false;
+    };
+  }, []);
+
   const categoryQuantityHint = getCategoryQuantityHint(formState);
   const paintAvailabilityHint = getPaintAvailabilityHint(formState, paintLookupState);
   const predictedPaintHint = getPredictedPaintHint(formState, paintLookupState);
@@ -474,9 +492,15 @@ export function CreateWorkOrderPage() {
               <input
                 value={formState.customer_name}
                 onChange={(event) => updateField("customer_name", event.target.value)}
+                list="client-name-suggestions"
                 className="rounded-2xl border border-line bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-accent"
                 placeholder="Klient"
               />
+              <datalist id="client-name-suggestions">
+                {clientNameSuggestions.map((name) => (
+                  <option key={name} value={name} />
+                ))}
+              </datalist>
             </label>
 
             <label className="flex flex-col gap-2">
