@@ -20,6 +20,7 @@ class ProcessStageWorkOrderRead(BaseModel):
     is_correction: bool
     is_correction_round: bool = False
     is_historical_correction: bool = False
+    is_decoral_incomplete: bool = False
     work_order_kind: WorkOrderKindView
     is_ocynk: bool = False
     order_number: str

@@ -22,7 +22,12 @@ function hasPendingCorrections(wo: DisplayableWorkOrder): boolean {
 export function WorkOrderPrimaryInfoLine({ workOrder }: { workOrder: DisplayableWorkOrder }) {
   const ralCode = "ral_code" in workOrder ? workOrder.ral_code : null;
   const pending = hasPendingCorrections(workOrder);
-  const displayNumber = pending ? `P${workOrder.order_number}` : workOrder.order_number;
+  const decoralIncomplete = (workOrder as { is_decoral_incomplete?: boolean }).is_decoral_incomplete === true;
+  const displayNumber = decoralIncomplete
+    ? `N${workOrder.order_number}`
+    : workOrder.order_number.startsWith("P") || !pending
+      ? workOrder.order_number
+      : `P${workOrder.order_number}`;
 
   return (
     <>

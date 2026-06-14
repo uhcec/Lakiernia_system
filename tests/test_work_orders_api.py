@@ -819,6 +819,28 @@ def test_list_work_orders_includes_quantity_progress_fields(test_client: TestCli
     assert all(item["is_correction"] is False for item in all_items)
 
 
+def test_office_list_excludes_decoral_correction_children(test_client: TestClient) -> None:
+    # A DECORAL packing correction creates a child "P" order. The office list must show only the
+    # parent (its open correction is conveyed by the N marker), never the correction child as a row.
+    created = create_work_order(test_client, title="Office hides correction", coating_type="DECORAL", total_quantity=10).json()
+    test_client.post(f"/manager/work-orders/{created['id']}/plan", json={"production_type": "MANUAL", "queue_position": 1})
+    start_surface_preparation(test_client, created["id"])
+    test_client.post(f"/process/work-orders/{created['id']}/stages/SURFACE_PREPARATION/finish")
+    test_client.post(f"/process/work-orders/{created['id']}/stages/PRODUCTION/start")
+    test_client.post(f"/process/work-orders/{created['id']}/stages/PRODUCTION/finish")
+    test_client.post(f"/process/work-orders/{created['id']}/stages/PACKING/start")
+    complete_packing_request(test_client, created["id"], counted_quantity=10, ok_quantity=8, correction_quantity=2)
+
+    items = test_client.get("/work-orders").json()["items"]
+
+    assert created["id"] in [item["id"] for item in items]
+    assert all(item["is_correction"] is False for item in items)
+    assert all(not item["order_number"].startswith("P") for item in items)
+    # The parent carries the N marker while its correction is open.
+    parent_item = next(item for item in items if item["id"] == created["id"])
+    assert parent_item["is_decoral_incomplete"] is True
+
+
 def test_list_work_orders_can_filter_by_process_status(test_client: TestClient) -> None:
     entered = test_client.post("/work-orders", json=build_create_payload(title="Entered order", total_quantity=15)).json()
     incomplete = test_client.post(

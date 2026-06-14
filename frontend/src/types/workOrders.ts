@@ -92,6 +92,7 @@ export interface WorkOrderRelationSummary {
   planned_pickup_date: string | null;
   is_correction: boolean;
   is_historical_correction: boolean;
+  is_decoral_incomplete?: boolean;
   work_order_kind: WorkOrderOption<WorkOrderKindValue>;
   is_ocynk: boolean;
   correction_reason_category: string | null;
@@ -112,6 +113,7 @@ export interface WorkOrder {
   total_progress_quantity: number;
   is_correction: boolean;
   is_historical_correction: boolean;
+  is_decoral_incomplete?: boolean;
   correction_reason_category: string | null;
   correction_reason_note: string | null;
   parent_order: WorkOrderRelationSummary | null;

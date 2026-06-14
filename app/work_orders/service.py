@@ -316,23 +316,22 @@ class WorkOrderService:
         external_order_number: str | None = None,
     ) -> WorkOrderListResponse:
         external_order_number_query = self._normalize_optional_search(external_order_number)
-        if process_status is None:
-            items = self.repository.list(
-                limit=limit,
-                offset=offset,
-                external_order_number_query=external_order_number_query,
-            )
-            total = self.repository.count(external_order_number_query=external_order_number_query)
-        else:
-            repository_total = self.repository.count(external_order_number_query=external_order_number_query)
-            all_items = self.repository.list(
-                limit=repository_total,
-                offset=0,
-                external_order_number_query=external_order_number_query,
-            )
-            filtered_items = [item for item in all_items if self.process_service.get_display_status(item) == process_status]
-            total = len(filtered_items)
-            items = filtered_items[offset : offset + limit]
+        repository_total = self.repository.count(external_order_number_query=external_order_number_query)
+        all_items = self.repository.list(
+            limit=repository_total,
+            offset=0,
+            external_order_number_query=external_order_number_query,
+        )
+        # The office list shows client work orders only. Correction sub-orders ("P...") are internal
+        # production records; their open state is surfaced via the "N" marker on the parent and the
+        # parent's correction context, so they are not listed as separate office rows.
+        filtered_items = [item for item in all_items if not item.is_correction]
+        if process_status is not None:
+            filtered_items = [
+                item for item in filtered_items if self.process_service.get_display_status(item) == process_status
+            ]
+        total = len(filtered_items)
+        items = filtered_items[offset : offset + limit]
 
         return WorkOrderListResponse(
             items=[self._to_read_model(item) for item in items],
@@ -741,6 +740,7 @@ class WorkOrderService:
             total_progress_quantity=total_progress_quantity,
             is_correction=work_order.is_correction,
             is_historical_correction=self.process_service.is_historical_correction(work_order),
+            is_decoral_incomplete=self.process_service.is_decoral_incomplete(work_order),
             work_order_kind=build_work_order_kind_view(work_order.work_order_kind),
             is_ocynk=work_order.is_ocynk,
             correction_reason_category=work_order.correction_reason_category,
@@ -840,4 +840,5 @@ class WorkOrderService:
         summary = build_work_order_relation_summary(work_order)
         summary.process_status = build_process_status_view(self.process_service.get_display_status(work_order))
         summary.is_historical_correction = self.process_service.is_historical_correction(work_order)
+        summary.is_decoral_incomplete = self.process_service.is_decoral_incomplete(work_order)
         return summary

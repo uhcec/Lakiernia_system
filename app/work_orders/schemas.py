@@ -120,6 +120,7 @@ class WorkOrderRelationSummaryRead(BaseModel):
     planned_pickup_date: date | None = None
     is_correction: bool
     is_historical_correction: bool = False
+    is_decoral_incomplete: bool = False
     work_order_kind: WorkOrderKindView
     is_ocynk: bool = False
     correction_reason_category: str | None = None
@@ -231,6 +232,7 @@ class WorkOrderRead(BaseModel):
     total_progress_quantity: int
     is_correction: bool
     is_historical_correction: bool = False
+    is_decoral_incomplete: bool = False
     work_order_kind: WorkOrderKindView
     is_ocynk: bool = False
     correction_reason_category: str | None = None

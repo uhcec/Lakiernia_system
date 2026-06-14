@@ -442,8 +442,18 @@ def test_completed_decoral_correction_preserves_correction_quantity_context_in_m
         f"/process/work-orders/{correction_order['id']}/packing/complete",
         json={"counted_quantity": 3, "ok_quantity": 3, "correction_quantity": 0},
     )
-    test_client.post(f"/process/work-orders/{correction_order['id']}/stages/DECORAL_PRODUCTION/start")
-    test_client.post(f"/process/work-orders/{correction_order['id']}/stages/DECORAL_PRODUCTION/finish")
+    # Corrected pieces return to the root's single Decoral pass; finish that returned batch.
+    returned = next(
+        row
+        for row in test_client.get("/process/stages/DECORAL_PRODUCTION/work-orders").json()
+        if row["id"] == created["id"] and row["stage_status"]["status"]["value"] != "DONE"
+    )
+    returned_batch_id = returned["batch_id"]
+    test_client.post(f"/process/work-orders/{created['id']}/batches/{returned_batch_id}/stages/DECORAL_PRODUCTION/start")
+    test_client.post(
+        f"/process/work-orders/{created['id']}/batches/{returned_batch_id}/decoral-production/complete",
+        json={"ok_quantity": 3, "correction_quantity": 0},
+    )
 
     planned_response = test_client.get("/manager/work-orders")
 

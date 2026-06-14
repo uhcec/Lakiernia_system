@@ -25,6 +25,7 @@ export interface StageWorkOrder {
   is_correction: boolean;
   is_correction_round: boolean;
   is_historical_correction: boolean;
+  is_decoral_incomplete?: boolean;
   work_order_kind: WorkOrderOption<WorkOrderKindValue>;
   is_ocynk: boolean;
   order_number: string;

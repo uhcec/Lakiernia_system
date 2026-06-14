@@ -134,6 +134,19 @@ def complete_packing(
     )
 
 
+def finish_returned_correction_on_root(process_service, process_repository, root_id: int, *, quantity: int):
+    # In the single-Decoral model, corrected pieces return to the root as a Decoral batch. This
+    # finishes that returned batch (the parent's last Decoral work) to complete the order.
+    root = process_repository.get_work_order_with_stage_states(root_id)
+    returned_batch = next(
+        b for b in root.quantity_batches if b.is_active and b.current_stage == ProcessStage.DECORAL_PRODUCTION
+    )
+    process_service.start_stage(root_id, ProcessStage.DECORAL_PRODUCTION, batch_id=returned_batch.id)
+    return process_service.complete_decoral_production(
+        root_id, ok_quantity=quantity, correction_quantity=0, batch_id=returned_batch.id
+    )
+
+
 def test_creating_work_order_initializes_stage_states(db_session: Session) -> None:
     work_order_service, process_service, _, work_order_repository, _ = build_services(db_session)
 
@@ -752,6 +765,129 @@ def test_decoral_split_moves_ok_quantity_to_decoral_and_child_to_painting_flow(d
     assert stage_states[ProcessStage.PRODUCTION] == StageStatus.NOT_STARTED
 
 
+def test_decoral_correction_returns_to_root_decoral_scenario1_merge(db_session: Session) -> None:
+    # Scenario 1: the correction is fixed BEFORE the root finishes Decoral. The corrected pieces
+    # rejoin the root's single in-progress Decoral batch (it grows), the child closes without its
+    # own Decoral, and finishing the grown batch completes the whole order.
+    work_order_service, process_service, manager_service, work_order_repository, process_repository = build_services(db_session)
+
+    parent = work_order_service.create_work_order(
+        build_work_order_create(title="Decoral return sc1", coating_type=CoatingType.DECORAL, total_quantity=10)
+    )
+    manager_service.assign_plan(parent.id, WorkOrderPlanAssignRequest(production_type=ProductionType.MANUAL, queue_position=1))
+    advance_to_packing(process_service, parent.id)
+    response = complete_packing(process_service, parent.id, ok_quantity=8, correction_quantity=2)
+    root_decoral_batch = response.batch_id
+
+    child = next(wo for wo in work_order_repository.list(limit=50, offset=0) if wo.is_correction)
+    manager_service.assign_plan(child.id, WorkOrderPlanAssignRequest(production_type=ProductionType.MANUAL, queue_position=2))
+    advance_to_packing(process_service, child.id)
+    complete_packing(process_service, child.id, ok_quantity=2, correction_quantity=0)
+
+    child_after = process_repository.get_work_order_with_stage_states(child.id)
+    assert child_after is not None
+    assert child_after.completed_quantity == child_after.total_quantity == 2
+    assert child_after.current_active_quantity == 0
+
+    root = process_repository.get_work_order_with_stage_states(parent.id)
+    assert root is not None
+    active = [b for b in root.quantity_batches if b.is_active]
+    assert len(active) == 1
+    assert active[0].current_stage == ProcessStage.DECORAL_PRODUCTION
+    assert active[0].quantity == 10  # grown from 8 to 10
+    assert root.completed_quantity == 0
+
+    process_service.start_stage(parent.id, ProcessStage.DECORAL_PRODUCTION, batch_id=root_decoral_batch)
+    process_service.complete_decoral_production(parent.id, ok_quantity=10, correction_quantity=0, batch_id=root_decoral_batch)
+
+    final = process_repository.get_work_order_with_stage_states(parent.id)
+    assert final is not None
+    assert final.completed_quantity == 10
+    assert process_service.get_display_status(final).value == "READY"
+
+
+def test_decoral_correction_returns_to_root_decoral_scenario2_park(db_session: Session) -> None:
+    # Scenario 2: the root finishes Decoral of the OK pieces BEFORE the correction returns. The order
+    # parks (not READY, waiting), then the returned pieces start a fresh Decoral batch on the root
+    # which, once finished, completes the whole order.
+    work_order_service, process_service, manager_service, work_order_repository, process_repository = build_services(db_session)
+
+    parent = work_order_service.create_work_order(
+        build_work_order_create(title="Decoral return sc2", coating_type=CoatingType.DECORAL, total_quantity=10)
+    )
+    manager_service.assign_plan(parent.id, WorkOrderPlanAssignRequest(production_type=ProductionType.MANUAL, queue_position=1))
+    advance_to_packing(process_service, parent.id)
+    response = complete_packing(process_service, parent.id, ok_quantity=8, correction_quantity=2)
+    root_decoral_batch = response.batch_id
+    child = next(wo for wo in work_order_repository.list(limit=50, offset=0) if wo.is_correction)
+
+    # Finish the OK Decoral first -> order parks (waiting for the correction).
+    process_service.start_stage(parent.id, ProcessStage.DECORAL_PRODUCTION, batch_id=root_decoral_batch)
+    process_service.complete_decoral_production(parent.id, ok_quantity=8, correction_quantity=0, batch_id=root_decoral_batch)
+
+    parked = process_repository.get_work_order_with_stage_states(parent.id)
+    assert parked is not None
+    assert parked.completed_quantity == 8
+    assert process_service.get_display_status(parked).value == "WAITING_FOR_CORRECTIONS"
+
+    # Correction returns -> a fresh Decoral batch appears on the root.
+    manager_service.assign_plan(child.id, WorkOrderPlanAssignRequest(production_type=ProductionType.MANUAL, queue_position=2))
+    advance_to_packing(process_service, child.id)
+    complete_packing(process_service, child.id, ok_quantity=2, correction_quantity=0)
+
+    root = process_repository.get_work_order_with_stage_states(parent.id)
+    assert root is not None
+    active = [b for b in root.quantity_batches if b.is_active]
+    assert len(active) == 1
+    assert active[0].current_stage == ProcessStage.DECORAL_PRODUCTION
+    assert active[0].quantity == 2
+    assert root.completed_quantity == 8
+
+    returned_batch = active[0].id
+    process_service.start_stage(parent.id, ProcessStage.DECORAL_PRODUCTION, batch_id=returned_batch)
+    process_service.complete_decoral_production(parent.id, ok_quantity=2, correction_quantity=0, batch_id=returned_batch)
+
+    final = process_repository.get_work_order_with_stage_states(parent.id)
+    assert final is not None
+    assert final.completed_quantity == 10
+    assert process_service.get_display_status(final).value == "READY"
+
+
+def test_nested_decoral_correction_numbers_reference_root(db_session: Session) -> None:
+    # First correction of root 0001 -> "P0001"; a correction of that correction -> "P0001-2"
+    # (root-relative suffix), so correction numbers never consume the main client sequence.
+    work_order_service, process_service, manager_service, work_order_repository, _ = build_services(db_session)
+
+    parent = work_order_service.create_work_order(
+        build_work_order_create(title="Nested decoral numbering", coating_type=CoatingType.DECORAL, total_quantity=10)
+    )
+    manager_service.assign_plan(
+        parent.id,
+        WorkOrderPlanAssignRequest(production_type=ProductionType.MANUAL, queue_position=1),
+    )
+    advance_to_packing(process_service, parent.id)
+    complete_packing(process_service, parent.id, ok_quantity=7, correction_quantity=3)
+
+    child = next(wo for wo in work_order_repository.list(limit=50, offset=0) if wo.is_correction)
+    assert child.order_number == f"P{parent.order_number}"
+    assert child.parent_order_id == parent.id
+
+    # The child fails its own QC: its OK pieces return to the root and the bad pieces spawn another
+    # correction, which is a FLAT child of the root numbered with the next suffix.
+    manager_service.assign_plan(
+        child.id,
+        WorkOrderPlanAssignRequest(production_type=ProductionType.MANUAL, queue_position=2),
+    )
+    advance_to_packing(process_service, child.id)
+    complete_packing(process_service, child.id, ok_quantity=2, correction_quantity=1)
+
+    second_correction = next(
+        wo for wo in work_order_repository.list(limit=50, offset=0) if wo.is_correction and wo.id != child.id
+    )
+    assert second_correction.order_number == f"P{parent.order_number}-2"
+    assert second_correction.parent_order_id == parent.id  # flat child of the root, not of the child
+
+
 def test_complete_decoral_production_ok_finishes_tracked_ok_batch(db_session: Session) -> None:
     # The frontend completes Decoral via complete_decoral_production. The OK batch that split off at
     # packing finishes here; the parent stays not-READY until its open correction child closes.
@@ -893,17 +1029,11 @@ def test_decoral_parent_becomes_ready_after_ok_decoral_and_correction_merge(db_s
     process_service.start_stage(created.id, ProcessStage.DECORAL_PRODUCTION, batch_id=response.batch_id)
     process_service.finish_stage(created.id, ProcessStage.DECORAL_PRODUCTION, batch_id=response.batch_id)
 
-    process_service.start_stage(correction_order.id, ProcessStage.PRODUCTION)
-    process_service.finish_stage(correction_order.id, ProcessStage.PRODUCTION)
-    process_service.start_stage(correction_order.id, ProcessStage.PACKING)
-    process_service.complete_packing(
-        correction_order.id,
-        counted_quantity=3,
-        ok_quantity=3,
-        correction_quantity=0,
-    )
-    process_service.start_stage(correction_order.id, ProcessStage.DECORAL_PRODUCTION)
-    process_service.finish_stage(correction_order.id, ProcessStage.DECORAL_PRODUCTION)
+    # Correction child redoes the base coat (production -> packing) and its OK pieces return to the
+    # root's Decoral (single Decoral pass); finishing the returned batch completes the order.
+    advance_to_packing(process_service, correction_order.id)
+    complete_packing(process_service, correction_order.id, ok_quantity=3, correction_quantity=0)
+    finish_returned_correction_on_root(process_service, process_repository, created.id, quantity=3)
 
     parent = process_repository.get_work_order_with_stage_states(created.id)
 
@@ -1198,12 +1328,10 @@ def test_completed_decoral_correction_child_merges_back_into_parent(db_session: 
     )
     process_service.start_stage(created.id, ProcessStage.DECORAL_PRODUCTION, batch_id=decoral_batch)
     process_service.finish_stage(created.id, ProcessStage.DECORAL_PRODUCTION, batch_id=decoral_batch)
-    process_service.start_stage(correction_order.id, ProcessStage.PRODUCTION)
-    process_service.finish_stage(correction_order.id, ProcessStage.PRODUCTION)
-    process_service.start_stage(correction_order.id, ProcessStage.PACKING)
+    # Correction child returns its OK pieces to the root's Decoral (single pass); no own Decoral.
+    advance_to_packing(process_service, correction_order.id)
     complete_packing(process_service, correction_order.id, ok_quantity=3, correction_quantity=0)
-    process_service.start_stage(correction_order.id, ProcessStage.DECORAL_PRODUCTION)
-    process_service.finish_stage(correction_order.id, ProcessStage.DECORAL_PRODUCTION)
+    finish_returned_correction_on_root(process_service, process_repository, created.id, quantity=3)
 
     merged_parent = process_repository.get_work_order_with_stage_states(created.id)
     completed_correction = process_repository.get_work_order_with_stage_states(correction_order.id)
@@ -1502,11 +1630,13 @@ def test_finished_decoral_tracked_batch_cannot_be_reopened_and_quantities_remain
     assert after_correction.parent_order_id == created.id
 
 
-def test_finished_correction_child_tracked_batch_cannot_be_reopened_and_parent_ready_remains_unchanged(db_session: Session) -> None:
+def test_finished_returned_correction_decoral_batch_cannot_be_reopened_after_ready(db_session: Session) -> None:
+    # Once corrected pieces return to the root's Decoral and that batch finishes (order READY), the
+    # finished returned Decoral batch cannot be reopened.
     work_order_service, process_service, manager_service, work_order_repository, process_repository = build_services(db_session)
 
     created = work_order_service.create_work_order(
-        build_work_order_create(title="Reject reopen finished correction child batch", coating_type=CoatingType.DECORAL, total_quantity=10)
+        build_work_order_create(title="Reject reopen finished returned batch", coating_type=CoatingType.DECORAL, total_quantity=10)
     )
     manager_service.assign_plan(
         created.id,
@@ -1515,56 +1645,36 @@ def test_finished_correction_child_tracked_batch_cannot_be_reopened_and_parent_r
     advance_to_packing(process_service, created.id)
     root_response = complete_packing(process_service, created.id, ok_quantity=7, correction_quantity=3)
 
-    first_correction = next(work_order for work_order in work_order_repository.list(limit=20, offset=0) if work_order.is_correction)
+    correction = next(work_order for work_order in work_order_repository.list(limit=20, offset=0) if work_order.is_correction)
     manager_service.assign_plan(
-        first_correction.id,
+        correction.id,
         WorkOrderPlanAssignRequest(production_type=ProductionType.MANUAL, queue_position=2),
     )
     process_service.start_stage(created.id, ProcessStage.DECORAL_PRODUCTION, batch_id=root_response.batch_id)
     process_service.finish_stage(created.id, ProcessStage.DECORAL_PRODUCTION, batch_id=root_response.batch_id)
 
-    advance_to_packing(process_service, first_correction.id)
-    first_child_response = complete_packing(process_service, first_correction.id, ok_quantity=2, correction_quantity=1)
+    advance_to_packing(process_service, correction.id)
+    complete_packing(process_service, correction.id, ok_quantity=3, correction_quantity=0)
 
-    second_correction = next(
-        work_order
-        for work_order in work_order_repository.list(limit=20, offset=0)
-        if work_order.is_correction and work_order.parent_order_id == first_correction.id
-    )
-    manager_service.assign_plan(
-        second_correction.id,
-        WorkOrderPlanAssignRequest(production_type=ProductionType.MANUAL, queue_position=3),
-    )
-    process_service.start_stage(first_correction.id, ProcessStage.DECORAL_PRODUCTION, batch_id=first_child_response.batch_id)
-    process_service.finish_stage(first_correction.id, ProcessStage.DECORAL_PRODUCTION, batch_id=first_child_response.batch_id)
-
-    advance_to_packing(process_service, second_correction.id)
-    complete_packing(process_service, second_correction.id, ok_quantity=1, correction_quantity=0)
-    process_service.transition_stage(second_correction.id, ProcessStage.DECORAL_PRODUCTION, StageStatus.IN_PROGRESS)
-    process_service.finish_stage(second_correction.id, ProcessStage.DECORAL_PRODUCTION)
+    root = process_repository.get_work_order_with_stage_states(created.id)
+    returned_batch = next(b for b in root.quantity_batches if b.is_active and b.current_stage == ProcessStage.DECORAL_PRODUCTION)
+    process_service.start_stage(created.id, ProcessStage.DECORAL_PRODUCTION, batch_id=returned_batch.id)
+    process_service.complete_decoral_production(created.id, ok_quantity=3, correction_quantity=0, batch_id=returned_batch.id)
 
     before_parent = process_repository.get_work_order_with_stage_states(created.id)
-    before_child = process_repository.get_work_order_with_stage_states(first_correction.id)
-
     assert before_parent is not None
-    assert before_child is not None
     assert process_service.get_display_status(before_parent).value == "READY"
 
     with pytest.raises(InvalidProcessStageTransitionError) as exc_info:
-        process_service.reopen_stage(first_correction.id, ProcessStage.DECORAL_PRODUCTION, batch_id=first_child_response.batch_id)
+        process_service.reopen_stage(created.id, ProcessStage.DECORAL_PRODUCTION, batch_id=returned_batch.id)
 
     after_parent = process_repository.get_work_order_with_stage_states(created.id)
-    after_child = process_repository.get_work_order_with_stage_states(first_correction.id)
 
     assert str(exc_info.value) == "Finished tracked batches cannot be reopened."
     assert after_parent is not None
-    assert after_child is not None
     assert after_parent.completed_quantity == before_parent.completed_quantity == 10
     assert after_parent.current_active_quantity == before_parent.current_active_quantity == 0
     assert process_service.get_display_status(after_parent).value == "READY"
-    assert process_service.get_display_status(after_child).value == process_service.get_display_status(before_child).value
-    assert after_child.completed_quantity == before_child.completed_quantity
-    assert after_child.current_active_quantity == before_child.current_active_quantity
 
 
 def test_incomplete_quantity_never_displays_as_ready(db_session: Session) -> None:
@@ -1738,10 +1848,10 @@ def test_s08_decoral_automatic_correction_split_and_merge(db_session: Session) -
     process_service.start_stage(created.id, ProcessStage.DECORAL_PRODUCTION, batch_id=parent_response.batch_id)
     process_service.finish_stage(created.id, ProcessStage.DECORAL_PRODUCTION, batch_id=parent_response.batch_id)
 
+    # Automatic correction redoes base coat and its OK pieces return to the root's Decoral.
     advance_to_packing(process_service, correction_order.id)
     complete_packing(process_service, correction_order.id, ok_quantity=3, correction_quantity=0)
-    process_service.transition_stage(correction_order.id, ProcessStage.DECORAL_PRODUCTION, StageStatus.IN_PROGRESS)
-    process_service.finish_stage(correction_order.id, ProcessStage.DECORAL_PRODUCTION)
+    finish_returned_correction_on_root(process_service, process_repository, created.id, quantity=3)
 
     parent_work_order = process_repository.get_work_order_with_stage_states(created.id)
     child_work_order = process_repository.get_work_order_with_stage_states(correction_order.id)
@@ -1818,7 +1928,7 @@ def test_s11_decoral_manual_multi_round_correction_chain_merges(db_session: Sess
     root_response = complete_packing(process_service, created.id, ok_quantity=7, correction_quantity=3)
 
     first_correction = next(
-        work_order for work_order in work_order_repository.list(limit=20, offset=0) if work_order.parent_order_id == created.id
+        work_order for work_order in work_order_repository.list(limit=20, offset=0) if work_order.is_correction
     )
     manager_service.assign_plan(
         first_correction.id,
@@ -1828,15 +1938,16 @@ def test_s11_decoral_manual_multi_round_correction_chain_merges(db_session: Sess
     process_service.start_stage(created.id, ProcessStage.DECORAL_PRODUCTION, batch_id=root_response.batch_id)
     process_service.finish_stage(created.id, ProcessStage.DECORAL_PRODUCTION, batch_id=root_response.batch_id)
 
+    # First correction redoes base coat; 2 OK return to root Decoral, 1 spawns a flat second
+    # correction of the root. Finish the returned 2 on the root; order still waits for the last 1.
     advance_to_packing(process_service, first_correction.id)
-    first_child_response = complete_packing(process_service, first_correction.id, ok_quantity=2, correction_quantity=1)
-    process_service.start_stage(first_correction.id, ProcessStage.DECORAL_PRODUCTION, batch_id=first_child_response.batch_id)
-    process_service.finish_stage(first_correction.id, ProcessStage.DECORAL_PRODUCTION, batch_id=first_child_response.batch_id)
+    complete_packing(process_service, first_correction.id, ok_quantity=2, correction_quantity=1)
+    finish_returned_correction_on_root(process_service, process_repository, created.id, quantity=2)
 
     second_correction = next(
         work_order
         for work_order in work_order_repository.list(limit=20, offset=0)
-        if work_order.parent_order_id == first_correction.id
+        if work_order.is_correction and work_order.id != first_correction.id
     )
     manager_service.assign_plan(
         second_correction.id,
@@ -1844,8 +1955,7 @@ def test_s11_decoral_manual_multi_round_correction_chain_merges(db_session: Sess
     )
     advance_to_packing(process_service, second_correction.id)
     complete_packing(process_service, second_correction.id, ok_quantity=1, correction_quantity=0)
-    process_service.transition_stage(second_correction.id, ProcessStage.DECORAL_PRODUCTION, StageStatus.IN_PROGRESS)
-    process_service.finish_stage(second_correction.id, ProcessStage.DECORAL_PRODUCTION)
+    finish_returned_correction_on_root(process_service, process_repository, created.id, quantity=1)
 
     parent_work_order = process_repository.get_work_order_with_stage_states(created.id)
     completed_first_correction = process_repository.get_work_order_with_stage_states(first_correction.id)
@@ -1881,7 +1991,7 @@ def test_s12_decoral_automatic_multi_round_correction_chain_merges(db_session: S
     root_response = complete_packing(process_service, created.id, ok_quantity=7, correction_quantity=3)
 
     first_correction = next(
-        work_order for work_order in work_order_repository.list(limit=20, offset=0) if work_order.parent_order_id == created.id
+        work_order for work_order in work_order_repository.list(limit=20, offset=0) if work_order.is_correction
     )
     manager_service.assign_plan(
         first_correction.id,
@@ -1892,14 +2002,13 @@ def test_s12_decoral_automatic_multi_round_correction_chain_merges(db_session: S
     process_service.finish_stage(created.id, ProcessStage.DECORAL_PRODUCTION, batch_id=root_response.batch_id)
 
     advance_to_packing(process_service, first_correction.id)
-    first_child_response = complete_packing(process_service, first_correction.id, ok_quantity=2, correction_quantity=1)
-    process_service.start_stage(first_correction.id, ProcessStage.DECORAL_PRODUCTION, batch_id=first_child_response.batch_id)
-    process_service.finish_stage(first_correction.id, ProcessStage.DECORAL_PRODUCTION, batch_id=first_child_response.batch_id)
+    complete_packing(process_service, first_correction.id, ok_quantity=2, correction_quantity=1)
+    finish_returned_correction_on_root(process_service, process_repository, created.id, quantity=2)
 
     second_correction = next(
         work_order
         for work_order in work_order_repository.list(limit=20, offset=0)
-        if work_order.parent_order_id == first_correction.id
+        if work_order.is_correction and work_order.id != first_correction.id
     )
     manager_service.assign_plan(
         second_correction.id,
@@ -1907,8 +2016,7 @@ def test_s12_decoral_automatic_multi_round_correction_chain_merges(db_session: S
     )
     advance_to_packing(process_service, second_correction.id)
     complete_packing(process_service, second_correction.id, ok_quantity=1, correction_quantity=0)
-    process_service.transition_stage(second_correction.id, ProcessStage.DECORAL_PRODUCTION, StageStatus.IN_PROGRESS)
-    process_service.finish_stage(second_correction.id, ProcessStage.DECORAL_PRODUCTION)
+    finish_returned_correction_on_root(process_service, process_repository, created.id, quantity=1)
 
     parent_work_order = process_repository.get_work_order_with_stage_states(created.id)
     completed_first_correction = process_repository.get_work_order_with_stage_states(first_correction.id)

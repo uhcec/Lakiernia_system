@@ -77,7 +77,9 @@ def test_normal_creation_increments_counter(db_session: Session) -> None:
     assert counter.last_value == 2
 
 
-def test_decoral_correction_child_uses_same_global_sequence(db_session: Session) -> None:
+def test_decoral_correction_child_uses_parent_prefixed_number(db_session: Session) -> None:
+    # Correction orders are numbered relative to the root order ("P{root}") and do not consume the
+    # main client work-order sequence, so the global counter stays at the parent's value.
     work_order_service, process_service, manager_service, work_order_repository, _ = build_services(db_session)
 
     parent = work_order_service.create_work_order(build_work_order_create("Parent DECORAL order", coating_type=CoatingType.DECORAL))
@@ -95,7 +97,11 @@ def test_decoral_correction_child_uses_same_global_sequence(db_session: Session)
 
     assert parent.order_number.endswith("0001")
     assert len(correction_orders) == 1
-    assert correction_orders[0].order_number.endswith("0002")
+    assert correction_orders[0].order_number == f"P{parent.order_number}"
+
+    counter = db_session.get(WorkOrderNumberCounter, 0)
+    assert counter is not None
+    assert counter.last_value == 1  # correction did not consume a main sequence number
 
 
 def test_ral_correction_round_does_not_consume_order_number(db_session: Session) -> None:

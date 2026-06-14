@@ -81,9 +81,15 @@ def synchronized_post(client, barrier: Barrier, path: str, **kwargs):
 
 
 def get_direct_correction_children(client, parent_id: int) -> list[dict]:
-    work_orders = client.get("/work-orders")
-    assert work_orders.status_code == 200
-    return [item for item in work_orders.json()["items"] if item["is_correction"] and item["parent_order"]["id"] == parent_id]
+    # The office list excludes correction sub-orders; they are visible in the manager queue while
+    # unplanned (right after they are created at packing).
+    response = client.get("/manager/work-orders/unplanned")
+    assert response.status_code == 200
+    return [
+        item
+        for item in response.json()
+        if item["is_correction"] and item["parent_order"] and item["parent_order"]["id"] == parent_id
+    ]
 
 
 def get_work_order_detail(client, work_order_id: int) -> dict:
@@ -424,19 +430,31 @@ def scenario_correction_completion_races_parent_duplicate_packing(env: ChaosEnvi
             correction_quantity=10,
         )
 
-    # Complete DECORAL steps to reach READY state
+    # Finish the root's OK Decoral batch; the corrected pieces returned to the root's Decoral as a
+    # fresh batch (single Decoral pass), so finish that too to reach READY at the full quantity.
     seeder.post(f"/process/work-orders/{parent['id']}/batches/{parent_batch_id}/stages/DECORAL_PRODUCTION/start")
     seeder.post(f"/process/work-orders/{parent['id']}/batches/{parent_batch_id}/stages/DECORAL_PRODUCTION/finish")
-    seeder.post(f"/process/work-orders/{correction_order['id']}/stages/DECORAL_PRODUCTION/start")
-    seeder.post(f"/process/work-orders/{correction_order['id']}/stages/DECORAL_PRODUCTION/finish")
+    returned = next(
+        (
+            row
+            for row in seeder.get("/process/stages/DECORAL_PRODUCTION/work-orders").json()
+            if row["id"] == parent["id"] and row["stage_status"]["status"]["value"] != "DONE"
+        ),
+        None,
+    )
+    if returned is not None:
+        returned_batch_id = returned["batch_id"]
+        seeder.post(f"/process/work-orders/{parent['id']}/batches/{returned_batch_id}/stages/DECORAL_PRODUCTION/start")
+        seeder.post(
+            f"/process/work-orders/{parent['id']}/batches/{returned_batch_id}/decoral-production/complete",
+            json={"ok_quantity": 10, "correction_quantity": 0},
+        )
 
     parent_detail = get_work_order_detail(seeder, parent["id"])
-    correction_detail = get_work_order_detail(seeder, correction_order["id"])
-    children = get_direct_correction_children(seeder, parent["id"])
-    assert len(children) == 1
+    # No duplicate correction children are created by the race (also covered by global invariants).
+    assert len(parent_detail["correction_orders"]) == 1
     assert parent_detail["process_status"]["value"] == "READY"
     assert parent_detail["completed_quantity"] == 100
-    assert correction_detail["is_historical_correction"] is True
 
     return [future_child.result(), future_parent_duplicate.result()]
 

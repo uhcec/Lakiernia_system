@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 import json
 from threading import RLock
 
+from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 
 from app.audit.context import StationContext, ensure_station_allowed
@@ -491,12 +492,22 @@ class ProcessService:
                     work_order.completed_quantity += ok_quantity
                     work_order.current_active_batch_id = None
                     active_batch.is_active = False
+                elif work_order.is_correction:
+                    # Fully-fixed correction child of a DECORAL root: its OK pieces return to the
+                    # root's single Decoral pass and the child closes here (no own Decoral).
+                    root = self._resolve_root_order(work_order)
+                    self._place_returned_pieces_on_root_decoral(root, ok_quantity)
+                    self._close_returned_correction_child(work_order)
 
             if work_order.production_type == ProductionType.AUTOMATIC:
                 production_state.status = StageStatus.DONE
                 production_state.updated_at = datetime.now(UTC)
 
-            if work_order.coating_type == CoatingType.DECORAL and correction_quantity == 0:
+            if (
+                work_order.coating_type == CoatingType.DECORAL
+                and correction_quantity == 0
+                and not work_order.is_correction
+            ):
                 active_batch.is_active = True
 
             self._release_inactive_resource_locks(work_order)
@@ -1518,10 +1529,11 @@ class ProcessService:
         correction_reason_note: str | None,
         station_context: StationContext | None = None,
     ) -> tuple[ProcessStage, WorkOrderQuantityBatch | None]:
-        # DECORAL packing with a correction: the OK pieces stay on this order and advance to
-        # DECORAL_PRODUCTION as a tracked batch, while the correction becomes a child work order
-        # that the manager re-plans independently. The parent is READY only once its OK batch
-        # finishes Decoral AND the child correction closes.
+        # DECORAL packing with a correction. There is exactly ONE Decoral pass, on the ROOT order:
+        #  - if the ROOT is being packed, its OK pieces continue on the root's tracked Decoral batch;
+        #  - if a correction CHILD is being packed, its OK pieces RETURN to the root's Decoral and the
+        #    child closes here (it never does its own Decoral).
+        # The bad pieces always become a new correction work order that is a flat child of the ROOT.
         _ = planned_quantity
         response_stage = ProcessStage.PACKING
         response_batch: WorkOrderQuantityBatch | None = None
@@ -1532,7 +1544,13 @@ class ProcessService:
         active_batch.current_stage = ProcessStage.PACKING
         active_batch.current_stage_status = StageStatus.DONE
 
-        if ok_quantity > 0:
+        root = self._resolve_root_order(work_order)
+
+        if work_order.is_correction:
+            if ok_quantity > 0:
+                self._place_returned_pieces_on_root_decoral(root, ok_quantity)
+            self._close_returned_correction_child(work_order)
+        elif ok_quantity > 0:
             response_batch = WorkOrderQuantityBatch(
                 work_order_id=work_order.id,
                 quantity=ok_quantity,
@@ -1547,7 +1565,7 @@ class ProcessService:
             response_stage = ProcessStage.DECORAL_PRODUCTION
 
         self._create_correction_work_order(
-            work_order,
+            root,
             correction_quantity,
             correction_category_fields=correction_category_fields,
             correction_reason_category=correction_reason_category,
@@ -1562,6 +1580,82 @@ class ProcessService:
         self._sync_legacy_current_active_batch(work_order)
         return response_stage, response_batch
 
+    def _resolve_root_order(self, work_order: WorkOrder) -> WorkOrder:
+        root = work_order
+        while root.parent_order_id is not None:
+            ancestor = self.get_work_order_process(root.parent_order_id)
+            if ancestor is None:
+                break
+            root = ancestor
+        return root
+
+    def _place_returned_pieces_on_root_decoral(self, root: WorkOrder, quantity: int) -> None:
+        # Corrected pieces re-join the root's single Decoral pass. If the root's Decoral batch is
+        # still in progress (operator has not finished it yet) we grow it (scenario 1); otherwise the
+        # OK part already finished Decoral, so the returned pieces start a fresh Decoral batch
+        # (scenario 2). Only one active batch exists at a time, preserving the one-active invariant.
+        ongoing_decoral_batch = next(
+            (
+                batch
+                for batch in root.active_batches
+                if batch.current_stage == ProcessStage.DECORAL_PRODUCTION and batch.current_stage_status != StageStatus.DONE
+            ),
+            None,
+        )
+        if ongoing_decoral_batch is not None:
+            ongoing_decoral_batch.quantity += quantity
+        else:
+            self.repository.add_quantity_batch(
+                WorkOrderQuantityBatch(
+                    work_order_id=root.id,
+                    quantity=quantity,
+                    type=QuantityBatchType.MAIN,
+                    parent_batch_id=None,
+                    is_active=True,
+                    current_stage=ProcessStage.DECORAL_PRODUCTION,
+                    current_stage_status=StageStatus.NOT_STARTED,
+                    is_partial=True,
+                )
+            )
+            decoral_state = self._get_stage_state(root, ProcessStage.DECORAL_PRODUCTION)
+            if decoral_state.status == StageStatus.DONE:
+                decoral_state.status = StageStatus.IN_PROGRESS
+                decoral_state.updated_at = datetime.now(UTC)
+        self._sync_legacy_current_active_batch(root)
+
+    def _close_returned_correction_child(self, child: WorkOrder) -> None:
+        for batch in list(child.active_batches):
+            batch.current_stage = ProcessStage.PACKING
+            batch.current_stage_status = StageStatus.DONE
+            batch.is_active = False
+        child.completed_quantity = child.total_quantity
+        child.current_active_batch_id = None
+        self._mark_all_stage_states_done(child)
+
+    def _allocate_correction_order_number(self, parent_work_order: WorkOrder) -> str:
+        # Correction orders do not consume the main client work-order sequence. They are numbered
+        # relative to the ROOT order: first correction in the tree -> "P{root}", subsequent rounds
+        # -> "P{root}-2", "P{root}-3", ... regardless of nesting depth.
+        root = parent_work_order
+        while root.parent_order_id is not None:
+            ancestor = self.repository.session.get(WorkOrder, root.parent_order_id)
+            if ancestor is None:
+                break
+            root = ancestor
+        prefix = f"P{root.order_number}"
+
+        existing = (
+            self.repository.session.scalar(
+                select(func.count(WorkOrder.id)).where(
+                    WorkOrder.is_correction.is_(True),
+                    or_(WorkOrder.order_number == prefix, WorkOrder.order_number.like(f"{prefix}-%")),
+                )
+            )
+            or 0
+        )
+        index = existing + 1
+        return prefix if index == 1 else f"{prefix}-{index}"
+
     def _create_correction_work_order(
         self,
         parent_work_order: WorkOrder,
@@ -1574,7 +1668,7 @@ class ProcessService:
     ) -> WorkOrder:
         correction_order = WorkOrder(
             paint_id=parent_work_order.paint_id,
-            order_number=self.number_allocator.allocate(),
+            order_number=self._allocate_correction_order_number(parent_work_order),
             external_order_number=parent_work_order.external_order_number,
             title=parent_work_order.title,
             total_quantity=correction_quantity,
@@ -1980,6 +2074,15 @@ class ProcessService:
     def is_historical_correction(self, work_order: WorkOrder) -> bool:
         return work_order.is_correction and self._is_complete_for_display(work_order)
 
+    def is_decoral_incomplete(self, work_order: WorkOrder) -> bool:
+        # "N" marker: a DECORAL order that still has open correction children. Its OK pieces can be
+        # worked on Decoral, but the order cannot be closed until the corrected pieces return.
+        return (
+            work_order.coating_type == CoatingType.DECORAL
+            and not work_order.is_correction
+            and self._has_open_corrections(work_order)
+        )
+
     def _store_stage_start_data(
         self,
         work_order: WorkOrder,
@@ -2086,6 +2189,7 @@ class ProcessService:
             is_correction_round=self._is_in_correction_round(work_order),
             completed_quantity=work_order.completed_quantity,
             is_historical_correction=self.is_historical_correction(work_order),
+            is_decoral_incomplete=self.is_decoral_incomplete(work_order),
             work_order_kind=build_work_order_kind_view(work_order.work_order_kind),
             is_ocynk=work_order.is_ocynk,
             order_number=work_order.order_number,

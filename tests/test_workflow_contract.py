@@ -295,8 +295,13 @@ def test_workflow_contract_core_invariants(db_session: Session) -> None:
     )
     advance_to_packing(process_service, s07_correction.id)
     complete_packing(process_service, s07_correction.id, ok_quantity=3, correction_quantity=0)
-    process_service.transition_stage(s07_correction.id, ProcessStage.DECORAL_PRODUCTION, StageStatus.IN_PROGRESS)
-    process_service.finish_stage(s07_correction.id, ProcessStage.DECORAL_PRODUCTION)
+    # Corrected pieces return to the root's single Decoral pass; finish that returned batch.
+    s07_root = process_repository.get_work_order_with_stage_states(s07_id)
+    s07_returned = next(
+        b for b in s07_root.quantity_batches if b.is_active and b.current_stage == ProcessStage.DECORAL_PRODUCTION
+    )
+    process_service.start_stage(s07_id, ProcessStage.DECORAL_PRODUCTION, batch_id=s07_returned.id)
+    process_service.complete_decoral_production(s07_id, ok_quantity=3, correction_quantity=0, batch_id=s07_returned.id)
 
     s07_parent_final = process_repository.get_work_order_with_stage_states(s07_id)
 
