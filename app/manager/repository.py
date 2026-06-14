@@ -3,6 +3,8 @@ from collections.abc import Sequence
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
+from app.process.enums import QuantityBatchType
+from app.process.models import WorkOrderQuantityBatch
 from app.shared.enums import WorkOrderStatus
 from app.work_orders.models import WorkOrder
 
@@ -95,7 +97,31 @@ class ManagerRepository:
         return self.session.scalars(statement).all()
 
     def list_correction_reason_report(self) -> Sequence[tuple[str | None, int, int]]:
-        statement = (
+        # Corrections originate from two places in the hybrid correction model:
+        #   * CORRECTION quantity batches (RAL packing / DECORAL decoral batch-reset), and
+        #   * child correction work orders (DECORAL packing keeps the OK part on Decoral and spins
+        #     the correction off as a separate "P" work order).
+        # The report aggregates both correction events by reason/category.
+        aggregate: dict[str | None, list[int]] = {}
+
+        def add(category: str | None, count: int, quantity: int) -> None:
+            bucket = aggregate.setdefault(category, [0, 0])
+            bucket[0] += count
+            bucket[1] += quantity
+
+        batch_rows = self.session.execute(
+            select(
+                WorkOrderQuantityBatch.correction_reason_category,
+                func.count(WorkOrderQuantityBatch.id),
+                func.coalesce(func.sum(WorkOrderQuantityBatch.quantity), 0),
+            )
+            .where(WorkOrderQuantityBatch.type == QuantityBatchType.CORRECTION)
+            .group_by(WorkOrderQuantityBatch.correction_reason_category)
+        ).all()
+        for category, count, quantity in batch_rows:
+            add(category, int(count), int(quantity or 0))
+
+        child_rows = self.session.execute(
             select(
                 WorkOrder.correction_reason_category,
                 func.count(WorkOrder.id),
@@ -103,12 +129,15 @@ class ManagerRepository:
             )
             .where(WorkOrder.is_correction.is_(True))
             .group_by(WorkOrder.correction_reason_category)
-            .order_by(func.coalesce(func.sum(WorkOrder.total_quantity), 0).desc(), WorkOrder.correction_reason_category.asc())
+        ).all()
+        for category, count, quantity in child_rows:
+            add(category, int(count), int(quantity or 0))
+
+        # Order by total correction quantity desc, then category asc (None last).
+        return sorted(
+            ((category, counts[0], counts[1]) for category, counts in aggregate.items()),
+            key=lambda row: (-row[2], row[0] is None, row[0] or ""),
         )
-        return [
-            (category, int(work_order_count), int(total_correction_quantity or 0))
-            for category, work_order_count, total_correction_quantity in self.session.execute(statement).all()
-        ]
 
     def get_planned_queue_revision(self):
         statement = select(func.max(WorkOrder.updated_at)).where(

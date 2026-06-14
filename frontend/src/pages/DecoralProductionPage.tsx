@@ -1,11 +1,5 @@
-import { StageWorkOrdersPage } from "../components/StageWorkOrdersPage";
+import { DecoralWorkOrdersPage } from "../components/DecoralWorkOrdersPage";
 
 export function DecoralProductionPage() {
-  return (
-    <StageWorkOrdersPage
-      stage="DECORAL_PRODUCTION"
-      title="Produkcja Decoral"
-      emptyMessage="Brak zleceń do produkcji Decoral"
-    />
-  );
+  return <DecoralWorkOrdersPage />;
 }

@@ -8,12 +8,14 @@ export interface CorrectionContext {
 interface CorrectionContextCarrier {
   id: number;
   is_correction: boolean;
+  is_correction_round?: boolean;
 }
 
 export async function loadCorrectionContexts(
   items: CorrectionContextCarrier[],
 ): Promise<{ contexts: Record<number, CorrectionContext>; failedCount: number }> {
-  const correctionIds = [...new Set(items.filter((item) => item.is_correction).map((item) => item.id))];
+  // is_correction_round items have no parent order (same order), so skip fetching for those
+  const correctionIds = [...new Set(items.filter((item) => item.is_correction && !item.is_correction_round).map((item) => item.id))];
 
   if (correctionIds.length === 0) {
     return { contexts: {}, failedCount: 0 };

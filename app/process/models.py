@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from sqlalchemy import Boolean, CheckConstraint, DateTime, Enum, ForeignKey, Index, Integer, String, UniqueConstraint, text
+from sqlalchemy import Boolean, CheckConstraint, DateTime, Enum, ForeignKey, Index, Integer, String, Text, UniqueConstraint, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database.base import Base
@@ -81,6 +81,8 @@ class WorkOrderQuantityBatch(Base):
     current_stage: Mapped[ProcessStage | None] = mapped_column(process_stage_enum, nullable=True)
     current_stage_status: Mapped[StageStatus | None] = mapped_column(stage_status_enum, nullable=True)
     is_partial: Mapped[bool] = mapped_column(Boolean(), nullable=False, default=False)
+    correction_reason_category: Mapped[str | None] = mapped_column(Text(), nullable=True)
+    correction_reason_note: Mapped[str | None] = mapped_column(Text(), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False)
 
     work_order = relationship("WorkOrder", back_populates="quantity_batches")

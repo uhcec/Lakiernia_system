@@ -752,6 +752,70 @@ def test_decoral_split_moves_ok_quantity_to_decoral_and_child_to_painting_flow(d
     assert stage_states[ProcessStage.PRODUCTION] == StageStatus.NOT_STARTED
 
 
+def test_complete_decoral_production_ok_finishes_tracked_ok_batch(db_session: Session) -> None:
+    # The frontend completes Decoral via complete_decoral_production. The OK batch that split off at
+    # packing finishes here; the parent stays not-READY until its open correction child closes.
+    work_order_service, process_service, manager_service, work_order_repository, process_repository = build_services(db_session)
+
+    created = work_order_service.create_work_order(
+        build_work_order_create(title="Decoral complete ok", coating_type=CoatingType.DECORAL, total_quantity=10)
+    )
+    manager_service.assign_plan(
+        created.id,
+        WorkOrderPlanAssignRequest(production_type=ProductionType.MANUAL, queue_position=1),
+    )
+    advance_to_packing(process_service, created.id)
+    response = complete_packing(process_service, created.id, ok_quantity=7, correction_quantity=3)
+
+    process_service.start_stage(created.id, ProcessStage.DECORAL_PRODUCTION, batch_id=response.batch_id)
+    process_service.complete_decoral_production(created.id, ok_quantity=7, correction_quantity=0, batch_id=response.batch_id)
+
+    parent = process_repository.get_work_order_with_stage_states(created.id)
+    assert parent is not None
+    assert parent.completed_quantity == 7
+    assert process_service.get_display_status(parent).value == "WAITING_FOR_CORRECTIONS"
+
+
+def test_complete_decoral_production_with_correction_resets_to_planning(db_session: Session) -> None:
+    # A defect found at the Decoral stage (last stage for DECORAL) uses the unified batch-reset:
+    # ok goes to completed and the same order returns to planning for the correction round.
+    work_order_service, process_service, manager_service, work_order_repository, process_repository = build_services(db_session)
+
+    created = work_order_service.create_work_order(
+        build_work_order_create(title="Decoral stage correction", coating_type=CoatingType.DECORAL, total_quantity=10)
+    )
+    manager_service.assign_plan(
+        created.id,
+        WorkOrderPlanAssignRequest(production_type=ProductionType.MANUAL, queue_position=1),
+    )
+    # No correction at packing -> whole batch advances to Decoral.
+    advance_to_packing(process_service, created.id)
+    response = complete_packing(process_service, created.id, ok_quantity=10, correction_quantity=0)
+
+    process_service.start_stage(created.id, ProcessStage.DECORAL_PRODUCTION, batch_id=response.batch_id)
+    # Decoral QC: 8 ok, 2 need correction.
+    process_service.complete_decoral_production(
+        created.id,
+        ok_quantity=8,
+        correction_quantity=2,
+        correction_profiles_quantity=2,
+        correction_accessories_quantity=0,
+        correction_reason_category="za grubo",
+        batch_id=response.batch_id,
+    )
+
+    after = process_repository.get_work_order_with_stage_states(created.id)
+    assert after is not None
+    assert after.completed_quantity == 8
+    # No child order is created at the Decoral stage; the same order returns to planning (batch-reset).
+    assert [wo for wo in work_order_repository.list(limit=20, offset=0) if wo.is_correction] == []
+    assert process_service.get_display_status(after).value == "TO_BE_PLANNED"
+    active_correction = after.active_batch
+    assert active_correction is not None
+    assert active_correction.parent_batch_id is not None
+    assert active_correction.quantity == 2
+
+
 def test_correction_round_cannot_enter_surface_preparation(db_session: Session) -> None:
     work_order_service, process_service, manager_service, _, process_repository = build_services(db_session)
 

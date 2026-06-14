@@ -438,6 +438,9 @@ class ProcessService:
 
             if correction_quantity > 0:
                 if work_order.coating_type == CoatingType.DECORAL:
+                    # DECORAL has a stage (DECORAL_PRODUCTION) AFTER packing, so the OK pieces must
+                    # still pass through Decoral. They continue on this order as a tracked batch,
+                    # while the correction becomes a separately-plannable child work order ("P").
                     response_stage, response_batch = self._complete_packing_with_correction_order(
                         work_order,
                         active_batch,
@@ -452,6 +455,8 @@ class ProcessService:
                         station_context=station_context,
                     )
                 else:
+                    # RAL packing is the last stage, so the unified batch-reset model applies:
+                    # ok goes to completed and the same order returns to planning for the correction.
                     self._reset_to_correction_planning(
                         work_order,
                         active_batch,
@@ -577,6 +582,169 @@ class ProcessService:
 
             refreshed_work_order = self.get_work_order_process(work_order_id)
             return self._to_stage_work_order_read(refreshed_work_order, ProcessStage.PRODUCTION)
+
+    def complete_decoral_production(
+        self,
+        work_order_id: int,
+        *,
+        ok_quantity: int,
+        correction_quantity: int,
+        correction_profiles_quantity: int | None = None,
+        correction_accessories_quantity: int | None = None,
+        correction_reason_category: str | None = None,
+        correction_reason_note: str | None = None,
+        batch_id: int | None = None,
+        station_context: StationContext | None = None,
+    ) -> ProcessStageWorkOrderRead:
+        with self._serialize_process_mutation(work_order_id):
+            work_order = self.get_work_order_process(work_order_id)
+            self._ensure_decoral_production_station_action(station_context)
+            normalized_reason_category, normalized_reason_note = self._validate_correction_reason(
+                correction_quantity,
+                correction_reason_category,
+                correction_reason_note,
+            )
+            correction_category_fields = self._validate_correction_category_split(
+                correction_quantity,
+                correction_profiles_quantity,
+                correction_accessories_quantity,
+            )
+
+            if work_order.coating_type != CoatingType.DECORAL:
+                raise InvalidProcessStageTransitionError("Decoral production completion is only for DECORAL orders.")
+
+            target_batch = self._resolve_batch_for_stage(work_order, ProcessStage.DECORAL_PRODUCTION, batch_id)
+
+            if target_batch is not None:
+                return self._complete_tracked_batch_decoral_production(
+                    work_order,
+                    target_batch,
+                    ok_quantity=ok_quantity,
+                    correction_quantity=correction_quantity,
+                    correction_category_fields=correction_category_fields,
+                    correction_reason_category=normalized_reason_category,
+                    correction_reason_note=normalized_reason_note,
+                    station_context=station_context,
+                )
+
+            decoral_state = self._get_stage_state(work_order, ProcessStage.DECORAL_PRODUCTION)
+
+            if decoral_state.status == StageStatus.DONE:
+                return self._to_stage_work_order_read(work_order, ProcessStage.DECORAL_PRODUCTION)
+
+            if decoral_state.status != StageStatus.IN_PROGRESS:
+                raise InvalidProcessStageTransitionError("Decoral production can be completed only from IN_PROGRESS state.")
+
+            active_batch = work_order.active_batch
+            total = ok_quantity + correction_quantity
+            if total <= 0:
+                raise InvalidProcessStageTransitionError("Total quantity must be greater than zero.")
+
+            if correction_quantity > 0:
+                packing_state = self._get_stage_state(work_order, ProcessStage.PACKING)
+                packing_state.counted_quantity = None
+                packing_state.updated_at = datetime.now(UTC)
+                self._reset_to_correction_planning(
+                    work_order,
+                    active_batch,
+                    ok_quantity=ok_quantity,
+                    correction_quantity=correction_quantity,
+                    correction_reason_category=normalized_reason_category,
+                    correction_reason_note=normalized_reason_note,
+                    station_context=station_context,
+                    completed_stage=ProcessStage.DECORAL_PRODUCTION,
+                )
+                self._release_inactive_resource_locks(work_order)
+                self._record_decoral_audit_event(
+                    work_order=work_order,
+                    station_context=station_context,
+                    batch_id=None,
+                    ok_quantity=ok_quantity,
+                    correction_quantity=correction_quantity,
+                    correction_category_fields=correction_category_fields,
+                )
+                self._commit_process_changes()
+                refreshed_work_order = self.get_work_order_process(work_order_id)
+                return self._to_stage_work_order_read(refreshed_work_order, ProcessStage.DECORAL_PRODUCTION)
+            else:
+                decoral_state.status = StageStatus.DONE
+                decoral_state.updated_at = datetime.now(UTC)
+                work_order.completed_quantity += ok_quantity
+                if active_batch is not None:
+                    active_batch.is_active = False
+                work_order.current_active_batch_id = None
+                self._release_inactive_resource_locks(work_order)
+                self._record_decoral_audit_event(
+                    work_order=work_order,
+                    station_context=station_context,
+                    batch_id=None,
+                    ok_quantity=ok_quantity,
+                    correction_quantity=correction_quantity,
+                    correction_category_fields=correction_category_fields,
+                )
+                self._commit_process_changes()
+                refreshed_work_order = self.get_work_order_process(work_order_id)
+                finalized_work_order = self._finalize_completion_chain_if_ready(refreshed_work_order)
+                if finalized_work_order is not None:
+                    refreshed_work_order = self.get_work_order_process(work_order_id)
+                return self._to_stage_work_order_read(refreshed_work_order, ProcessStage.DECORAL_PRODUCTION)
+
+    def _complete_tracked_batch_decoral_production(
+        self,
+        work_order: WorkOrder,
+        batch: WorkOrderQuantityBatch,
+        *,
+        ok_quantity: int,
+        correction_quantity: int,
+        correction_category_fields: dict[str, int | bool | None],
+        correction_reason_category: str | None,
+        correction_reason_note: str | None,
+        station_context: StationContext | None = None,
+    ) -> ProcessStageWorkOrderRead:
+        if batch.current_stage == ProcessStage.DECORAL_PRODUCTION and batch.current_stage_status == StageStatus.DONE:
+            return self._to_stage_work_order_read(work_order, ProcessStage.DECORAL_PRODUCTION, batch=batch)
+
+        if batch.current_stage != ProcessStage.DECORAL_PRODUCTION or batch.current_stage_status != StageStatus.IN_PROGRESS:
+            raise InvalidProcessStageTransitionError("Decoral production can be completed only from IN_PROGRESS state.")
+
+        total = ok_quantity + correction_quantity
+        if total <= 0 or total != batch.quantity:
+            raise InvalidProcessStageTransitionError("Quantities must be greater than zero and match the batch quantity.")
+
+        if correction_quantity > 0:
+            self._reset_to_correction_planning(
+                work_order,
+                batch,
+                ok_quantity=ok_quantity,
+                correction_quantity=correction_quantity,
+                correction_reason_category=correction_reason_category,
+                correction_reason_note=correction_reason_note,
+                station_context=station_context,
+                completed_stage=ProcessStage.DECORAL_PRODUCTION,
+            )
+        else:
+            batch.current_stage_status = StageStatus.DONE
+            batch.is_active = False
+            work_order.completed_quantity += ok_quantity
+
+        self._sync_legacy_current_active_batch(work_order)
+        self._release_inactive_resource_locks(work_order)
+        self._record_decoral_audit_event(
+            work_order=work_order,
+            station_context=station_context,
+            batch_id=batch.id,
+            ok_quantity=ok_quantity,
+            correction_quantity=correction_quantity,
+            correction_category_fields=correction_category_fields,
+        )
+        self._commit_process_changes()
+        refreshed_work_order = self.get_work_order_process(work_order.id)
+        finalized_work_order = self._finalize_completion_chain_if_ready(refreshed_work_order)
+        if finalized_work_order is not None:
+            refreshed_work_order = self.get_work_order_process(work_order.id)
+        refreshed_batch = self._get_batch(refreshed_work_order, batch.id)
+        response_stage = refreshed_batch.current_stage or ProcessStage.DECORAL_PRODUCTION
+        return self._to_stage_work_order_read(refreshed_work_order, response_stage, batch=refreshed_batch)
 
     def list_visible_work_orders(
         self,
@@ -837,6 +1005,14 @@ class ProcessService:
             station_context,
             allowed_station_ids={StationId.AUTOMATIC_PRODUCTION},
             action="AUTOMATIC_PRODUCTION actions",
+        )
+
+    @staticmethod
+    def _ensure_decoral_production_station_action(station_context: StationContext | None) -> None:
+        ensure_station_allowed(
+            station_context,
+            allowed_station_ids={StationId.DECORAL_PRODUCTION},
+            action="DECORAL_PRODUCTION actions",
         )
 
     @staticmethod
@@ -1268,47 +1444,29 @@ class ProcessService:
         packing_state.counted_quantity = counted_quantity
         packing_state.updated_at = datetime.now(UTC)
 
-        batch.is_active = False
-        batch.current_stage = ProcessStage.PACKING
-        batch.current_stage_status = StageStatus.DONE
-        batch.is_partial = False
-
-        created_batches: list[WorkOrderQuantityBatch] = []
-        if work_order.coating_type == CoatingType.DECORAL and ok_quantity > 0:
-            ok_batch = WorkOrderQuantityBatch(
-                work_order_id=work_order.id,
-                quantity=ok_quantity,
-                type=QuantityBatchType.MAIN,
-                parent_batch_id=batch.id,
-                is_active=True,
-                current_stage=ProcessStage.DECORAL_PRODUCTION,
-                current_stage_status=StageStatus.NOT_STARTED,
-                is_partial=correction_quantity > 0,
-            )
-            self.repository.add_quantity_batch(ok_batch)
-            created_batches.append(ok_batch)
-
         if correction_quantity > 0:
-            if work_order.coating_type == CoatingType.DECORAL:
-                self._create_correction_work_order(
-                    work_order,
-                    correction_quantity,
-                    correction_category_fields=correction_category_fields,
-                    correction_reason_category=correction_reason_category,
-                    correction_reason_note=correction_reason_note,
-                    station_context=station_context,
-                )
-            else:
-                self._reset_to_correction_planning(
-                    work_order,
-                    batch,
-                    ok_quantity=ok_quantity,
-                    correction_quantity=correction_quantity,
-                    correction_reason_category=correction_reason_category,
-                    correction_reason_note=correction_reason_note,
-                    station_context=station_context,
-                )
-        elif ok_quantity > 0:
+            batch.is_active = False
+            batch.current_stage = ProcessStage.PACKING
+            batch.current_stage_status = StageStatus.DONE
+            batch.is_partial = False
+            self._reset_to_correction_planning(
+                work_order,
+                batch,
+                ok_quantity=ok_quantity,
+                correction_quantity=correction_quantity,
+                correction_reason_category=correction_reason_category,
+                correction_reason_note=correction_reason_note,
+                station_context=station_context,
+            )
+        elif work_order.coating_type == CoatingType.DECORAL:
+            batch.current_stage = ProcessStage.DECORAL_PRODUCTION
+            batch.current_stage_status = StageStatus.NOT_STARTED
+            batch.is_partial = False
+        else:
+            batch.is_active = False
+            batch.current_stage = ProcessStage.PACKING
+            batch.current_stage_status = StageStatus.DONE
+            batch.is_partial = False
             work_order.completed_quantity += ok_quantity
 
         self._sync_legacy_current_active_batch(work_order)
@@ -1328,14 +1486,22 @@ class ProcessService:
         finalized_work_order = self._finalize_completion_chain_if_ready(refreshed_work_order)
         if finalized_work_order is not None:
             refreshed_work_order = self.get_work_order_process(work_order.id)
-        if created_batches:
-            preferred_batch = created_batches[-1]
-            refreshed_batch = self._get_batch(refreshed_work_order, preferred_batch.id)
-            response_stage = refreshed_batch.current_stage or ProcessStage.PACKING
-            return self._to_stage_work_order_read(refreshed_work_order, response_stage, batch=refreshed_batch)
 
         refreshed_batch = self._get_batch(refreshed_work_order, batch.id)
-        return self._to_stage_work_order_read(refreshed_work_order, ProcessStage.PACKING, batch=refreshed_batch)
+        response_stage = refreshed_batch.current_stage or ProcessStage.PACKING
+        return self._to_stage_work_order_read(refreshed_work_order, response_stage, batch=refreshed_batch)
+
+    def prepare_correction_work_order_for_planning(self, work_order: WorkOrder) -> None:
+        if not work_order.is_correction and not self._is_in_correction_round(work_order):
+            return
+
+        return_stage = self.get_correction_return_stage(work_order)
+        self._reset_stage_states_for_active_batch(work_order, return_stage)
+
+    @staticmethod
+    def _is_in_correction_round(work_order: WorkOrder) -> bool:
+        active_batch = work_order.active_batch
+        return active_batch is not None and active_batch.parent_batch_id is not None
 
     def _complete_packing_with_correction_order(
         self,
@@ -1352,6 +1518,10 @@ class ProcessService:
         correction_reason_note: str | None,
         station_context: StationContext | None = None,
     ) -> tuple[ProcessStage, WorkOrderQuantityBatch | None]:
+        # DECORAL packing with a correction: the OK pieces stay on this order and advance to
+        # DECORAL_PRODUCTION as a tracked batch, while the correction becomes a child work order
+        # that the manager re-plans independently. The parent is READY only once its OK batch
+        # finishes Decoral AND the child correction closes.
         _ = planned_quantity
         response_stage = ProcessStage.PACKING
         response_batch: WorkOrderQuantityBatch | None = None
@@ -1362,7 +1532,7 @@ class ProcessService:
         active_batch.current_stage = ProcessStage.PACKING
         active_batch.current_stage_status = StageStatus.DONE
 
-        if work_order.coating_type == CoatingType.DECORAL and ok_quantity > 0:
+        if ok_quantity > 0:
             response_batch = WorkOrderQuantityBatch(
                 work_order_id=work_order.id,
                 quantity=ok_quantity,
@@ -1461,18 +1631,6 @@ class ProcessService:
         )
         return persisted_correction_order
 
-    def prepare_correction_work_order_for_planning(self, work_order: WorkOrder) -> None:
-        if not work_order.is_correction and not self._is_in_correction_round(work_order):
-            return
-
-        return_stage = self.get_correction_return_stage(work_order)
-        self._reset_stage_states_for_active_batch(work_order, return_stage)
-
-    @staticmethod
-    def _is_in_correction_round(work_order: WorkOrder) -> bool:
-        active_batch = work_order.active_batch
-        return active_batch is not None and active_batch.parent_batch_id is not None
-
     def _reset_to_correction_planning(
         self,
         work_order: WorkOrder,
@@ -1482,11 +1640,12 @@ class ProcessService:
         correction_reason_category: str | None,
         correction_reason_note: str | None,
         station_context: StationContext | None = None,
+        completed_stage: ProcessStage = ProcessStage.PACKING,
     ) -> None:
         work_order.completed_quantity += ok_quantity
 
         active_batch.is_active = False
-        active_batch.current_stage = ProcessStage.PACKING
+        active_batch.current_stage = completed_stage
         active_batch.current_stage_status = StageStatus.DONE
 
         correction_batch = WorkOrderQuantityBatch(
@@ -1498,6 +1657,8 @@ class ProcessService:
             current_stage=None,
             current_stage_status=None,
             is_partial=True,
+            correction_reason_category=correction_reason_category,
+            correction_reason_note=correction_reason_note,
         )
         self.repository.add_quantity_batch(correction_batch)
         work_order.current_active_batch_id = correction_batch.id
@@ -1597,6 +1758,39 @@ class ProcessService:
             target_type="process_stage",
             target_id=batch_id,
             summary=f"Completed packing for work order {work_order.order_number}.",
+            details=details,
+        )
+
+    def _record_decoral_audit_event(
+        self,
+        *,
+        work_order: WorkOrder,
+        station_context: StationContext | None,
+        batch_id: int | None,
+        ok_quantity: int,
+        correction_quantity: int,
+        correction_category_fields: dict[str, int | bool | None],
+    ) -> None:
+        details: dict[str, object] = {
+            "stage": ProcessStage.DECORAL_PRODUCTION.value,
+            "batch_id": batch_id,
+            "ok_quantity": ok_quantity,
+            "correction_quantity": correction_quantity,
+        }
+        if correction_quantity > 0:
+            details.update(
+                {
+                    "correction_profiles_quantity": correction_category_fields["profiles_quantity"],
+                    "correction_accessories_quantity": correction_category_fields["accessories_quantity"],
+                }
+            )
+        self._record_audit_event(
+            event_type="process.decoral_production.completed",
+            station_context=station_context,
+            work_order=work_order,
+            target_type="process_stage",
+            target_id=batch_id,
+            summary=f"Completed decoral production for work order {work_order.order_number}.",
             details=details,
         )
 
@@ -1889,6 +2083,7 @@ class ProcessService:
             id=work_order.id,
             batch_id=batch_id,
             is_correction=work_order.is_correction,
+            is_correction_round=self._is_in_correction_round(work_order),
             completed_quantity=work_order.completed_quantity,
             is_historical_correction=self.is_historical_correction(work_order),
             work_order_kind=build_work_order_kind_view(work_order.work_order_kind),
@@ -2178,6 +2373,8 @@ class ProcessService:
             lock.release()
 
     def _to_idempotent_packing_response(self, work_order: WorkOrder) -> ProcessStageWorkOrderRead:
+        if self._is_in_correction_round(work_order):
+            return self._to_stage_work_order_read(work_order, ProcessStage.PACKING)
         return_stage = ProcessStage.DECORAL_PRODUCTION if work_order.coating_type == CoatingType.DECORAL else ProcessStage.PACKING
         return self._to_stage_work_order_read(work_order, return_stage)
 

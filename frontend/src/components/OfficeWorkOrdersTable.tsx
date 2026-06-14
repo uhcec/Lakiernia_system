@@ -78,7 +78,7 @@ function OfficeWorkOrderRow({ workOrder }: { workOrder: WorkOrder }) {
       </div>
 
       {/* POWIERZCHNIA */}
-      <div className="w-28 flex-none px-4 py-3.5">
+      <div className="w-32 flex-none px-4 py-3.5">
         <span className="text-sm font-semibold text-brand-ink">
           {workOrder.total_area_m2 != null
             ? `${workOrder.total_area_m2.toLocaleString("pl-PL")} m²`
@@ -177,7 +177,7 @@ function OfficeWorkOrderRow({ workOrder }: { workOrder: WorkOrder }) {
 const COLUMNS = [
   { label: "Zlecenie", className: "w-52 flex-none px-5" },
   { label: "RAL", className: "w-32 flex-none px-4" },
-  { label: "Powierzchnia", className: "w-28 flex-none px-4" },
+  { label: "Powierzchnia", className: "w-32 flex-none pl-0 pr-4" },
   { label: "Etap", className: "w-48 flex-none px-4" },
   { label: "Status", className: "w-48 flex-none px-4" },
   { label: "Termin", className: "min-w-[136px] flex-1 px-4" },

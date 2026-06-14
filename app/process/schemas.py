@@ -18,6 +18,7 @@ class ProcessStageWorkOrderRead(BaseModel):
     id: int
     batch_id: int | None = None
     is_correction: bool
+    is_correction_round: bool = False
     is_historical_correction: bool = False
     work_order_kind: WorkOrderKindView
     is_ocynk: bool = False
@@ -70,6 +71,38 @@ class PackingCompleteRequest(BaseModel):
 
     @model_validator(mode="after")
     def validate_correction_reason(self) -> "PackingCompleteRequest":
+        has_reason = self.correction_reason_category is not None
+        has_note = self.correction_reason_note is not None
+        if self.correction_quantity > 0 and not has_reason:
+            raise ValueError("Correction reason is required when correction quantity is greater than zero.")
+        if self.correction_quantity == 0 and (has_reason or has_note):
+            raise ValueError("Correction reason can only be set when correction quantity is greater than zero.")
+        has_profile_split = self.correction_profiles_quantity is not None
+        has_accessory_split = self.correction_accessories_quantity is not None
+        if self.correction_quantity == 0 and (has_profile_split or has_accessory_split):
+            raise ValueError("Correction category quantities can only be set when correction quantity is greater than zero.")
+        if self.correction_quantity > 0:
+            if not has_profile_split or not has_accessory_split:
+                raise ValueError("Correction profile and accessory quantities are required when correction quantity is greater than zero.")
+            if self.correction_profiles_quantity + self.correction_accessories_quantity != self.correction_quantity:
+                raise ValueError("Correction profile and accessory quantities must add up to correction quantity.")
+        return self
+
+
+class DecoralProductionCompleteRequest(BaseModel):
+    ok_quantity: int = Field(ge=0)
+    correction_quantity: int = Field(ge=0)
+    correction_profiles_quantity: int | None = Field(default=None, ge=0)
+    correction_accessories_quantity: int | None = Field(default=None, ge=0)
+    correction_reason_category: str | None = Field(default=None, min_length=1, max_length=64)
+    correction_reason_note: str | None = Field(default=None, max_length=500)
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    @model_validator(mode="after")
+    def validate_correction_reason(self) -> "DecoralProductionCompleteRequest":
+        if self.ok_quantity + self.correction_quantity <= 0:
+            raise ValueError("Total quantity must be greater than zero.")
         has_reason = self.correction_reason_category is not None
         has_note = self.correction_reason_note is not None
         if self.correction_quantity > 0 and not has_reason:

@@ -83,6 +83,9 @@ function getPackingRowSummary(workOrder: StageWorkOrder): string {
 }
 
 function buildCorrectionReference(workOrder: StageWorkOrder, context: CorrectionContext | undefined): string {
+  if (workOrder.is_correction_round) {
+    return `Poprawka — runda ${workOrder.order_number}`;
+  }
   if (!workOrder.is_correction) {
     return "";
   }
@@ -93,6 +96,9 @@ function buildCorrectionReference(workOrder: StageWorkOrder, context: Correction
 }
 
 function buildCorrectionQuantityContext(workOrder: StageWorkOrder, context: CorrectionContext | undefined): string {
+  if (workOrder.is_correction_round) {
+    return `${workOrder.total_quantity} szt. poprawki`;
+  }
   if (!workOrder.is_correction) {
     return "";
   }
@@ -190,10 +196,10 @@ export function PackingWorkOrdersPage() {
 
   const filteredWorkOrders = workOrders.filter((workOrder) => {
     if (queueFilter === "NORMAL") {
-      return !workOrder.is_correction;
+      return !workOrder.is_correction && !workOrder.is_correction_round;
     }
     if (queueFilter === "CORRECTIONS") {
-      return workOrder.is_correction;
+      return workOrder.is_correction || workOrder.is_correction_round;
     }
     return true;
   });
@@ -417,7 +423,7 @@ export function PackingWorkOrdersPage() {
               key={`${workOrder.id}-${draftKey}`}
               className={[
                 "rounded-lg border bg-white p-5 text-ink shadow-sm",
-                workOrder.is_correction ? "border-amber-200 bg-amber-50/40" : "border-line/80",
+                (workOrder.is_correction || workOrder.is_correction_round) ? "border-amber-200 bg-amber-50/40" : "border-line/80",
               ].join(" ")}
             >
               <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(20rem,28rem)]">
@@ -488,7 +494,7 @@ export function PackingWorkOrdersPage() {
                     {showHistoricalResult ? (
                       <p className="font-medium text-emerald-700">{getHistoricalStageWorkOrderResultText(workOrder)}</p>
                     ) : null}
-                    {workOrder.is_correction ? (
+                    {(workOrder.is_correction || workOrder.is_correction_round) ? (
                       <>
                         <p className="font-medium text-amber-800">{buildCorrectionReference(workOrder, correctionContext)}</p>
                         <p className="text-amber-700">

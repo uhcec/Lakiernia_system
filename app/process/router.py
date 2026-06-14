@@ -9,6 +9,7 @@ from app.process.enums import ProcessStage, ProductionType
 from app.process.repository import ProcessRepository
 from app.process.schemas import (
     AutomaticPaintConsumptionRequest,
+    DecoralProductionCompleteRequest,
     PackingCompleteRequest,
     ProcessStageWorkOrderRead,
     StageTransitionRequest,
@@ -168,6 +169,46 @@ def complete_packing_for_batch(
     return service.complete_packing(
         work_order_id,
         counted_quantity=payload.counted_quantity,
+        ok_quantity=payload.ok_quantity,
+        correction_quantity=payload.correction_quantity,
+        correction_profiles_quantity=payload.correction_profiles_quantity,
+        correction_accessories_quantity=payload.correction_accessories_quantity,
+        correction_reason_category=payload.correction_reason_category,
+        correction_reason_note=payload.correction_reason_note,
+        batch_id=batch_id,
+        station_context=station_context,
+    )
+
+
+@router.post("/work-orders/{work_order_id}/decoral-production/complete", response_model=ProcessStageWorkOrderRead)
+def complete_decoral_production(
+    work_order_id: int,
+    payload: DecoralProductionCompleteRequest,
+    service: Annotated[ProcessService, Depends(get_process_service)],
+    station_context: Annotated[StationContext, Depends(get_station_context)],
+) -> ProcessStageWorkOrderRead:
+    return service.complete_decoral_production(
+        work_order_id,
+        ok_quantity=payload.ok_quantity,
+        correction_quantity=payload.correction_quantity,
+        correction_profiles_quantity=payload.correction_profiles_quantity,
+        correction_accessories_quantity=payload.correction_accessories_quantity,
+        correction_reason_category=payload.correction_reason_category,
+        correction_reason_note=payload.correction_reason_note,
+        station_context=station_context,
+    )
+
+
+@router.post("/work-orders/{work_order_id}/batches/{batch_id}/decoral-production/complete", response_model=ProcessStageWorkOrderRead)
+def complete_decoral_production_for_batch(
+    work_order_id: int,
+    batch_id: int,
+    payload: DecoralProductionCompleteRequest,
+    service: Annotated[ProcessService, Depends(get_process_service)],
+    station_context: Annotated[StationContext, Depends(get_station_context)],
+) -> ProcessStageWorkOrderRead:
+    return service.complete_decoral_production(
+        work_order_id,
         ok_quantity=payload.ok_quantity,
         correction_quantity=payload.correction_quantity,
         correction_profiles_quantity=payload.correction_profiles_quantity,

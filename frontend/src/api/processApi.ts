@@ -70,6 +70,15 @@ interface AutomaticPaintConsumptionPayload {
   consumed_paint_quantity_kg: number;
 }
 
+interface CompleteDecoralProductionPayload {
+  ok_quantity: number;
+  correction_quantity: number;
+  correction_profiles_quantity?: number;
+  correction_accessories_quantity?: number;
+  correction_reason_category?: string;
+  correction_reason_note?: string;
+}
+
 export async function transitionStage(
   workOrderId: number,
   stage: ProcessStageValue,
@@ -140,6 +149,32 @@ export async function recordAutomaticPaintConsumption(
 
   if (!response.ok) {
     throw await createApiError(response, "Nie udało się zapisać zużycia farby");
+  }
+
+  return response.json() as Promise<StageWorkOrder>;
+}
+
+export async function completeDecoralProduction(
+  workOrderId: number,
+  payload: CompleteDecoralProductionPayload,
+  batchId?: number,
+): Promise<StageWorkOrder> {
+  const pathname = batchId
+    ? `/process/work-orders/${workOrderId}/batches/${batchId}/decoral-production/complete`
+    : `/process/work-orders/${workOrderId}/decoral-production/complete`;
+
+  const response = await fetch(createApiUrl(pathname), {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+      ...getCurrentStationHeaders(),
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    throw await createApiError(response, "Nie udało się zakończyć produkcji Decoral");
   }
 
   return response.json() as Promise<StageWorkOrder>;

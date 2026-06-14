@@ -69,6 +69,9 @@ function getStageAction(status: StageStatusValue): "start" | "finish" | "reopen"
 }
 
 function buildCorrectionReference(workOrder: StageWorkOrder, context: CorrectionContext | undefined): string {
+  if (workOrder.is_correction_round) {
+    return `Poprawka — runda ${workOrder.order_number}`;
+  }
   if (!workOrder.is_correction) {
     return "";
   }
@@ -79,6 +82,9 @@ function buildCorrectionReference(workOrder: StageWorkOrder, context: Correction
 }
 
 function buildCorrectionQuantityContext(workOrder: StageWorkOrder, context: CorrectionContext | undefined): string {
+  if (workOrder.is_correction_round) {
+    return `${workOrder.total_quantity} szt. poprawki`;
+  }
   if (!workOrder.is_correction) {
     return "";
   }
@@ -139,10 +145,10 @@ export function StageWorkOrdersPage({
 
   const filteredWorkOrders = workOrders.filter((workOrder) => {
     if (queueFilter === "NORMAL") {
-      return !workOrder.is_correction;
+      return !workOrder.is_correction && !workOrder.is_correction_round;
     }
     if (queueFilter === "CORRECTIONS") {
-      return workOrder.is_correction;
+      return workOrder.is_correction || workOrder.is_correction_round;
     }
     return true;
   });
