@@ -1,8 +1,14 @@
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+# Committed placeholder used only for local development. Any real deployment must override JWT_SECRET;
+# this value is rejected outside development so a leaked default can never sign/verify real tokens.
+INSECURE_DEFAULT_JWT_SECRET = "lakiernia-tuszko-secret-2026"
+_LOCAL_APP_ENVS = {"development", "test", "testing", "local"}
 
 
 class Settings(BaseSettings):
@@ -27,8 +33,8 @@ class Settings(BaseSettings):
         description="Maximum allowed attachment size in bytes.",
     )
     jwt_secret: str = Field(
-        default="lakiernia-tuszko-secret-2026",
-        description="Secret key for signing JWT tokens.",
+        default=INSECURE_DEFAULT_JWT_SECRET,
+        description="Secret key for signing JWT tokens. Must be overridden outside development.",
     )
 
     model_config = SettingsConfigDict(
@@ -36,6 +42,14 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         case_sensitive=False,
     )
+
+    @model_validator(mode="after")
+    def _require_secure_jwt_secret_outside_development(self) -> "Settings":
+        if self.app_env.lower() not in _LOCAL_APP_ENVS and self.jwt_secret in {"", INSECURE_DEFAULT_JWT_SECRET}:
+            raise ValueError(
+                "JWT_SECRET must be set to a non-default value when APP_ENV is not a local/development environment."
+            )
+        return self
 
 
 @lru_cache
