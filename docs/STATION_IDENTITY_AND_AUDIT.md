@@ -2,6 +2,8 @@
 
 This document defines the current station identity and audit layer for physical factory station panels. It is based on `docs/FACTORY_USAGE_NOTES.md` and the current working contract. The current implementation is station-context based, but factory clarification from 2026-06-01 says the target product also needs login and role design.
 
+Status update 2026-06-16: authentication (user accounts, login sessions, JWT) is now implemented and required on all business endpoints. The remaining gap is that authorization is still derived from the `X-Station-Id` header rather than the authenticated user's role — tracked as NA1 in `IMMEDIATE_NEXT_ACTIONS.md`.
+
 ## Problem
 
 The application is used from physical devices in specific factory areas. A screen action is not just a generic API request; it comes from an office computer, manager computer, surface-preparation tablet, hanging tablet, packing tablet, Decoral tablet, or another station device.
@@ -141,8 +143,8 @@ Implemented frontend propagation:
 Still open:
 
 - hide or reshape any future frontend actions that might cross station boundaries as new station capabilities are added, especially automatic-production paint consumption
-- add user login/session/role checks and audit actor fields
-- protect manager-only statistics with auth/roles, not only route naming
+- authentication (user accounts, login sessions, JWT) is implemented; the open gap is wiring authorization to the authenticated user's role instead of the `X-Station-Id` header, plus adding audit actor fields — see `IMMEDIATE_NEXT_ACTIONS.md` (NA1)
+- protect manager-only statistics by the authenticated role, not by the station header or route naming (currently header-based — NA1)
 
 ## Permission Direction
 

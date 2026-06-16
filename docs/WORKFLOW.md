@@ -21,7 +21,7 @@ Scope:
 - `counted_quantity == actual_received_quantity` for the active batch/order at packing
 - `planned_quantity - actual_received_quantity` must remain visible for audit/read models
 7. When packing creates a correction child, the correction quantity is split from the actual received quantity validated at packing, not from the original expected quantity.
-8. Correction is represented as a new child work order (`is_correction=true`, `parent_order_id` set).
+8. Correction representation depends on coating type (see Corrections Behavior): RAL resets the same order back to planning with a `CORRECTION` quantity batch; DECORAL creates a child correction work order (`is_correction=true`, `parent_order_id` set).
 9. Parent waits for open corrections; merge/finalization propagates upward when descendants close.
 
 ## Work Order Intake Fields
@@ -99,17 +99,31 @@ No correction outcome:
 
 ## Corrections Behavior
 
-When packing has correction quantity (`correction_quantity > 0`):
-1. Parent active batch is closed at packing.
-2. New child correction order is created:
+When packing has correction quantity (`correction_quantity > 0`), the representation depends on coating
+type. Both paths conserve quantity, skip `SURFACE_PREPARATION`, and rejoin the global queue only after
+manager planning.
+
+RAL (packing is the last stage):
+1. The OK quantity is added to `completed_quantity` and the active batch is closed.
+2. The same work order is reset to planning (`production_type = null`, `queue_position = null`) with a new
+`CORRECTION` quantity batch (`parent_batch_id` set) carrying the correction quantity. No child work order
+is created. The correction reason/category and profile/accessory split are stored on that `CORRECTION` batch.
+
+DECORAL (a Decoral stage still follows packing):
+1. The OK quantity continues on the root order's single Decoral pass (as a tracked batch).
+2. A child correction work order is created:
 - `is_correction = true`
-- `parent_order_id = parent.id`
+- `parent_order_id = root.id`
 - `queue_namespace = CORRECTIONS`
 - `production_type = null`, `queue_position = null` (unplanned)
-3. Parent enters waiting state until all open correction descendants are completed.
-4. Packing must record a correction reason/category when a correction child is created. The optional note can hold additional context from packing.
-5. The reason/category is stored on the child correction work order for statistics, read models, and audit; it does not change the workflow path and does not require approval before planning.
-6. Manager reporting aggregates correction child orders by stored reason/category, counting correction orders and summing their correction quantities. Legacy/uncategorized correction children remain visible as an uncategorized reporting row rather than being hidden.
+The correction reason/category and profile/accessory split are stored on the child work order, and the
+parent shows the `N` (decoral-incomplete) marker until corrections return.
+
+Common rules:
+3. Parent/root enters a waiting state until all open correction descendants are completed.
+4. Packing must record a correction reason/category whenever `correction_quantity > 0`. The optional note can hold additional context from packing.
+5. The reason/category does not change the workflow path and does not require approval before planning.
+6. Manager reporting aggregates corrections by stored reason/category from both sources — `CORRECTION` batches (RAL) and child correction orders (DECORAL) — counting correction events and summing their quantities. Legacy/uncategorized corrections remain visible as an uncategorized reporting row rather than being hidden.
 7. Initial coating-defect reason/category values are `niedomalowanie`, `za grubo`, `wtrącenia`, and `inne`; the list is acceptable for now, should remain simple in the UI, and may change later.
 8. The correction reason UI should not allow arbitrary custom categories. Storage may remain flexible for compatibility and future category changes, but operator entry should stay list-based.
 9. Packing correction entry should capture how many corrected pieces are profiles and how many are accessories. Those category correction quantities must sum to `correction_quantity` and must not introduce categories beyond profiles/accessories.
@@ -126,7 +140,7 @@ Decoral split behavior:
 - Parent is not READY while any correction child/descendant remains open
 
 Multi-round corrections:
-- Child can itself split again and create another child
+- RAL repeats the in-place batch reset on the same order for each round (a new `CORRECTION` batch per round); DECORAL children can themselves split again and create another child
 - Every correction descendant follows the same rule: skip `SURFACE_PREPARATION`, then start from the manager-assigned manual or automatic route.
 - Finalization/merge propagates up chain when deepest open correction closes
 - After a correction is completed and merged back into its parent, it is no longer shown as an active work order.
@@ -270,7 +284,7 @@ Current enforcement:
 - `SYSTEM` and `UNKNOWN` remain compatibility station identities for legacy/system paths.
 - Station-origin links to work-order details preserve the source station identity. Detail pages reached from production stations are read-only for office/manager mutations while keeping drawings/attachments downloadable.
 - Current automatic paint-consumption action is restricted to `AUTOMATIC_PRODUCTION`; future shared inventory or stock-receipt actions still need their own allowed-station rules.
-- Future auth/role work must add users, login sessions, role checks, and audit actor fields without weakening station-context checks.
+- Authentication now exists: user accounts, login sessions, and JWTs are required on all business endpoints. Authorization is still derived from the client-supplied `X-Station-Id` header, not the authenticated user's role, and a missing header is treated as `UNKNOWN` (no station restriction). Wiring authorization to the authenticated identity, plus audit actor fields, is open — see `IMMEDIATE_NEXT_ACTIONS.md` (NA1).
 
 ## Quantity Discrepancy Visibility
 
@@ -426,12 +440,12 @@ Additional completion behavior:
 | S02 | RAL | AUTOMATIC | none | SURFACE_PREPARATION -> HANGING -> PACKING (PRODUCTION preview) | READY | parent completed=Q, active=0 | no child |
 | S03 | DECORAL | MANUAL | none | SURFACE_PREPARATION -> PRODUCTION -> PACKING -> DECORAL_PRODUCTION | READY | parent completed=Q, active=0 | no child |
 | S04 | DECORAL | AUTOMATIC | none | SURFACE_PREPARATION -> HANGING -> PACKING -> DECORAL_PRODUCTION (PRODUCTION preview) | READY | parent completed=Q, active=0 | no child |
-| S05 | RAL | MANUAL | correction after packing | parent: ... -> PACKING, child: PRODUCTION -> PACKING | READY after child closes | parent final completed=Q; child completed=C | parent waits for child; child created unplanned |
-| S06 | RAL | AUTOMATIC | correction after packing | parent: ... -> PACKING, child: HANGING -> PACKING | READY after child closes | parent final completed=Q; child completed=C | automatic return via HANGING |
+| S05 | RAL | MANUAL | correction after packing | order: ... -> PACKING, then replanned: PRODUCTION -> PACKING | READY after correction round closes | order final completed=Q | same order reset to planning with a CORRECTION batch; no child order |
+| S06 | RAL | AUTOMATIC | correction after packing | order: ... -> PACKING, then replanned: HANGING -> PACKING | READY after correction round closes | order final completed=Q | same order reset to planning with a CORRECTION batch; automatic return via HANGING; no child order |
 | S07 | DECORAL | MANUAL | correction after packing | parent: ... -> PACKING -> DECORAL_PRODUCTION(ok); child: PRODUCTION -> PACKING -> DECORAL_PRODUCTION | READY after parent ok-part and child close | parent final completed=Q | parent keeps Decoral OK batch; child handles correction qty |
 | S08 | DECORAL | AUTOMATIC | correction after packing | parent: ... -> PACKING -> DECORAL_PRODUCTION(ok); child: HANGING -> PACKING -> DECORAL_PRODUCTION | READY after both close | parent final completed=Q | same as S07 + automatic child path |
-| S09 | RAL | MANUAL | multi-round correction | parent split -> child split -> deeper child close | READY after chain closes | root parent completed=Q | recursive merge propagation upward |
-| S10 | RAL | AUTOMATIC | multi-round correction | automatic variant of S09 (child return via HANGING) | READY after chain closes | root parent completed=Q | recursive merge with automatic return behavior |
+| S09 | RAL | MANUAL | multi-round correction | same order repeats PRODUCTION -> PACKING each round | READY after all rounds close | order completed=Q | each round is a new CORRECTION batch on the same order; no child orders |
+| S10 | RAL | AUTOMATIC | multi-round correction | automatic variant of S09 (rounds return via HANGING) | READY after all rounds close | order completed=Q | each round is a new CORRECTION batch on the same order; no child orders |
 | S11 | DECORAL | MANUAL | multi-round correction | dec + manual multi-round: each open branch requires Decoral completion | READY after all descendants close | root parent completed=Q | parent blocked until full descendant closure |
 | S12 | DECORAL | AUTOMATIC | multi-round correction | dec + automatic multi-round with HANGING return and Decoral completion | READY after all descendants close | root parent completed=Q | combines automatic rules + dec + recursive merge |
 

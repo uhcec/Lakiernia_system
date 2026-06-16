@@ -8,10 +8,13 @@ The backend owns business semantics. The frontend displays backend-provided work
 
 Read these first when changing the system:
 
-1. `docs/WORKFLOW.md` defines workflow behavior and business semantics.
-2. `docs/WORKING_CONTRACT.md` defines how we work on the system together.
-3. `HARDENING_BACKLOG.md` tracks risk and hardening work, but verify each item against current code before treating it as open.
-4. Tests and Alembic migrations describe implemented behavior and durable schema history.
+1. `IMMEDIATE_NEXT_ACTIONS.md` is the living list of open, actionable work — start here.
+2. `docs/WORKFLOW.md` defines workflow behavior and business semantics.
+3. `docs/WORKING_CONTRACT.md` defines how we work on the system together.
+4. `HARDENING_BACKLOG.md` tracks *closed* risk/hardening work, but verify each item against current code before trusting it.
+5. Tests and Alembic migrations describe implemented behavior and durable schema history.
+
+Automated agents (Claude Code, Copilot) are wired to `IMMEDIATE_NEXT_ACTIONS.md` via `CLAUDE.md` and `.github/copilot-instructions.md`.
 
 If business behavior is unclear, clarify it before implementation. Existing docs and tests are useful evidence, but they can preserve old assumptions and do not prove that the real factory workflow is correct.
 
@@ -26,6 +29,11 @@ Implemented areas include:
 - packing quantity validation using persisted surface-preparation counted quantity
 - correction child work orders, recursive correction chains, merge/finalization behavior, and historical correction display markers
 - local PDF attachment storage for work orders
+- user accounts with login (JWT) required on all business endpoints, plus station-scoped action checks
+- client registry with per-client order history
+- app-owned paint inventory (deliveries, automatic-production consumption, manual adjustments) and intake stock snapshots
+- manager throughput/correction statistics and a read-only audit console
+- Excel-template quality-control document generation (Windows + Excel; see Development Notes)
 - backend tests, API tests, migration tests, frontend tests, and chaos-style API scenarios
 
 ## Technology
@@ -53,13 +61,17 @@ Frontend:
 
 ```text
 app/
-  api/                  FastAPI route aggregation and health route
+  api/                  FastAPI route aggregation, global auth dependency, health route
+  audit/                Audit events, station context, audit console API
+  auth/                 User accounts, login, JWT, current-user dependency
+  clients/              Client registry and per-client order history
   core/                 Settings and configuration
   database/             SQLAlchemy base, model registry, and sessions
-  manager/              Planning queue API, repository, schemas, service
-  process/              Production workflow API, models, schemas, service
+  manager/              Planning queue, correction-reason report, throughput stats
+  paints/               App-owned paint inventory, stock snapshots, consumption
+  process/              Production workflow engine, stage/batch models, schemas, service
   shared/               Shared enums, exceptions, cross-module helpers
-  work_orders/          Intake, order detail, attachments, numbering
+  work_orders/          Intake, order detail, attachments, numbering, QC document
 alembic/                Database migration history
 docs/
   DEVELOPMENT_RUNBOOK.md
@@ -95,7 +107,11 @@ BACKEND_CORS_ORIGINS=["http://127.0.0.1:5173","http://localhost:5173"]
 DATABASE_URL=sqlite:///./local.db
 WORK_ORDER_ATTACHMENTS_DIR=./storage/work_order_attachments
 WORK_ORDER_ATTACHMENT_MAX_SIZE_BYTES=10485760
+JWT_SECRET=change-me-in-every-real-deployment
 ```
+
+`JWT_SECRET` has an insecure built-in default; override it in any non-local environment (see
+`IMMEDIATE_NEXT_ACTIONS.md` NA12).
 
 Apply migrations:
 
@@ -138,7 +154,9 @@ The seed script:
 - deletes application data from local SQLite only
 - keeps migration tables intact
 - recreates local attachment storage files
-- seeds representative intake, planning, process, packing, correction, attachment, and queue scenarios
+- seeds login accounts (one per station plus an admin), sample clients, and representative work orders
+
+Run `python scripts/print_seed_scenarios.py` to list the seeded order numbers and scenarios.
 
 Safety guardrails:
 
@@ -192,6 +210,27 @@ Local frontend URL:
 ```text
 http://127.0.0.1:5173
 ```
+
+## Login (Local Development)
+
+All business endpoints require a logged-in user (JWT). The seed script creates one account per station
+plus an admin. Default local credentials (login / password):
+
+| Login | Password | Station / role |
+|---|---|---|
+| `biuro` | `bi1` | OFFICE |
+| `kierownik` | `ki1` | MANAGER |
+| `przygotowanie` | `prz1` | SURFACE_PREPARATION |
+| `zawieszanie` | `zaw1` | HANGING |
+| `produkcja-reczna` | `rec1` | MANUAL_PRODUCTION |
+| `produkcja-automat` | `aut1` | AUTOMATIC_PRODUCTION |
+| `pakowanie` | `pak1` | PACKING |
+| `decoral` | `dec1` | DECORAL_PRODUCTION |
+| `admin` | `adm1` | OFFICE + admin |
+
+These are development-only credentials seeded by `scripts/reset_and_seed_dev_db.py`. Note: today the
+backend authorizes station actions from the `X-Station-Id` header (sent by the frontend per page), not
+from the logged-in account's role — see `IMMEDIATE_NEXT_ACTIONS.md` (NA1).
 
 ## Quality Checks
 
@@ -266,6 +305,8 @@ Work-order attachments are stored on the local filesystem under `WORK_ORDER_ATTA
 - Queue positions are globally unique for planned work orders.
 - Correction orders are child work orders and join the same queue only after planning.
 - State-changing process actions must remain safe under retries, double clicks, and parallel users.
+- The quality-control document feature converts an Excel template to PDF and requires Windows + Excel + `pywin32`; importing `app/work_orders/service.py` currently starts an Excel worker thread (see `IMMEDIATE_NEXT_ACTIONS.md` NA2/NA5).
+- Concurrency safety assumes a single backend worker process (see `IMMEDIATE_NEXT_ACTIONS.md` NA8).
 
 ## Current Cleanup Path
 

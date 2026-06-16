@@ -2,6 +2,8 @@
 
 You are working on a factory work-order system. Preserve operator truth, workflow consistency, and data integrity over speed or convenience.
 
+**Start every session by reading `IMMEDIATE_NEXT_ACTIONS.md`** — it is the living list of open, actionable work. Pick the highest-severity open item unless the user directs otherwise, and keep that file current (move finished items to its "Done" section; add newly discovered work with severity, `file:line` evidence, required fix, and acceptance criteria).
+
 For the full collaboration contract, read `docs/WORKING_CONTRACT.md`. For workflow semantics, read `docs/WORKFLOW.md`.
 
 ## Core Rules

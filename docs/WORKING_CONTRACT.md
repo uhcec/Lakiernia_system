@@ -20,9 +20,10 @@ When sources disagree, use this order, while remembering that repo artifacts can
 
 1. `docs/WORKFLOW.md` for business workflow semantics.
 2. Current backend services, migrations, and tests for implemented behavior.
-3. `HARDENING_BACKLOG.md` for risk tracking, only after checking whether an item is still current.
-4. `README.md` for setup commands, only after stale sections are cleaned.
-5. Chat discussion for intent, once captured in a repo document or issue-style note.
+3. `IMMEDIATE_NEXT_ACTIONS.md` for the current open, actionable work queue — read it at the start of every session.
+4. `HARDENING_BACKLOG.md` for *closed* risk-tracking evidence, only after checking whether an item is still current.
+5. `README.md` for setup commands, only after stale sections are cleaned.
+6. Chat discussion for intent, once captured in a repo document or issue-style note.
 
 If business behavior is unclear, stop and clarify before implementation.
 
@@ -128,7 +129,12 @@ Use conservative defaults unless we intentionally choose a larger redesign.
 
 ## Immediate Starting Path
 
-1. Refresh `README.md` to describe the actual full-stack system.
-2. Reconcile `HARDENING_BACKLOG.md` with implemented work and real remaining risk.
-3. Refactor Copilot instructions into a lighter always-on contract plus targeted workflow aids.
-4. Audit multi-worker concurrency, remaining DB invariants, historical UI semantics, auth/roles, audit logging, and attachment lifecycle safety.
+The current, prioritized work queue lives in `IMMEDIATE_NEXT_ACTIONS.md`. Read it first and work the
+highest-severity open item unless the user directs otherwise. Keep that file current as work is done.
+
+Standing themes behind that queue:
+
+1. Wire authorization to authenticated identity (not the spoofable station header).
+2. Reconcile docs (`WORKFLOW.md`, `HARDENING_BACKLOG.md`) with implemented behavior as it changes.
+3. Keep the build/CI installable and platform-honest (Excel/Windows coupling).
+4. Continue auditing multi-worker concurrency, DB invariants, historical UI semantics, and auth/roles.
