@@ -1,30 +1,122 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import { fetchThroughputStats } from "../api/managerApi";
-import type { ThroughputStats } from "../types/manager";
+import type { ThroughputPeriod, ThroughputStats } from "../types/manager";
+import { BarChart, type BarChartPoint } from "../components/BarChart";
+
+type GroupBy = "day" | "week" | "month";
+
+type LoadedParams = { from: string; to: string; groupBy: GroupBy };
+
+type MonthAnchor = { year: number; month: number }; // month is 0-based
+
+const MONTHS_PL_SHORT = ["Sty", "Lut", "Mar", "Kwi", "Maj", "Cze", "Lip", "Sie", "Wrz", "Paź", "Lis", "Gru"];
+const MONTHS_PL = [
+  "Styczeń", "Luty", "Marzec", "Kwiecień", "Maj", "Czerwiec",
+  "Lipiec", "Sierpień", "Wrzesień", "Październik", "Listopad", "Grudzień",
+];
+const MAX_DAILY_BARS = 366;
+
+function monthRange(anchor: MonthAnchor): { from: string; to: string } {
+  const from = new Date(Date.UTC(anchor.year, anchor.month, 1)).toISOString().slice(0, 10);
+  const to = new Date(Date.UTC(anchor.year, anchor.month + 1, 0)).toISOString().slice(0, 10);
+  return { from, to };
+}
+
+function currentMonthAnchor(): MonthAnchor {
+  const now = new Date();
+  return { year: now.getFullYear(), month: now.getMonth() };
+}
+
+function isoParts(iso: string): { y: number; m: number; d: number } {
+  const [y, m, d] = iso.split("-").map(Number);
+  return { y, m, d };
+}
+
+function formatDayLabel(iso: string): string {
+  const { y, m, d } = isoParts(iso);
+  return `${String(d).padStart(2, "0")}.${String(m).padStart(2, "0")}.${y}`;
+}
+
+function eachDay(from: string, to: string): string[] {
+  const days: string[] = [];
+  const end = new Date(`${to}T00:00:00Z`).getTime();
+  for (let t = new Date(`${from}T00:00:00Z`).getTime(); t <= end; t += 86_400_000) {
+    days.push(new Date(t).toISOString().slice(0, 10));
+    if (days.length > MAX_DAILY_BARS) break;
+  }
+  return days;
+}
+
+function buildPoints(
+  stats: ThroughputStats,
+  params: LoadedParams,
+  metric: (period: ThroughputPeriod) => number,
+): BarChartPoint[] {
+  if (params.groupBy === "day") {
+    const days = eachDay(params.from, params.to);
+    if (days.length <= MAX_DAILY_BARS) {
+      const byDate = new Map(stats.periods.map((period) => [period.period_start, period]));
+      return days.map((iso) => {
+        const period = byDate.get(iso);
+        return {
+          key: iso,
+          tick: String(isoParts(iso).d),
+          label: formatDayLabel(iso),
+          value: period ? metric(period) : 0,
+        };
+      });
+    }
+  }
+  return stats.periods.map((period) => ({
+    key: period.period_start,
+    tick:
+      params.groupBy === "month"
+        ? MONTHS_PL_SHORT[isoParts(period.period_start).m - 1]
+        : formatDayLabel(period.period_start).slice(0, 5),
+    label: period.period_label,
+    value: metric(period),
+  }));
+}
 
 export function StatystykiPage() {
+  const [anchor, setAnchor] = useState<MonthAnchor>(currentMonthAnchor);
   const [throughputStats, setThroughputStats] = useState<ThroughputStats | null>(null);
-  const [dateFrom, setDateFrom] = useState(() => {
-    const d = new Date();
-    d.setDate(d.getDate() - 29);
-    return d.toISOString().slice(0, 10);
-  });
-  const [dateTo, setDateTo] = useState(() => new Date().toISOString().slice(0, 10));
-  const [groupBy, setGroupBy] = useState<"day" | "week" | "month">("day");
+  const [loadedParams, setLoadedParams] = useState<LoadedParams | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  async function handleLoad() {
+  const today = currentMonthAnchor();
+  const isCurrentMonth = anchor.year === today.year && anchor.month === today.month;
+
+  useEffect(() => {
+    const { from, to } = monthRange(anchor);
+    let cancelled = false;
     setIsLoading(true);
     setErrorMessage(null);
-    try {
-      const stats = await fetchThroughputStats(dateFrom, dateTo, groupBy);
-      setThroughputStats(stats);
-    } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "Nie udało się pobrać statystyk");
-    } finally {
-      setIsLoading(false);
-    }
+    fetchThroughputStats(from, to, "day")
+      .then((stats) => {
+        if (cancelled) return;
+        setThroughputStats(stats);
+        setLoadedParams({ from, to, groupBy: "day" });
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setErrorMessage(error instanceof Error ? error.message : "Nie udało się pobrać statystyk");
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [anchor]);
+
+  function shiftMonth(delta: number) {
+    setAnchor((current) => {
+      const d = new Date(current.year, current.month + delta, 1);
+      return { year: d.getFullYear(), month: d.getMonth() };
+    });
   }
 
   return (
@@ -33,54 +125,45 @@ export function StatystykiPage() {
         <div className="mb-6">
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">Produkcja</p>
           <h2 className="mt-1 text-3xl font-semibold text-ink sm:text-4xl">Przepustowość</h2>
-          <p className="mt-2 text-sm text-steel">Zrealizowane m² i sztuki poprawek według daty zakończenia pakowania.</p>
+          <p className="mt-2 text-sm text-steel">
+            Zrealizowane m² (wg typu produkcji — ręczna/automat obejmują też bazę zleceń Decoral) i sztuki poprawek
+            w skali dnia, według daty zakończenia pakowania.
+          </p>
         </div>
 
-        <div className="flex flex-wrap items-end gap-3">
-          <div className="flex flex-col gap-1">
-            <label className="text-xs font-semibold uppercase tracking-[0.12em] text-steel">Od</label>
-            <input
-              type="date"
-              value={dateFrom}
-              onChange={(e) => setDateFrom(e.target.value)}
-              className="rounded-2xl border border-line bg-mist/40 px-4 py-2 text-sm text-ink focus:border-accent focus:outline-none"
-            />
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="inline-flex items-center gap-1 rounded-2xl border border-line bg-mist p-1">
+            <button
+              type="button"
+              onClick={() => shiftMonth(-1)}
+              aria-label="Poprzedni miesiąc"
+              className="rounded-xl p-2 text-steel transition hover:bg-white hover:text-accent"
+            >
+              <ChevronLeft className="h-5 w-5" />
+            </button>
+            <span className="min-w-[160px] text-center text-sm font-semibold text-ink">
+              {MONTHS_PL[anchor.month]} {anchor.year}
+            </span>
+            <button
+              type="button"
+              onClick={() => shiftMonth(1)}
+              disabled={isCurrentMonth}
+              aria-label="Następny miesiąc"
+              className="rounded-xl p-2 text-steel transition hover:bg-white hover:text-accent disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-steel"
+            >
+              <ChevronRight className="h-5 w-5" />
+            </button>
           </div>
-          <div className="flex flex-col gap-1">
-            <label className="text-xs font-semibold uppercase tracking-[0.12em] text-steel">Do</label>
-            <input
-              type="date"
-              value={dateTo}
-              onChange={(e) => setDateTo(e.target.value)}
-              className="rounded-2xl border border-line bg-mist/40 px-4 py-2 text-sm text-ink focus:border-accent focus:outline-none"
-            />
-          </div>
-          <div className="flex flex-col gap-1">
-            <label className="text-xs font-semibold uppercase tracking-[0.12em] text-steel">Grupowanie</label>
-            <div className="inline-flex rounded-2xl border border-line bg-mist p-1 gap-1">
-              {(["day", "week", "month"] as const).map((g) => (
-                <button
-                  key={g}
-                  type="button"
-                  onClick={() => setGroupBy(g)}
-                  className={[
-                    "rounded-xl px-3 py-1.5 text-xs font-medium transition",
-                    groupBy === g ? "bg-white text-ink shadow-sm" : "text-steel hover:text-accent",
-                  ].join(" ")}
-                >
-                  {g === "day" ? "Dzień" : g === "week" ? "Tydzień" : "Miesiąc"}
-                </button>
-              ))}
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={() => void handleLoad()}
-            disabled={isLoading}
-            className="inline-flex items-center justify-center rounded-full bg-accent px-5 py-2.5 text-sm font-medium text-white transition hover:bg-teal-700 disabled:opacity-60"
-          >
-            {isLoading ? "Ładowanie…" : "Pokaż"}
-          </button>
+          {!isCurrentMonth ? (
+            <button
+              type="button"
+              onClick={() => setAnchor(currentMonthAnchor())}
+              className="rounded-full border border-line px-4 py-2 text-xs font-medium text-steel transition hover:border-accent hover:text-accent"
+            >
+              Bieżący miesiąc
+            </button>
+          ) : null}
+          {isLoading ? <span className="text-sm text-steel">Ładowanie…</span> : null}
         </div>
 
         {errorMessage ? (
@@ -97,6 +180,37 @@ export function StatystykiPage() {
               </div>
             ) : null}
 
+            {loadedParams && throughputStats.periods.length > 0 ? (
+              <div className="mb-6 flex flex-col gap-4">
+                <BarChart
+                  title="Produkcja automat — m² / dzień"
+                  unit="m²"
+                  decimals={1}
+                  barClassName="bg-accent"
+                  yMax={1200}
+                  yTickStep={100}
+                  plotHeight={360}
+                  data={buildPoints(throughputStats, loadedParams, (p) => p.m2_automatic)}
+                />
+                <BarChart
+                  title="Produkcja ręczna — m² / dzień"
+                  unit="m²"
+                  decimals={1}
+                  barClassName="bg-sky-500"
+                  yMax={70}
+                  yTickStep={10}
+                  plotHeight={360}
+                  data={buildPoints(throughputStats, loadedParams, (p) => p.m2_manual)}
+                />
+                <BarChart
+                  title="Poprawki — sztuki / dzień"
+                  unit="szt."
+                  barClassName="bg-amber-500"
+                  data={buildPoints(throughputStats, loadedParams, (p) => p.correction_pieces)}
+                />
+              </div>
+            ) : null}
+
             <div className="overflow-x-auto rounded-3xl border border-line bg-white">
               <table className="w-full min-w-[640px] text-sm">
                 <thead>
@@ -104,7 +218,9 @@ export function StatystykiPage() {
                     <th className="px-5 py-3 text-left">Okres</th>
                     <th className="px-4 py-3 text-right">m² Ręczna</th>
                     <th className="px-4 py-3 text-right">m² Automat</th>
-                    <th className="px-4 py-3 text-right">m² Decoral</th>
+                    <th className="px-4 py-3 text-right" title="Z tego zlecenia Decoral — podzbiór, nie sumuje się z Ręczną/Automat">
+                      m² z tego Decoral
+                    </th>
                     <th className="px-4 py-3 text-right font-bold">m² Razem</th>
                     <th className="px-4 py-3 text-right">Zlecenia</th>
                     <th className="px-4 py-3 text-right">Poprawki (szt.)</th>
@@ -179,7 +295,7 @@ export function StatystykiPage() {
           </div>
         ) : !isLoading ? (
           <div className="mt-6 rounded-3xl border border-dashed border-line bg-mist px-6 py-10 text-center text-sm text-steel">
-            Wybierz zakres dat i kliknij „Pokaż" aby załadować dane.
+            Brak danych dla miesiąca {MONTHS_PL[anchor.month]} {anchor.year}.
           </div>
         ) : null}
       </section>

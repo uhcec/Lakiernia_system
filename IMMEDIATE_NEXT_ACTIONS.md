@@ -98,17 +98,7 @@ they are not yet validated against live factory policy where noted.
   the scenario matrix reflects current behavior.
 
 ### NA4. Throughput stats undercount corrections (inconsistent with the reason report)
-- Status: OPEN
-- Problem: `ManagerService.get_throughput_stats` counts corrections only by
-  `WorkOrder.is_correction == True` (`app/manager/service.py:156-168`). Since RAL corrections (and
-  DECORAL decoral-stage corrections) are now `CORRECTION` batches rather than child orders, the
-  Statystyki "korekty" pieces/count miss them. `list_correction_reason_report` correctly unions both
-  batch and child corrections (`app/manager/repository.py:99-140`), so the two manager surfaces
-  disagree.
-- Required fix: Align the throughput corrections query with the dual-source logic used by the reason
-  report (count `CORRECTION` batches + child correction orders, without double counting).
-- Acceptance: Throughput correction counts equal the reason-report totals for the same period; tests
-  cover a RAL batch correction and a DECORAL child correction.
+- Status: DONE (2026-06-16) — see Done section.
 
 ### NA5. Excel COM worker is spawned at module import (side-effectful import)
 - Status: DONE (2026-06-16) — see Done section.
@@ -167,6 +157,21 @@ they are not yet validated against live factory policy where noted.
 - Required fix: Validate password byte length at registration/change, or pre-hash.
 - Acceptance: Over-long passwords are rejected or handled deterministically.
 
+### NA15. Dedicated Decoral-pass (`DECORAL_PRODUCTION`) throughput chart — deferred
+- Status: OPEN (deferred by user 2026-06-16 when adding the production/correction bar charts)
+- Context: The Statystyki page now shows per-day bar charts for automatic m², manual m², and correction
+  pieces. Base-production m² is split purely by `production_type`, so a DECORAL order's base coat counts
+  toward automatic/manual (see WORKFLOW.md "Throughput Reporting"). The user wants a **separate**
+  throughput chart for the Decoral pass itself.
+- Problem: `m2_decoral` is currently measured at `PACKING` completion (coating = DECORAL), which is an
+  approximation — the real Decoral pass (`DECORAL_PRODUCTION` stage) completes *after* packing. There is
+  no per-day series keyed on `DECORAL_PRODUCTION` `DONE`.
+- Required fix: Add a throughput series for the Decoral pass keyed on the `DECORAL_PRODUCTION` stage
+  `DONE` date (m² and/or pieces), expose it in `ThroughputPeriod`, and render a fourth bar chart. Decide
+  whether to keep the packing-time `m2_decoral` subset column or replace it with the pass-time number.
+- Acceptance: A Decoral-pass chart shows m² processed on the Decoral line per day, attributed at
+  `DECORAL_PRODUCTION` completion; covered by a test; WORKFLOW.md updated.
+
 ### NA14. `WorkOrdersTable` is dead code (kept alive only by tests)
 - Status: OPEN
 - Problem: `frontend/src/components/WorkOrdersTable.tsx` is imported only by `uiStateConsistency.test.tsx`;
@@ -192,6 +197,29 @@ they are not yet validated against live factory policy where noted.
 
 ## Done
 
+- **NA4 (2026-06-16)** — Throughput corrections now count both sources of the hybrid model, matching
+  the reason report. `ManagerService.get_throughput_stats` (`app/manager/service.py`) aggregates
+  `CORRECTION` quantity batches (RAL packing / DECORAL decoral-stage resets) **plus** child correction
+  work orders (`is_correction=true`, DECORAL packing), each keyed by its own `created_at`, merged per
+  period without double counting (the two sources are disjoint). Previously only child orders were
+  counted, so RAL batch corrections were invisible on the "Poprawki" chart/table and disagreed with the
+  reason report. Added regression
+  `test_throughput_corrections_count_both_ral_batch_and_decoral_child` (RAL batch 7 szt + DECORAL child
+  5 szt = 12, asserted equal to the reason-report total). WORKFLOW.md "Throughput Reporting" updated.
+  Verified: full backend `pytest` green, Alembic clean. (m² accounting was already correct and is
+  unaffected.)
+- **Statystyki bar charts (2026-06-16)** — Added per-day bar charts to the Statystyki page: automatic
+  m², manual m², and correction pieces, above the existing detail table. Backend change: base-production
+  m² is now split purely by `production_type` (`app/manager/service.py`), so a DECORAL order's base coat
+  counts toward `m2_manual`/`m2_automatic` exactly like RAL (`m2_manual + m2_automatic = m2_total`);
+  `m2_decoral` stays as an overlapping "of which Decoral" subset. Frontend: new reusable
+  `frontend/src/components/BarChart.tsx` (custom SVG/Tailwind, no new dependency) and
+  `StatystykiPage.tsx` builds series with zero-filled days across the loaded range; the table's Decoral
+  column is relabelled "m² z tego Decoral". Docs: new WORKFLOW.md "Throughput Reporting" section.
+  Follow-ups logged: NA15 (dedicated Decoral-pass chart, deferred) and NA4 note (correction undercount
+  now also affects the chart). Verified: backend `pytest` green incl. new
+  `test_throughput_splits_base_production_by_production_type_including_decoral`, frontend 70 passed,
+  build passes.
 - **NA1 (2026-06-16)** — Authorization now derives from the authenticated user, not the spoofable
   `X-Station-Id` header. `StationContext` carries `station_id` + `is_admin` from the JWT user, and
   `get_station_context` depends on `get_current_user` (`app/audit/context.py`). `ensure_station_allowed`

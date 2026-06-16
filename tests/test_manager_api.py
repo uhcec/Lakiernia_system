@@ -391,6 +391,84 @@ def test_manager_statistics_require_manager_or_admin(test_client: TestClient) ->
     assert manager_report.status_code == 200
 
 
+def test_throughput_splits_base_production_by_production_type_including_decoral(test_client: TestClient) -> None:
+    # Base-production throughput is split purely by production type: a DECORAL order's base
+    # coat counts toward m2_manual/m2_automatic exactly like RAL. m2_decoral stays as an
+    # overlapping subset (for the dedicated decoral-pass report), not an exclusive bucket.
+    ral = create_work_order(test_client, "RAL manual throughput", coating_type="RAL", total_area_m2=10.0)
+    decoral = create_work_order(test_client, "Decoral manual throughput", coating_type="DECORAL", total_area_m2=15.0)
+
+    test_client.post(f"/manager/work-orders/{ral['id']}/plan", json={"production_type": "MANUAL", "queue_position": 1})
+    test_client.post(f"/manager/work-orders/{decoral['id']}/plan", json={"production_type": "MANUAL", "queue_position": 2})
+
+    complete_manual_ral_order(test_client, ral["id"])
+    complete_manual_ral_order(test_client, decoral["id"])
+
+    response = test_client.get(
+        "/manager/stats/throughput",
+        params={"date_from": "2000-01-01", "date_to": "2100-01-01"},
+    )
+
+    assert response.status_code == 200
+    totals = response.json()["totals"]
+    assert totals["m2_manual"] == 25.0  # RAL (10) + Decoral base coat (15)
+    assert totals["m2_automatic"] == 0.0
+    assert totals["m2_decoral"] == 15.0  # subset: only the decoral order
+    assert totals["m2_total"] == 25.0
+
+
+def test_throughput_corrections_count_both_ral_batch_and_decoral_child(test_client: TestClient) -> None:
+    # NA4: the corrections series must count both correction sources — RAL packing
+    # corrections (CORRECTION quantity batches on the same order) and DECORAL packing
+    # corrections (child "P" work orders) — and agree with the reason report.
+
+    # RAL packing correction -> CORRECTION batch on the same order (no child).
+    ral = create_work_order(test_client, "RAL correction throughput", coating_type="RAL", total_quantity=100)
+    test_client.post(f"/manager/work-orders/{ral['id']}/plan", json={"production_type": "MANUAL", "queue_position": 1})
+    test_client.post(f"/process/work-orders/{ral['id']}/stages/SURFACE_PREPARATION/start")
+    test_client.post(
+        f"/process/work-orders/{ral['id']}/stages/SURFACE_PREPARATION/finish",
+        json={"counted_quantity": 100},
+    )
+    test_client.post(f"/process/work-orders/{ral['id']}/stages/PRODUCTION/start")
+    test_client.post(f"/process/work-orders/{ral['id']}/stages/PRODUCTION/finish")
+    test_client.post(f"/process/work-orders/{ral['id']}/stages/PACKING/start")
+    ral_packing = test_client.post(
+        f"/process/work-orders/{ral['id']}/packing/complete",
+        json={
+            "counted_quantity": 100,
+            "ok_quantity": 93,
+            "correction_quantity": 7,
+            "correction_profiles_quantity": 7,
+            "correction_accessories_quantity": 0,
+            "correction_reason_category": "za grubo",
+        },
+    )
+    assert ral_packing.status_code == 200
+
+    # DECORAL packing correction -> child "P" work order.
+    create_packing_correction(
+        test_client,
+        "Decoral correction throughput",
+        queue_position=2,
+        correction_quantity=5,
+        correction_reason_category="niedomalowanie",
+    )
+
+    throughput = test_client.get(
+        "/manager/stats/throughput",
+        params={"date_from": "2000-01-01", "date_to": "2100-01-01"},
+    )
+    assert throughput.status_code == 200
+    totals = throughput.json()["totals"]
+    assert totals["correction_pieces"] == 12  # 7 (RAL batch) + 5 (DECORAL child)
+
+    # The chart count must equal the reason report total for the same data (NA4 acceptance).
+    report = test_client.get("/manager/corrections/reason-report").json()
+    report_total = sum(item["total_correction_quantity"] for item in report)
+    assert report_total == totals["correction_pieces"]
+
+
 def test_correction_reason_report_exports_csv(test_client: TestClient) -> None:
     create_packing_correction(
         test_client,

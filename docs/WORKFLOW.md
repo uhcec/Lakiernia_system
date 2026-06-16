@@ -315,6 +315,31 @@ Current enforcement:
 - Packing-created correction children store the explicit profile/accessory correction split with both category `*_to_count` flags cleared.
 - Process/station read models show stored category counts for full-order contexts, derive binary category splits for partial contexts, and mark mixed-category partial contexts as to-count.
 
+## Throughput Reporting (Statystyki / Przepustowość)
+
+Manager statistics (`/manager/stats/throughput`, station MANAGER/admin only) report processed area
+and corrections per period (day/week/month), keyed by the date a stage event occurs:
+
+- **m² by production type.** Base-production throughput is split purely by `production_type`:
+  `m2_manual` = all orders with `production_type = MANUAL`, `m2_automatic` = all with `AUTOMATIC`,
+  regardless of coating. A DECORAL order's base coat therefore counts toward manual/automatic exactly
+  like RAL, so `m2_manual + m2_automatic = m2_total` (every produced order has one production type).
+- **m² is attributed at PACKING completion** (`PACKING` stage `DONE` date), using `total_area_m2`.
+  Orders without a filled `total_area_m2` are excluded from m² and surfaced as a separate count.
+- **`m2_decoral` is an overlapping subset, not an exclusive bucket** — it sums `total_area_m2` of
+  orders with `coating_type = DECORAL`. It is reporting context ("of which Decoral"); it must not be
+  added to manual/automatic. The dedicated decoral-pass (`DECORAL_PRODUCTION`) throughput chart is a
+  separate, still-to-build report.
+- **Corrections** are counted from **both** correction sources of the hybrid model (same as
+  `list_correction_reason_report`, so the chart and the reason report agree): `CORRECTION` quantity
+  batches (RAL packing / DECORAL decoral-stage resets) **plus** child correction work orders
+  (`is_correction = true`, DECORAL packing). Each is keyed by its own `created_at`; `correction_pieces`
+  sums batch `quantity` + child `total_quantity`, `correction_orders_count` counts the correction
+  events. The two sources are disjoint, so there is no double counting. (Counting only child orders
+  would undercount RAL corrections — historical bug NA4.)
+- The frontend renders per-day bar charts (automatic m², manual m², correction pieces) plus a detail
+  table; it must not re-derive these buckets locally beyond zero-filling missing days in the range.
+
 ## Additional Work Types
 
 Confirmed concepts:

@@ -12,7 +12,7 @@ from app.audit.repository import AuditRepository
 from app.paints.repository import PaintRepository
 from app.paints.service import PaintService
 from app.process.enums import CoatingType, ProcessDisplayStatus, ProductionType
-from app.process.models import WorkOrderStageState
+from app.process.models import WorkOrderQuantityBatch, WorkOrderStageState
 from app.process.repository import ProcessRepository
 from app.process.service import ProcessService
 from app.manager.repository import ManagerRepository
@@ -26,7 +26,7 @@ from app.manager.schemas import (
     WorkOrderQueueReorderBatchRequest,
     WorkOrderQueueReorderRequest,
 )
-from app.process.enums import ProcessStage, StageStatus
+from app.process.enums import ProcessStage, QuantityBatchType, StageStatus
 from app.shared.enums import StationId, WorkOrderStatus
 from app.shared.exceptions import InvalidManagerPlanningError, ResourceNotFoundError
 from app.work_orders.models import WorkOrder
@@ -116,11 +116,14 @@ class ManagerService:
         throughput_rows = session.execute(
             select(
                 period_expr.label("period"),
+                # Base-production throughput is split purely by production type, so a
+                # DECORAL order's base coat counts toward manual/automatic just like RAL.
+                # The dedicated decoral pass (DECORAL_PRODUCTION) is reported separately
+                # via m2_decoral below (an overlapping subset, not an exclusive bucket).
                 func.sum(
                     case(
                         (
-                            (WorkOrder.coating_type == CoatingType.RAL)
-                            & (WorkOrder.production_type == ProductionType.MANUAL),
+                            WorkOrder.production_type == ProductionType.MANUAL,
                             func.coalesce(WorkOrder.total_area_m2, 0.0),
                         ),
                         else_=0.0,
@@ -129,8 +132,7 @@ class ManagerService:
                 func.sum(
                     case(
                         (
-                            (WorkOrder.coating_type == CoatingType.RAL)
-                            & (WorkOrder.production_type == ProductionType.AUTOMATIC),
+                            WorkOrder.production_type == ProductionType.AUTOMATIC,
                             func.coalesce(WorkOrder.total_area_m2, 0.0),
                         ),
                         else_=0.0,
@@ -158,11 +160,39 @@ class ManagerService:
             .order_by(period_expr)
         ).all()
 
-        corrections_rows = session.execute(
+        # Corrections come from two disjoint sources in the hybrid model (mirrors
+        # ManagerRepository.list_correction_reason_report so the chart and the reason
+        # report agree): RAL packing / DECORAL decoral-stage corrections are CORRECTION
+        # quantity batches, while DECORAL packing corrections spin off child "P" work
+        # orders. Both are aggregated by their own created_at date.
+        corrections_by_period: dict[str, list[int]] = {}
+
+        def _add_corrections(period: str, pieces: int, events: int) -> None:
+            bucket = corrections_by_period.setdefault(period, [0, 0])
+            bucket[0] += pieces
+            bucket[1] += events
+
+        batch_correction_rows = session.execute(
+            select(
+                func.strftime(date_fmt, WorkOrderQuantityBatch.created_at).label("period"),
+                func.coalesce(func.sum(WorkOrderQuantityBatch.quantity), 0).label("pieces"),
+                func.count(WorkOrderQuantityBatch.id).label("events"),
+            )
+            .where(
+                WorkOrderQuantityBatch.type == QuantityBatchType.CORRECTION,
+                func.date(WorkOrderQuantityBatch.created_at) >= date_from,
+                func.date(WorkOrderQuantityBatch.created_at) <= date_to,
+            )
+            .group_by(func.strftime(date_fmt, WorkOrderQuantityBatch.created_at))
+        ).all()
+        for row in batch_correction_rows:
+            _add_corrections(row.period, int(row.pieces or 0), int(row.events))
+
+        child_correction_rows = session.execute(
             select(
                 func.strftime(date_fmt, WorkOrder.created_at).label("period"),
-                func.sum(WorkOrder.total_quantity).label("correction_pieces"),
-                func.count(WorkOrder.id).label("correction_orders_count"),
+                func.coalesce(func.sum(WorkOrder.total_quantity), 0).label("pieces"),
+                func.count(WorkOrder.id).label("events"),
             )
             .where(
                 WorkOrder.is_correction == True,  # noqa: E712
@@ -171,6 +201,8 @@ class ManagerService:
             )
             .group_by(func.strftime(date_fmt, WorkOrder.created_at))
         ).all()
+        for row in child_correction_rows:
+            _add_corrections(row.period, int(row.pieces or 0), int(row.events))
 
         without_m2_count = session.execute(
             select(func.count(WorkOrder.id))
@@ -184,7 +216,6 @@ class ManagerService:
         ).scalar() or 0
 
         throughput_by_period = {row.period: row for row in throughput_rows}
-        corrections_by_period = {row.period: row for row in corrections_rows}
         all_period_keys = sorted(set(throughput_by_period) | set(corrections_by_period))
 
         periods: list[ThroughputPeriod] = []
@@ -200,8 +231,8 @@ class ManagerService:
                     m2_decoral=round(float(t.m2_decoral) if t else 0.0, 2),
                     m2_total=round(float(t.m2_total) if t else 0.0, 2),
                     orders_count=int(t.orders_count) if t else 0,
-                    correction_pieces=int(c.correction_pieces) if c else 0,
-                    correction_orders_count=int(c.correction_orders_count) if c else 0,
+                    correction_pieces=c[0] if c else 0,
+                    correction_orders_count=c[1] if c else 0,
                 )
             )
 
