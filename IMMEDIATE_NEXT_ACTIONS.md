@@ -44,6 +44,7 @@ they are not yet validated against live factory policy where noted.
 - Acceptance: A request authenticated as one role cannot perform another role's mutating action,
   regardless of `X-Station-Id`; statistics require manager/admin; backend tests cover wrong-role
   attempts returning `403` driven by the token, not the header.
+- Design proposal: see `docs/AUTHZ_DESIGN_PROPOSAL.md` (awaiting approval before implementation).
 
 ### NA2. `pywin32` is an unconditional dependency — breaks `pip install` on Linux / CI
 - Status: DONE (2026-06-16) — see Done section.
