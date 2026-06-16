@@ -56,22 +56,36 @@ class _ExcelPdfConverter:
     lifetime of the process. All conversions are serialized through this
     thread so COM thread-affinity is respected and Excel is never restarted
     between requests.
+
+    The worker is started lazily (see ``_get_excel_pdf_converter``) so importing
+    this module has no side effects and does not require Windows/Excel. If Excel
+    or ``pywin32`` is unavailable the first conversion fails fast with a clear
+    error instead of hanging until the timeout.
     """
 
     def __init__(self) -> None:
         self._q: _queue.Queue = _queue.Queue()
+        self._ready = threading.Event()
+        self._init_error: Exception | None = None
         t = threading.Thread(target=self._worker, daemon=True, name="excel-pdf-worker")
         t.start()
 
     def _worker(self) -> None:
-        import pythoncom
-        import win32com.client
+        try:
+            import pythoncom
+            import win32com.client
 
-        pythoncom.CoInitialize()
-        excel = win32com.client.Dispatch("Excel.Application")
-        excel.Visible = False
-        excel.DisplayAlerts = False
-        excel.AskToUpdateLinks = False
+            pythoncom.CoInitialize()
+            excel = win32com.client.Dispatch("Excel.Application")
+            excel.Visible = False
+            excel.DisplayAlerts = False
+            excel.AskToUpdateLinks = False
+        except Exception as exc:  # pywin32/Excel missing or COM init failed
+            self._init_error = exc
+            self._ready.set()
+            return
+
+        self._ready.set()
         while True:
             task = self._q.get()
             if task is None:
@@ -98,6 +112,14 @@ class _ExcelPdfConverter:
                 done_event.set()
 
     def convert(self, xlsx_path: Path, pdf_path: Path, timeout: float = 60.0) -> None:
+        # Wait for the worker to finish initializing Excel before queueing work.
+        if not self._ready.wait(timeout=timeout):
+            raise RuntimeError("Konwersja PDF przekroczyła limit czasu (Excel nie odpowiada).")
+        if self._init_error is not None:
+            raise RuntimeError(
+                "Generowanie dokumentu wymaga systemu Windows z zainstalowanym pakietem Excel i biblioteką pywin32."
+            ) from self._init_error
+
         done_event = threading.Event()
         err_box: list[Exception] = []
         self._q.put((str(xlsx_path.resolve()), str(pdf_path.resolve()), done_event, err_box))
@@ -107,7 +129,17 @@ class _ExcelPdfConverter:
             raise err_box[0]
 
 
-_excel_pdf_converter = _ExcelPdfConverter()
+_excel_pdf_converter: _ExcelPdfConverter | None = None
+_excel_pdf_converter_lock = threading.Lock()
+
+
+def _get_excel_pdf_converter() -> _ExcelPdfConverter:
+    global _excel_pdf_converter
+    if _excel_pdf_converter is None:
+        with _excel_pdf_converter_lock:
+            if _excel_pdf_converter is None:
+                _excel_pdf_converter = _ExcelPdfConverter()
+    return _excel_pdf_converter
 
 
 class WorkOrderService:
@@ -547,7 +579,7 @@ class WorkOrderService:
             xlsx_path = Path(tmp_dir) / f"KJ_{work_order.order_number}.xlsx"
             pdf_path = Path(tmp_dir) / f"KJ_{work_order.order_number}.pdf"
             wb.save(xlsx_path)
-            _excel_pdf_converter.convert(xlsx_path, pdf_path)
+            _get_excel_pdf_converter().convert(xlsx_path, pdf_path)
             pdf_bytes = pdf_path.read_bytes()
 
         return io.BytesIO(pdf_bytes), f"KJ_{work_order.order_number}.pdf"
