@@ -268,7 +268,7 @@ Rules:
 
 ## Station Permissions
 
-Shared station identity is both audit context and an authorization input.
+Authorization is derived from the authenticated user's role (`station_id`/`is_admin`). Station identity remains the audit context for "where/who performed the action".
 
 Rules:
 - Frontend station panels should not show actions belonging to other stations.
@@ -280,11 +280,12 @@ Rules:
 - The current shared station identity model is not the final access model. Factory policy now requires login: production logs into station contexts, while office users need individual accounts.
 
 Current enforcement:
-- Wrong-station mutating requests return `403` for current office, manager, process, packing, and completed-release actions.
-- `SYSTEM` and `UNKNOWN` remain compatibility station identities for legacy/system paths.
+- Wrong-role mutating requests return `403` for current office, manager, process, packing, and completed-release actions, **derived from the authenticated user's role** (NA1).
+- Statistics (`/manager/stats/throughput`, `/manager/corrections/reason-report[/export.csv]`) require manager/admin.
+- `SYSTEM` (internal/seed callers, passed as no station context) remains the trusted identity; admins bypass station checks. `UNKNOWN` is no longer an allow-bypass — a request with an unknown/unauthorized role is denied.
 - Station-origin links to work-order details preserve the source station identity. Detail pages reached from production stations are read-only for office/manager mutations while keeping drawings/attachments downloadable.
 - Current automatic paint-consumption action is restricted to `AUTOMATIC_PRODUCTION`; future shared inventory or stock-receipt actions still need their own allowed-station rules.
-- Authentication now exists: user accounts, login sessions, and JWTs are required on all business endpoints. Authorization is still derived from the client-supplied `X-Station-Id` header, not the authenticated user's role, and a missing header is treated as `UNKNOWN` (no station restriction). Wiring authorization to the authenticated identity, plus audit actor fields, is open — see `IMMEDIATE_NEXT_ACTIONS.md` (NA1).
+- Authentication and authorization now both come from the JWT-authenticated user: user accounts, login sessions, and JWTs are required on all business endpoints, and authorization is derived from the user's `station_id`/`is_admin`, not the `X-Station-Id` header (NA1 closed; the header is now inert server-side). Open auth follow-ups: token expiry (NA6) and audit actor fields — see `IMMEDIATE_NEXT_ACTIONS.md`.
 
 ## Quantity Discrepancy Visibility
 

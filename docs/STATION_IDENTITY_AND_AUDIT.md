@@ -2,7 +2,7 @@
 
 This document defines the current station identity and audit layer for physical factory station panels. It is based on `docs/FACTORY_USAGE_NOTES.md` and the current working contract. The current implementation is station-context based, but factory clarification from 2026-06-01 says the target product also needs login and role design.
 
-Status update 2026-06-16: authentication (user accounts, login sessions, JWT) is now implemented and required on all business endpoints. The remaining gap is that authorization is still derived from the `X-Station-Id` header rather than the authenticated user's role — tracked as NA1 in `IMMEDIATE_NEXT_ACTIONS.md`.
+Status update 2026-06-16: authentication (user accounts, login sessions, JWT) is implemented and required on all business endpoints, and authorization is now derived from the authenticated user's role (`station_id`/`is_admin` in the JWT), not the `X-Station-Id` header (NA1 closed). The `X-Station-Id` header is now inert server-side; the audit `station_id` reflects the authenticated user's station. Remaining auth follow-ups: token expiry (NA6) and dedicated audit actor fields (`actor_user_id`/`actor_display_name`).
 
 ## Problem
 
@@ -131,7 +131,7 @@ Implemented backend audit coverage:
 - `GET /audit/work-orders/{work_order_id}/events` returns chronological audit history for a work order
 - `GET /audit/events` searches audit events by work order, event type, station, request ID, target, and created-at range
 - `GET /audit/events/export.csv` exports the same filtered audit events as CSV
-- mutating work-order, manager, process-stage, and packing endpoints reject explicit wrong-station actions with `403`; `UNKNOWN` and `SYSTEM` remain compatibility identities during rollout
+- mutating work-order, manager, process-stage, and packing endpoints reject wrong-role actions with `403`, derived from the authenticated user (NA1); `SYSTEM` (passed as `station_context=None`) remains the trusted internal/seed identity, while `UNKNOWN` is no longer an allow-bypass
 
 Implemented frontend propagation:
 
@@ -143,8 +143,13 @@ Implemented frontend propagation:
 Still open:
 
 - hide or reshape any future frontend actions that might cross station boundaries as new station capabilities are added, especially automatic-production paint consumption
-- authentication (user accounts, login sessions, JWT) is implemented; the open gap is wiring authorization to the authenticated user's role instead of the `X-Station-Id` header, plus adding audit actor fields — see `IMMEDIATE_NEXT_ACTIONS.md` (NA1)
-- protect manager-only statistics by the authenticated role, not by the station header or route naming (currently header-based — NA1)
+- add audit actor fields (`actor_user_id`/`actor_display_name`) now that login exists — see `IMMEDIATE_NEXT_ACTIONS.md`
+- add token expiry (currently tokens never expire) — see `IMMEDIATE_NEXT_ACTIONS.md` (NA6)
+
+Done (2026-06-16):
+
+- authorization is now derived from the authenticated user's role, not the `X-Station-Id` header (NA1)
+- manager-only statistics are protected by the authenticated role (manager/admin), not the station header or route naming (NA1)
 
 ## Permission Direction
 

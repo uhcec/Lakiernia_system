@@ -25,26 +25,8 @@ they are not yet validated against live factory policy where noted.
 ## HIGH
 
 ### NA1. Authorization is decoupled from authentication — any logged-in user can act as any station
-- Status: OPEN
-- Problem: Authentication is enforced on all business routers (`app/api/router.py:13-22`), but
-  authorization (`ensure_station_allowed`) runs entirely off the client-supplied `X-Station-Id`
-  header. A missing/blank header → `UNKNOWN` → full bypass (`app/audit/context.py:38`). The header is
-  parsed only from the request (`app/audit/context.py:26-29`) and the frontend derives it purely from
-  the URL path (`frontend/src/api/stationContext.ts:89-93`). The authenticated user's real role
-  (`station_id`, `is_admin` in the JWT, `app/auth/service.py:17-23`) is never consulted by any service.
-- Impact: A logged-in low-privilege account can complete packing, reorder the manager queue, release
-  orders to clients, or read manager-only statistics by setting or omitting `X-Station-Id`.
-  `ProtectedRoute` is client-side only and trivially bypassed. Contradicts `docs/WORKFLOW.md`
-  §Station Permissions and the 2026-06-01 factory clarification (`docs/WORKING_CONTRACT.md`) that
-  manager-only statistics and office/production logins must be auth-enforced.
-- Required fix: Derive `StationContext` from the authenticated user (JWT `station_id`/`is_admin`),
-  not from the spoofable header. Treat any incoming `X-Station-Id` as an audit hint only, and reject
-  (rather than silently allow) when the authenticated role is not permitted. Decide and document how
-  `UNKNOWN`/`SYSTEM` compatibility identities behave once identity comes from the token.
-- Acceptance: A request authenticated as one role cannot perform another role's mutating action,
-  regardless of `X-Station-Id`; statistics require manager/admin; backend tests cover wrong-role
-  attempts returning `403` driven by the token, not the header.
-- Design proposal: see `docs/AUTHZ_DESIGN_PROPOSAL.md` (awaiting approval before implementation).
+- Status: DONE (2026-06-16) — see Done section. Implemented per the approved
+  `docs/AUTHZ_DESIGN_PROPOSAL.md` defaults.
 
 ### NA2. `pywin32` is an unconditional dependency — breaks `pip install` on Linux / CI
 - Status: DONE (2026-06-16) — see Done section.
@@ -210,6 +192,20 @@ they are not yet validated against live factory policy where noted.
 
 ## Done
 
+- **NA1 (2026-06-16)** — Authorization now derives from the authenticated user, not the spoofable
+  `X-Station-Id` header. `StationContext` carries `station_id` + `is_admin` from the JWT user, and
+  `get_station_context` depends on `get_current_user` (`app/audit/context.py`). `ensure_station_allowed`
+  now: trusts `None`/`SYSTEM` (internal/seed callers only), bypasses for `is_admin`, and **removed the
+  `UNKNOWN` early-allow** so a missing header no longer bypasses anything. Manager statistics
+  (`/manager/stats/throughput`, `/manager/corrections/reason-report[/export.csv]`) are now gated to
+  manager/admin (`app/manager/service.py` `_ensure_stats_viewer` + router wiring). No backend code reads
+  `X-Station-Id` anymore; the frontend already sends `Authorization: Bearer` on every request
+  (`frontend/src/main.tsx` interceptor) and the header is now inert (audit context records the
+  authenticated user's station). Tests reworked: `tests/conftest.py` authenticates as the station named
+  in `X-Station-Id` (non-admin) or admin when absent, so existing per-request station semantics hold;
+  added unit tests for the new `ensure_station_allowed` semantics and an API test that statistics
+  require manager/admin. Verified: backend **352 passed**, Alembic clean, frontend **70 passed**, build
+  passes. (Token expiry — NA6 — remains open.)
 - **NA12 (2026-06-16)** — Removed the usable default JWT secret. `app/core/config.py` now rejects the
   committed default (or empty) `JWT_SECRET` when `APP_ENV` is not a local/development env, failing fast at
   startup. Verified: dev allows the default, `production` with the default is blocked, a real secret is

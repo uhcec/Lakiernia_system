@@ -2,10 +2,10 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from app.audit.context import parse_station_id
+from app.audit.context import StationContext, ensure_station_allowed, parse_station_id
 from app.audit.models import AuditEvent
 from app.shared.enums import StationId
-from app.shared.exceptions import InvalidStationIdentityError
+from app.shared.exceptions import InvalidStationIdentityError, StationActionForbiddenError
 
 
 def test_station_header_parser_accepts_known_values_and_normalizes_separators() -> None:
@@ -24,6 +24,31 @@ def test_station_header_parser_rejects_invalid_value() -> None:
         parse_station_id("warehouse")
 
     assert str(exc_info.value) == "Invalid station identity: warehouse."
+
+
+def test_ensure_station_allowed_admin_bypasses_any_action() -> None:
+    admin = StationContext(station_id=StationId.PACKING, is_admin=True)
+    # Admin may perform an action even though their station is not in the allowed set (NA1).
+    ensure_station_allowed(admin, allowed_station_ids={StationId.OFFICE}, action="office actions")
+
+
+def test_ensure_station_allowed_internal_and_system_callers_are_trusted() -> None:
+    ensure_station_allowed(None, allowed_station_ids={StationId.OFFICE}, action="seed/internal")
+    system = StationContext(station_id=StationId.SYSTEM, is_admin=False)
+    ensure_station_allowed(system, allowed_station_ids={StationId.OFFICE}, action="seed/internal")
+
+
+def test_ensure_station_allowed_unknown_no_longer_bypasses() -> None:
+    # The missing-header (UNKNOWN) early-allow is gone; an unknown station is denied (NA1).
+    unknown = StationContext(station_id=StationId.UNKNOWN, is_admin=False)
+    with pytest.raises(StationActionForbiddenError):
+        ensure_station_allowed(unknown, allowed_station_ids={StationId.OFFICE}, action="office actions")
+
+
+def test_ensure_station_allowed_wrong_station_is_denied() -> None:
+    packing = StationContext(station_id=StationId.PACKING, is_admin=False)
+    with pytest.raises(StationActionForbiddenError):
+        ensure_station_allowed(packing, allowed_station_ids={StationId.OFFICE}, action="office actions")
 
 
 def test_audit_event_persists_station_identity(db_session: Session) -> None:

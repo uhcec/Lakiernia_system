@@ -1,4 +1,7 @@
+from typing import Annotated
+
 import pytest
+from fastapi import Header
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
@@ -15,6 +18,24 @@ from app.main import create_app
 
 def _mock_admin_user() -> User:
     return User(id=1, login="admin", hashed_password="", station_id="OFFICE", is_admin=True)
+
+
+def _current_user_from_station_header(
+    x_station_id: Annotated[str | None, Header(alias="X-Station-Id")] = None,
+) -> User:
+    """Authenticate tests as the station named in ``X-Station-Id``.
+
+    Authorization now derives from the authenticated user (NA1), not the header. To keep the existing
+    per-request station semantics in the suite, this override logs in as the station's (non-admin)
+    user when a header is supplied, and as the admin user otherwise (admin bypasses authz). The raw
+    header value is kept as ``station_id`` so invalid values still surface as a 400 via
+    ``parse_station_id`` in ``get_station_context``.
+    """
+
+    if x_station_id is None or not x_station_id.strip():
+        return _mock_admin_user()
+    raw_station = x_station_id.strip()
+    return User(id=2, login=raw_station.lower(), hashed_password="", station_id=raw_station, is_admin=False)
 
 
 @pytest.fixture(autouse=True)
@@ -66,7 +87,7 @@ def test_client() -> TestClient:
 
     app = create_app()
     app.dependency_overrides[get_db_session] = override_get_db_session
-    app.dependency_overrides[get_current_user] = _mock_admin_user
+    app.dependency_overrides[get_current_user] = _current_user_from_station_header
 
     with TestClient(app) as client:
         yield client

@@ -355,6 +355,42 @@ def test_correction_reason_report_aggregates_correction_children(test_client: Te
     ]
 
 
+def test_manager_statistics_require_manager_or_admin(test_client: TestClient) -> None:
+    # Admin (no header) may view statistics; a non-manager station may not (NA1).
+    assert test_client.get("/manager/corrections/reason-report").status_code == 200
+    assert (
+        test_client.get(
+            "/manager/stats/throughput",
+            params={"date_from": "2026-05-01", "date_to": "2026-05-31"},
+        ).status_code
+        == 200
+    )
+
+    forbidden_report = test_client.get(
+        "/manager/corrections/reason-report",
+        headers={"X-Station-Id": "PACKING"},
+    )
+    forbidden_throughput = test_client.get(
+        "/manager/stats/throughput",
+        params={"date_from": "2026-05-01", "date_to": "2026-05-31"},
+        headers={"X-Station-Id": "PACKING"},
+    )
+    forbidden_export = test_client.get(
+        "/manager/corrections/reason-report/export.csv",
+        headers={"X-Station-Id": "PACKING"},
+    )
+
+    assert forbidden_report.status_code == 403
+    assert forbidden_throughput.status_code == 403
+    assert forbidden_export.status_code == 403
+
+    manager_report = test_client.get(
+        "/manager/corrections/reason-report",
+        headers={"X-Station-Id": "MANAGER"},
+    )
+    assert manager_report.status_code == 200
+
+
 def test_correction_reason_report_exports_csv(test_client: TestClient) -> None:
     create_packing_correction(
         test_client,

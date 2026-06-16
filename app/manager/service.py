@@ -75,7 +75,10 @@ class ManagerService:
     def list_planned_work_orders(self) -> list[WorkOrderRead]:
         return [self._to_read_model(work_order) for work_order in self.repository.list_planned_work_orders()]
 
-    def get_correction_reason_report(self) -> list[CorrectionReasonReportItem]:
+    def get_correction_reason_report(
+        self, station_context: StationContext | None = None
+    ) -> list[CorrectionReasonReportItem]:
+        self._ensure_stats_viewer(station_context)
         return [
             CorrectionReasonReportItem(
                 correction_reason_category=category,
@@ -90,7 +93,9 @@ class ManagerService:
         date_from: date,
         date_to: date,
         group_by: Literal["day", "week", "month"] = "day",
+        station_context: StationContext | None = None,
     ) -> ThroughputStats:
+        self._ensure_stats_viewer(station_context)
         session = self.repository.session
         date_fmt = {"day": "%Y-%m-%d", "week": "%Y-%W", "month": "%Y-%m"}[group_by]
 
@@ -486,6 +491,14 @@ class ManagerService:
             station_context,
             allowed_station_ids={StationId.MANAGER},
             action="manager planning actions",
+        )
+
+    @staticmethod
+    def _ensure_stats_viewer(station_context: StationContext | None) -> None:
+        ensure_station_allowed(
+            station_context,
+            allowed_station_ids={StationId.MANAGER},
+            action="manager statistics access",
         )
 
     def _get_existing_work_order(self, work_order_id: int) -> WorkOrder:

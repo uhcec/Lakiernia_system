@@ -1,7 +1,22 @@
 # Authorization Design Proposal (NA1)
 
-Status: PROPOSAL — awaiting approval before implementation. Tracked as NA1 in
-`IMMEDIATE_NEXT_ACTIONS.md`.
+Status: IMPLEMENTED (2026-06-16). The five decisions below were approved as recommended and the
+design was implemented; NA1 is closed in `IMMEDIATE_NEXT_ACTIONS.md` (Done section). This document is
+retained as the design record.
+
+Implementation summary:
+
+- `StationContext` now carries `station_id` + `is_admin` from the authenticated user;
+  `get_station_context` depends on `get_current_user` (`app/audit/context.py`).
+- `ensure_station_allowed`: trusts `None`/`SYSTEM` (internal/seed) callers, bypasses for admins,
+  removed the `UNKNOWN` early-allow, and denies anything else not in the allowed set.
+- Manager statistics gated to manager/admin (`app/manager/service.py` `_ensure_stats_viewer`, wired in
+  `app/manager/router.py`).
+- No backend code reads `X-Station-Id` anymore; the frontend sends `Authorization: Bearer` on every
+  request via the `frontend/src/main.tsx` interceptor.
+- Tests: `tests/conftest.py` authenticates as the station named in `X-Station-Id` (non-admin) or admin
+  when absent; added `ensure_station_allowed` unit tests and a statistics-gating API test. Verified:
+  backend 352 passed, Alembic clean, frontend 70 passed, build passes.
 
 ## Problem
 

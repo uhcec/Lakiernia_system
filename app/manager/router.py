@@ -47,25 +47,30 @@ def list_planned_work_orders(
 def get_throughput_stats(
     date_from: Annotated[date, Query()],
     date_to: Annotated[date, Query()],
+    station_context: Annotated[StationContext, Depends(get_station_context)],
     group_by: Annotated[Literal["day", "week", "month"], Query()] = "day",
     service: Annotated[ManagerService, Depends(get_manager_service)] = ...,
 ) -> ThroughputStats:
-    return service.get_throughput_stats(date_from, date_to, group_by)
+    return service.get_throughput_stats(date_from, date_to, group_by, station_context=station_context)
 
 
 @router.get("/corrections/reason-report", response_model=list[CorrectionReasonReportItem])
 def get_correction_reason_report(
     service: Annotated[ManagerService, Depends(get_manager_service)],
+    station_context: Annotated[StationContext, Depends(get_station_context)],
 ) -> list[CorrectionReasonReportItem]:
-    return service.get_correction_reason_report()
+    return service.get_correction_reason_report(station_context=station_context)
 
 
 @router.get("/corrections/reason-report/export.csv")
 def export_correction_reason_report_csv(
     service: Annotated[ManagerService, Depends(get_manager_service)],
+    station_context: Annotated[StationContext, Depends(get_station_context)],
 ) -> Response:
     return Response(
-        content=_build_correction_reason_report_csv(service.get_correction_reason_report()),
+        content=_build_correction_reason_report_csv(
+            service.get_correction_reason_report(station_context=station_context)
+        ),
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": 'attachment; filename="correction-reason-report.csv"'},
     )

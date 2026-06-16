@@ -70,12 +70,17 @@ backend state and must not infer correction/READY/queue/quantity meaning locally
 
 ## Gotchas (these burn fresh sessions)
 
-- **Excel at import:** importing `app/work_orders/service.py` constructs an Excel COM worker thread at
-  module load (`_excel_pdf_converter`). On Windows it launches Excel; off-Windows the thread dies
-  silently and QC document calls hang to a 60s timeout. (Tracked as NA5.)
-- **`pywin32` is an unconditional dependency** → `pip install` fails on Linux/CI as written. (NA2.)
-- **Authorization runs off the spoofable `X-Station-Id` header, not the logged-in user**; a blank
-  header bypasses station checks. Auth (JWT) is enforced; role authz is not. (NA1.)
+- **Excel/QC is Windows+Excel only, now lazy:** the Excel COM worker is built on first
+  `convert()` (`_get_excel_pdf_converter`), not at import (fixed in NA5), so importing
+  `app/work_orders/service.py` has no side effects. Off-Windows / missing pywin32, QC document
+  generation fails fast with a clear error instead of hanging.
+- **`pywin32` is Windows-only** (`pyproject.toml`: `pywin32>=306; sys_platform == 'win32'`, fixed in
+  NA2) — `pip install` works on Linux/CI.
+- **Authorization is derived from the authenticated user (JWT `station_id`/`is_admin`), not the
+  `X-Station-Id` header** (fixed in NA1). `get_station_context` depends on `get_current_user`;
+  `ensure_station_allowed` bypasses for admins, trusts only `None`/`SYSTEM` (internal/seed) callers, and
+  denies anything else not in the allowed set. The `X-Station-Id` header is inert server-side (the
+  frontend still sends it, but no code reads it). Manager statistics require manager/admin.
 - **Single backend worker assumed:** concurrency safety uses in-process `RLock`s plus DB constraints;
   the "no duplicate correction child" guarantee depends on one process. (NA8.)
 - **Local DB is `local.db` (SQLite).** Reset/seed with `python scripts/reset_and_seed_dev_db.py`
