@@ -629,7 +629,6 @@ export function ManagerPanelPage() {
                     POPRAWKA
                   </span>
                 ) : null}
-                <span className="font-mono text-base text-accent">::</span>
               </div>
             </article>
           );

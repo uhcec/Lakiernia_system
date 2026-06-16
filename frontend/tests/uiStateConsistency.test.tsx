@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -581,14 +581,14 @@ describe("frontend state consistency", () => {
 
     const { container } = render(<ManagerPanelPage />);
 
-    await screen.findByText("WO-1 :: Alpha");
+    await screen.findAllByText("WO-1");
 
     const getQueueOrder = () => Array.from(container.querySelectorAll("article")).map((item) => item.textContent ?? "");
     expect(getQueueOrder()[0]).toContain("WO-1");
     expect(getQueueOrder()[1]).toContain("WO-2");
 
-    const source = screen.getByText("WO-2 :: Beta").closest("article");
-    const target = screen.getByText("WO-1 :: Alpha").closest("article");
+    const source = screen.getAllByText("WO-2")[0].closest("article");
+    const target = screen.getAllByText("WO-1")[0].closest("article");
 
     expect(source).not.toBeNull();
     expect(target).not.toBeNull();
@@ -1368,8 +1368,8 @@ describe("frontend state consistency", () => {
     fireEvent.click(screen.getByRole("button", { name: /Gotowe 1/ }));
 
     expect(await screen.findByText("WO-OFFICE-READY")).toBeTruthy();
-    expect(screen.getByText("Wynik końcowy: 10 szt.")).toBeTruthy();
-    expect(screen.getByText("WYDANE")).toBeTruthy();
+    expect(screen.getByText("10 / 10 szt.")).toBeTruthy();
+    expect(screen.getByText("Wydane")).toBeTruthy();
     expect(screen.queryByText("WO-OFFICE-PROD")).toBeNull();
   });
 
@@ -1454,7 +1454,7 @@ describe("frontend state consistency", () => {
 
     render(<ManagerPanelPage />);
 
-    await screen.findByText("WO-CORR-ACTIVE-MGR :: Juliet");
+    await screen.findAllByText("WO-CORR-ACTIVE-MGR");
     expect(screen.getByText("Postęp: 4 / 4 szt.")).toBeTruthy();
     expect(screen.queryByText(/Poprawiono/)).toBeNull();
   });
@@ -1509,15 +1509,16 @@ describe("frontend state consistency", () => {
 
     render(<ManagerPanelPage />);
 
-    await screen.findByText("WO-CORR-PLAN :: Hotel");
+    await screen.findAllByText("WO-CORR-PLAN");
     expect(screen.getByText("Termin oryginału: 18.06.2026")).toBeTruthy();
     expect(screen.getByRole("link", { name: "Poprawka do WO-PARENT-PLAN" }).getAttribute("href")).toBe(
       "/zlecenia/90?station_context=MANAGER",
     );
     expect((screen.getByLabelText("Pozycja") as HTMLInputElement).value).toBe("3");
 
-    fireEvent.click(screen.getByRole("button", { name: "Automat" }));
-    fireEvent.click(screen.getByRole("button", { name: "Zaplanuj" }));
+    const planningForm = screen.getAllByText("WO-CORR-PLAN")[0].closest("form") as HTMLElement;
+    fireEvent.click(within(planningForm).getByRole("button", { name: "Automat" }));
+    fireEvent.click(within(planningForm).getByRole("button", { name: "Zaplanuj" }));
 
     await waitFor(() => {
       expect(assignWorkOrderPlanMock).toHaveBeenCalledWith(91, {
@@ -1560,7 +1561,7 @@ describe("frontend state consistency", () => {
 
     render(<ManagerPanelPage />);
 
-    await screen.findByText("WO-MANAGER-PAINT :: Lemon");
+    await screen.findAllByText("WO-MANAGER-PAINT");
     expect(screen.getByText("Farby nie starczy na to zlecenie.")).toBeTruthy();
     expect(screen.getByText(/Predykcja: 17 kg. Aktualny stan: 12 kg. Brakuje około 5 kg/i)).toBeTruthy();
     expect(screen.getByText(/trzeba domówić farbę/i)).toBeTruthy();

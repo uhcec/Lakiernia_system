@@ -508,13 +508,14 @@ export function PackingWorkOrdersPage() {
                 </div>
 
                 <div className="border-t border-line/80 pt-4 lg:border-l lg:border-t-0 lg:pl-5 lg:pt-0">
-                  {!isPackingStage || isPackingInProgress ? (
+                  {!isPackingStage ? (
+                    <div className="flex h-full flex-col justify-center gap-3">
+                      <span className="inline-flex w-fit rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800">
+                        Czeka na koniec zawieszania
+                      </span>
+                    </div>
+                  ) : isPackingInProgress ? (
                     <div className="space-y-4">
-                      {!isPackingStage ? (
-                        <span className="inline-flex w-fit rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800">
-                          Czeka na koniec zawieszania
-                        </span>
-                      ) : null}
                       <div className="grid gap-3 sm:grid-cols-3">
                         <label className="space-y-1 text-sm font-medium text-steel">
                           <span>Policzono</span>
