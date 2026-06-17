@@ -46,6 +46,8 @@ is unclear, ask the owner rather than trusting a doc or the code.
 | `docs/PAINT_SYSTEM_DEFINITION_DRAFT_PL.md` | 2026-06-02 | Paint slice definition (shortage-warning note updated). |
 | `docs/WORKFLOW_VALIDATION_CHECKLIST.md` | living interview log | Factory-policy questions; status per item. |
 | `docs/DOC_COHERENCE_AUDIT.md` | 2026-06-17 | NA24 reconciliation report (point-in-time). |
+| `docs/CODE_CONFORMANCE_AUDIT.md` | 2026-06-17 | NA25 docs-vs-code conformance report (point-in-time). |
+| `docs/SCENARIO_WALKTHROUGH.md` | living | Field guide to validate S01–S12 in the running app with the factory (NA21). |
 
 ## Convention
 

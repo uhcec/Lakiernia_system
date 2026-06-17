@@ -257,6 +257,11 @@ only. Five elements, top to bottom:
 - Still OPEN (human): a guided walkthrough of each scenario in the running app with the factory to
   confirm the modeled policy matches the shop floor (especially the single-Decoral-pass correction
   model). This needs the factory, not code.
+- **Field guide READY (2026-06-18):** `docs/SCENARIO_WALKTHROUGH.md` turns this into a concrete
+  checklist — per scenario: seeded setup + dev logins/routes, reusable step primitives, the exact
+  click-path, the expected final state to confirm, and an OK/MISMATCH line, plus cross-cutting checks
+  (NA26 operational qty, packing capacity, presence attribution, przemalowanka/ocynk, throughput).
+  Remaining is the human pass with the factory; record outcomes + confirmation date here.
 
 ### NA24. Whole-repo documentation coherence audit (factory + system expectations, into one consistent whole)
 - Severity: MEDIUM (foundational — every future plan/implementation rests on the docs being a single,
