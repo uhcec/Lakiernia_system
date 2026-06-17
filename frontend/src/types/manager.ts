@@ -52,6 +52,8 @@ export interface StageCycleTime {
   stage_label: string;
   average_seconds: number;
   orders_count: number;
+  average_wait_before_seconds: number | null;
+  wait_orders_count: number;
 }
 
 export interface CycleTimeStats {

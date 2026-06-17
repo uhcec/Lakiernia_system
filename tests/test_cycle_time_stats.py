@@ -88,6 +88,11 @@ def test_cycle_time_reports_average_per_stage_and_lead_time(db_session: Session)
     assert by_stage[ProcessStage.PRODUCTION].stage_label == "Produkcja"
     # Lead time = first IN_PROGRESS (t0) to packing DONE (t0 + 60 min).
     assert stats.overall_average_seconds == 3600.0
+    # Queue wait before a stage = gap from the previous stage's DONE to this stage's start.
+    assert by_stage[ProcessStage.SURFACE_PREPARATION].average_wait_before_seconds is None  # first stage
+    assert by_stage[ProcessStage.PRODUCTION].average_wait_before_seconds == 300.0  # min 10 DONE -> min 15 start
+    assert by_stage[ProcessStage.PACKING].average_wait_before_seconds == 300.0  # min 45 DONE -> min 50 start
+    assert by_stage[ProcessStage.PRODUCTION].wait_orders_count == 1
     # Stages are reported in canonical workflow order.
     assert [item.stage for item in stats.stages] == [
         ProcessStage.SURFACE_PREPARATION,

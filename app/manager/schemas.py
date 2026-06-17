@@ -67,6 +67,8 @@ class StageCycleTime(BaseModel):
     stage_label: str
     average_seconds: float
     orders_count: int
+    average_wait_before_seconds: float | None = None
+    wait_orders_count: int = 0
 
 
 class CycleTimeStats(BaseModel):

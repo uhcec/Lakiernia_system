@@ -397,6 +397,8 @@ class ManagerService:
 
         stage_total_seconds: dict[ProcessStage, float] = {}
         stage_order_counts: dict[ProcessStage, int] = {}
+        stage_wait_seconds: dict[ProcessStage, float] = {}
+        stage_wait_counts: dict[ProcessStage, int] = {}
         lead_time_seconds_total = 0.0
         lead_time_orders = 0
 
@@ -407,6 +409,8 @@ class ManagerService:
                     if earliest_in_progress is None or ip < earliest_in_progress:
                         earliest_in_progress = ip
 
+            # Most-recent completed pass per stage as a (start, end) interval.
+            intervals: dict[ProcessStage, tuple[datetime, datetime]] = {}
             for stage, occurrences in stage_map.items():
                 done_times = occurrences.get(StageStatus.DONE, [])
                 in_progress_times = occurrences.get(StageStatus.IN_PROGRESS, [])
@@ -416,11 +420,28 @@ class ManagerService:
                 candidate_starts = [ip for ip in in_progress_times if ip <= last_done]
                 if not candidate_starts:
                     continue
-                duration = (last_done - max(candidate_starts)).total_seconds()
-                if duration < 0:
-                    continue
-                stage_total_seconds[stage] = stage_total_seconds.get(stage, 0.0) + duration
-                stage_order_counts[stage] = stage_order_counts.get(stage, 0) + 1
+                intervals[stage] = (max(candidate_starts), last_done)
+
+            for stage, (start, end) in intervals.items():
+                duration = (end - start).total_seconds()
+                if duration >= 0:
+                    stage_total_seconds[stage] = stage_total_seconds.get(stage, 0.0) + duration
+                    stage_order_counts[stage] = stage_order_counts.get(stage, 0) + 1
+
+                # Queue wait before this stage = time from the most recent stage that finished
+                # before this one started, to this stage's start. Robust for automatic flows (where
+                # PRODUCTION/PACKING start implicitly at hanging finish) because it keys off "the last
+                # stage that actually completed before the start", not the workflow's nominal order.
+                prior_ends = [
+                    other_end
+                    for other_stage, (_, other_end) in intervals.items()
+                    if other_stage != stage and other_end <= start
+                ]
+                if prior_ends:
+                    wait = (start - max(prior_ends)).total_seconds()
+                    if wait >= 0:
+                        stage_wait_seconds[stage] = stage_wait_seconds.get(stage, 0.0) + wait
+                        stage_wait_counts[stage] = stage_wait_counts.get(stage, 0) + 1
 
             packing_done_times = stage_map.get(ProcessStage.PACKING, {}).get(StageStatus.DONE, [])
             if packing_done_times and earliest_in_progress is not None:
@@ -435,6 +456,12 @@ class ManagerService:
                 stage_label=_STAGE_LABELS_PL[stage],
                 average_seconds=round(stage_total_seconds[stage] / stage_order_counts[stage], 1),
                 orders_count=stage_order_counts[stage],
+                average_wait_before_seconds=(
+                    round(stage_wait_seconds[stage] / stage_wait_counts[stage], 1)
+                    if stage_wait_counts.get(stage)
+                    else None
+                ),
+                wait_orders_count=stage_wait_counts.get(stage, 0),
             )
             for stage in _STAGE_DISPLAY_ORDER
             if stage_order_counts.get(stage)

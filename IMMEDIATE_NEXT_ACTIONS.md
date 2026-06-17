@@ -198,8 +198,13 @@ they are not yet validated against live factory policy where noted.
   lead time, most-recent-pass for corrections, out-of-window exclusion, manager gating), API test in
   `tests/test_manager_api.py`. Docs: WORKFLOW.md "Stage cycle-time / bottleneck stats". Verified: full
   backend `pytest` green, `alembic check` clean, frontend tests + build. Read-only analytics — no
-  workflow/queue behavior change. Future: queue-wait time between stages, per-operator splits once
-  personal login populates `user_id`.
+  workflow/queue behavior change.
+  Extended (2026-06-17): added **queue-wait before each stage** (`average_wait_before_seconds` /
+  `wait_orders_count`) — per order, the gap from the most recent stage that finished before this stage
+  started to its start (robust for automatic implicit transitions). Statystyki shows a second
+  "Średnie oczekiwanie przed etapem" bar chart + an "Oczekiwanie przed" table column. Covered by the
+  existing cycle-time tests (wait assertions added). Future: per-operator splits once personal login
+  populates `user_id`.
 
 - **NA16 — Packing station exclusivity (2026-06-17)** — Implemented the confirmed single-packing-station
   rule (validation-checklist #9) using the explicit-claim model the user chose. A `PACKING`

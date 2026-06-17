@@ -98,6 +98,17 @@ function buildCycleTimePoints(stats: CycleTimeStats): BarChartPoint[] {
   }));
 }
 
+function buildWaitTimePoints(stats: CycleTimeStats): BarChartPoint[] {
+  return stats.stages
+    .filter((stage) => stage.average_wait_before_seconds !== null)
+    .map((stage) => ({
+      key: stage.stage,
+      tick: stage.stage_label,
+      label: `Przed: ${stage.stage_label} (${stage.wait_orders_count} zleceń)`,
+      value: Math.round(((stage.average_wait_before_seconds as number) / 60) * 10) / 10,
+    }));
+}
+
 export function StatystykiPage() {
   const [anchor, setAnchor] = useState<MonthAnchor>(currentMonthAnchor);
   const [throughputStats, setThroughputStats] = useState<ThroughputStats | null>(null);
@@ -338,8 +349,8 @@ export function StatystykiPage() {
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">Wąskie gardła</p>
             <h2 className="mt-1 text-3xl font-semibold text-ink sm:text-4xl">Czasy etapów</h2>
             <p className="mt-2 text-sm text-steel">
-              Średni czas aktywnej pracy na etapie (od rozpoczęcia do zakończenia ostatniego przejścia),
-              dla {cycleTimeStats.orders_count}{" "}
+              Średni czas aktywnej pracy na etapie (od rozpoczęcia do zakończenia ostatniego przejścia) oraz
+              średnie oczekiwanie w kolejce przed rozpoczęciem etapu, dla {cycleTimeStats.orders_count}{" "}
               {cycleTimeStats.orders_count === 1 ? "zlecenia spakowanego" : "zleceń spakowanych"} w tym miesiącu.
             </p>
           </div>
@@ -355,21 +366,36 @@ export function StatystykiPage() {
             </div>
           ) : null}
 
-          <BarChart
-            title="Średni czas na etapie — minuty"
-            unit="min"
-            decimals={1}
-            barClassName="bg-teal-500"
-            plotHeight={320}
-            data={buildCycleTimePoints(cycleTimeStats)}
-          />
+          <div className="flex flex-col gap-4">
+            <BarChart
+              title="Średni czas pracy na etapie — minuty"
+              unit="min"
+              decimals={1}
+              barClassName="bg-teal-500"
+              plotHeight={320}
+              data={buildCycleTimePoints(cycleTimeStats)}
+            />
+            {buildWaitTimePoints(cycleTimeStats).length > 0 ? (
+              <BarChart
+                title="Średnie oczekiwanie przed etapem — minuty"
+                unit="min"
+                decimals={1}
+                barClassName="bg-amber-500"
+                plotHeight={320}
+                data={buildWaitTimePoints(cycleTimeStats)}
+              />
+            ) : null}
+          </div>
 
           <div className="mt-6 overflow-x-auto rounded-3xl border border-line bg-white">
-            <table className="w-full min-w-[480px] text-sm">
+            <table className="w-full min-w-[560px] text-sm">
               <thead>
                 <tr className="border-b border-line bg-mist text-xs font-semibold uppercase tracking-[0.1em] text-steel">
                   <th className="px-5 py-3 text-left">Etap</th>
-                  <th className="px-4 py-3 text-right">Średni czas</th>
+                  <th className="px-4 py-3 text-right" title="Średni czas oczekiwania w kolejce przed rozpoczęciem etapu">
+                    Oczekiwanie przed
+                  </th>
+                  <th className="px-4 py-3 text-right">Średni czas pracy</th>
                   <th className="px-4 py-3 text-right">Zleceń</th>
                 </tr>
               </thead>
@@ -377,6 +403,9 @@ export function StatystykiPage() {
                 {cycleTimeStats.stages.map((stage) => (
                   <tr key={stage.stage} className="text-ink hover:bg-mist/40">
                     <td className="px-5 py-3 font-medium">{stage.stage_label}</td>
+                    <td className="px-4 py-3 text-right text-steel">
+                      {stage.average_wait_before_seconds !== null ? formatDuration(stage.average_wait_before_seconds) : "—"}
+                    </td>
                     <td className="px-4 py-3 text-right font-semibold">{formatDuration(stage.average_seconds)}</td>
                     <td className="px-4 py-3 text-right text-steel">{stage.orders_count}</td>
                   </tr>

@@ -391,11 +391,17 @@ first time-in-stage read off the log. Definitions:
   latest `DONE` (at or after it) of that stage — i.e. the **most recent completed pass**, so a
   correction re-run reports the final pass rather than a sum. Reported per stage as an average across
   the cohort orders that have that stage, with the contributing `orders_count`.
+- **Queue wait before a stage** (`average_wait_before_seconds`, `wait_orders_count`): per order, the gap
+  from the most recent stage that **finished before this stage started** to this stage's start. Keying off
+  "the last stage that actually completed before the start" (rather than the workflow's nominal order)
+  keeps it well-defined for automatic flows, where `PRODUCTION`/`PACKING` start implicitly at hanging
+  finish. The first stage has no wait (`null`). Averaged across the cohort orders that have a wait.
 - **Overall lead time** (`overall_average_seconds`): per order, the earliest stage `IN_PROGRESS` to the
   packing `DONE`, averaged across the cohort.
 - Stages are returned in canonical workflow order with Polish labels. The Statystyki page renders a
-  "Czasy etapów" section (per-stage average-minutes bar chart, a headline lead-time figure, and a
-  table). This is bottleneck visibility only; it never changes workflow or queue behavior.
+  "Czasy etapów" section (average work-time-per-stage and wait-before-stage bar charts, a headline
+  lead-time figure, and a table). This is bottleneck visibility only; it never changes workflow or queue
+  behavior.
 
 ## Additional Work Types
 
