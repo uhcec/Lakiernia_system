@@ -53,9 +53,17 @@ is unclear, ask the owner rather than trusting a doc or the code.
   capture docs are Polish by origin).
 - A topic should have **one owning doc**; other docs reference it rather than restating it.
 
-## Maintenance
+## Maintenance — the self-check loop
 
-- **Weekly documentation-coherence audit:** run the repeatable command **`/doc-audit`**
-  (`.claude/commands/doc-audit.md`). It re-reconciles all docs against each other and the code and
-  refreshes `docs/DOC_COHERENCE_AUDIT.md`. Doc-scope only — code divergences become `NA*` items in
-  `IMMEDIATE_NEXT_ACTIONS.md`.
+The repo polices its own truth on two loops:
+
+- **Slow (LLM, weekly / on demand):**
+  - **`/doc-audit`** (`.claude/commands/doc-audit.md`) — docs↔docs coherence; refreshes
+    `docs/DOC_COHERENCE_AUDIT.md`.
+  - **`/code-audit`** (`.claude/commands/code-audit.md`) — docs↔code conformance (NA25); refreshes
+    `docs/CODE_CONFORMANCE_AUDIT.md`. Both are doc-scope; code divergences become `NA*` items in
+    `IMMEDIATE_NEXT_ACTIONS.md`.
+- **Fast (deterministic, every CI run):** `tests/test_documented_invariants.py` pins the business
+  constants the docs commit to (paint threshold/divisors, packing slot default, JWT expiry, bcrypt
+  limit, JWT-secret guard). It fails the moment code and docs disagree on a pinned value — change the
+  code, its owning doc, and that test together.

@@ -362,6 +362,14 @@ only. Five elements, top to bottom:
 
 ## Done
 
+- **Self-check loop foundation (2026-06-18)** — Closed the repo's two-loop self-policing of truth.
+  Slow loop (LLM): added **`/code-audit`** (`.claude/commands/code-audit.md`, repeatable NA25) to pair
+  with the existing **`/doc-audit`**. Fast loop (deterministic CI): added
+  `tests/test_documented_invariants.py` pinning the documented business constants (paint threshold 100
+  + /4,/6 divisors, packing slot default 2, JWT expiry 12h, bcrypt 72-byte, JWT-secret guard) so code↔doc
+  drift on a pinned value fails CI immediately (the NA24 A1 "70 vs 100" class). Docs:
+  `DOCUMENTATION_MAP.md` "Maintenance — the self-check loop". Verified: `pytest` green (5 new).
+
 - **NA23 — Throughput stats: one total, two cross-sections (2026-06-17)** — The Statystyki
   "Przepustowość" section now shows the production total cut two independent ways that each sum to it.
   Backend (`ManagerService.get_throughput_stats` + `ThroughputPeriod`): renamed the decoral *pass*
