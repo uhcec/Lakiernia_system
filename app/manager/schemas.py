@@ -2,7 +2,7 @@ from datetime import date, datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.process.enums import ProcessStage, ProductionType
+from app.process.enums import CoatingType, ProcessStage, ProductionType
 
 
 class WorkOrderPlanAssignRequest(BaseModel):
@@ -66,6 +66,30 @@ class ThroughputStats(BaseModel):
     orders_without_m2_count: int
 
 
+class CycleTimeSegment(BaseModel):
+    """One slice of a cycle-time average for a sub-cohort (e.g. manual orders only).
+
+    The overall average is the count-weighted mean of either pair of segments, so the breakdown
+    reconciles to the whole (the two partitions are independent cross-sections of the same cohort).
+    """
+
+    key: str
+    label: str
+    average_seconds: float
+    orders_count: int
+
+
+class CycleTimeBreakdown(BaseModel):
+    """The same average cut two independent ways (NA23): by production method and by order coating.
+
+    Each list is a full partition of the cohort that produced the headline average; empty segments
+    (no orders of that kind) are omitted.
+    """
+
+    by_method: list[CycleTimeSegment] = Field(default_factory=list)
+    by_coating: list[CycleTimeSegment] = Field(default_factory=list)
+
+
 class StageCycleTime(BaseModel):
     stage: ProcessStage
     stage_label: str
@@ -73,6 +97,7 @@ class StageCycleTime(BaseModel):
     orders_count: int
     average_wait_before_seconds: float | None = None
     wait_orders_count: int = 0
+    breakdown: CycleTimeBreakdown = Field(default_factory=CycleTimeBreakdown)
 
 
 class CycleTimeStats(BaseModel):
@@ -81,6 +106,7 @@ class CycleTimeStats(BaseModel):
     orders_count: int
     overall_average_seconds: float | None
     stages: list[StageCycleTime]
+    overall_breakdown: CycleTimeBreakdown = Field(default_factory=CycleTimeBreakdown)
 
 
 class WipAgingItem(BaseModel):
@@ -90,10 +116,29 @@ class WipAgingItem(BaseModel):
     stage: ProcessStage
     stage_label: str
     production_type: ProductionType | None
+    coating_type: CoatingType | None = None
     queue_position: int | None
     age_seconds: float
+
+
+class WipAgingSegment(BaseModel):
+    key: str
+    label: str
+    orders_count: int
+
+
+class WipAgingBreakdown(BaseModel):
+    """Count of currently-in-progress orders cut two independent ways (NA23): method and coating.
+
+    Each list fully partitions the live cohort, so the segment counts in either list sum to the
+    total number of items.
+    """
+
+    by_method: list[WipAgingSegment] = Field(default_factory=list)
+    by_coating: list[WipAgingSegment] = Field(default_factory=list)
 
 
 class WipAgingStats(BaseModel):
     generated_at: datetime
     items: list[WipAgingItem]
+    breakdown: WipAgingBreakdown = Field(default_factory=WipAgingBreakdown)

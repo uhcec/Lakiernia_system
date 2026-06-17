@@ -35,11 +35,11 @@ def _services(db_session: Session):
     )
 
 
-def _create(work_order_service: WorkOrderService, title: str):
+def _create(work_order_service: WorkOrderService, title: str, coating_type: CoatingType = CoatingType.RAL):
     return work_order_service.create_work_order(
         WorkOrderCreate(
             title=title,
-            coating_type=CoatingType.RAL,
+            coating_type=coating_type,
             total_quantity=100,
             customer_name="ACME",
             ral_code="RAL 7016",
@@ -146,6 +146,32 @@ def test_wip_aging_excludes_not_started_orders(db_session: Session) -> None:
     order_numbers = [item.order_number for item in stats.items]
     assert in_progress.order_number in order_numbers
     assert planned_idle.order_number not in order_numbers
+
+
+def test_wip_aging_breakdown_counts_by_method_and_coating(db_session: Session) -> None:
+    # NA23: the live cohort is also cut two independent ways; each partition's counts sum to len(items).
+    work_order_service, manager_service = _services(db_session)
+    manual_ral = _create(work_order_service, "Manual RAL", coating_type=CoatingType.RAL)
+    auto_decoral = _create(work_order_service, "Automatic decoral", coating_type=CoatingType.DECORAL)
+    manager_service.assign_plan(
+        manual_ral.id, WorkOrderPlanAssignRequest(production_type=ProductionType.MANUAL, queue_position=1), station_context=MANAGER
+    )
+    manager_service.assign_plan(
+        auto_decoral.id, WorkOrderPlanAssignRequest(production_type=ProductionType.AUTOMATIC, queue_position=2), station_context=MANAGER
+    )
+    _set_stage_in_progress(db_session, manual_ral.id, ProcessStage.PRODUCTION)
+    _set_stage_in_progress(db_session, auto_decoral.id, ProcessStage.PRODUCTION)
+
+    stats = manager_service.get_work_in_progress_aging(station_context=MANAGER)
+
+    method = {seg.key: seg.orders_count for seg in stats.breakdown.by_method}
+    coating = {seg.key: seg.orders_count for seg in stats.breakdown.by_coating}
+    assert method == {"manual": 1, "automatic": 1}
+    assert coating == {"ral_only": 1, "decoral": 1}
+    assert sum(method.values()) == len(stats.items)
+    assert sum(coating.values()) == len(stats.items)
+    by_number = {item.order_number: item for item in stats.items}
+    assert by_number[auto_decoral.order_number].coating_type == CoatingType.DECORAL
 
 
 def test_wip_aging_requires_manager(db_session: Session) -> None:

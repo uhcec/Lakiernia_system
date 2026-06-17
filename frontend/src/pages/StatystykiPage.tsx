@@ -1,7 +1,13 @@
 import { useEffect, useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { fetchCycleTimeStats, fetchThroughputStats, fetchWipAging } from "../api/managerApi";
-import type { CycleTimeStats, ThroughputPeriod, ThroughputStats, WipAgingStats } from "../types/manager";
+import type {
+  CycleTimeBreakdown,
+  CycleTimeStats,
+  ThroughputPeriod,
+  ThroughputStats,
+  WipAgingStats,
+} from "../types/manager";
 import { BarChart, type BarChartPoint } from "../components/BarChart";
 
 type GroupBy = "day" | "week" | "month";
@@ -191,6 +197,31 @@ function productionTypeLabel(value: string | null): string {
   return "—";
 }
 
+function coatingTypeLabel(value: string | null): string {
+  if (value === "RAL") return "Czysty RAL";
+  if (value === "DECORAL") return "Decoral";
+  return "—";
+}
+
+type CrossSection = "method" | "coating";
+
+// Stable segment keys/labels for the two cross-sections, shared by the cycle-time table columns.
+const CYCLE_AXIS_COLUMNS: Record<CrossSection, readonly { key: string; label: string }[]> = {
+  method: [
+    { key: "manual", label: "Ręczna" },
+    { key: "automatic", label: "Automat" },
+  ],
+  coating: [
+    { key: "ral_only", label: "Czysty RAL" },
+    { key: "decoral", label: "Decoral" },
+  ],
+};
+
+function cycleSegment(breakdown: CycleTimeBreakdown, axis: CrossSection, key: string) {
+  const list = axis === "method" ? breakdown.by_method : breakdown.by_coating;
+  return list.find((segment) => segment.key === key) ?? null;
+}
+
 function buildWaitTimePoints(stats: CycleTimeStats): BarChartPoint[] {
   return stats.stages
     .filter((stage) => stage.average_wait_before_seconds !== null)
@@ -208,7 +239,8 @@ export function StatystykiPage() {
   const [cycleTimeStats, setCycleTimeStats] = useState<CycleTimeStats | null>(null);
   const [wipAging, setWipAging] = useState<WipAgingStats | null>(null);
   const [loadedParams, setLoadedParams] = useState<LoadedParams | null>(null);
-  const [breakdownAxis, setBreakdownAxis] = useState<"method" | "coating">("method");
+  const [breakdownAxis, setBreakdownAxis] = useState<CrossSection>("method");
+  const [cycleAxis, setCycleAxis] = useState<CrossSection>("method");
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -272,15 +304,28 @@ export function StatystykiPage() {
             <p className="mt-2 text-sm text-steel">
               Zlecenia aktualnie w realizacji, według czasu spędzonego na bieżącym etapie (najdłużej u góry).
             </p>
+            {wipAging.breakdown.by_method.length > 0 || wipAging.breakdown.by_coating.length > 0 ? (
+              <div className="mt-3 flex flex-wrap gap-x-6 gap-y-1 text-xs text-steel">
+                <span>
+                  <span className="font-semibold text-ink">Wg metody:</span>{" "}
+                  {wipAging.breakdown.by_method.map((s) => `${s.label} ${s.orders_count}`).join(" · ") || "—"}
+                </span>
+                <span>
+                  <span className="font-semibold text-ink">Wg powłoki:</span>{" "}
+                  {wipAging.breakdown.by_coating.map((s) => `${s.label} ${s.orders_count}`).join(" · ") || "—"}
+                </span>
+              </div>
+            ) : null}
           </div>
           <div className="overflow-x-auto rounded-3xl border border-line bg-white">
-            <table className="w-full min-w-[640px] text-sm">
+            <table className="w-full min-w-[720px] text-sm">
               <thead>
                 <tr className="border-b border-line bg-mist text-xs font-semibold uppercase tracking-[0.1em] text-steel">
                   <th className="px-5 py-3 text-left">Zlecenie</th>
                   <th className="px-4 py-3 text-left">Klient</th>
                   <th className="px-4 py-3 text-left">Etap</th>
                   <th className="px-4 py-3 text-left">Produkcja</th>
+                  <th className="px-4 py-3 text-left">Powłoka</th>
                   <th className="px-4 py-3 text-right">Czas na etapie</th>
                 </tr>
               </thead>
@@ -293,6 +338,7 @@ export function StatystykiPage() {
                       <td className="px-4 py-3 text-steel">{item.customer_name ?? "—"}</td>
                       <td className="px-4 py-3 text-steel">{item.stage_label}</td>
                       <td className="px-4 py-3 text-steel">{productionTypeLabel(item.production_type)}</td>
+                      <td className="px-4 py-3 text-steel">{coatingTypeLabel(item.coating_type)}</td>
                       <td className={`px-4 py-3 text-right font-semibold ${isLong ? "text-rose-700" : ""}`}>
                         {formatDuration(item.age_seconds)}
                       </td>
@@ -581,16 +627,49 @@ export function StatystykiPage() {
             </p>
           </div>
 
-          {cycleTimeStats.overall_average_seconds !== null ? (
-            <div className="mb-6 inline-flex flex-col rounded-2xl border border-line bg-mist px-5 py-3">
-              <span className="text-xs font-semibold uppercase tracking-[0.1em] text-steel">
-                Średni czas realizacji (od 1. etapu do pakowania)
-              </span>
-              <span className="mt-1 text-2xl font-semibold text-ink">
-                {formatDuration(cycleTimeStats.overall_average_seconds)}
-              </span>
+          <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
+            {cycleTimeStats.overall_average_seconds !== null ? (
+              <div className="inline-flex flex-col rounded-2xl border border-line bg-mist px-5 py-3">
+                <span className="text-xs font-semibold uppercase tracking-[0.1em] text-steel">
+                  Średni czas realizacji (od 1. etapu do pakowania)
+                </span>
+                <span className="mt-1 text-2xl font-semibold text-ink">
+                  {formatDuration(cycleTimeStats.overall_average_seconds)}
+                </span>
+                {(cycleAxis === "method" ? cycleTimeStats.overall_breakdown.by_method : cycleTimeStats.overall_breakdown.by_coating).length > 0 ? (
+                  <span className="mt-1.5 text-xs text-steel">
+                    {(cycleAxis === "method"
+                      ? cycleTimeStats.overall_breakdown.by_method
+                      : cycleTimeStats.overall_breakdown.by_coating
+                    )
+                      .map((s) => `${s.label}: ${formatDuration(s.average_seconds)} (${s.orders_count})`)
+                      .join(" · ")}
+                  </span>
+                ) : null}
+              </div>
+            ) : (
+              <div />
+            )}
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-medium text-steel">Przekrój:</span>
+              <div className="inline-flex items-center gap-1 rounded-2xl border border-line bg-mist p-1">
+                <button
+                  type="button"
+                  onClick={() => setCycleAxis("method")}
+                  className={`rounded-xl px-3 py-1 text-xs font-medium transition ${cycleAxis === "method" ? "bg-white text-accent shadow-sm" : "text-steel hover:text-accent"}`}
+                >
+                  Metoda
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCycleAxis("coating")}
+                  className={`rounded-xl px-3 py-1 text-xs font-medium transition ${cycleAxis === "coating" ? "bg-white text-accent shadow-sm" : "text-steel hover:text-accent"}`}
+                >
+                  Powłoka
+                </button>
+              </div>
             </div>
-          ) : null}
+          </div>
 
           <div className="flex flex-col gap-4">
             <BarChart
@@ -614,14 +693,23 @@ export function StatystykiPage() {
           </div>
 
           <div className="mt-6 overflow-x-auto rounded-3xl border border-line bg-white">
-            <table className="w-full min-w-[560px] text-sm">
+            <table className="w-full min-w-[680px] text-sm">
               <thead>
                 <tr className="border-b border-line bg-mist text-xs font-semibold uppercase tracking-[0.1em] text-steel">
                   <th className="px-5 py-3 text-left">Etap</th>
                   <th className="px-4 py-3 text-right" title="Średni czas oczekiwania w kolejce przed rozpoczęciem etapu">
                     Oczekiwanie przed
                   </th>
-                  <th className="px-4 py-3 text-right">Średni czas pracy</th>
+                  <th className="px-4 py-3 text-right font-bold">Średni czas pracy</th>
+                  {CYCLE_AXIS_COLUMNS[cycleAxis].map((col) => (
+                    <th
+                      key={col.key}
+                      className="px-4 py-3 text-right"
+                      title={`Średni czas pracy — ${col.label} (część średniej całkowitej)`}
+                    >
+                      {col.label}
+                    </th>
+                  ))}
                   <th className="px-4 py-3 text-right">Zleceń</th>
                 </tr>
               </thead>
@@ -633,12 +721,31 @@ export function StatystykiPage() {
                       {stage.average_wait_before_seconds !== null ? formatDuration(stage.average_wait_before_seconds) : "—"}
                     </td>
                     <td className="px-4 py-3 text-right font-semibold">{formatDuration(stage.average_seconds)}</td>
+                    {CYCLE_AXIS_COLUMNS[cycleAxis].map((col) => {
+                      const segment = cycleSegment(stage.breakdown, cycleAxis, col.key);
+                      return (
+                        <td key={col.key} className="px-4 py-3 text-right text-steel">
+                          {segment ? (
+                            <>
+                              {formatDuration(segment.average_seconds)}{" "}
+                              <span className="text-xs text-steel/70">({segment.orders_count})</span>
+                            </>
+                          ) : (
+                            "—"
+                          )}
+                        </td>
+                      );
+                    })}
                     <td className="px-4 py-3 text-right text-steel">{stage.orders_count}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
+          <p className="mt-2 text-xs text-steel">
+            Kolumny przekroju ({cycleAxis === "method" ? "metoda" : "powłoka"}) pokazują średni czas pracy dla danej
+            grupy — średnia całkowita to ich średnia ważona liczbą zleceń (w nawiasie).
+          </p>
         </section>
       ) : null}
     </main>

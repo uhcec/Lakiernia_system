@@ -13,15 +13,24 @@ import pytest
 from app.audit.context import StationContext
 from app.manager.repository import ManagerRepository
 from app.manager.service import ManagerService
-from app.process.enums import ProcessStage, StageStatus
+from app.process.enums import ProcessStage, ProductionType, StageStatus
 from app.process.models import StageTransitionEvent
 from app.shared.enums import StationId
 from app.shared.exceptions import StationActionForbiddenError
+from app.work_orders.models import WorkOrder
 from app.work_orders.repository import WorkOrderRepository
 from app.work_orders.schemas import WorkOrderCreate
 from app.work_orders.service import WorkOrderService
 
 from app.process.enums import CoatingType
+
+
+def _set_production_type(db_session: Session, work_order_id: int, production_type: ProductionType) -> None:
+    work_order = db_session.get(WorkOrder, work_order_id)
+    work_order.production_type = production_type
+    # The planned-requires-both CHECK constraint needs a queue position alongside the production type.
+    work_order.queue_position = work_order_id
+    db_session.flush()
 
 
 MANAGER = StationContext(station_id=StationId.MANAGER)
@@ -34,11 +43,11 @@ def _build_services(db_session: Session):
     )
 
 
-def _create_order(work_order_service: WorkOrderService, title: str):
+def _create_order(work_order_service: WorkOrderService, title: str, coating_type: CoatingType = CoatingType.RAL):
     return work_order_service.create_work_order(
         WorkOrderCreate(
             title=title,
-            coating_type=CoatingType.RAL,
+            coating_type=coating_type,
             total_quantity=10,
             customer_name="ACME",
             ral_code="RAL 7016",
@@ -99,6 +108,42 @@ def test_cycle_time_reports_average_per_stage_and_lead_time(db_session: Session)
         ProcessStage.PRODUCTION,
         ProcessStage.PACKING,
     ]
+
+
+def test_cycle_time_breakdown_splits_each_stage_by_method_and_coating(db_session: Session) -> None:
+    # NA23: every production stat is also cut two independent ways. Two orders share the PRODUCTION
+    # stage — one manual/RAL (20 min) and one automatic/decoral (40 min) — so the overall average is
+    # 30 min and each cross-section's weighted mean reconciles to it.
+    work_order_service, manager_service = _build_services(db_session)
+    manual = _create_order(work_order_service, "Manual RAL", coating_type=CoatingType.RAL)
+    automatic = _create_order(work_order_service, "Automatic decoral", coating_type=CoatingType.DECORAL)
+    _set_production_type(db_session, manual.id, ProductionType.MANUAL)
+    _set_production_type(db_session, automatic.id, ProductionType.AUTOMATIC)
+
+    t0 = datetime(2026, 6, 13, 8, 0, tzinfo=UTC)
+    for order_id, minutes in ((manual.id, 20), (automatic.id, 40)):
+        _log(db_session, order_id, ProcessStage.PRODUCTION, StageStatus.IN_PROGRESS, t0)
+        _log(db_session, order_id, ProcessStage.PRODUCTION, StageStatus.DONE, t0 + timedelta(minutes=minutes))
+        _log(db_session, order_id, ProcessStage.PACKING, StageStatus.IN_PROGRESS, t0 + timedelta(minutes=minutes + 5))
+        _log(db_session, order_id, ProcessStage.PACKING, StageStatus.DONE, t0 + timedelta(minutes=minutes + 10))
+    db_session.flush()
+
+    stats = manager_service.get_cycle_time_stats(date(2026, 6, 13), date(2026, 6, 13), station_context=MANAGER)
+
+    production = next(item for item in stats.stages if item.stage == ProcessStage.PRODUCTION)
+    assert production.average_seconds == 1800.0  # (20 + 40) / 2 min
+    method = {seg.key: seg for seg in production.breakdown.by_method}
+    coating = {seg.key: seg for seg in production.breakdown.by_coating}
+    assert method["manual"].average_seconds == 1200.0 and method["manual"].orders_count == 1
+    assert method["automatic"].average_seconds == 2400.0 and method["automatic"].orders_count == 1
+    assert coating["ral_only"].average_seconds == 1200.0
+    assert coating["decoral"].average_seconds == 2400.0
+    # Both cross-sections partition the same cohort: counts sum to the stage total.
+    assert sum(seg.orders_count for seg in production.breakdown.by_method) == production.orders_count
+    assert sum(seg.orders_count for seg in production.breakdown.by_coating) == production.orders_count
+    # Overall lead-time breakdown is present and cut the same two ways.
+    assert {seg.key for seg in stats.overall_breakdown.by_method} == {"manual", "automatic"}
+    assert {seg.key for seg in stats.overall_breakdown.by_coating} == {"ral_only", "decoral"}
 
 
 def test_cycle_time_uses_only_most_recent_pass_per_stage(db_session: Session) -> None:

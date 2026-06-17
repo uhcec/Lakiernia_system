@@ -49,6 +49,18 @@ export interface ThroughputStats {
   orders_without_m2_count: number;
 }
 
+export interface CycleTimeSegment {
+  key: string;
+  label: string;
+  average_seconds: number;
+  orders_count: number;
+}
+
+export interface CycleTimeBreakdown {
+  by_method: CycleTimeSegment[];
+  by_coating: CycleTimeSegment[];
+}
+
 export interface StageCycleTime {
   stage: string;
   stage_label: string;
@@ -56,6 +68,7 @@ export interface StageCycleTime {
   orders_count: number;
   average_wait_before_seconds: number | null;
   wait_orders_count: number;
+  breakdown: CycleTimeBreakdown;
 }
 
 export interface CycleTimeStats {
@@ -64,6 +77,7 @@ export interface CycleTimeStats {
   orders_count: number;
   overall_average_seconds: number | null;
   stages: StageCycleTime[];
+  overall_breakdown: CycleTimeBreakdown;
 }
 
 export interface WipAgingItem {
@@ -73,11 +87,24 @@ export interface WipAgingItem {
   stage: string;
   stage_label: string;
   production_type: string | null;
+  coating_type: string | null;
   queue_position: number | null;
   age_seconds: number;
+}
+
+export interface WipAgingSegment {
+  key: string;
+  label: string;
+  orders_count: number;
+}
+
+export interface WipAgingBreakdown {
+  by_method: WipAgingSegment[];
+  by_coating: WipAgingSegment[];
 }
 
 export interface WipAgingStats {
   generated_at: string;
   items: WipAgingItem[];
+  breakdown: WipAgingBreakdown;
 }

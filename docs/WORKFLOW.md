@@ -447,10 +447,17 @@ first time-in-stage read off the log. Definitions:
   finish. The first stage has no wait (`null`). Averaged across the cohort orders that have a wait.
 - **Overall lead time** (`overall_average_seconds`): per order, the earliest stage `IN_PROGRESS` to the
   packing `DONE`, averaged across the cohort.
+- **Production breakdown (NA23):** every per-stage average and the overall lead time also carry a
+  `breakdown` / `overall_breakdown` cutting the same cohort two independent ways — `by_method`
+  (Ręczna/Automat) and `by_coating` (Czysty RAL/Decoral). Unlike throughput (a sum), cycle time is an
+  average, so the parts do **not** sum to the headline; instead the headline is the **count-weighted
+  mean** of either partition, and each segment carries its own `orders_count` so the reconciliation is
+  auditable. Empty segments are omitted. An order contributes to exactly one method and one coating
+  segment (see `FACTORY_DOMAIN_MODEL` §4.1: the two axes are independent).
 - Stages are returned in canonical workflow order with Polish labels. The Statystyki page renders a
   "Czasy etapów" section (average work-time-per-stage and wait-before-stage bar charts, a headline
-  lead-time figure, and a table). This is bottleneck visibility only; it never changes workflow or queue
-  behavior.
+  lead-time figure, and a table with a **Metoda/Powłoka cross-section toggle** that adds per-segment
+  average columns). This is bottleneck visibility only; it never changes workflow or queue behavior.
 
 ### Live WIP-aging ("stuck orders")
 
@@ -460,8 +467,12 @@ first time-in-stage read off the log. Definitions:
 in-progress stage — automatic orders have `PRODUCTION` + `PACKING` both in progress, so `PACKING` wins),
 so a correction reset can never leave a stale "stuck" row. Each item's age is `now -` the durable latest
 `IN_PROGRESS` event for that order+stage from the transition log (falling back to the stage state's
-`updated_at`). Items are sorted oldest-first. The Statystyki page renders it as a "Zlecenia w toku" table
-at the top, highlighting rows older than 24h. Read-only; it never changes workflow or queue behavior.
+`updated_at`). Items are sorted oldest-first. Each item carries `production_type` + `coating_type`, and
+the response includes a `breakdown` counting the live cohort the same two independent ways as the other
+production stats (NA23): `by_method` and `by_coating`, each a full partition whose segment counts sum to
+the number of items. The Statystyki page renders it as a "Zlecenia w toku" table at the top (with a
+Powłoka column and a composition line), highlighting rows older than 24h. Read-only; it never changes
+workflow or queue behavior.
 
 ## Additional Work Types
 

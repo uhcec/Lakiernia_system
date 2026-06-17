@@ -201,7 +201,9 @@ they are not yet validated against live factory policy where noted.
   deploy. Durable cross-process idempotency remains future work.
 
 ### NA23. Every production stat should also expose a manual / automatic / decoral breakdown that sums to the whole
-- Status: **DONE (2026-06-17, throughput section)** — see Done section. (Cycle-time/WIP breakdown = deferred phase 2.)
+- Status: **DONE (2026-06-18)** — throughput (2026-06-17) + cycle-time & WIP-aging (2026-06-18) all carry
+  the two cross-sections; see Done section. Remaining unit work (m²→pieces toggle) split out as **NA29**
+  so it is tracked as its own open item rather than a parenthetical.
 - Severity: MEDIUM (truth/visibility — managers can't see what composes a production total).
 - Problem: the Statystyki stats currently surface production figures (pieces, m², cycle-time,
   WIP-aging, etc.) without a consistent, drill-down split into the three production kinds. Some series
@@ -379,7 +381,39 @@ only. Five elements, top to bottom:
 - Acceptance: agreed per-operator stat(s) shipped with tests; employees manageable in-app; multi-present
   crediting rule documented in WORKFLOW.md.
 
+### NA29. Pieces (szt.) cross-section breakdown across production stats — phase 2 of NA23
+- Severity: LOW (visibility — m² is the primary unit and already split; pieces is the secondary unit).
+- Background: NA23 mandated that **every** production stat expose the two cross-sections (by method,
+  by coating). As of 2026-06-18 this is done for **m²** (throughput) and for **time** (cycle-time) and
+  **counts** (WIP-aging). What is still aggregate-only is the **pieces (szt.)** unit: throughput shows
+  `correction_pieces` and `orders_count` without a manual/automatic/RAL-only/decoral split, and there is
+  no pieces equivalent of the m² composition bars.
+- Required fix: add a pieces partition to `ThroughputPeriod` (e.g. `pieces_manual`/`pieces_automatic`
+  and `pieces_ral_only`/`pieces_decoral`, each summing to a `pieces_total`), surface a m²↔szt. unit
+  toggle on the throughput composition bars / stacked chart / table — same "one total, two
+  cross-sections" pattern. `app/manager/service.py::get_throughput_stats` + `schemas.py::ThroughputPeriod`,
+  frontend `StatystykiPage.tsx`.
+- Acceptance: throughput can show pieces split by both cross-sections, each partition summing to the
+  pieces total; covered by tests.
+
 ## Done
+
+- **NA23 phase 2 — cycle-time + WIP-aging production breakdown (2026-06-18)** — Closed the gap the
+  owner flagged: "Czasy etapów" (and WIP-aging) showed only an aggregate, while NA23 required every
+  production stat to expose the two independent cross-sections. Backend: `get_cycle_time_stats` now
+  attaches a `breakdown` (by_method Ręczna/Automat + by_coating Czysty RAL/Decoral) to each
+  `StageCycleTime` and an `overall_breakdown` to the lead time; because cycle time is an **average** the
+  headline is the **count-weighted mean** of either partition (each segment carries `orders_count`), not
+  a sum. `get_work_in_progress_aging` adds `coating_type` per item and a `breakdown` counting the live
+  cohort by method and by coating (each partition summing to the item count). Schemas: new
+  `CycleTimeSegment`/`CycleTimeBreakdown`, `WipAgingSegment`/`WipAgingBreakdown`; shared `_METHOD_SEGMENTS`
+  / `_COATING_SEGMENTS` + `_order_segment_keys` in `app/manager/service.py`. Frontend `StatystykiPage`:
+  a Metoda/Powłoka toggle on "Czasy etapów" adds per-segment average columns + an overall-breakdown line;
+  the "Zlecenia w toku" table gains a Powłoka column and a composition line. Tests:
+  `test_cycle_time_breakdown_splits_each_stage_by_method_and_coating`,
+  `test_wip_aging_breakdown_counts_by_method_and_coating`, + API assertions in `test_manager_api.py`.
+  Docs: WORKFLOW.md cycle-time + WIP sections. Remaining pieces-unit work tracked as **NA29**. Verified:
+  backend `pytest` green, `alembic check` clean, frontend build passes.
 
 - **Per-operator foundation — station presence + audit attribution (2026-06-18, slice 1)** — Operators
   are now a **presence roster** separate from login accounts. New `employees/` module: `Employee`

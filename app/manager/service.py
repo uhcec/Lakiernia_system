@@ -18,11 +18,15 @@ from app.process.service import ProcessService
 from app.manager.repository import ManagerRepository
 from app.manager.schemas import (
     CorrectionReasonReportItem,
+    CycleTimeBreakdown,
+    CycleTimeSegment,
     CycleTimeStats,
     StageCycleTime,
     ThroughputPeriod,
     ThroughputStats,
+    WipAgingBreakdown,
     WipAgingItem,
+    WipAgingSegment,
     WipAgingStats,
     WorkOrderPlanAssignRequest,
     WorkOrderProductionTypeUpdateRequest,
@@ -71,6 +75,32 @@ _STAGE_LABELS_PL: dict[ProcessStage, str] = {
     ProcessStage.PACKING: "Pakowanie",
     ProcessStage.DECORAL_PRODUCTION: "Decoral",
 }
+
+# Two independent cross-sections every production stat is split along (NA23): by production method
+# and by order coating. Each is a full partition of any order cohort (an order is exactly one method
+# and exactly one coating), so segment values reconcile to the whole — see FACTORY_DOMAIN_MODEL §4.1.
+_METHOD_SEGMENTS: tuple[tuple[str, str, ProductionType], ...] = (
+    ("manual", "Ręczna", ProductionType.MANUAL),
+    ("automatic", "Automat", ProductionType.AUTOMATIC),
+)
+_COATING_SEGMENTS: tuple[tuple[str, str, CoatingType], ...] = (
+    ("ral_only", "Czysty RAL", CoatingType.RAL),
+    ("decoral", "Decoral", CoatingType.DECORAL),
+)
+
+
+def _order_segment_keys(
+    production_type: ProductionType | None, coating_type: CoatingType | None
+) -> list[str]:
+    """The breakdown buckets a single order contributes to (one method + one coating, when known)."""
+    keys: list[str] = []
+    for key, _label, value in _METHOD_SEGMENTS:
+        if production_type == value:
+            keys.append(key)
+    for key, _label, value in _COATING_SEGMENTS:
+        if coating_type == value:
+            keys.append(key)
+    return keys
 
 
 def _as_naive_utc(value: datetime) -> datetime:
@@ -416,6 +446,16 @@ class ManagerService:
                 stages=[],
             )
 
+        # Per-order method/coating so each stage average can be cut into the two cross-sections (NA23).
+        order_meta: dict[int, tuple[ProductionType | None, CoatingType | None]] = {
+            row.id: (row.production_type, row.coating_type)
+            for row in session.execute(
+                select(WorkOrder.id, WorkOrder.production_type, WorkOrder.coating_type).where(
+                    WorkOrder.id.in_(cohort_ids)
+                )
+            ).all()
+        }
+
         events = session.execute(
             select(
                 StageTransitionEvent.work_order_id,
@@ -438,10 +478,17 @@ class ManagerService:
         stage_order_counts: dict[ProcessStage, int] = {}
         stage_wait_seconds: dict[ProcessStage, float] = {}
         stage_wait_counts: dict[ProcessStage, int] = {}
+        # Per-segment accumulators for the two cross-sections (keyed by (stage, segment) / segment).
+        stage_seg_total: dict[tuple[ProcessStage, str], float] = {}
+        stage_seg_count: dict[tuple[ProcessStage, str], int] = {}
+        lead_seg_total: dict[str, float] = {}
+        lead_seg_count: dict[str, int] = {}
         lead_time_seconds_total = 0.0
         lead_time_orders = 0
 
-        for stage_map in per_order.values():
+        for work_order_id, stage_map in per_order.items():
+            production_type, coating_type = order_meta.get(work_order_id, (None, None))
+            seg_keys = _order_segment_keys(production_type, coating_type)
             earliest_in_progress: datetime | None = None
             for occurrences in stage_map.values():
                 for ip in occurrences.get(StageStatus.IN_PROGRESS, []):
@@ -466,6 +513,9 @@ class ManagerService:
                 if duration >= 0:
                     stage_total_seconds[stage] = stage_total_seconds.get(stage, 0.0) + duration
                     stage_order_counts[stage] = stage_order_counts.get(stage, 0) + 1
+                    for seg_key in seg_keys:
+                        stage_seg_total[(stage, seg_key)] = stage_seg_total.get((stage, seg_key), 0.0) + duration
+                        stage_seg_count[(stage, seg_key)] = stage_seg_count.get((stage, seg_key), 0) + 1
 
                 # Queue wait before this stage = time from the most recent stage that finished
                 # before this one started, to this stage's start. Robust for automatic flows (where
@@ -488,6 +538,28 @@ class ManagerService:
                 if lead >= 0:
                     lead_time_seconds_total += lead
                     lead_time_orders += 1
+                    for seg_key in seg_keys:
+                        lead_seg_total[seg_key] = lead_seg_total.get(seg_key, 0.0) + lead
+                        lead_seg_count[seg_key] = lead_seg_count.get(seg_key, 0) + 1
+
+        def _segment(total: float, count: int, key: str, label: str) -> CycleTimeSegment | None:
+            if not count:
+                return None
+            return CycleTimeSegment(key=key, label=label, average_seconds=round(total / count, 1), orders_count=count)
+
+        def _stage_breakdown(stage: ProcessStage) -> CycleTimeBreakdown:
+            return CycleTimeBreakdown(
+                by_method=[
+                    seg
+                    for key, label, _ in _METHOD_SEGMENTS
+                    if (seg := _segment(stage_seg_total.get((stage, key), 0.0), stage_seg_count.get((stage, key), 0), key, label))
+                ],
+                by_coating=[
+                    seg
+                    for key, label, _ in _COATING_SEGMENTS
+                    if (seg := _segment(stage_seg_total.get((stage, key), 0.0), stage_seg_count.get((stage, key), 0), key, label))
+                ],
+            )
 
         stages = [
             StageCycleTime(
@@ -501,6 +573,7 @@ class ManagerService:
                     else None
                 ),
                 wait_orders_count=stage_wait_counts.get(stage, 0),
+                breakdown=_stage_breakdown(stage),
             )
             for stage in _STAGE_DISPLAY_ORDER
             if stage_order_counts.get(stage)
@@ -509,6 +582,18 @@ class ManagerService:
         overall_average = (
             round(lead_time_seconds_total / lead_time_orders, 1) if lead_time_orders else None
         )
+        overall_breakdown = CycleTimeBreakdown(
+            by_method=[
+                seg
+                for key, label, _ in _METHOD_SEGMENTS
+                if (seg := _segment(lead_seg_total.get(key, 0.0), lead_seg_count.get(key, 0), key, label))
+            ],
+            by_coating=[
+                seg
+                for key, label, _ in _COATING_SEGMENTS
+                if (seg := _segment(lead_seg_total.get(key, 0.0), lead_seg_count.get(key, 0), key, label))
+            ],
+        )
 
         return CycleTimeStats(
             date_from=date_from,
@@ -516,6 +601,7 @@ class ManagerService:
             orders_count=len(cohort_ids),
             overall_average_seconds=overall_average,
             stages=stages,
+            overall_breakdown=overall_breakdown,
         )
 
     def get_work_in_progress_aging(
@@ -584,13 +670,31 @@ class ManagerService:
                     stage=stage_state.stage,
                     stage_label=_STAGE_LABELS_PL[stage_state.stage],
                     production_type=work_order.production_type,
+                    coating_type=work_order.coating_type,
                     queue_position=work_order.queue_position,
                     age_seconds=round(max(age_seconds, 0.0), 1),
                 )
             )
 
         items.sort(key=lambda item: item.age_seconds, reverse=True)
-        return WipAgingStats(generated_at=reference_now, items=items)
+
+        # Live cohort cut the same two independent ways as the other production stats (NA23): how many
+        # in-progress orders are manual vs automatic, and czysty RAL vs decoral — each summing to len(items).
+        def _wip_segments(
+            segments: tuple[tuple[str, str, object], ...], attribute: str
+        ) -> list[WipAgingSegment]:
+            result: list[WipAgingSegment] = []
+            for key, label, value in segments:
+                count = sum(1 for item in items if getattr(item, attribute) == value)
+                if count:
+                    result.append(WipAgingSegment(key=key, label=label, orders_count=count))
+            return result
+
+        breakdown = WipAgingBreakdown(
+            by_method=_wip_segments(_METHOD_SEGMENTS, "production_type"),
+            by_coating=_wip_segments(_COATING_SEGMENTS, "coating_type"),
+        )
+        return WipAgingStats(generated_at=reference_now, items=items, breakdown=breakdown)
 
     def assign_plan(
         self,

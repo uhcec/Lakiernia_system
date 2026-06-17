@@ -411,7 +411,12 @@ def test_cycle_time_stats_reports_completed_order_stages_and_is_manager_gated(te
     for item in body["stages"]:
         assert item["average_seconds"] >= 0
         assert item["stage_label"]
+        # NA23: every stage average is also cut two independent ways (the manual RAL order lands in
+        # exactly one segment of each partition).
+        assert {seg["key"] for seg in item["breakdown"]["by_method"]} == {"manual"}
+        assert {seg["key"] for seg in item["breakdown"]["by_coating"]} == {"ral_only"}
     assert body["overall_average_seconds"] is not None and body["overall_average_seconds"] >= 0
+    assert {seg["key"] for seg in body["overall_breakdown"]["by_method"]} == {"manual"}
 
 
 def test_wip_aging_lists_in_progress_order_and_is_manager_gated(test_client: TestClient) -> None:
@@ -435,7 +440,13 @@ def test_wip_aging_lists_in_progress_order_and_is_manager_gated(test_client: Tes
     assert len(matching) == 1
     assert matching[0]["stage"] == "PRODUCTION"
     assert matching[0]["production_type"] == "MANUAL"
+    assert matching[0]["coating_type"] == "RAL"
     assert matching[0]["age_seconds"] >= 0
+    # NA23: live cohort cut two independent ways; counts in each partition sum to the item count.
+    method_total = sum(seg["orders_count"] for seg in body["breakdown"]["by_method"])
+    coating_total = sum(seg["orders_count"] for seg in body["breakdown"]["by_coating"])
+    assert method_total == len(body["items"])
+    assert coating_total == len(body["items"])
 
 
 def test_throughput_splits_base_production_by_production_type_including_decoral(test_client: TestClient) -> None:
