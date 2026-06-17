@@ -97,7 +97,10 @@ class ManagerService:
     ) -> ThroughputStats:
         self._ensure_stats_viewer(station_context)
         session = self.repository.session
-        date_fmt = {"day": "%Y-%m-%d", "week": "%Y-%W", "month": "%Y-%m"}[group_by]
+        # Week uses ISO year/week (%G-%V) so grouping matches date.fromisocalendar in
+        # _parse_period_start; mixing %W (non-ISO) with fromisocalendar drifted around
+        # year boundaries (NA7). Requires SQLite >= 3.46 for %G/%V.
+        date_fmt = {"day": "%Y-%m-%d", "week": "%G-%V", "month": "%Y-%m"}[group_by]
 
         packing_done = (
             select(
@@ -809,10 +812,10 @@ def _parse_period_start(period_key: str, group_by: str) -> date:
     if group_by == "month":
         year, month = period_key.split("-")
         return date(int(year), int(month), 1)
-    # week: "YYYY-WW"
+    # week: "GGGG-VV" (ISO year + ISO week from strftime %G-%V)
     year, week = period_key.split("-")
     # ISO Monday of that week
-    return date.fromisocalendar(int(year), int(week) + 1, 1) if int(week) < 52 else date(int(year), 12, 28)
+    return date.fromisocalendar(int(year), int(week), 1)
 
 
 def _format_period_label(period_key: str, group_by: str) -> str:
@@ -826,4 +829,4 @@ def _format_period_label(period_key: str, group_by: str) -> str:
         return f"{month_names[int(month) - 1]} {year}"
     # week
     year, week = period_key.split("-")
-    return f"Tydzień {int(week) + 1}, {year}"
+    return f"Tydzień {int(week)}, {year}"

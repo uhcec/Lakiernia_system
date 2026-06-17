@@ -320,16 +320,30 @@ Current enforcement:
 Manager statistics (`/manager/stats/throughput`, station MANAGER/admin only) report processed area
 and corrections per period (day/week/month), keyed by the date a stage event occurs:
 
-- **m² by production type.** Base-production throughput is split purely by `production_type`:
+**Two coats, two separate work events (the Decoral model).** A RAL order receives one coat of RAL
+paint, runs through the stages, and ends at `PACKING` — that packing event is the RAL coat. A DECORAL
+order receives a **RAL base coat first** (it goes through the *same* stages as a RAL order and also
+ends at `PACKING`), and **then** a **separate Decoral coating** is applied on the `DECORAL_PRODUCTION`
+stage *after* packing. Because both coats cover the *same physical parts*, the area in m² is **identical
+for both coats** — but they are **two distinct processing events** (different stage, different date,
+possibly a different line) and must be counted separately. The Decoral pass is an **additional**
+counter, never a re-slice of the base throughput.
+
+- **m² by production type (base coat).** Base-production throughput is split purely by `production_type`:
   `m2_manual` = all orders with `production_type = MANUAL`, `m2_automatic` = all with `AUTOMATIC`,
-  regardless of coating. A DECORAL order's base coat therefore counts toward manual/automatic exactly
-  like RAL, so `m2_manual + m2_automatic = m2_total` (every produced order has one production type).
-- **m² is attributed at PACKING completion** (`PACKING` stage `DONE` date), using `total_area_m2`.
-  Orders without a filled `total_area_m2` are excluded from m² and surfaced as a separate count.
-- **`m2_decoral` is an overlapping subset, not an exclusive bucket** — it sums `total_area_m2` of
-  orders with `coating_type = DECORAL`. It is reporting context ("of which Decoral"); it must not be
-  added to manual/automatic. The dedicated decoral-pass (`DECORAL_PRODUCTION`) throughput chart is a
-  separate, still-to-build report.
+  regardless of coating. A DECORAL order's RAL base coat therefore counts toward manual/automatic
+  exactly like a RAL order — this is intended (confirmed 2026-06-17) — so
+  `m2_manual + m2_automatic = m2_total` (every produced order has one production type).
+- **Base-coat m² is attributed at PACKING completion** (`PACKING` stage `DONE` date), using
+  `total_area_m2`. Orders without a filled `total_area_m2` are excluded from m² and surfaced as a
+  separate count.
+- **Decoral-pass throughput is a separate, additional counter** (confirmed 2026-06-17), keyed on the
+  `DECORAL_PRODUCTION` stage `DONE` date and using the same `total_area_m2` (same parts → same area as
+  the base coat). It is never added into manual/automatic and is not a subset of them — it is its own
+  series for the Decoral line's daily output. **Current limitation:** the existing `m2_decoral` figure
+  is still measured at `PACKING` completion for `coating_type = DECORAL` orders, i.e. at the base-coat
+  moment rather than at the actual Decoral pass — an approximation. Moving it to `DECORAL_PRODUCTION`
+  completion and rendering its own bar chart is tracked as NA15.
 - **Corrections** are counted from **both** correction sources of the hybrid model (same as
   `list_correction_reason_report`, so the chart and the reason report agree): `CORRECTION` quantity
   batches (RAL packing / DECORAL decoral-stage resets) **plus** child correction work orders

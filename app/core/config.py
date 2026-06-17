@@ -36,6 +36,11 @@ class Settings(BaseSettings):
         default=INSECURE_DEFAULT_JWT_SECRET,
         description="Secret key for signing JWT tokens. Must be overridden outside development.",
     )
+    jwt_expiry_minutes: int = Field(
+        default=12 * 60,
+        gt=0,
+        description="Access-token lifetime in minutes (default 12h, ~one operator shift).",
+    )
 
     model_config = SettingsConfigDict(
         env_file=".env",

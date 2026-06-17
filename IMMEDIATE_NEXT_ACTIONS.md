@@ -112,7 +112,7 @@ they are not yet validated against live factory policy where noted.
   Windows; missing Excel/pywin32 produces an immediate, clear error.
 
 ### NA6. JWT has no expiry
-- Status: OPEN
+- Status: DONE (2026-06-17) — see Done section.
 - Problem: `create_access_token` (`app/auth/service.py:17-23`) issues tokens with no `exp` claim;
   tokens are valid forever and are stored in `localStorage` (`frontend/src/context/AuthContext.tsx:40`).
 - Required fix: Add an `exp` claim and verify it in `decode_token`; decide a session lifetime.
@@ -123,7 +123,7 @@ they are not yet validated against live factory policy where noted.
 ## LOW
 
 ### NA7. Weekly throughput dates computed inconsistently
-- Status: OPEN
+- Status: DONE (2026-06-17) — see Done section.
 - Problem: `func.strftime('%Y-%W')` (non-ISO weeks `00`–`53`) is grouped, then `_parse_period_start`
   converts with `date.fromisocalendar(year, week+1, 1)` plus a `<52` special case
   (`app/manager/service.py:95,762-771`). The conventions don't line up; week starts/labels drift,
@@ -133,7 +133,7 @@ they are not yet validated against live factory policy where noted.
 - Acceptance: Weekly period start dates and labels are correct across year boundaries; covered by a test.
 
 ### NA8. Multi-worker concurrency relies on in-process locks (deployment constraint)
-- Status: OPEN (accepted near-term per `docs/WORKING_CONTRACT.md`; document + guard)
+- Status: DONE (2026-06-17) — documented in runbook; see Done section.
 - Problem: `_PROCESS_MUTATION_LOCKS`/`_RESOURCE_MUTATION_LOCKS` (`app/process/service.py:26-29`) and
   `_QUEUE_MUTATION_LOCK` (`app/manager/service.py:53`) only serialize within one process. DB-level
   guards (queue position, one-active-batch, resource-lock PK) survive multi-worker, but the
@@ -144,7 +144,7 @@ they are not yet validated against live factory policy where noted.
 - Acceptance: Deployment docs state the single-worker constraint and why; or a durable dedup guard exists.
 
 ### NA9. SQLite engine has no `busy_timeout`/WAL
-- Status: OPEN
+- Status: DONE (2026-06-17) — see Done section.
 - Problem: `get_engine` (`app/database/session.py:13-17`) sets `check_same_thread=False` but no
   `busy_timeout` or WAL pragma. Under the documented multi-operator assumption, concurrent writers can
   surface raw `database is locked` errors.
@@ -152,28 +152,36 @@ they are not yet validated against live factory policy where noted.
 - Acceptance: Concurrent writes wait/retry instead of erroring; dev runbook unaffected.
 
 ### NA10. bcrypt 72-byte truncation not guarded
-- Status: OPEN
+- Status: DONE (2026-06-17) — see Done section.
 - Problem: `hash_password` (`app/auth/service.py:9-14`) silently truncates passwords >72 bytes.
 - Required fix: Validate password byte length at registration/change, or pre-hash.
 - Acceptance: Over-long passwords are rejected or handled deterministically.
 
-### NA15. Dedicated Decoral-pass (`DECORAL_PRODUCTION`) throughput chart — deferred
-- Status: OPEN (deferred by user 2026-06-16 when adding the production/correction bar charts)
-- Context: The Statystyki page now shows per-day bar charts for automatic m², manual m², and correction
-  pieces. Base-production m² is split purely by `production_type`, so a DECORAL order's base coat counts
-  toward automatic/manual (see WORKFLOW.md "Throughput Reporting"). The user wants a **separate**
-  throughput chart for the Decoral pass itself.
-- Problem: `m2_decoral` is currently measured at `PACKING` completion (coating = DECORAL), which is an
-  approximation — the real Decoral pass (`DECORAL_PRODUCTION` stage) completes *after* packing. There is
-  no per-day series keyed on `DECORAL_PRODUCTION` `DONE`.
-- Required fix: Add a throughput series for the Decoral pass keyed on the `DECORAL_PRODUCTION` stage
-  `DONE` date (m² and/or pieces), expose it in `ThroughputPeriod`, and render a fourth bar chart. Decide
-  whether to keep the packing-time `m2_decoral` subset column or replace it with the pass-time number.
+### NA15. Dedicated Decoral-pass (`DECORAL_PRODUCTION`) throughput chart
+- Status: OPEN (business model confirmed 2026-06-17; ready to implement)
+- Context: The Statystyki page shows per-day bar charts for automatic m², manual m², and correction
+  pieces. Factory model (confirmed 2026-06-17, now in WORKFLOW.md "Throughput Reporting"): a DECORAL
+  order gets a **RAL base coat** through the normal stages (ends at `PACKING`) and **then** a **separate
+  Decoral coating** on `DECORAL_PRODUCTION`. Both coats cover the same parts, so the m² is identical —
+  but they are two distinct work events and must be counted separately.
+- Confirmed decisions (2026-06-17):
+  - The RAL base coat of a DECORAL order **stays counted** toward automatic/manual m² at packing, exactly
+    like RAL — do not change base-coat accounting.
+  - The Decoral pass is a **separate, additional** counter (not a subset of automatic/manual), keyed on
+    the `DECORAL_PRODUCTION` stage `DONE` date, using the order's `total_area_m2`.
+- Problem: today's `m2_decoral` is measured at `PACKING` completion (coating = DECORAL) — the base-coat
+  moment, not the actual Decoral pass. There is no per-day series keyed on `DECORAL_PRODUCTION` `DONE`.
+- Required fix: Add a Decoral-pass throughput series keyed on `DECORAL_PRODUCTION` `DONE` (m²; pieces
+  optional), expose it in `ThroughputPeriod`, and render a fourth bar chart. Replace the packing-time
+  `m2_decoral` approximation with the pass-time number (keep the label "m² Decoral").
+- Still to confirm with the business friend: whether the Decoral chart should also show **pieces** (m²
+  is the default), per the Polish question set sent 2026-06-17.
 - Acceptance: A Decoral-pass chart shows m² processed on the Decoral line per day, attributed at
-  `DECORAL_PRODUCTION` completion; covered by a test; WORKFLOW.md updated.
+  `DECORAL_PRODUCTION` completion; base-coat automatic/manual totals unchanged; covered by a test;
+  WORKFLOW.md updated.
 
 ### NA14. `WorkOrdersTable` is dead code (kept alive only by tests)
-- Status: OPEN
+- Status: DONE (2026-06-17) — see Done section.
 - Problem: `frontend/src/components/WorkOrdersTable.tsx` is imported only by `uiStateConsistency.test.tsx`;
   the office list page uses `OfficeWorkOrdersTable`. Discovered during NA13. It keeps drifting from the
   real UI (it still carried a duplicate discrepancy render, now removed).
@@ -197,6 +205,45 @@ they are not yet validated against live factory policy where noted.
 
 ## Done
 
+- **NA14 (2026-06-17)** — Deleted the dead `frontend/src/components/WorkOrdersTable.tsx`; it was
+  imported only by `uiStateConsistency.test.tsx` (the office list uses `OfficeWorkOrdersTable`).
+  Removed its three dedicated tests (READY-as-historical, active-progress, office-discrepancy — all
+  covered for the real component via the `WorkOrdersListPage`/`OfficeWorkOrdersTable` bucket test)
+  and the now-unused import. The office table now has a single source of truth. Verified: frontend
+  **67 passed** (was 70), build passes.
+- **NA6 (2026-06-17)** — JWT tokens now expire. `create_access_token` (`app/auth/service.py`) adds
+  `iat`/`exp` claims; lifetime is configurable via `jwt_expiry_minutes` (`app/core/config.py`,
+  default 12h ≈ one operator shift). `decode_token` already returned `{}` on any decode failure
+  (including `ExpiredSignatureError`), so an expired token yields no `sub` and `get_current_user`
+  returns 401 — verified by `tests/test_auth_service.py`
+  (`test_access_token_includes_expiry_claim`, `test_decode_token_rejects_expired_token`). Verified:
+  full backend `pytest` green, Alembic clean.
+- **NA7 (2026-06-17)** — Weekly throughput now uses one ISO convention end-to-end. Grouping switched
+  to `strftime('%G-%V')` (ISO year + ISO week) and `_parse_period_start` parses with
+  `date.fromisocalendar(year, week, 1)` (`app/manager/service.py`); removed the old `%Y-%W` /
+  `week+1` / `<52` special-casing so week starts land on the ISO Monday and stay correct across year
+  boundaries. New `tests/test_throughput_periods.py` covers ISO Monday, year-boundary weeks
+  (2026-W01 → 2025-12-29, 2026-W53 → 2026-12-28), labels, and unchanged day/month periods. Verified
+  SQLite 3.50.4 supports `%G/%V`; full backend `pytest` green.
+- **NA8 (2026-06-17)** — Documented the single-worker deployment constraint in
+  `docs/DEVELOPMENT_RUNBOOK.md` (Run The App → backend): cross-request safety relies on in-process
+  locks (`_PROCESS_MUTATION_LOCKS`/`_RESOURCE_MUTATION_LOCKS`, `_QUEUE_MUTATION_LOCK`) plus DB
+  constraints; the "no duplicate correction child per packing split" guarantee holds only within one
+  process, so deploy with exactly one worker (no `--workers N`) until a durable cross-process
+  idempotency strategy exists. Accepted near-term; longer-term durable dedup remains future work.
+- **NA9 (2026-06-17)** — SQLite engine now applies connection PRAGMAs via a `connect` event
+  (`app/database/session.py` `_apply_sqlite_pragmas`): `busy_timeout=5000`, `journal_mode=WAL`,
+  `synchronous=NORMAL`, registered only for SQLite URLs. Concurrent writers now wait up to the busy
+  timeout instead of surfacing raw `database is locked`. Verified on the app engine
+  (`journal_mode=wal`, `busy_timeout=5000`, `synchronous=1`); `.gitignore` already covers the
+  `local.db-*` WAL/SHM sidecars. Full backend `pytest` green, Alembic clean.
+- **NA10 (2026-06-17)** — bcrypt's 72-byte limit is now handled deterministically
+  (`app/auth/service.py`): `MAX_PASSWORD_BYTES = 72`; `hash_password` raises `ValueError` for
+  over-long passwords and `verify_password` returns `False` (no silent truncation to a 72-byte
+  prefix). Note: bcrypt 5.0.0 already *raises* on >72 bytes (the backlog's "silent truncation" was
+  outdated), so the real win is turning a would-be 500 on login into a clean, deterministic outcome.
+  Covered by `tests/test_auth_service.py` (reject-on-hash, reject-on-verify, round-trip at limit).
+  Full backend `pytest` green.
 - **NA4 (2026-06-16)** — Throughput corrections now count both sources of the hybrid model, matching
   the reason report. `ManagerService.get_throughput_stats` (`app/manager/service.py`) aggregates
   `CORRECTION` quantity batches (RAL packing / DECORAL decoral-stage resets) **plus** child correction

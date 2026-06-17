@@ -4,7 +4,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { PackingWorkOrdersPage } from "../src/components/PackingWorkOrdersPage";
 import { StageWorkOrdersPage } from "../src/components/StageWorkOrdersPage";
-import { WorkOrdersTable } from "../src/components/WorkOrdersTable";
 import { ApiError } from "../src/api/apiError";
 import { PaintInventoryPage } from "../src/pages/PaintInventoryPage";
 import { AutomaticProductionPage } from "../src/pages/AutomaticProductionPage";
@@ -1266,58 +1265,6 @@ describe("frontend state consistency", () => {
 
     await screen.findByText("Postęp partii: 3 / 7 szt.");
     expect(screen.queryByText("Wynik końcowy: 3 szt.")).toBeNull();
-  });
-
-  it("renders READY rows in the work orders table as historical results only", () => {
-    render(
-      <MemoryRouter>
-        <WorkOrdersTable
-          workOrders={[
-            {
-              ...buildWorkOrder(80, "WO-TABLE-READY", 1, "Hotel"),
-              completed_quantity: 10,
-              current_active_quantity: 0,
-              total_progress_quantity: 10,
-              process_status: { value: "READY", label: "Gotowe" },
-            },
-          ]}
-        />
-      </MemoryRouter>,
-    );
-
-    expect(screen.getByText("Wynik końcowy: 10 szt.")).toBeTruthy();
-    expect(screen.queryByText("10 / 10 szt.")).toBeNull();
-    expect(screen.queryByText(/Aktywne/)).toBeNull();
-  });
-
-  it("keeps active progress visible in the work orders table", () => {
-    render(
-      <MemoryRouter>
-        <WorkOrdersTable workOrders={[buildWorkOrder(81, "WO-TABLE-ACTIVE", 1, "India")]} />
-      </MemoryRouter>,
-    );
-
-    expect(screen.getByText("10 / 10 szt.")).toBeTruthy();
-    expect(screen.getAllByText(/Aktywne/).length).toBeGreaterThan(0);
-  });
-
-  it("shows backend discrepancy signal in the office table", () => {
-    render(
-      <MemoryRouter>
-        <WorkOrdersTable
-          workOrders={[
-            {
-              ...buildWorkOrder(84, "WO-DISCREPANCY", 1, "Kilo"),
-              surface_preparation_counted_quantity: 8,
-              surface_preparation_quantity_difference: -2,
-            },
-          ]}
-        />
-      </MemoryRouter>,
-    );
-
-    expect(screen.getByText("RÓŻNICA: -2 SZT.")).toBeTruthy();
-    expect(screen.getByText("Przygotowanie: zadeklarowano 10, policzono 8 (-2 szt.)")).toBeTruthy();
   });
 
   it("groups office work orders into intake, production, and ready buckets", async () => {

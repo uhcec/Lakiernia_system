@@ -45,6 +45,14 @@ Backend:
 uvicorn app.main:app --reload
 ```
 
+> **Deploy with a single backend worker (NA8).** Cross-request safety relies on in-process
+> locks (`_PROCESS_MUTATION_LOCKS` / `_RESOURCE_MUTATION_LOCKS` in `app/process/service.py`,
+> `_QUEUE_MUTATION_LOCK` in `app/manager/service.py`) in addition to DB constraints. The
+> DB-level guards (queue position, one-active-batch, resource-lock PK) survive multiple
+> workers, but the "no duplicate correction child per packing split" guarantee does **not** —
+> it holds only within one process. Run exactly one worker (do **not** pass `--workers N` to
+> uvicorn/gunicorn) until a durable cross-process idempotency strategy exists.
+
 Frontend:
 
 ```powershell
