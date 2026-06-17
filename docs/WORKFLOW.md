@@ -366,9 +366,12 @@ counter, never a re-slice of the base throughput.
 new status, `occurred_at`, work order, batch, counted quantity, station, and (nullable) user. It
 exists because `work_order_stage_states` keeps only the latest `updated_at`, which is overwritten on
 every change and cannot reconstruct history. Rows are written wherever audit events are emitted for
-transitions (stage start/finish/reopen, packing completion, decoral-pass completion); implicit
-auto-transitions (e.g. PACKING set to IN_PROGRESS when automatic HANGING finishes) are **not yet**
-logged. The log is the source for time-based statistics (cycle time per stage, queue wait,
+transitions (stage start/finish/reopen, packing completion, decoral-pass completion), plus the
+automatic implicit transitions (PRODUCTION/PACKING set to IN_PROGRESS when automatic HANGING finishes,
+and the automatic PRODUCTION→DONE at packing). Internal correction-reset/merge state changes (e.g.
+reopening the root Decoral pass when a correction child returns) are not individually logged; the
+following normal finish re-logs the DONE, so analytics stay correct. The log is the source for
+time-based statistics (cycle time per stage, queue wait,
 bottlenecks, per-day throughput) and lets new metrics be added without changing the workflow. The
 `user_id` column is populated only once stations have personal operator login (today it records the
 shared station account, or NULL for internal/seed actions).

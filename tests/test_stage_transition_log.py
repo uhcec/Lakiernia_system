@@ -134,6 +134,39 @@ def test_stage_transitions_are_logged_with_timestamp_station_and_user(admin_clie
     assert packing_done.counted_quantity == 100
 
 
+def test_automatic_hanging_finish_logs_implicit_production_and_packing_start(admin_client_and_sessions) -> None:
+    # Automatic production has no manual PRODUCTION/PACKING start: finishing HANGING implicitly moves
+    # both into progress. Those implicit transitions are logged too, so automatic cycle time is visible.
+    client, session_factory = admin_client_and_sessions
+    created = client.post("/work-orders", json=_create_payload("Automatic implicit start")).json()
+
+    assert client.post(
+        f"/manager/work-orders/{created['id']}/plan",
+        json={"production_type": "AUTOMATIC", "queue_position": 1},
+    ).status_code == 200
+    assert client.post(f"/process/work-orders/{created['id']}/stages/SURFACE_PREPARATION/start").status_code == 200
+    assert client.post(
+        f"/process/work-orders/{created['id']}/stages/SURFACE_PREPARATION/finish",
+        json={"counted_quantity": 100},
+    ).status_code == 200
+    assert client.post(f"/process/work-orders/{created['id']}/stages/HANGING/start").status_code == 200
+    assert client.post(f"/process/work-orders/{created['id']}/stages/HANGING/finish").status_code == 200
+
+    with session_factory() as session:
+        in_progress = {
+            event.stage
+            for event in session.execute(
+                select(StageTransitionEvent).where(
+                    StageTransitionEvent.work_order_id == created["id"],
+                    StageTransitionEvent.status == StageStatus.IN_PROGRESS,
+                )
+            ).scalars().all()
+        }
+
+    assert ProcessStage.PRODUCTION in in_progress
+    assert ProcessStage.PACKING in in_progress
+
+
 def test_throughput_attributes_from_the_transition_log(admin_client_and_sessions) -> None:
     client, _ = admin_client_and_sessions
     created = client.post("/work-orders", json=_create_payload("Throughput from log", total_area_m2=18.0)).json()

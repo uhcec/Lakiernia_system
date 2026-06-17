@@ -204,8 +204,10 @@ they are not yet validated against live factory policy where noted.
   quantity, station, nullable user) — the durable analytics backbone, since `work_order_stage_states`
   keeps only the latest `updated_at`. Writers mirror the audit choke points (`_record_stage_transition`
   called from `_record_stage_audit_event` / `_record_packing_audit_event` / `_record_decoral_audit_event`
-  in `app/process/service.py`); implicit auto-transitions (e.g. automatic PACKING→IN_PROGRESS) are not
-  yet logged. `StationContext` now carries `user_id` (`app/audit/context.py`) so the column populates
+  in `app/process/service.py`), plus the automatic implicit transitions (PRODUCTION/PACKING→IN_PROGRESS
+  when automatic HANGING finishes, and automatic PRODUCTION→DONE at packing — added 2026-06-17). Only
+  internal correction-reset/merge state changes remain unlogged (the following normal finish re-logs the
+  DONE, so analytics stay correct). `StationContext` now carries `user_id` (`app/audit/context.py`) so the column populates
   the day personal operator login exists (NULL today; stations share an identity). Throughput
   (`ManagerService.get_throughput_stats`) is repointed onto the log's latest `PACKING`→`DONE`
   `occurred_at`, with a COALESCE fallback to stage-state `updated_at` for pre-log/historical rows.

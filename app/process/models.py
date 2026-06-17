@@ -99,10 +99,12 @@ class StageTransitionEvent(Base):
     cycle times, per-stage throughput, queue waits, and bottleneck analysis can be derived reliably.
     Rows are never updated or deleted (except by ``work_orders`` cascade). ``station_id`` is always
     captured; ``user_id`` is recorded when available — it stays NULL today (stations share an
-    identity) and will populate automatically once operators get personal login. The current writers
-    mirror the audit-event choke points (stage start/finish/reopen, packing completion, decoral-pass
-    completion); implicit auto-transitions (e.g. PACKING set to IN_PROGRESS when automatic HANGING
-    finishes) are not yet logged.
+    identity) and will populate automatically once operators get personal login. Writers cover the
+    audit-event choke points (stage start/finish/reopen, packing completion, decoral-pass completion)
+    plus the automatic implicit transitions (PRODUCTION/PACKING set to IN_PROGRESS when automatic
+    HANGING finishes, and the automatic PRODUCTION->DONE at packing). Internal correction-reset/merge
+    state changes (e.g. reopening the root Decoral pass when a correction child returns) are not
+    individually logged; the subsequent normal finish re-logs the DONE, so analytics stay correct.
     """
 
     __tablename__ = "stage_transition_events"

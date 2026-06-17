@@ -156,6 +156,10 @@ class ProcessService:
                 stage_state.status = target_status
                 stage_state.updated_at = datetime.now(UTC)
 
+                # Finishing automatic HANGING implicitly moves PRODUCTION and PACKING into progress
+                # (the automatic line runs without manual start). Log these implicit transitions too,
+                # so cycle-time/throughput stats see when automatic production actually started.
+                implicit_in_progress: list[ProcessStage] = []
                 if (
                     stage == ProcessStage.HANGING
                     and target_status == StageStatus.DONE
@@ -165,10 +169,12 @@ class ProcessService:
                     if production_state.status == StageStatus.NOT_STARTED:
                         production_state.status = StageStatus.IN_PROGRESS
                         production_state.updated_at = stage_state.updated_at
+                        implicit_in_progress.append(ProcessStage.PRODUCTION)
                     packing_state = self._get_stage_state(work_order, ProcessStage.PACKING)
                     if packing_state.status == StageStatus.NOT_STARTED:
                         packing_state.status = StageStatus.IN_PROGRESS
                         packing_state.updated_at = stage_state.updated_at
+                        implicit_in_progress.append(ProcessStage.PACKING)
 
                 if target_status != StageStatus.IN_PROGRESS:
                     self._release_inactive_resource_locks(work_order)
@@ -180,6 +186,14 @@ class ProcessService:
                     station_context=station_context,
                     batch_id=None,
                 )
+                for implicit_stage in implicit_in_progress:
+                    self._record_stage_transition(
+                        work_order=work_order,
+                        stage=implicit_stage,
+                        status=StageStatus.IN_PROGRESS,
+                        station_context=station_context,
+                        batch_id=None,
+                    )
 
                 try:
                     self.repository.commit()
@@ -502,6 +516,15 @@ class ProcessService:
             if work_order.production_type == ProductionType.AUTOMATIC:
                 production_state.status = StageStatus.DONE
                 production_state.updated_at = datetime.now(UTC)
+                # Automatic PRODUCTION has no manual finish; it completes implicitly at packing.
+                # Log it so the automatic production stage has a DONE event in the analytics log.
+                self._record_stage_transition(
+                    work_order=work_order,
+                    stage=ProcessStage.PRODUCTION,
+                    status=StageStatus.DONE,
+                    station_context=station_context,
+                    batch_id=active_batch.id,
+                )
 
             if (
                 work_order.coating_type == CoatingType.DECORAL
