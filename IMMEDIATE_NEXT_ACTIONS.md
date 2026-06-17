@@ -185,6 +185,33 @@ they are not yet validated against live factory policy where noted.
 
 ---
 
+## Open
+
+### NA22. Automatic order must reserve packing at HANGING start (factory requirement, 2026-06-17)
+- Severity: **MEDIUM** (factory-confirmed workflow refinement; revises NA16).
+- Source: factory chat 2026-06-17. Rule: when an **AUTOMATIC** work order **starts HANGING**, it must
+  automatically reserve the single packing station (the `PACKING` resource lock) and hold it until its
+  own packing completes. The automatic line cannot be paused, so a manual order must not be able to
+  claim packing and block an in-flight automatic order. Manual orders keep the explicit
+  "Rozpocznij pakowanie" button and may claim only when packing is free.
+- Revises: NA16 / validation-checklist #9 as-built behavior ("automatic waiting rows do not hold the
+  claim"). For the automatic path the reservation now starts at hanging start, not at packing.
+- Required fix (backend): in `start_stage`/`transition_stage` for `HANGING` → `IN_PROGRESS` on an
+  AUTOMATIC order, acquire the `PACKING` reservation for that order (alongside the existing `HANGING`
+  acquire). Extend the claim-retention predicate (`_occupies_packing`) so an automatic reservation is
+  kept from hanging start through packing completion (today it only counts packing `IN_PROGRESS`).
+  `start_packing` (manual claim) must 409 when an automatic holds the reservation, with a clear message
+  ("Stanowisko pakowania zarezerwowane przez zlecenie automatyczne {order}").
+- Open design questions (see checklist #9): second automatic starting hanging while packing reserved
+  (queue vs deny); manual that already started packing before the automatic begins hanging (automatic
+  waits — first-come); release timing.
+- Frontend: manual packing cards show "Zarezerwowane przez automat {order}" instead of the claim button
+  while an automatic holds the reservation; the reserving automatic shows packing as reserved.
+- Acceptance: starting hanging on an automatic order reserves packing; a manual `start_packing` is then
+  rejected with a controlled 409; the reservation releases at the automatic order's packing completion,
+  after which the manual order can claim; regression + chaos coverage for the manual-vs-automatic
+  contention race; WORKFLOW.md "Packing station exclusivity" updated.
+
 ## Open (from the 2026-06-17 workflow audit)
 
 ### NA19. Finalize force-sets `completed_quantity = total_quantity` without surfacing a mismatch

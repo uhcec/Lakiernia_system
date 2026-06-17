@@ -363,6 +363,17 @@ Implemented on 2026-06-17 (explicit-claim model, chosen by the user):
 - An explicit **release/cancel claim** action also exists: `release_packing` + `POST /process/work-orders/{id}/packing/release` (and batch variant) lets an operator who claimed the wrong order free the station without completing. It only drops the claim (no stage-status change), is idempotent, and cannot release another order's claim. UI: a "Zwolnij stanowisko" control on the claimed order's card.
 - Coverage: `tests/test_packing_station_lock.py` (claim, 409 on second claim, completion blocked by another claim, release on completion, idempotent re-claim, stale recovery, automatic-waiting does-not-claim, release frees station, release idempotent / cannot steal another claim), API tests in `tests/test_process_api.py`, frontend tests in `uiStateConsistency.test.tsx` (release button, busy/claim states), and chaos scenario `two_operators_claim_same_packing_station` (exactly one 200, one 409). Docs: WORKFLOW.md "Packing station exclusivity".
 
+Refinement CONFIRMED 2026-06-17 (factory chat) — automatic reserves packing at HANGING start:
+
+- New rule: when an **AUTOMATIC** work order **starts HANGING**, it must **automatically reserve the packing station** and hold that reservation until its own packing completes. Rationale: the automatic line cannot be paused, so a manual order must not be able to grab packing and block an automatic order that is already on the line. Scenario given: two orders both finished surface prep (one manual, one automatic); starting hanging on the automatic one reserves packing immediately.
+- Manual orders keep the **explicit "start packing" button** (already implemented) and may claim packing only when it is free; they start "when convenient" after the automatic order releases it.
+- **This revises the 2026-06-02 note** ("treat automatic waiting rows as not occupying packing") and the as-built NA16 line ("automatic waiting rows do not hold the claim"): for the automatic path, the reservation is now taken at hanging start, not deferred.
+- Open design questions for implementation (tracked as NA22 in `IMMEDIATE_NEXT_ACTIONS.md`):
+  - Second automatic starting hanging while packing is already reserved by another automatic (queue vs. deny; interacts with the existing `HANGING`/`AUTOMATIC_LINE` locks).
+  - A manual order that already physically started packing before the automatic begins hanging (automatic waits — reservation is first-come).
+  - Reservation lifecycle: held from `HANGING` start through the automatic order's packing completion, then released so manual can claim. Requires extending the packing-claim retention so an automatic reservation is kept even before packing is `IN_PROGRESS`.
+  - Frontend: manual cards show "Zarezerwowane przez automat {order}" instead of the claim button while an automatic holds the reservation.
+
 Why this matters:
 
 - Packing exclusivity changes backend conflicts, station UI availability, and chaos/concurrency coverage, so it needed focused implementation and regression coverage.
