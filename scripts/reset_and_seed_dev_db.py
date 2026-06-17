@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.auth.models import User
 from app.auth.service import hash_password
+from app.clients.models import Client
 from app.core.config import get_settings, get_work_order_attachments_path
 from app.database import models as _models  # noqa: F401
 from app.database.session import get_session_factory
@@ -138,6 +139,7 @@ def reset_app_data(session: Session) -> None:
     session.execute(delete(WorkOrderStageState))
     session.execute(delete(WorkOrderQuantityBatch))
     session.execute(delete(WorkOrder))
+    session.execute(delete(Client))
     session.execute(delete(User))
     session.commit()
 
@@ -150,6 +152,18 @@ def reset_app_data(session: Session) -> None:
         ))
     session.commit()
     print(f"Seeded {len(_STATION_USERS)} users.")
+
+    for company_name, contact_phone, nip in _SEED_CLIENTS:
+        session.add(Client(company_name=company_name, contact_phone=contact_phone, nip=nip))
+    session.commit()
+    print(f"Seeded {len(_SEED_CLIENTS)} clients.")
+
+
+_SEED_CLIENTS = [
+    ("Profiltech Sp. z o.o.", "+48 22 123 45 67", "5261040828"),
+    ("Aluminco", "+48 71 345 67 89", "8991234567"),
+    ("Metal-Bud Zając", "+48 12 456 78 90", "6761234567"),
+]
 
 
 def seed_all_use_cases(session: Session) -> list[SeededScenario]:
