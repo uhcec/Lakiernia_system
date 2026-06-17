@@ -313,6 +313,12 @@ only. Five elements, top to bottom:
   severity), feeding concrete follow-up items back into this file.
 - Acceptance: every major documented topic has an explicit conformance verdict with evidence;
   divergences are logged as actionable items; no silent fixes bundled into the audit.
+- **DONE (2026-06-17): full read-only pass → `docs/CODE_CONFORMANCE_AUDIT.md`.** Per-topic verdicts with
+  `file:line` evidence. Result: code conforms to the reconciled docs across stage model, READY/finalize,
+  reopen, corrections, resource locks/packing slots, auth (NA1), queue stale-revision, throughput,
+  paint (demand 100 m² + shortage warning + packing block + no-negative-stock), work types, external
+  number, completed release, JWT/config. **One real divergence: NA26** (confirmed in code). One
+  doc-understatement: NA27. No code changed.
 
 ### NA26. Most screens display the ordered quantity instead of the real counted (actual received) quantity
 - Severity: MEDIUM (operator-visible truth — but reported as "almost everything works"; verify before fixing).
@@ -331,6 +337,21 @@ only. Five elements, top to bottom:
   prep has counted it; office/manager still see declared, counted, and the difference; covered by tests.
 - Note: this is exactly the kind of doc-vs-code divergence **NA25** will sweep for — confirm scope there,
   but it is logged here because the owner surfaced the concrete symptom.
+- **NA25 update (2026-06-17): CONFIRMED in code.** `_store_surface_preparation_counted_quantity`
+  (`app/process/service.py:2339-2355`) stores the count only on the SP stage state and does not update
+  `current_active_quantity`; `_get_stage_display_quantity` (`:2479-2492`) and `_get_stage_planned_quantity`
+  (`:2495-2511`) therefore return the ordered `total_quantity`, which station cards render. Validation
+  uses the actual received value (`:2821`, `:576-578`), so packing's missing-piece check is correct.
+  Resolve the WORKFLOW principle-6 (planned stays original) vs discrepancy-visibility tension with the
+  owner before fixing.
+
+### NA27. WORKFLOW "Station Permissions" understates which stats endpoints are manager-gated
+- Severity: LOW (doc-understatement, not a defect — code is safe/broader).
+- `WORKFLOW.md` "Station Permissions → Current enforcement" lists only `/manager/stats/throughput` and
+  `/manager/corrections/reason-report` as manager/admin-gated, but `_ensure_stats_viewer` also gates
+  `/stats/cycle-time` and `/stats/wip-aging` (`app/manager/service.py:112,129,356,508`).
+- Fix: broaden that WORKFLOW line to "all `/manager/stats/*` (and the corrections reason report)".
+- Acceptance: the doc matches the code; no behaviour change.
 
 ## Done
 
