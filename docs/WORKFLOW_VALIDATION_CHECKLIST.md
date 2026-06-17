@@ -388,7 +388,7 @@ Why this matters:
 
 ### 10. Quality-Control Production Document
 
-Status: `CONFIRMED with Excel template needed before implementation`
+Status: `IMPLEMENTED` (corrected 2026-06-17 — this was wrongly left as "needs template"; it ships and works)
 
 Confirmed direction from 2026-05-30:
 
@@ -399,11 +399,18 @@ Confirmed direction from 2026-05-30:
 - System-filled fields confirmed so far: internal work-order number, paint, and company/customer only.
 - Generated output is for printing only; no persistence requirement is confirmed yet.
 
-Implementation decision needed:
+As implemented:
 
-- Obtain the actual Excel template before implementation.
-- Map exact cells to system data or mark them as manual/blank-for-print fields.
-- Decide storage/update path for the template file.
+- The factory template ships at `app/static/templates/karta_kontroli_jakosci.xlsx`.
+- `WorkOrderService.generate_quality_control_document` loads it (openpyxl), fills the confirmed
+  fields (internal order number `A4`, customer `D5`, paint `D6`), converts xlsx→PDF via the Excel COM
+  worker, and returns the PDF. Output is print-only (not persisted), matching the confirmed direction.
+- Exposed at `GET /work-orders/{id}/quality-control-document`; the frontend offers a download from the
+  work-order detail page and station views. Windows + Excel only (lazy COM worker, fails fast off-Windows).
+
+Remaining (optional, only if the factory asks):
+
+- Map additional cells beyond the three confirmed fields, or persist generated documents.
 
 ### 11. Paint Inventory And Consumption
 
