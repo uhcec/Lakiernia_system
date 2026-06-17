@@ -200,6 +200,29 @@ they are not yet validated against live factory policy where noted.
 - Severity: known/accepted. The guarantee relies on the in-process lock; documented single-worker
   deploy. Durable cross-process idempotency remains future work.
 
+### NA23. Every production stat should also expose a manual / automatic / decoral breakdown that sums to the whole
+- Severity: MEDIUM (truth/visibility — managers can't see what composes a production total).
+- Problem: the Statystyki stats currently surface production figures (pieces, m², cycle-time,
+  WIP-aging, etc.) without a consistent, drill-down split into the three production kinds. Some series
+  are already split (base-coat m² by `production_type`, the dedicated Decoral-pass chart), but the rest
+  of the production stats show only an aggregate.
+- Required fix: for **every** stat that reports production, also offer a more detailed view broken down
+  into **manual**, **automatic**, and **decoral** production, where the parts sum to the displayed
+  whole. Decide whether this is a per-stat expandable detail or columns; keep `manual + automatic
+  (+ decoral as documented)` reconciling to the total so the breakdown is auditable.
+- Acceptance: each production stat on the Statystyki page can show the manual/automatic/decoral split;
+  the parts visibly sum to the aggregate; covered by tests.
+- **Reconciliation RESOLVED (2026-06-17, owner interview → `docs/FACTORY_DOMAIN_MODEL.md` §4.1):**
+  production method and coating are two *independent axes*; a decoral order is ONE product counted
+  ONCE (m² through the factory). So "manual + automatic + decoral" is NOT a valid single sum (it would
+  double-count decoral orders, which already sit inside manual/automatic). Instead the detailed view is
+  **two independent partitions of the same total**, each of which sums to the whole:
+  (1) by production method `manual + automatic = total`, (2) by coating `RAL + decoral = total`.
+  The existing "Przejazd Decoral" m² is a *separate line-workload counter* (overlaps base coat) and
+  must stay out of the total. m² is the primary unit; pieces secondary but should be supported.
+- Still to confirm before building: UI presentation (the two partitions as stacked bars / columns /
+  drill-down) and exactly which stats get it (throughput, cycle-time, WIP-aging).
+
 ### NA21. Factory-policy validation of S01–S12 (esp. the single-Decoral-pass correction model)
 - Severity: policy, not code. Tests prove internal consistency, not shop-floor correctness.
 - Code coverage DONE (2026-06-17): every matrix row S01–S12 now has an explicit end-to-end regression

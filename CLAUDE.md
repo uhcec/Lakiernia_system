@@ -11,12 +11,16 @@ TypeScript + Vite + Tailwind frontend. Polish operator UI.
 
 1. **`IMMEDIATE_NEXT_ACTIONS.md`** — the living list of OPEN, actionable work. Start here; pick the
    highest-severity open item unless the user says otherwise, and keep it current.
-2. `docs/WORKFLOW.md` — business workflow semantics (strongest source of truth; ask the user when
-   real factory policy is unclear). This is the volatile-but-authoritative doc — prefer it over the
-   summaries below if they ever disagree.
-3. `docs/WORKING_CONTRACT.md` — how we work (problem → risks → docs impact → solution → tests).
-4. `docs/DEVELOPMENT_RUNBOOK.md` — setup, run, seed, and verify commands.
-5. `HARDENING_BACKLOG.md` — *closed* hardening evidence (verify currency before trusting an item).
+2. `docs/FACTORY_DOMAIN_MODEL.md` — **physical ground truth** of the factory (the two independent
+   axes — production method MANUAL/AUTOMATIC × coating RAL/DECORAL — the physical line, and what is
+   measured). The "why" beneath the workflow; consult it before reasoning about production semantics.
+   Still a DRAFT being filled by interview — trust confirmed sections, not `[TBD]` ones.
+3. `docs/WORKFLOW.md` — business workflow semantics (strongest source of truth for *system* behavior;
+   ask the user when real factory policy is unclear). Volatile-but-authoritative — prefer it over the
+   summaries below if they ever disagree; for physical "why", defer to `FACTORY_DOMAIN_MODEL.md`.
+4. `docs/WORKING_CONTRACT.md` — how we work (problem → risks → docs impact → solution → tests).
+5. `docs/DEVELOPMENT_RUNBOOK.md` — setup, run, seed, and verify commands.
+6. `HARDENING_BACKLOG.md` — *closed* hardening evidence (verify currency before trusting an item).
 
 The sections below are a durable mental map so you don't have to re-derive the architecture each time.
 They change slowly; semantics live in `docs/WORKFLOW.md`.
