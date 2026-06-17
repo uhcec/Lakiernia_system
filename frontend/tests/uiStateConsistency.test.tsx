@@ -1160,14 +1160,19 @@ describe("frontend state consistency", () => {
     ]);
     startPackingMock.mockResolvedValue({} as never);
 
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+
     render(<PackingWorkOrdersPage />);
 
     await screen.findByText("WO-MANUAL-WAIT :: Klient");
-    // The warning surfaces the reserving automatic order's piece count.
-    expect(screen.getByText(/WO-AUTO-RESERVED \(14 szt./)).toBeTruthy();
+    // The warning is NOT shown persistently — only when opening the second station (a confirm).
+    expect(screen.queryByText(/WO-AUTO-RESERVED \(14 szt./)).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Otwórz drugie stanowisko" }));
 
+    // The warning (with the reserving automatic order's piece count) appears in the confirm prompt.
+    expect(confirmSpy).toHaveBeenCalledWith(expect.stringContaining("WO-AUTO-RESERVED (14 szt., automat)"));
     await waitFor(() => expect(startPackingMock).toHaveBeenCalledWith(52, undefined, true));
+    confirmSpy.mockRestore();
   });
 
   it("keeps stage list visible when one correction detail fetch fails", async () => {

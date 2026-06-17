@@ -334,6 +334,26 @@ export function PackingWorkOrdersPage() {
     }
   }
 
+  function handleOverridePacking(workOrder: StageWorkOrder, occupants: StageWorkOrder[]) {
+    // The warning is shown only at the moment of opening a second station (not persistently), because
+    // an automatic order reserves packing at hanging start — parts may not have reached packing yet.
+    const occupantLines = occupants
+      .map(
+        (occupant) =>
+          `• ${occupant.order_number} (${occupant.current_active_quantity} szt.${
+            occupant.production_type?.value === "AUTOMATIC" ? ", automat" : ""
+          })`,
+      )
+      .join("\n");
+    const message =
+      "Uwaga: automat rezerwuje pakowanie już przy rozpoczęciu zawieszania — części mogą jeszcze nie " +
+      "dotrzeć z linii, więc stanowisko może wyglądać na wolne.\n\nZajęte przez:\n" +
+      `${occupantLines}\n\nOtworzyć drugie stanowisko mimo to?`;
+    if (window.confirm(message)) {
+      void handleStartPacking(workOrder, true);
+    }
+  }
+
   async function handlePackingSubmit(workOrder: StageWorkOrder) {
     const draftKey = getDraftKey(workOrder);
     const draft = drafts[draftKey] ?? buildEmptyPackingDraft();
@@ -709,25 +729,11 @@ export function PackingWorkOrdersPage() {
                     </div>
                   ) : needsOverride ? (
                     <div className="flex h-full flex-col justify-center gap-3">
-                      <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-                        <p className="font-semibold">Stanowisko pakowania jest zajęte/zarezerwowane.</p>
-                        <p className="mt-1">
-                          Uwaga: automat rezerwuje pakowanie już przy rozpoczęciu zawieszania — części mogą jeszcze
-                          nie dotrzeć z linii, więc stanowisko może wyglądać na wolne.
-                        </p>
-                        <ul className="mt-1 list-disc pl-4">
-                          {otherOccupants.map((occupant) => (
-                            <li key={occupant.id}>
-                              {occupant.order_number} ({occupant.current_active_quantity} szt.
-                              {occupant.production_type?.value === "AUTOMATIC" ? ", automat" : ""})
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
+                      <p className="text-sm text-steel">Stanowisko pakowania jest zajęte.</p>
                       <button
                         type="button"
                         disabled={isSubmitting}
-                        onClick={() => void handleStartPacking(workOrder, true)}
+                        onClick={() => handleOverridePacking(workOrder, otherOccupants)}
                         className="inline-flex w-full items-center justify-center rounded-lg bg-accent px-4 py-3 text-sm font-semibold text-white transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:bg-teal-300"
                       >
                         {isSubmitting ? "Zapisywanie..." : "Otwórz drugie stanowisko"}

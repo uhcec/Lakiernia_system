@@ -18,12 +18,18 @@ rewritten afterwards to place the work in time.
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
 # Ensure THIS repo root resolves `app` (an editable install may otherwise shadow it with a copy
 # at another path). Must run before importing `app` or the base seed module.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+# Seed with extra packing slots so the many seeded completions don't collide with automatic orders
+# that legitimately reserve a slot at hanging start (NA22). This only affects this seeding process;
+# the running app keeps its own (default) capacity. Must be set before `app.core.config` is imported.
+os.environ.setdefault("PACKING_MAX_CONCURRENT_SLOTS", "50")
 
 from datetime import UTC, date, datetime, timedelta
 
@@ -59,14 +65,6 @@ def main() -> int:
         base.reset_app_data(session)
         base.seed_all_use_cases(session)
 
-        # The base seed parks automatic orders that reserve packing slots (NA22a). Free those slots so
-        # the demo's manual completed orders below are not blocked by "all packing slots full".
-        for lock in session.scalars(
-            select(ProcessResourceLock).where(ProcessResourceLock.resource_key.like("PACKING:%"))
-        ).all():
-            session.delete(lock)
-        session.flush()
-
         work_order_service = WorkOrderService(WorkOrderRepository(session))
         process_service = ProcessService(ProcessRepository(session))
         manager_service = ManagerService(ManagerRepository(session))
@@ -86,6 +84,11 @@ def main() -> int:
             work_order_service, process_service, manager_service, queue_position
         )
 
+        # Normalize packing slots for the running app (default 2 slots): keep exactly the automatic
+        # hanging order's reservation so it correctly *locks packing* (the behavior to demo), and leave
+        # the other slot free so a manual order can demo the "open second station" override.
+        _normalize_packing_slots_for_demo(session)
+
         session.commit()
     finally:
         session.close()
@@ -99,6 +102,27 @@ def main() -> int:
     print("  - Orders 'DEMO Pakowanie A/B': click 'Rozpocznij pakowanie' on one →")
     print("    the other shows 'Zajęte: pakowanie …'; use 'Zwolnij stanowisko' to release.")
     return 0
+
+
+def _normalize_packing_slots_for_demo(session: Session) -> None:
+    """Leave exactly the automatic hanging order holding one packing slot; free the rest.
+
+    The seed transiently reserves several slots (and runs with extra capacity); for the running app
+    (default 2 slots) we want one automatic order visibly *locking* packing and one free slot so the
+    manual "open second station" override is demoable.
+    """
+    for lock in session.scalars(
+        select(ProcessResourceLock).where(ProcessResourceLock.resource_key.like("PACKING:%"))
+    ).all():
+        session.delete(lock)
+    session.flush()
+
+    e2 = session.scalars(
+        select(WorkOrder).where(WorkOrder.title == "RAL automat - zawieszanie i pakowanie")
+    ).first()
+    if e2 is not None:
+        session.add(ProcessResourceLock(resource_key="PACKING:1", work_order_id=e2.id))
+        session.flush()
 
 
 def _create(work_order_service: WorkOrderService, *, title: str, coating: CoatingType, qty: int, ral: str, customer: str):
