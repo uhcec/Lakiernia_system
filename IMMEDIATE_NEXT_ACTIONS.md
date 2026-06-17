@@ -290,9 +290,15 @@ only. Five elements, top to bottom:
   A8 checklist #9 default-slots; A9 STATION_IDENTITY (NA1 note + dropped stale discrepancy-confirm line);
   D1 domain-model wired into README + WORKING_CONTRACT hierarchy; D2–D4 WORKFLOW cross-refs (two axes,
   decoral-packing-folded, canonical measurement model).
-- **Still open under NA24:** D5 glossary, D6 undocumented physical concepts (ocynk / przemalowanka /
-  surface-prep / incomplete-on-arrival), D7 canonical doc-map — need interview/structural work;
-  optional C single-owner refactor of duplicated topics. Then NA25.
+- **D5/D6/D7 DONE (2026-06-17):** interviewed the owner and documented the four physical concepts in
+  `FACTORY_DOMAIN_MODEL.md` — ocynk (system-neutral marker), przemalowanka (repaint of already-coated
+  parts, skips surface prep), surface preparation (cleaning/acid wash; real-quantity count point),
+  incomplete-on-arrival (fewer arrived than ordered, may still produce). Added a **Glossary** (§6, D5)
+  and a canonical **`docs/DOCUMENTATION_MAP.md`** (D7, referenced from `CLAUDE.md`). The interview also
+  surfaced **NA26** (ordered- vs real-counted quantity display).
+- **Still open under NA24:** optional **C** single-owner refactor of duplicated topics (station columns
+  / permission matrix / correction categories) — currently consistent, convert restatements to
+  references when next touched. NA24 otherwise complete; proceed to NA25.
 
 ### NA25. Conformance audit — documented "coherent whole" (NA24) vs. what is actually coded
 - Severity: MEDIUM. Depends on NA24 (audits against its result).
@@ -307,6 +313,24 @@ only. Five elements, top to bottom:
   severity), feeding concrete follow-up items back into this file.
 - Acceptance: every major documented topic has an explicit conformance verdict with evidence;
   divergences are logged as actionable items; no silent fixes bundled into the audit.
+
+### NA26. Most screens display the ordered quantity instead of the real counted (actual received) quantity
+- Severity: MEDIUM (operator-visible truth — but reported as "almost everything works"; verify before fixing).
+- Reported by owner (2026-06-17): surface preparation counts the **real received** pieces, and packing
+  correctly validates "did anything go missing?" against that real value — but **almost everywhere the
+  displayed piece count is the *ordered* quantity (`total_quantity`), not the real counted one**.
+- Why it matters: `WORKFLOW.md` "Quantity Discrepancy Visibility" says production/station operators
+  should see the **operational** quantity (the real counted value); office/manager additionally see
+  declared vs counted + the difference. Showing the ordered quantity at stations contradicts that and
+  can mislead operators about how many pieces they actually handle.
+- Required fix (after verification): audit each station/list/detail read model + frontend surface and
+  use the actual-received quantity as the operational display where the workflow rule says so (keep
+  declared + difference for office/manager). Likely surfaces: station tables/cards, packing, work-order
+  detail, manager queue.
+- Acceptance: station-facing piece counts show the real counted (actual received) quantity once surface
+  prep has counted it; office/manager still see declared, counted, and the difference; covered by tests.
+- Note: this is exactly the kind of doc-vs-code divergence **NA25** will sweep for — confirm scope there,
+  but it is logged here because the owner surfaced the concrete symptom.
 
 ## Done
 

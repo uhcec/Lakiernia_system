@@ -137,7 +137,10 @@ for manual and automatic; the painting step is where the two methods diverge.
 
 Notes:
 
-- **Surface preparation** and **packing** are shared by both production methods.
+- **Surface preparation** and **packing** are shared by both production methods. Surface preparation
+  is a **cleaning/preparation wash** before painting — a multi-step process with washing, an acid step,
+  and several rinses; the exact chemistry is **not tracked by the system** and is low priority to
+  document (owner, 2026-06-17). It is also where the **real received quantity is counted** (see §3).
 - The **automatic** path adds **hanging** (cranes/conveyors) before the automatic spray booth; the
   **manual** path has a painter applying paint by hand with no hanging.
 - The two production lines are physically separate and run **in parallel**.
@@ -159,6 +162,16 @@ Notes:
 - **System modelling of corrections** (RAL = reset the same order with a `CORRECTION` batch; DECORAL
   = spin off a child "P" order; quantity is conserved across the chain) is described in detail in
   `WORKFLOW.md` ("Corrections Behavior", scenario matrix S01–S12). This document does not restate it.
+- **Real counted quantity is the operational truth.** Surface preparation counts the **actual
+  received** pieces, which can differ from the ordered quantity (see *incomplete on arrival* below).
+  From that point on, the **real counted quantity — not the ordered quantity — is what downstream
+  stations and packing validate against** (packing checks "did anything go missing?" against the real
+  count, and it works). ⚠️ **Known UI gap (owner, 2026-06-17):** most screens still *display* the
+  ordered quantity rather than the real counted one — logged as **NA26** for NA25 verification/fix.
+- **Incomplete on arrival.** A work order is *incomplete on arrival* when **fewer elements physically
+  arrive than were ordered**. Such an order **may still go to production** — it is not blocked — and the
+  surface-preparation count becomes the operational quantity. The marker is office state and does not
+  change the production workflow.
 - **Physical rework details** (where a failed part physically goes, whether it is stripped/repainted,
   decoral-specific rework): **[TBD — interview pending]**, low priority — the system behaviour is
   already specified in `WORKFLOW.md`.
@@ -225,3 +238,52 @@ partition** of the total:
 > total (by production method, and by coating), where each partition's parts visibly sum to the
 > whole. Keep the "przejazd decoral" workload as its own separate counter, clearly labelled as line
 > workload and not part of the total. Confirm presentation with the user before building.
+
+---
+
+## 5. Additional work-order types and markers
+
+### Ocynk (galvanizing)
+
+The factory galvanises parts (a zinc anti-corrosion layer). **From the system's perspective an
+`is_ocynk` order must behave exactly like a normal order** — same stages, same routing, freely
+combined with RAL/decoral and manual/automatic. The only requirement is that the order is **clearly
+marked as OCYNK** so stations see it; physical station work differs, but the *system* flow does not.
+`is_ocynk` is an independent marker and does not change routing (owner, 2026-06-17).
+
+### Przemalowanka (repaint)
+
+A *przemalowanka* is a job to **repaint elements that already carry a coating** (recolour / refresh
+existing parts). System behaviour: it is always a **standalone customer work order** (never a
+correction child — modelled as `work_order_kind = PRZEMALOWANKA`), and it **skips
+`SURFACE_PREPARATION`**. Apart from skipping surface preparation it behaves like a normal order.
+*Why* it skips surface prep was confirmed with a process-knowledgeable colleague but the underlying
+physical reason is **[TBD — not captured]**.
+
+---
+
+## 6. Glossary
+
+Short canonical definitions. For *system* semantics (states, validation, READY, corrections) the
+authority remains `WORKFLOW.md`; this glossary gives the plain meaning and links the concept to its
+home.
+
+| Term (PL) | Meaning |
+|---|---|
+| **Element / sztuka** | A physical part handled in the factory. Counted in pieces. Not the same as a work order. |
+| **Zlecenie (work order)** | A system record tracking one client's ordered work. Has a production method and a coating type (§1). |
+| **Profil / Akcesorium** | The two piece categories that partition a work order's `total_quantity` (`profiles + accessories = total` when both known). See `WORKFLOW.md`. |
+| **Metoda produkcji** | `MANUAL` (painter sprays by hand) or `AUTOMATIC` (hung on cranes → automatic spray booth). One of the two axes (§1). |
+| **Powłoka / Coating** | `RAL` (one RAL-colour powder coat) or `DECORAL`. The other axis (§1). |
+| **RAL** | A single powder coat in a specified RAL colour; the order finishes at packing. |
+| **Decoral** | A RAL base coat **plus one additional decorative coat** applied at the separate Decoral station after base-coat packing (§1). |
+| **Przejazd Decoral (decoral pass)** | The work event of applying the decoral coat. A **line-workload** counter (overlaps the base coat); never part of total throughput (§4.1). |
+| **Ocynk** | Galvanizing marker (`is_ocynk`). System-neutral: behaves like a normal order, just flagged (§5). |
+| **Przemalowanka** | Repaint of already-coated parts; standalone order that skips surface preparation (§5). |
+| **Przygotowanie powierzchni (surface preparation)** | The cleaning/prep wash before painting; also where the real received quantity is counted (§2, §3). |
+| **Poprawka (correction)** | Pieces that fail QC at packing and are reworked. RAL → in-place `CORRECTION` batch; DECORAL → child "P" order. See `WORKFLOW.md`. |
+| **Niekompletne na przyjęciu (incomplete on arrival)** | Fewer elements arrived than ordered; the order may still go to production (§3). |
+| **Ilość zamówiona / declared (`total_quantity`)** | What the client ordered. |
+| **Ilość policzona / actual received** | Real pieces counted at surface preparation — the **operational truth** downstream (§3). |
+| **READY** | The order is fully complete (exact rule: `WORKFLOW.md` "READY Rules"). |
+| **`process_status`** | Backend-derived display status; never a stored column (see `WORKFLOW.md` / `CLAUDE.md`). |

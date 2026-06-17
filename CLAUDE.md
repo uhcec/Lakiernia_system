@@ -22,6 +22,9 @@ TypeScript + Vite + Tailwind frontend. Polish operator UI.
 5. `docs/DEVELOPMENT_RUNBOOK.md` — setup, run, seed, and verify commands.
 6. `HARDENING_BACKLOG.md` — *closed* hardening evidence (verify currency before trusting an item).
 
+For the full index of every doc, its purpose, and which wins when they disagree, see
+`docs/DOCUMENTATION_MAP.md`.
+
 The sections below are a durable mental map so you don't have to re-derive the architecture each time.
 They change slowly; semantics live in `docs/WORKFLOW.md`.
 
