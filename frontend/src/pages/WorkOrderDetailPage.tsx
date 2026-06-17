@@ -1099,6 +1099,11 @@ export function WorkOrderDetailPage() {
                         <div className="space-y-2">
                           <p className="text-base font-semibold text-ink">{event.summary}</p>
                           {detailsText ? <p className="text-sm text-steel">{detailsText}</p> : null}
+                          {event.actors.length > 0 ? (
+                            <p className="text-xs text-steel">
+                              Operatorzy: {event.actors.map((actor) => actor.employee_name).join(", ")}
+                            </p>
+                          ) : null}
                         </div>
                         <div className="flex flex-wrap gap-2 sm:justify-end">
                           <span className="inline-flex rounded-full bg-mist px-3 py-1 text-xs font-semibold text-ink">

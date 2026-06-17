@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 
 import { getMutationErrorMessage } from "../utils/mutationError";
 import { buildWorkOrderDetailHref, getStationIdForLocation } from "../api/stationContext";
+import { StationPresenceWidget } from "./StationPresenceWidget";
 import { completeDecoralProduction, fetchStageWorkOrders, transitionStage } from "../api/processApi";
 import type { StageWorkOrder, StageStatusValue } from "../types/process";
 import { loadCorrectionContexts, type CorrectionContext } from "../utils/correctionContext";
@@ -529,6 +530,7 @@ export function DecoralWorkOrdersPage() {
 
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-7xl flex-col gap-6 px-4 py-8 sm:px-6 lg:px-8">
+      <StationPresenceWidget />
       <section className="rounded-[2rem] border border-white/70 bg-white/80 p-6 shadow-panel backdrop-blur sm:p-8">
         <div className="space-y-2">
           <p className="text-sm font-semibold uppercase tracking-[0.18em] text-accent">Widok etapu</p>

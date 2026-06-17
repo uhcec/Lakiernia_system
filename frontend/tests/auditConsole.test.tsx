@@ -31,6 +31,7 @@ describe("audit console", () => {
           request_id: "trace-audit-1",
           summary: "Created work order WO-AUDIT.",
           details: { order_number: "WO-AUDIT" },
+          actors: [],
           created_at: "2026-05-29T10:00:00Z",
         },
       ],

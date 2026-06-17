@@ -300,6 +300,27 @@ Current enforcement:
 - Current automatic paint-consumption action is restricted to `AUTOMATIC_PRODUCTION`; future shared inventory or stock-receipt actions still need their own allowed-station rules.
 - Authentication and authorization now both come from the JWT-authenticated user: user accounts, login sessions, and JWTs are required on all business endpoints, and authorization is derived from the user's `station_id`/`is_admin`, not the `X-Station-Id` header (NA1 closed; the header is now inert server-side). Open auth follow-ups: token expiry (NA6) and audit actor fields — see `IMMEDIATE_NEXT_ACTIONS.md`.
 
+## Station Presence & Per-Operator Attribution
+
+Operators are tracked as a **presence roster**, separate from login accounts (the personal-operator
+foundation, slice 1 = attribution only):
+
+- `employees` are factory workers (name + active); they do **not** authenticate. Login accounts
+  (`users`) still carry the station role for authorization (NA1) — the tablet stays logged in as the
+  station, and workers mark presence on top of that.
+- Each station shows the employee list; workers **check in / out** (`station_presence`, append-only;
+  "present now" = `checked_out_at IS NULL`). Several may be present at once. Check-in/out are idempotent.
+- **Attribution:** every audit event for a station action is stamped with the employees currently
+  present at that station (`audit_event_actors`), written centrally in `AuditRepository.add`.
+  `SYSTEM`/`UNKNOWN` (internal/seed) actions get none. Because a roster can hold several people, an action
+  is attributed to the **whole present set**, not a single person (a constraint future per-operator stats
+  must handle).
+- API: `GET /employees`, `GET /stations/{id}/presence`, `POST .../presence/check-in|check-out`. Station
+  pages render a presence widget; the audit console and work-order audit history show the attributed
+  operators.
+- Deferred: per-operator **statistics** (the presence history + the stage-transition log enable it later)
+  and an **admin UI** for employees (seeded via `scripts/reset_and_seed_dev_db.py` for now).
+
 ## Quantity Discrepancy Visibility
 
 Rules:

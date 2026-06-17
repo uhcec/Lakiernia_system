@@ -22,6 +22,7 @@ from app.auth.models import User
 from app.auth.service import hash_password
 from app.clients.models import Client
 from app.core.config import get_settings, get_work_order_attachments_path
+from app.employees.models import Employee, StationPresence
 from app.database import models as _models  # noqa: F401
 from app.database.session import get_session_factory
 from app.manager.repository import ManagerRepository
@@ -148,6 +149,8 @@ def reset_app_data(session: Session) -> None:
     session.execute(delete(WorkOrder))
     session.execute(delete(Client))
     session.execute(delete(User))
+    session.execute(delete(StationPresence))
+    session.execute(delete(Employee))
     session.commit()
 
     for login, password, station_id, is_admin in _STATION_USERS:
@@ -164,6 +167,20 @@ def reset_app_data(session: Session) -> None:
         session.add(Client(company_name=company_name, contact_phone=contact_phone, nip=nip))
     session.commit()
     print(f"Seeded {len(_SEED_CLIENTS)} clients.")
+
+    for full_name in _SEED_EMPLOYEES:
+        session.add(Employee(full_name=full_name))
+    session.commit()
+    print(f"Seeded {len(_SEED_EMPLOYEES)} employees.")
+
+
+_SEED_EMPLOYEES = [
+    "Jan Kowalski",
+    "Anna Nowak",
+    "Piotr Wiśniewski",
+    "Katarzyna Wójcik",
+    "Marek Kamiński",
+]
 
 
 _SEED_CLIENTS = [

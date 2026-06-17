@@ -279,6 +279,9 @@ export function AuditEventsPage() {
                   <div className="space-y-1">
                     <p className="font-semibold text-ink">{event.summary}</p>
                     <p className="text-xs text-steel">{event.event_type}</p>
+                    {event.actors.length > 0 ? (
+                      <p className="text-xs text-steel">Operatorzy: {event.actors.map((actor) => actor.employee_name).join(", ")}</p>
+                    ) : null}
                   </div>
                   <div className="text-steel">{stationLabels[event.station_id]}</div>
                   <div className="text-steel">{formatDateTime(event.created_at)}</div>

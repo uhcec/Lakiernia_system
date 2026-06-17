@@ -1800,6 +1800,7 @@ describe("frontend state consistency", () => {
         request_id: "trace-created",
         summary: "Created work order WO-AUDIT-DETAIL.",
         details: { order_number: "WO-AUDIT-DETAIL", is_incomplete_on_arrival: false },
+        actors: [],
         created_at: "2026-05-29T10:00:00Z",
       },
       {
@@ -1812,6 +1813,7 @@ describe("frontend state consistency", () => {
         request_id: "trace-updated",
         summary: "Updated work order WO-AUDIT-DETAIL.",
         details: { updated_fields: ["title"] },
+        actors: [],
         created_at: "2026-05-29T10:05:00Z",
       },
     ]);

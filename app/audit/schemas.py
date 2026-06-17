@@ -8,6 +8,11 @@ from app.audit.models import AuditEvent
 from app.shared.enums import StationId
 
 
+class AuditEventActorRead(BaseModel):
+    employee_id: int | None
+    employee_name: str
+
+
 class AuditEventRead(BaseModel):
     id: int
     event_type: str
@@ -18,6 +23,8 @@ class AuditEventRead(BaseModel):
     request_id: str | None
     summary: str
     details: dict[str, Any] | list[Any] | str | int | float | bool | None
+    # Employees present at the station when the action happened (per-operator attribution).
+    actors: list[AuditEventActorRead]
     created_at: datetime
 
 
@@ -38,6 +45,10 @@ def build_audit_event_read(event: AuditEvent) -> AuditEventRead:
         request_id=event.request_id,
         summary=event.summary,
         details=_parse_details(event.details_json),
+        actors=[
+            AuditEventActorRead(employee_id=actor.employee_id, employee_name=actor.employee_name)
+            for actor in event.actors
+        ],
         created_at=event.created_at,
     )
 

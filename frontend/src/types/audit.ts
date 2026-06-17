@@ -12,6 +12,11 @@ export type AuditStationId =
 
 export type AuditEventDetails = Record<string, unknown> | unknown[] | string | number | boolean | null;
 
+export interface AuditEventActor {
+  employee_id: number | null;
+  employee_name: string;
+}
+
 export interface AuditEvent {
   id: number;
   event_type: string;
@@ -22,6 +27,7 @@ export interface AuditEvent {
   request_id: string | null;
   summary: string;
   details: AuditEventDetails;
+  actors: AuditEventActor[];
   created_at: string;
 }
 

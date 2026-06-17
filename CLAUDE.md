@@ -44,6 +44,9 @@ They change slowly; semantics live in `docs/WORKFLOW.md`.
   `reorder_queue` with stale-revision protection), correction-reason report, throughput stats.
 - `paints/` — paint inventory (kg), intake stock snapshots, automatic-production consumption.
 - `clients/` — client registry + per-client order history.
+- `employees/` — station **presence roster** (`Employee`, `StationPresence`): factory workers (not login
+  accounts) check in/out per station; "present now" = `checked_out_at IS NULL`. Actions are attributed to
+  currently-present employees via `audit_event_actors`, written centrally in `AuditRepository.add`.
 - `audit/` — `audit_events` table, `StationContext` (from the `X-Station-Id` header), audit console API.
 - `auth/` — users table, `/auth/login`, JWT, `get_current_user`. Applied as a **global** dependency
   on all business routers in `api/router.py`.

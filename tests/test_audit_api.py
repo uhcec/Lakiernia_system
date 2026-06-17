@@ -148,7 +148,7 @@ def test_export_audit_events_csv_uses_search_filters(test_client: TestClient) ->
     assert response.headers["content-type"].startswith("text/csv")
     assert response.headers["content-disposition"] == 'attachment; filename="audit-events.csv"'
     lines = response.text.splitlines()
-    assert lines[0] == "id,created_at,event_type,station_id,request_id,work_order_id,target_type,target_id,summary,details_json"
+    assert lines[0] == "id,created_at,event_type,station_id,request_id,work_order_id,target_type,target_id,summary,actors,details_json"
     assert len(lines) == 2
     assert "work_order.created" in lines[1]
     assert "audit-export" in lines[1]

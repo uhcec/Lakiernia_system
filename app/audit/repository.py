@@ -4,7 +4,8 @@ from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.audit.models import AuditEvent
+from app.audit.models import AuditEvent, AuditEventActor
+from app.employees.models import StationPresence
 from app.shared.enums import StationId
 from app.shared.request_context import get_current_request_id
 
@@ -18,8 +19,31 @@ class AuditRepository:
             event.request_id = get_current_request_id()
         self.session.add(event)
         self.session.flush()
+        self._attribute_present_employees(event)
         self.session.refresh(event)
         return event
+
+    def _attribute_present_employees(self, event: AuditEvent) -> None:
+        # Per-operator attribution: stamp the action with whoever is currently checked in at its
+        # station. SYSTEM/UNKNOWN (internal/seed) actions have no station roster, so they get none.
+        if event.station_id in {StationId.SYSTEM, StationId.UNKNOWN}:
+            return
+        present = self.session.scalars(
+            select(StationPresence).where(
+                StationPresence.station_id == event.station_id,
+                StationPresence.checked_out_at.is_(None),
+            )
+        ).all()
+        for presence in present:
+            self.session.add(
+                AuditEventActor(
+                    audit_event_id=event.id,
+                    employee_id=presence.employee_id,
+                    employee_name=presence.employee.full_name,
+                )
+            )
+        if present:
+            self.session.flush()
 
     def list_for_work_order(self, work_order_id: int, *, limit: int, offset: int = 0) -> Sequence[AuditEvent]:
         statement = (

@@ -360,7 +360,35 @@ only. Five elements, top to bottom:
 - Fix: broaden that WORKFLOW line to "all `/manager/stats/*` (and the corrections reason report)".
 - Acceptance: the doc matches the code; no behaviour change.
 
+### NA28. Per-operator foundation — phase 2 (stats + employee admin UI)
+- Severity: MEDIUM (product), follows the slice-1 presence/attribution foundation (see Done).
+- Open work:
+  - **Per-operator statistics** — read the presence history (`station_presence`) + the stage-transition
+    log to report per-operator output / activity. Design decision needed: how to credit an action when
+    **several** employees were present at the station (split evenly, credit all, or require a single
+    "lead"?). Until decided, attribution is a *set* and stats must not assume one actor.
+  - **Employee admin UI** — add/deactivate/rename employees from an office/admin screen (seed-only today).
+  - Optional: a presence history view (who was at which station, when) and richer attribution in the
+    stage-transition log itself (currently `user_id` = the shared station account; attribution lives in
+    `audit_event_actors`).
+- Acceptance: agreed per-operator stat(s) shipped with tests; employees manageable in-app; multi-present
+  crediting rule documented in WORKFLOW.md.
+
 ## Done
+
+- **Per-operator foundation — station presence + audit attribution (2026-06-18, slice 1)** — Operators
+  are now a **presence roster** separate from login accounts. New `employees/` module: `Employee`
+  (name + active, no login) and `StationPresence` (append-only check-in/out; "present" =
+  `checked_out_at IS NULL`). Workers check in/out per station; **audit events are attributed to the
+  currently-present employees** at the action's station via a new `audit_event_actors` table, written
+  centrally in `AuditRepository.add` (SYSTEM/UNKNOWN get none). API: `GET /employees`,
+  `GET /stations/{id}/presence`, `POST .../presence/check-in|check-out`. Frontend: a presence widget on
+  every station page (derives its station from the route), and the audit console + work-order history
+  show the attributed operators. Migration `491d1bfa0b62`; seed adds 5 employees. Tests:
+  `tests/test_employee_presence.py` (roster idempotency, per-station, attribution, no-presence/SYSTEM).
+  Owner-chosen model: a station shows a worker list and present people tick themselves in; attribution =
+  the whole present set. Docs: WORKFLOW.md "Station Presence & Per-Operator Attribution", CLAUDE.md map.
+  Verified: full backend `pytest` green, `alembic check` clean, frontend 73 + build. See NA28 for phase 2.
 
 - **Self-check loop foundation (2026-06-18)** — Closed the repo's two-loop self-policing of truth.
   Slow loop (LLM): added **`/code-audit`** (`.claude/commands/code-audit.md`, repeatable NA25) to pair

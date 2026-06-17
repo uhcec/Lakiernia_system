@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 
 from sqlalchemy import DateTime, Enum, ForeignKey, Index, Integer, String, Text
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database.base import Base
 from app.shared.enums import StationId
@@ -34,3 +34,26 @@ class AuditEvent(Base):
     summary: Mapped[str] = mapped_column(String(255), nullable=False)
     details_json: Mapped[str | None] = mapped_column(Text(), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False)
+
+    # Employees present at the action's station when it was recorded (per-operator attribution).
+    actors: Mapped[list["AuditEventActor"]] = relationship(
+        "AuditEventActor",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+        order_by="AuditEventActor.id",
+    )
+
+
+class AuditEventActor(Base):
+    """Snapshot of one employee who was present at the station when an audit event was recorded."""
+
+    __tablename__ = "audit_event_actors"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    audit_event_id: Mapped[int] = mapped_column(
+        ForeignKey("audit_events.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    employee_id: Mapped[int | None] = mapped_column(
+        ForeignKey("employees.id", ondelete="SET NULL"), nullable=True
+    )
+    employee_name: Mapped[str] = mapped_column(String(120), nullable=False)

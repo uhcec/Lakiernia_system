@@ -120,6 +120,7 @@ def _build_audit_csv(events) -> str:
         "target_type",
         "target_id",
         "summary",
+        "actors",
         "details_json",
     ]
     writer = csv.DictWriter(output, fieldnames=fieldnames, lineterminator="\n")
@@ -136,6 +137,7 @@ def _build_audit_csv(events) -> str:
                 "target_type": event.target_type or "",
                 "target_id": event.target_id or "",
                 "summary": event.summary,
+                "actors": "; ".join(actor.employee_name for actor in event.actors),
                 "details_json": event.details_json or "",
             }
         )
