@@ -174,6 +174,9 @@ they are not yet validated against live factory policy where noted.
 - Required fix: Add a Decoral-pass throughput series keyed on `DECORAL_PRODUCTION` `DONE` (m²; pieces
   optional), expose it in `ThroughputPeriod`, and render a fourth bar chart. Replace the packing-time
   `m2_decoral` approximation with the pass-time number (keep the label "m² Decoral").
+- Now unblocked: the `stage_transition_events` log (NA-tracking, done 2026-06-17) already records
+  `DECORAL_PRODUCTION`→`DONE` with `occurred_at`, so the pass-time series can be read straight from it
+  (same pattern as the repointed packing attribution in `ManagerService.get_throughput_stats`).
 - Still to confirm with the business friend: whether the Decoral chart should also show **pieces** (m²
   is the default), per the Polish question set sent 2026-06-17.
 - Acceptance: A Decoral-pass chart shows m² processed on the Decoral line per day, attributed at
@@ -205,6 +208,21 @@ they are not yet validated against live factory policy where noted.
 
 ## Done
 
+- **NA-tracking foundation (2026-06-17)** — Added `stage_transition_events`, an append-only log of
+  every meaningful stage transition (stage, new status, `occurred_at`, work order, batch, counted
+  quantity, station, nullable user) — the durable analytics backbone, since `work_order_stage_states`
+  keeps only the latest `updated_at`. Writers mirror the audit choke points (`_record_stage_transition`
+  called from `_record_stage_audit_event` / `_record_packing_audit_event` / `_record_decoral_audit_event`
+  in `app/process/service.py`); implicit auto-transitions (e.g. automatic PACKING→IN_PROGRESS) are not
+  yet logged. `StationContext` now carries `user_id` (`app/audit/context.py`) so the column populates
+  the day personal operator login exists (NULL today; stations share an identity). Throughput
+  (`ManagerService.get_throughput_stats`) is repointed onto the log's latest `PACKING`→`DONE`
+  `occurred_at`, with a COALESCE fallback to stage-state `updated_at` for pre-log/historical rows.
+  Migration `20260617_0032_stage_transition_events.py`. Docs: WORKFLOW.md "Stage-transition log"
+  subsection + attribution note; CLAUDE.md architecture map. New `tests/test_stage_transition_log.py`
+  (transitions logged with timestamp/station/user; throughput attributes from the log; COALESCE
+  fallback). Verified: full backend `pytest` green, `alembic check` clean. Scope chosen by user:
+  foundation only (per-operator stats deferred — collect `user_id` now, decide login later).
 - **NA14 (2026-06-17)** — Deleted the dead `frontend/src/components/WorkOrdersTable.tsx`; it was
   imported only by `uiStateConsistency.test.tsx` (the office list uses `OfficeWorkOrdersTable`).
   Removed its three dedicated tests (READY-as-historical, active-progress, office-discrepancy — all

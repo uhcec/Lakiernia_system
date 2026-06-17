@@ -13,7 +13,7 @@ from app.audit.repository import AuditRepository
 from app.paints.repository import PaintRepository
 from app.paints.service import PaintService
 from app.process.enums import CoatingType, ProcessDisplayStatus, ProcessStage, ProductionType, QuantityBatchType, StageStatus
-from app.process.models import WorkOrderQuantityBatch, WorkOrderStageState
+from app.process.models import StageTransitionEvent, WorkOrderQuantityBatch, WorkOrderStageState
 from app.process.repository import ProcessRepository
 from app.process.schemas import ProcessStageStatusRead, ProcessStageWorkOrderRead, StageStatusView
 from app.shared.enums import QueueNamespace, StationId, WorkOrderKind, WorkOrderStatus
@@ -1819,6 +1819,13 @@ class ProcessService:
                 "batch_id": batch_id,
             },
         )
+        self._record_stage_transition(
+            work_order=work_order,
+            stage=stage,
+            status=target_status,
+            station_context=station_context,
+            batch_id=batch_id,
+        )
 
     def _record_packing_audit_event(
         self,
@@ -1854,6 +1861,14 @@ class ProcessService:
             summary=f"Completed packing for work order {work_order.order_number}.",
             details=details,
         )
+        self._record_stage_transition(
+            work_order=work_order,
+            stage=ProcessStage.PACKING,
+            status=StageStatus.DONE,
+            station_context=station_context,
+            batch_id=batch_id,
+            counted_quantity=counted_quantity,
+        )
 
     def _record_decoral_audit_event(
         self,
@@ -1887,6 +1902,14 @@ class ProcessService:
             summary=f"Completed decoral production for work order {work_order.order_number}.",
             details=details,
         )
+        self._record_stage_transition(
+            work_order=work_order,
+            stage=ProcessStage.DECORAL_PRODUCTION,
+            status=StageStatus.DONE,
+            station_context=station_context,
+            batch_id=batch_id,
+            counted_quantity=ok_quantity,
+        )
 
     def _record_automatic_paint_consumption_audit_event(
         self,
@@ -1910,6 +1933,33 @@ class ProcessService:
                 "previous_consumed_paint_quantity_kg": previous_value,
                 "consumed_paint_quantity_kg": consumed_paint_quantity_kg,
             },
+        )
+
+    def _record_stage_transition(
+        self,
+        *,
+        work_order: WorkOrder,
+        stage: ProcessStage,
+        status: StageStatus,
+        station_context: StationContext | None,
+        batch_id: int | None,
+        counted_quantity: int | None = None,
+    ) -> None:
+        """Append a row to the analytics stage-transition log (see ``StageTransitionEvent``).
+
+        Mirrors the audit choke points so coverage matches the audit log. ``occurred_at`` defaults
+        to now and is never updated, giving a durable timestamp for cycle-time/throughput stats.
+        """
+        self.repository.session.add(
+            StageTransitionEvent(
+                work_order_id=work_order.id,
+                batch_id=batch_id,
+                stage=stage,
+                status=status,
+                counted_quantity=counted_quantity,
+                station_id=station_context.station_id if station_context is not None else StationId.SYSTEM,
+                user_id=station_context.user_id if station_context is not None else None,
+            )
         )
 
     def _record_audit_event(

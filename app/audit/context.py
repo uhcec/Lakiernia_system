@@ -20,6 +20,9 @@ class StationContext:
 
     station_id: StationId
     is_admin: bool = False
+    # Authenticated user id, recorded into the analytics stage-transition log. NULL today
+    # (stations share an identity); populates automatically once operators get personal login.
+    user_id: int | None = None
 
 
 def parse_station_id(raw_station_id: str | None) -> StationId:
@@ -39,6 +42,7 @@ def get_station_context(
     return StationContext(
         station_id=parse_station_id(user.station_id),
         is_admin=bool(user.is_admin),
+        user_id=user.id,
     )
 
 

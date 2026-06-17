@@ -12,7 +12,7 @@ from app.audit.repository import AuditRepository
 from app.paints.repository import PaintRepository
 from app.paints.service import PaintService
 from app.process.enums import CoatingType, ProcessDisplayStatus, ProductionType
-from app.process.models import WorkOrderQuantityBatch, WorkOrderStageState
+from app.process.models import StageTransitionEvent, WorkOrderQuantityBatch, WorkOrderStageState
 from app.process.repository import ProcessRepository
 from app.process.service import ProcessService
 from app.manager.repository import ManagerRepository
@@ -102,10 +102,36 @@ class ManagerService:
         # year boundaries (NA7). Requires SQLite >= 3.46 for %G/%V.
         date_fmt = {"day": "%Y-%m-%d", "week": "%G-%V", "month": "%Y-%m"}[group_by]
 
+        # Attribute packing throughput to the moment PACKING was completed. The durable source is
+        # the append-only stage-transition log (occurred_at is never overwritten); we take the
+        # latest PACKING->DONE event per order (corrections can re-complete packing). For orders
+        # packed before this log existed (or rows built directly in tests), fall back to the stage
+        # state's updated_at via COALESCE so historical data still counts.
+        packing_done_events = (
+            select(
+                StageTransitionEvent.work_order_id,
+                func.max(StageTransitionEvent.occurred_at).label("event_done_at"),
+            )
+            .where(
+                StageTransitionEvent.stage == ProcessStage.PACKING,
+                StageTransitionEvent.status == StageStatus.DONE,
+            )
+            .group_by(StageTransitionEvent.work_order_id)
+            .subquery()
+        )
+
         packing_done = (
             select(
                 WorkOrderStageState.work_order_id,
-                WorkOrderStageState.updated_at.label("packing_done_at"),
+                func.coalesce(
+                    packing_done_events.c.event_done_at,
+                    WorkOrderStageState.updated_at,
+                ).label("packing_done_at"),
+            )
+            .join(
+                packing_done_events,
+                packing_done_events.c.work_order_id == WorkOrderStageState.work_order_id,
+                isouter=True,
             )
             .where(
                 WorkOrderStageState.stage == ProcessStage.PACKING,

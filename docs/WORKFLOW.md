@@ -336,7 +336,10 @@ counter, never a re-slice of the base throughput.
   `m2_manual + m2_automatic = m2_total` (every produced order has one production type).
 - **Base-coat m² is attributed at PACKING completion** (`PACKING` stage `DONE` date), using
   `total_area_m2`. Orders without a filled `total_area_m2` are excluded from m² and surfaced as a
-  separate count.
+  separate count. The completion date comes from the append-only **stage-transition log**
+  (`stage_transition_events`, latest `PACKING`→`DONE` `occurred_at`) — a durable timestamp that is
+  never overwritten — falling back to the `PACKING` stage state's `updated_at` for orders packed
+  before the log existed.
 - **Decoral-pass throughput is a separate, additional counter** (confirmed 2026-06-17), keyed on the
   `DECORAL_PRODUCTION` stage `DONE` date and using the same `total_area_m2` (same parts → same area as
   the base coat). It is never added into manual/automatic and is not a subset of them — it is its own
@@ -353,6 +356,19 @@ counter, never a re-slice of the base throughput.
   would undercount RAL corrections — historical bug NA4.)
 - The frontend renders per-day bar charts (automatic m², manual m², correction pieces) plus a detail
   table; it must not re-derive these buckets locally beyond zero-filling missing days in the range.
+
+### Stage-transition log (analytics foundation)
+
+`stage_transition_events` is an **append-only** record of every meaningful stage transition: stage,
+new status, `occurred_at`, work order, batch, counted quantity, station, and (nullable) user. It
+exists because `work_order_stage_states` keeps only the latest `updated_at`, which is overwritten on
+every change and cannot reconstruct history. Rows are written wherever audit events are emitted for
+transitions (stage start/finish/reopen, packing completion, decoral-pass completion); implicit
+auto-transitions (e.g. PACKING set to IN_PROGRESS when automatic HANGING finishes) are **not yet**
+logged. The log is the source for time-based statistics (cycle time per stage, queue wait,
+bottlenecks, per-day throughput) and lets new metrics be added without changing the workflow. The
+`user_id` column is populated only once stations have personal operator login (today it records the
+shared station account, or NULL for internal/seed actions).
 
 ## Additional Work Types
 

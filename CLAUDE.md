@@ -28,7 +28,9 @@ They change slowly; semantics live in `docs/WORKFLOW.md`.
   `WorkOrderRead` read model. Models: `WorkOrder`, `WorkOrderNumberCounter`, `WorkOrderAttachment`.
 - `process/` — **the workflow engine**. `service.py` (large) owns stage transitions, quantity
   batches, packing, decoral, correction creation/merge, resource locks, and display-status
-  derivation. Models: `WorkOrderStageState`, `WorkOrderQuantityBatch`, `ProcessResourceLock`.
+  derivation. Models: `WorkOrderStageState`, `WorkOrderQuantityBatch`, `ProcessResourceLock`,
+  `StageTransitionEvent` (append-only stage-transition log — the analytics backbone for time-based
+  stats; written at the audit choke points, read by manager throughput).
   `enums.py`: `ProcessStage`, `StageStatus`, `CoatingType`, `ProductionType`, `QuantityBatchType`,
   `ProcessDisplayStatus`.
 - `manager/` — planning queue (`assign_plan`, `update_queue_position`, `update_production_type`,

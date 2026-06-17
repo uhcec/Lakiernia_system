@@ -5,8 +5,10 @@ from datetime import UTC, datetime
 from sqlalchemy import Boolean, CheckConstraint, DateTime, Enum, ForeignKey, Index, Integer, String, Text, UniqueConstraint, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from app.audit.models import station_id_enum
 from app.database.base import Base
 from app.process.enums import ProcessStage, QuantityBatchType, StageStatus
+from app.shared.enums import StationId
 
 
 process_stage_enum = Enum(
@@ -87,6 +89,38 @@ class WorkOrderQuantityBatch(Base):
 
     work_order = relationship("WorkOrder", back_populates="quantity_batches")
     parent_batch = relationship("WorkOrderQuantityBatch", remote_side="WorkOrderQuantityBatch.id")
+
+
+class StageTransitionEvent(Base):
+    """Append-only log of stage status transitions, for analytics/statistics.
+
+    Unlike ``WorkOrderStageState`` (which keeps only the latest ``updated_at`` and is overwritten
+    on every change), this table records *every* transition with the moment it ``occurred_at``, so
+    cycle times, per-stage throughput, queue waits, and bottleneck analysis can be derived reliably.
+    Rows are never updated or deleted (except by ``work_orders`` cascade). ``station_id`` is always
+    captured; ``user_id`` is recorded when available — it stays NULL today (stations share an
+    identity) and will populate automatically once operators get personal login. The current writers
+    mirror the audit-event choke points (stage start/finish/reopen, packing completion, decoral-pass
+    completion); implicit auto-transitions (e.g. PACKING set to IN_PROGRESS when automatic HANGING
+    finishes) are not yet logged.
+    """
+
+    __tablename__ = "stage_transition_events"
+    __table_args__ = (
+        Index("ix_stage_transition_events_work_order_id", "work_order_id"),
+        Index("ix_stage_transition_events_occurred_at", "occurred_at"),
+        Index("ix_stage_transition_events_stage_status_occurred", "stage", "status", "occurred_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    work_order_id: Mapped[int] = mapped_column(ForeignKey("work_orders.id", ondelete="CASCADE"), nullable=False)
+    batch_id: Mapped[int | None] = mapped_column(Integer(), nullable=True)
+    stage: Mapped[ProcessStage] = mapped_column(process_stage_enum, nullable=False)
+    status: Mapped[StageStatus] = mapped_column(stage_status_enum, nullable=False)
+    counted_quantity: Mapped[int | None] = mapped_column(Integer(), nullable=True)
+    station_id: Mapped[StationId] = mapped_column(station_id_enum, default=StationId.UNKNOWN, nullable=False)
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False)
 
 
 class ProcessResourceLock(Base):
