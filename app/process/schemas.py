@@ -50,6 +50,7 @@ class ProcessStageWorkOrderRead(BaseModel):
     coating_type: CoatingTypeView
     batch_type: QuantityBatchType | None = None
     batch_is_partial: bool = False
+    is_being_packed: bool = False
     stage_status: ProcessStageStatusRead
 
 

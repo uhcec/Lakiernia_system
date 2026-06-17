@@ -62,6 +62,9 @@ backend state and must not infer correction/READY/queue/quantity meaning locally
   `SURFACE_PREPARATION → [HANGING if AUTOMATIC] → PRODUCTION → PACKING → [DECORAL_PRODUCTION if DECORAL]`.
   For AUTOMATIC, `PRODUCTION` has no manual start/finish (it's a preview); the line finishes from
   PACKING, and `HANGING` / `AUTOMATIC_LINE` are exclusive resources backed by `ProcessResourceLock`.
+  Packing is also exclusive: a `PACKING` `ProcessResourceLock` enforces one physically started packing
+  order at a time — claimed by `start_packing`, confirmed defensively at completion, released when
+  packing leaves `IN_PROGRESS`; automatic orders merely *waiting* at packing do not hold it.
 - **Corrections use two models — do not unify without checking `docs/WORKFLOW.md`:**
   - RAL: resets the *same* order back to planning with a `CORRECTION` batch (no child order).
   - DECORAL: spins off a child "P{root}" work order; the OK part stays on the root's single Decoral

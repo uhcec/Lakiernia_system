@@ -343,26 +343,32 @@ Remaining design option:
 
 ### 9. Packing Station Exclusivity
 
-Status: `OPEN`
+Status: `IMPLEMENTED (2026-06-17)`
 
 User note from 2026-05-31:
 
 - Packing may need to allow only one physically started work order at a time.
 - The user wants to clarify this with a factory friend before implementation.
 
-Current repository behavior/evidence:
-
-- Packing actions are station-authorized, but there is no dedicated `PACKING` resource lock.
-- Automatic orders can be visible in packing while hanging is still in progress, but those rows are read-only and cannot be completed until hanging is finished.
-
 Implementation direction confirmed on 2026-06-02:
 
 - Add a `PACKING` resource lock in a later implementation slice.
 - Treat automatic rows shown in packing before completion eligibility as visible waiting context, not as actively occupying started packing.
 
+Implemented on 2026-06-17 (explicit-claim model, chosen by the user):
+
+- A `PACKING` resource lock (same `ProcessResourceLock` machinery as `HANGING`/`AUTOMATIC_LINE`) holds the claim; it is the single source of truth for "which order is being packed", so the constraint survives across requests and is not frontend-inferred.
+- New `start_packing` service method + `POST /process/work-orders/{id}/packing/start` (and the batch variant) acquires the claim; a second order trying to start while the station is claimed gets a controlled `409`. `complete_packing` defensively takes/confirms the claim, blocking completion of a different order while one is claimed. The claim releases automatically once packing leaves `IN_PROGRESS` (completion, or correction reset), with stale-claim recovery.
+- Automatic orders only **waiting** at packing do not hold the claim (they are `IN_PROGRESS` implicitly / shown as read-only `HANGING` rows); they take it only on an explicit start. Read models expose `is_being_packed`; the packing UI shows the form only for the claimed order, a "Zajęte: pakowanie {order}" notice on others, and a "Rozpocznij pakowanie" claim button on free, packing-eligible cards.
+- Coverage: `tests/test_packing_station_lock.py` (claim, 409 on second claim, completion blocked by another claim, release on completion, idempotent re-claim, stale recovery, automatic-waiting does-not-claim), API tests in `tests/test_process_api.py`, and chaos scenario `two_operators_claim_same_packing_station` (exactly one 200, one 409). Docs: WORKFLOW.md "Packing station exclusivity".
+
+Remaining option (not required by the current answer):
+
+- A separate explicit "release/cancel claim" action (today the claim is freed by completing or by the correction reset). Add if operators need to abandon a claim without completing.
+
 Why this matters:
 
-- Packing exclusivity will change backend conflicts, station UI availability, and chaos/concurrency coverage, so it needs focused implementation and regression coverage.
+- Packing exclusivity changes backend conflicts, station UI availability, and chaos/concurrency coverage, so it needed focused implementation and regression coverage.
 
 ### 10. Quality-Control Production Document
 

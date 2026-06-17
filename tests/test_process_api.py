@@ -1792,3 +1792,43 @@ def test_tracked_batch_packing_finish_without_counted_quantity_returns_controlle
 
     assert response.status_code == 409
     assert response.json()["detail"] == "Tracked batch packing must be completed with explicit counted quantity."
+
+def start_packing_request(test_client: TestClient, work_order_id: int):
+    return test_client.post(f"/process/work-orders/{work_order_id}/packing/start")
+
+
+def test_start_packing_claims_station_and_blocks_other_order(test_client: TestClient) -> None:
+    first = create_planned_work_order(test_client, title="Pack busy A", queue_position=1)
+    second = create_planned_work_order(test_client, title="Pack busy B", queue_position=2)
+    advance_to_packing(test_client, first["id"])
+    advance_to_packing(test_client, second["id"])
+
+    claim = start_packing_request(test_client, first["id"])
+    assert claim.status_code == 200
+    assert claim.json()["is_being_packed"] is True
+
+    blocked = start_packing_request(test_client, second["id"])
+    assert blocked.status_code == 409
+
+    # Other operators also cannot complete a different order while the station is claimed.
+    blocked_complete = complete_packing_request(
+        test_client, second["id"], counted_quantity=100, ok_quantity=100, correction_quantity=0
+    )
+    assert blocked_complete.status_code == 409
+
+
+def test_completing_packing_releases_station_for_next_order(test_client: TestClient) -> None:
+    first = create_planned_work_order(test_client, title="Pack release A", queue_position=1)
+    second = create_planned_work_order(test_client, title="Pack release B", queue_position=2)
+    advance_to_packing(test_client, first["id"])
+    advance_to_packing(test_client, second["id"])
+
+    start_packing_request(test_client, first["id"])
+    done = complete_packing_request(
+        test_client, first["id"], counted_quantity=100, ok_quantity=100, correction_quantity=0
+    )
+    assert done.status_code == 200
+
+    claim_second = start_packing_request(test_client, second["id"])
+    assert claim_second.status_code == 200
+    assert claim_second.json()["is_being_packed"] is True

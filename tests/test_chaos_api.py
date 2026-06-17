@@ -25,6 +25,7 @@ from tests.chaos.scenarios import (
     scenario_repeated_correction_split_does_not_duplicate_child,
     scenario_stale_queue_payload_submit,
     scenario_two_managers_reorder_same_queue,
+    scenario_two_operators_claim_same_packing_station,
 )
 
 
@@ -45,6 +46,7 @@ def chaos_environment(tmp_path: Path) -> ChaosEnvironment:
         ("queue_position_patch_collides_with_bulk_reorder", scenario_queue_position_patch_collides_with_bulk_reorder),
         ("operator_double_finishes_same_stage", scenario_operator_double_finishes_same_stage),
         ("double_click_packing_complete", scenario_double_click_packing_complete),
+        ("two_operators_claim_same_packing_station", scenario_two_operators_claim_same_packing_station),
         ("packing_creates_correction_while_manager_reorders", scenario_packing_creates_correction_while_manager_reorders),
         ("parallel_hanging_start", scenario_parallel_hanging_start),
         ("packing_actual_expected_mismatch", scenario_packing_actual_expected_mismatch),

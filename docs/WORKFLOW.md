@@ -58,6 +58,7 @@ Automatic constraints:
 - Physical resource exclusivity is enforced in the backend with persisted resource locks and controlled `409` responses.
 - Only one `HANGING` job may be active at a time.
 - Only one automatic-production job may be active at a time.
+- Only one work order may be physically started at the packing station at a time (`PACKING` lock; see "Packing station exclusivity" below).
 - `HANGING` capacity is released when the hanging stage is finished, so the next automatic work order may start hanging while the previous automatic order is still in automatic production or waiting for packing.
 - No physical station/resource may process multiple work orders at the same time.
 - Implementation note: if backend resource-lock behavior is stricter than this, it should be changed with focused tests before claiming policy alignment.
@@ -233,9 +234,12 @@ Packing list columns:
 - queue position
 - active automatic `HANGING` rows as read-only waiting-for-packing visibility
 
-Open packing resource decision:
-- The factory may want only one physically started packing work order at a time.
-- This is not yet encoded as a backend `PACKING` resource lock because it needs clarification, especially for automatic orders that are visible in packing while hanging or automatic flow is still active.
+Packing station exclusivity (`PACKING` resource lock):
+- Only one work order may be physically *started* at packing at a time. This is enforced by a backend `PACKING` resource lock (same machinery as `HANGING`/`AUTOMATIC_LINE`), so the claim survives across requests and is not frontend-inferred.
+- An operator claims the station with an explicit **start packing** action (`POST /process/work-orders/{id}/packing/start`). It acquires the lock; a second order attempting to start while the station is claimed gets a controlled `409`.
+- Completion (`/packing/complete`) also defensively takes/confirms the claim, so a different order cannot be completed while the station is claimed by another. The claim is released automatically once packing leaves `IN_PROGRESS` (completed, or reset to planning by a correction). Stale claims (owner no longer packing) are recovered on the next claim.
+- The claim is distinct from the `PACKING` stage status: automatic orders that are only **waiting** at packing (already `IN_PROGRESS` implicitly after `HANGING` finishes, or shown as read-only `HANGING` rows) do **not** hold the lock — they are visible waiting context, not actively occupying packing. They hold the lock only after an explicit start.
+- Read models expose `is_being_packed` for the work order that currently holds the claim; the packing UI shows the entry form only for that order, a "Zajęte: pakowanie {order}" notice on the others, and a "Rozpocznij pakowanie" claim button on free, packing-eligible cards.
 
 Decoral production list columns:
 - work-order number

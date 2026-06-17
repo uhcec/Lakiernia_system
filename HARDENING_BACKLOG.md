@@ -221,6 +221,7 @@ Open audit work:
 	- stale queue payload submit after a competing reorder
 	- double finish of the same stage by parallel operators
 	- double-click packing completion
+	- two operators claim the single packing station for different orders (exactly one wins, the other gets a controlled 409)
 	- packing creates a correction while manager reorder runs in parallel
 	- repeated correction split does not duplicate child creation
 	- office edits an order while manager plans it

@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 
 import { getMutationErrorMessage } from "../utils/mutationError";
 import { buildWorkOrderDetailHref, getStationIdForLocation } from "../api/stationContext";
-import { completePacking, fetchStageWorkOrders, transitionStage } from "../api/processApi";
+import { completePacking, fetchStageWorkOrders, startPacking, transitionStage } from "../api/processApi";
 import type { StageWorkOrder, StageStatusValue } from "../types/process";
 import { loadCorrectionContexts, type CorrectionContext } from "../utils/correctionContext";
 import {
@@ -39,7 +39,7 @@ function getActionLabel(status: StageStatusValue): string {
     case "DONE":
       return "Cofnij";
     case "IN_PROGRESS":
-      return "Zatwierdź pakowanie";
+      return "Zakończ pakowanie";
   }
 }
 
@@ -290,6 +290,28 @@ export function PackingWorkOrdersPage() {
     }
   }
 
+  async function handleStartPacking(workOrder: StageWorkOrder) {
+    setActiveWorkOrderId(getDraftKey(workOrder));
+    setErrorMessage(null);
+
+    try {
+      await startPacking(workOrder.id, workOrder.batch_id ?? undefined);
+      await loadWorkOrders();
+    } catch (error) {
+      const message = getMutationErrorMessage(
+        error,
+        "Nie udało się rozpocząć pakowania. Widok został odświeżony do aktualnego stanu backendu.",
+      );
+      const reloaded = await loadWorkOrders({ preserveErrorMessage: true });
+
+      if (reloaded) {
+        setErrorMessage(message);
+      }
+    } finally {
+      setActiveWorkOrderId(null);
+    }
+  }
+
   async function handlePackingSubmit(workOrder: StageWorkOrder) {
     const draftKey = getDraftKey(workOrder);
     const draft = drafts[draftKey] ?? buildEmptyPackingDraft();
@@ -379,12 +401,15 @@ export function PackingWorkOrdersPage() {
   }
 
   function renderWorkOrderCards(items: StageWorkOrder[]) {
+    // The single packing station is held by at most one order at a time (the one it claimed).
+    const packingStationOwner = workOrders.find((candidate) => candidate.is_being_packed);
     return (
       <div className="space-y-3">
         {items.map((workOrder) => {
           const status = workOrder.stage_status.status.value;
           const isPackingStage = workOrder.stage_status.stage === "PACKING";
-          const isPackingInProgress = isPackingStage && status === "IN_PROGRESS";
+          const isBeingPacked = isPackingStage && workOrder.is_being_packed;
+          const isStationBusyElsewhere = isPackingStage && status !== "DONE" && !isBeingPacked && !!packingStationOwner;
           const draftKey = getDraftKey(workOrder);
           const isSubmitting = activeWorkOrderId === draftKey;
           const draft = drafts[draftKey] ?? buildEmptyPackingDraft();
@@ -514,7 +539,7 @@ export function PackingWorkOrdersPage() {
                         Czeka na koniec zawieszania
                       </span>
                     </div>
-                  ) : isPackingInProgress ? (
+                  ) : isBeingPacked ? (
                     <div className="space-y-4">
                       <div className="grid gap-3 sm:grid-cols-3">
                         <label className="space-y-1 text-sm font-medium text-steel">
@@ -630,13 +655,9 @@ export function PackingWorkOrdersPage() {
                         {isSubmitting ? "Zapisywanie..." : getActionLabel(status)}
                       </button>
                     </div>
-                  ) : (
+                  ) : status === "DONE" ? (
                     <div className="flex h-full flex-col justify-center gap-3">
-                      {status === "DONE" ? (
-                        <p className="text-sm font-semibold text-emerald-700">{workOrder.counted_quantity ?? workOrder.planned_quantity} szt. zakończone</p>
-                      ) : (
-                        <p className="text-sm text-steel">Policzono: {workOrder.counted_quantity ?? "-"}</p>
-                      )}
+                      <p className="text-sm font-semibold text-emerald-700">{workOrder.counted_quantity ?? workOrder.planned_quantity} szt. zakończone</p>
                       <button
                         type="button"
                         disabled={isSubmitting}
@@ -644,6 +665,25 @@ export function PackingWorkOrdersPage() {
                         className="inline-flex w-full items-center justify-center rounded-lg border border-line bg-white px-4 py-3 text-sm font-semibold text-steel transition hover:border-accent hover:text-accent disabled:cursor-not-allowed disabled:border-line disabled:text-slate-400"
                       >
                         {isSubmitting ? "Zapisywanie..." : getActionLabel(status)}
+                      </button>
+                    </div>
+                  ) : isStationBusyElsewhere ? (
+                    <div className="flex h-full flex-col justify-center gap-3">
+                      <span className="inline-flex w-fit rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800">
+                        Zajęte: pakowanie {packingStationOwner?.order_number}
+                      </span>
+                      <p className="text-sm text-steel">Zakończ bieżące zlecenie, aby rozpocząć to.</p>
+                    </div>
+                  ) : (
+                    <div className="flex h-full flex-col justify-center gap-3">
+                      <p className="text-sm text-steel">Policzono: {workOrder.counted_quantity ?? "-"}</p>
+                      <button
+                        type="button"
+                        disabled={isSubmitting}
+                        onClick={() => void handleStartPacking(workOrder)}
+                        className="inline-flex w-full items-center justify-center rounded-lg bg-accent px-4 py-3 text-sm font-semibold text-white transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:bg-teal-300"
+                      >
+                        {isSubmitting ? "Zapisywanie..." : "Rozpocznij pakowanie"}
                       </button>
                     </div>
                   )}

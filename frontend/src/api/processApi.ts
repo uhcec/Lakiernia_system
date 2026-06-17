@@ -107,6 +107,26 @@ export async function transitionStage(
   return response.json() as Promise<StageWorkOrder>;
 }
 
+export async function startPacking(workOrderId: number, batchId?: number): Promise<StageWorkOrder> {
+  const pathname = batchId
+    ? `/process/work-orders/${workOrderId}/batches/${batchId}/packing/start`
+    : `/process/work-orders/${workOrderId}/packing/start`;
+
+  const response = await fetch(createApiUrl(pathname), {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      ...getCurrentStationHeaders(),
+    },
+  });
+
+  if (!response.ok) {
+    throw await createApiError(response, "Nie udało się rozpocząć pakowania");
+  }
+
+  return response.json() as Promise<StageWorkOrder>;
+}
+
 export async function completePacking(
   workOrderId: number,
   payload: CompletePackingPayload,

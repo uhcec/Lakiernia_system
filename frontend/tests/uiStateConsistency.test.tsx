@@ -206,6 +206,7 @@ function buildStageWorkOrder(
     coating_type: overrides.coating_type ?? { value: "RAL", label: "RAL" },
     batch_type: overrides.batch_type ?? "MAIN",
     batch_is_partial: overrides.batch_is_partial ?? false,
+    is_being_packed: overrides.is_being_packed ?? false,
     stage_status: overrides.stage_status,
   };
 }
@@ -929,8 +930,8 @@ describe("frontend state consistency", () => {
     expect(screen.queryByText("Dane główne")).toBeNull();
     expect(screen.getByText("W zawieszaniu - oczekuje na pakowanie")).toBeTruthy();
     expect(screen.getByText("Czeka na koniec zawieszania")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Zatwierdź pakowanie" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Rozpocznij" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Zakończ pakowanie" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Rozpocznij pakowanie" })).toBeNull();
     expect(screen.queryAllByRole("spinbutton")).toHaveLength(0);
   });
 
@@ -944,6 +945,7 @@ describe("frontend state consistency", () => {
           customer_name: "Roboczy",
           current_active_quantity: 4,
           planned_quantity: 4,
+          is_being_packed: true,
           stage_status: { stage: "PACKING", status: { value: "IN_PROGRESS", label: "W toku" } },
         }),
       ])
@@ -956,6 +958,7 @@ describe("frontend state consistency", () => {
           counted_quantity: 5,
           current_active_quantity: 5,
           planned_quantity: 5,
+          is_being_packed: true,
           stage_status: { stage: "PACKING", status: { value: "IN_PROGRESS", label: "W toku" } },
         }),
       ]);
@@ -973,7 +976,7 @@ describe("frontend state consistency", () => {
     fireEvent.change(correctionInputs[3], { target: { value: "1" } });
     fireEvent.change(correctionInputs[4], { target: { value: "0" } });
     fireEvent.change(screen.getByRole("combobox"), { target: { value: "niedomalowanie" } });
-    fireEvent.click(screen.getByRole("button", { name: "Zatwierdź pakowanie" }));
+    fireEvent.click(screen.getByRole("button", { name: "Zakończ pakowanie" }));
 
     await screen.findByText("Nieprawidłowa ilość pakowania");
     await screen.findByText("WO-PACK :: Backend");
@@ -991,6 +994,7 @@ describe("frontend state consistency", () => {
         order_number: "WO-PACK-REASON",
         current_active_quantity: 4,
         planned_quantity: 4,
+        is_being_packed: true,
         stage_status: { stage: "PACKING", status: { value: "IN_PROGRESS", label: "W toku" } },
       }),
     ]);
@@ -1008,7 +1012,7 @@ describe("frontend state consistency", () => {
     fireEvent.change(correctionInputs[3], { target: { value: "1" } });
     fireEvent.change(correctionInputs[4], { target: { value: "0" } });
 
-    const submitButton = screen.getByRole("button", { name: "Zatwierdź pakowanie" }) as HTMLButtonElement;
+    const submitButton = screen.getByRole("button", { name: "Zakończ pakowanie" }) as HTMLButtonElement;
     expect(submitButton.disabled).toBe(true);
 
     fireEvent.change(screen.getByRole("combobox"), { target: { value: "inne" } });
@@ -1043,6 +1047,7 @@ describe("frontend state consistency", () => {
         accessories_quantity: 2,
         current_active_quantity: 6,
         planned_quantity: 6,
+        is_being_packed: true,
         stage_status: { stage: "PACKING", status: { value: "IN_PROGRESS", label: "W toku" } },
       }),
     ]);

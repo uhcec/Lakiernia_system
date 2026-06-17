@@ -124,6 +124,25 @@ def reopen_stage_for_batch(
     return service.reopen_stage(work_order_id, stage, batch_id=batch_id, station_context=station_context)
 
 
+@router.post("/work-orders/{work_order_id}/packing/start", response_model=ProcessStageWorkOrderRead)
+def start_packing(
+    work_order_id: int,
+    service: Annotated[ProcessService, Depends(get_process_service)],
+    station_context: Annotated[StationContext, Depends(get_station_context)],
+) -> ProcessStageWorkOrderRead:
+    return service.start_packing(work_order_id, station_context=station_context)
+
+
+@router.post("/work-orders/{work_order_id}/batches/{batch_id}/packing/start", response_model=ProcessStageWorkOrderRead)
+def start_packing_for_batch(
+    work_order_id: int,
+    batch_id: int,
+    service: Annotated[ProcessService, Depends(get_process_service)],
+    station_context: Annotated[StationContext, Depends(get_station_context)],
+) -> ProcessStageWorkOrderRead:
+    return service.start_packing(work_order_id, batch_id=batch_id, station_context=station_context)
+
+
 @router.post("/work-orders/{work_order_id}/packing/complete", response_model=ProcessStageWorkOrderRead)
 def complete_packing(
     work_order_id: int,

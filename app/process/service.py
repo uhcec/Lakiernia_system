@@ -42,6 +42,11 @@ class ProcessService:
         "HANGING": "Zawieszanie zajęte",
         "AUTOMATIC_LINE": "Linia automatyczna zajęta",
     }
+    # Single physical packing station: only one work order may be actively packed at a time.
+    # The lock row is the operator's claim; it is acquired by an explicit "start packing" action
+    # (and defensively at completion) and released once packing leaves IN_PROGRESS.
+    PACKING_RESOURCE_KEY = "PACKING"
+    PACKING_OCCUPIED_ERROR = "Stanowisko pakowania jest zajęte przez inne zlecenie."
 
     def __init__(self, repository: ProcessRepository) -> None:
         self.repository = repository
@@ -363,6 +368,79 @@ class ProcessService:
         work_order = self.get_work_order_process(work_order_id)
         return self._to_stage_work_order_read(work_order, stage)
 
+    def start_packing(
+        self,
+        work_order_id: int,
+        batch_id: int | None = None,
+        station_context: StationContext | None = None,
+    ) -> ProcessStageWorkOrderRead:
+        """Claim the single physical packing station for this work order.
+
+        Acquires the ``PACKING`` resource lock so no other order can be started or completed at
+        packing until this one is finished (or its claim released by completing). Automatic orders
+        that are merely IN_PROGRESS at packing while still waiting are NOT claimed here; only this
+        explicit operator action takes the lock. Idempotent for the order that already holds it.
+        """
+        with self._serialize_process_mutation(work_order_id):
+            work_order = self.get_work_order_process(work_order_id)
+            self._ensure_packing_station_action(station_context)
+            target_batch = self._resolve_batch_for_stage(work_order, ProcessStage.PACKING, batch_id)
+
+            if target_batch is not None:
+                if self._has_tracked_batch_already_finished_stage(work_order, target_batch, ProcessStage.PACKING):
+                    return self._to_stage_work_order_read(work_order, ProcessStage.PACKING, batch=target_batch)
+                if target_batch.current_stage != ProcessStage.PACKING:
+                    raise InvalidProcessStageTransitionError("Batch is not ready for packing.")
+                self._acquire_packing_claim(work_order)
+                if target_batch.current_stage_status == StageStatus.NOT_STARTED:
+                    target_batch.current_stage_status = StageStatus.IN_PROGRESS
+                    self._record_stage_audit_event(
+                        work_order=work_order,
+                        stage=ProcessStage.PACKING,
+                        target_status=StageStatus.IN_PROGRESS,
+                        station_context=station_context,
+                        batch_id=target_batch.id,
+                    )
+                self._commit_process_changes()
+                refreshed_work_order = self.get_work_order_process(work_order_id)
+                refreshed_batch = self._get_batch(refreshed_work_order, target_batch.id)
+                return self._to_stage_work_order_read(refreshed_work_order, ProcessStage.PACKING, batch=refreshed_batch)
+
+            packing_state = self._get_stage_state(work_order, ProcessStage.PACKING)
+            hanging_state = self._get_stage_state(work_order, ProcessStage.HANGING)
+
+            if packing_state.status == StageStatus.DONE:
+                return self._to_idempotent_packing_response(work_order)
+
+            if work_order.production_type == ProductionType.AUTOMATIC and hanging_state.status != StageStatus.DONE:
+                raise InvalidProcessStageTransitionError("Automatic hanging must be finished before packing.")
+
+            if packing_state.status == StageStatus.NOT_STARTED:
+                # Validates prerequisites (previous stage DONE, workflow membership) before claiming.
+                self._validate_transition(work_order, packing_state, StageStatus.IN_PROGRESS)
+
+            self._acquire_packing_claim(work_order)
+
+            if packing_state.status == StageStatus.NOT_STARTED:
+                packing_state.status = StageStatus.IN_PROGRESS
+                packing_state.updated_at = datetime.now(UTC)
+                self._record_stage_audit_event(
+                    work_order=work_order,
+                    stage=ProcessStage.PACKING,
+                    target_status=StageStatus.IN_PROGRESS,
+                    station_context=station_context,
+                    batch_id=None,
+                )
+
+            try:
+                self.repository.commit()
+            except Exception:
+                self.repository.rollback()
+                raise
+
+            refreshed_work_order = self.get_work_order_process(work_order_id)
+            return self._to_stage_work_order_read(refreshed_work_order, ProcessStage.PACKING)
+
     def complete_packing(
         self,
         work_order_id: int,
@@ -420,6 +498,10 @@ class ProcessService:
 
             if packing_state.status != StageStatus.IN_PROGRESS:
                 raise InvalidProcessStageTransitionError("Packing can be completed only from IN_PROGRESS state.")
+
+            # Enforce single-packing-station exclusivity: take/confirm the claim before mutating.
+            # Idempotent if this order already started packing; 409 if another order holds it.
+            self._acquire_packing_claim(work_order)
 
             active_batch = work_order.active_batch
             if active_batch is None:
@@ -1474,6 +1556,9 @@ class ProcessService:
                 "Policzona ilość różni się od planowanej. Wyjaśnij brakujące sztuki."
             )
 
+        # Single-packing-station exclusivity also covers tracked-batch (DECORAL) packing.
+        self._acquire_packing_claim(work_order)
+
         packing_state = self._get_stage_state(work_order, ProcessStage.PACKING)
         packing_state.counted_quantity = counted_quantity
         packing_state.updated_at = datetime.now(UTC)
@@ -2255,6 +2340,11 @@ class ProcessService:
             paint_code=work_order.paint_code,
         ).current_quantity_kg
 
+        # The single packing station is "occupied" by whichever work order holds the PACKING lock.
+        # Only flag the card whose resolved stage is actually PACKING (automatic waiting rows are
+        # displayed at HANGING and must never read as being packed).
+        is_being_packed = stage == ProcessStage.PACKING and self._get_packing_lock_owner_id() == work_order.id
+
         return ProcessStageWorkOrderRead(
             id=work_order.id,
             batch_id=batch_id,
@@ -2292,6 +2382,7 @@ class ProcessService:
             coating_type=build_coating_type_view(work_order.coating_type),
             batch_type=batch_type,
             batch_is_partial=batch_is_partial,
+            is_being_packed=is_being_packed,
             stage_status=ProcessStageStatusRead(
                 stage=stage,
                 status=stage_status,
@@ -2431,6 +2522,15 @@ class ProcessService:
             self.repository.rollback()
             raise self._build_resource_conflict_error(resource_key) from exc
 
+    def _acquire_packing_claim(self, work_order: WorkOrder) -> None:
+        """Take (or confirm) this work order's claim on the single packing station.
+
+        Idempotent for the order that already holds the claim; raises a controlled conflict when
+        a different order is being packed. Stale claims (owner no longer packing) are recovered.
+        """
+        with self._serialize_resource_mutation(self.PACKING_RESOURCE_KEY):
+            self._acquire_resource_lock_with_stale_recovery(self.PACKING_RESOURCE_KEY, work_order)
+
     def _release_stale_resource_lock(self, resource_key: str) -> bool:
         existing_lock = self.repository.get_resource_lock(resource_key)
         if existing_lock is None:
@@ -2449,6 +2549,10 @@ class ProcessService:
             self.repository.release_resource_lock(resource_key, existing_lock.work_order_id)
             return True
 
+        if resource_key == self.PACKING_RESOURCE_KEY and not self._occupies_packing(lock_owner):
+            self.repository.release_resource_lock(resource_key, existing_lock.work_order_id)
+            return True
+
         return False
 
     def _release_inactive_resource_locks(self, work_order: WorkOrder) -> None:
@@ -2457,11 +2561,14 @@ class ProcessService:
                 self.repository.release_resource_lock(resource_lock.resource_key, work_order.id)
             elif resource_lock.resource_key == "AUTOMATIC_LINE" and not self._occupies_automatic_line(work_order):
                 self.repository.release_resource_lock(resource_lock.resource_key, work_order.id)
+            elif resource_lock.resource_key == self.PACKING_RESOURCE_KEY and not self._occupies_packing(work_order):
+                self.repository.release_resource_lock(resource_lock.resource_key, work_order.id)
 
-    @staticmethod
-    def _build_resource_conflict_error(resource_key: str) -> InvalidProcessStageTransitionError:
+    def _build_resource_conflict_error(self, resource_key: str) -> InvalidProcessStageTransitionError:
         if resource_key == "AUTOMATIC_LINE":
             return InvalidProcessStageTransitionError("Automatic line is already occupied by another active job.")
+        if resource_key == self.PACKING_RESOURCE_KEY:
+            return InvalidProcessStageTransitionError(self.PACKING_OCCUPIED_ERROR)
         return InvalidProcessStageTransitionError("Hanging resource is already occupied by another active job.")
 
     def _find_active_hanging_conflict(self, work_order_id: int) -> WorkOrder | None:
@@ -2508,6 +2615,28 @@ class ProcessService:
             and batch.current_stage_status == StageStatus.IN_PROGRESS
             for batch in work_order.quantity_batches
         )
+
+    def _occupies_packing(self, work_order: WorkOrder) -> bool:
+        """Whether this work order is currently being packed (holds a meaningful packing claim).
+
+        True while the full-order packing stage is IN_PROGRESS, or while an active tracked batch is
+        IN_PROGRESS at packing (DECORAL). Used to keep the ``PACKING`` lock and to recover it when
+        the owner's packing has finished or reset.
+        """
+        packing_state = self._get_stage_state(work_order, ProcessStage.PACKING)
+        if packing_state.status == StageStatus.IN_PROGRESS:
+            return True
+
+        return any(
+            batch.is_active
+            and batch.current_stage == ProcessStage.PACKING
+            and batch.current_stage_status == StageStatus.IN_PROGRESS
+            for batch in work_order.quantity_batches
+        )
+
+    def _get_packing_lock_owner_id(self) -> int | None:
+        lock = self.repository.get_resource_lock(self.PACKING_RESOURCE_KEY)
+        return lock.work_order_id if lock is not None else None
 
     def _get_surface_preparation_actual_quantity(self, work_order: WorkOrder) -> int | None:
         if self._skips_surface_preparation(work_order):

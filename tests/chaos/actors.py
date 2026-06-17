@@ -146,6 +146,13 @@ class PackingAgent:
     def start_packing(self, work_order_id: int):
         return self.client.post(f"/process/work-orders/{work_order_id}/stages/PACKING/start")
 
+    def claim_packing(self, work_order_id: int):
+        return self.client.post(f"/process/work-orders/{work_order_id}/packing/start")
+
+    def synchronized_claim_packing(self, barrier: Barrier, work_order_id: int):
+        barrier.wait()
+        return self.claim_packing(work_order_id)
+
     def complete_packing(
         self,
         work_order_id: int,

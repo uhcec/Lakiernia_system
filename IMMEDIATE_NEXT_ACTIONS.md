@@ -187,6 +187,23 @@ they are not yet validated against live factory policy where noted.
 
 ## Done
 
+- **NA16 — Packing station exclusivity (2026-06-17)** — Implemented the confirmed single-packing-station
+  rule (validation-checklist #9) using the explicit-claim model the user chose. A `PACKING`
+  `ProcessResourceLock` (same machinery as `HANGING`/`AUTOMATIC_LINE`, no schema change) is the
+  durable claim. New `ProcessService.start_packing` + `POST /process/work-orders/{id}/packing/start`
+  (and batch variant) acquires it; `complete_packing` and the tracked-batch path defensively
+  take/confirm it, so a different order cannot be started or completed while one is claimed (controlled
+  `409`). The claim auto-releases when packing leaves `IN_PROGRESS` (via `_release_inactive_resource_locks`
+  / `_occupies_packing`), with stale-claim recovery. Automatic orders merely waiting at packing never
+  hold the claim. Read model exposes `is_being_packed`; the packing page shows the entry form only for
+  the claimed order, "Zajęte: pakowanie {order}" on others, and a "Rozpocznij pakowanie" claim button on
+  free, packing-eligible cards (completion button relabelled "Zakończ pakowanie"). Tests:
+  `tests/test_packing_station_lock.py` (8), two API tests in `tests/test_process_api.py`, chaos scenario
+  `two_operators_claim_same_packing_station`. Docs: WORKFLOW.md "Packing station exclusivity",
+  WORKFLOW_VALIDATION_CHECKLIST.md #9 → IMPLEMENTED. Verified: full backend `pytest` green, `alembic check`
+  clean, frontend 67 passed + build. Optional follow-up: an explicit "release/cancel claim" action
+  (today the claim frees on completion or correction reset).
+
 - **NA15 (2026-06-17)** — Dedicated Decoral-pass throughput, built on the new stage-transition log.
   `m2_decoral` is now a separate, additional series attributed at the actual Decoral pass (latest
   `DECORAL_PRODUCTION`→`DONE` `occurred_at`) for non-correction orders, using `total_area_m2` — no

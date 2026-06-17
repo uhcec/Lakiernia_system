@@ -235,6 +235,32 @@ def scenario_double_click_packing_complete(env: ChaosEnvironment):
     return [future_a.result(), future_b.result()]
 
 
+def scenario_two_operators_claim_same_packing_station(env: ChaosEnvironment):
+    # Single physical packing station: two operators try to start packing on two different orders
+    # at the same instant. Exactly one may hold the station; the other must get a controlled 409.
+    seeder = env.create_actor_client("Seeder-Packing-Claim")
+    first = create_planned_work_order(seeder, "Packing Claim A", 1)
+    second = create_planned_work_order(seeder, "Packing Claim B", 2)
+    advance_to_packing(seeder, first["id"])
+    advance_to_packing(seeder, second["id"])
+
+    operator_a = PackingAgent(env.create_actor_client("PackingAgent-Claim-A"))
+    operator_b = PackingAgent(env.create_actor_client("PackingAgent-Claim-B"))
+    barrier = Barrier(2)
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        future_a = executor.submit(operator_a.synchronized_claim_packing, barrier, first["id"])
+        future_b = executor.submit(operator_b.synchronized_claim_packing, barrier, second["id"])
+
+    response_a = future_a.result()
+    response_b = future_b.result()
+    statuses = sorted([response_a.status_code, response_b.status_code])
+    # One order owns the station (200), the other is cleanly rejected (409) — never both 200.
+    assert statuses == [200, 409], statuses
+
+    return [response_a, response_b]
+
+
 def scenario_packing_creates_correction_while_manager_reorders(env: ChaosEnvironment):
     orders = seed_three_planned_orders(env)
     seeder = env.create_actor_client("Seeder-Packing")

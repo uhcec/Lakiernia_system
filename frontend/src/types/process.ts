@@ -55,5 +55,6 @@ export interface StageWorkOrder {
   coating_type: WorkOrderOption<"RAL" | "DECORAL">;
   batch_type: "MAIN" | "CORRECTION" | null;
   batch_is_partial: boolean;
+  is_being_packed: boolean;
   stage_status: ProcessStageStatus;
 }
