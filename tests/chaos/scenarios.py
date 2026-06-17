@@ -261,6 +261,27 @@ def scenario_two_operators_claim_same_packing_station(env: ChaosEnvironment):
     return [response_a, response_b]
 
 
+def scenario_automatic_reserves_packing_then_manual_overrides(env: ChaosEnvironment):
+    # NA22: an automatic order reserves a packing slot at hanging start; a manual order is blocked
+    # from starting normally but can override to open a second slot.
+    seeder = env.create_actor_client("Seeder-Packing-Reserve")
+    automatic = create_planned_work_order(seeder, "Auto reserves packing", 1, production_type="AUTOMATIC")
+    manual = create_planned_work_order(seeder, "Manual wants packing", 2, production_type="MANUAL")
+
+    # Drive the automatic to hanging (reserves a packing slot) and the manual to packing.
+    advance_to_packing(seeder, automatic["id"])  # automatic: surface + hanging start
+    advance_to_packing(seeder, manual["id"])  # manual: surface + production + packing start
+
+    packing_manual = PackingAgent(env.create_actor_client("PackingAgent-Manual"))
+    blocked = packing_manual.claim_packing(manual["id"])
+    assert blocked.status_code == 409, blocked.status_code
+
+    override = packing_manual.claim_packing(manual["id"], override=True)
+    assert override.status_code == 200, override.status_code
+
+    return [blocked, override]
+
+
 def scenario_packing_creates_correction_while_manager_reorders(env: ChaosEnvironment):
     orders = seed_three_planned_orders(env)
     seeder = env.create_actor_client("Seeder-Packing")

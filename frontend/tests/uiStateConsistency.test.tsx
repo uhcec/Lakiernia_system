@@ -211,6 +211,8 @@ function buildStageWorkOrder(
     batch_type: overrides.batch_type ?? "MAIN",
     batch_is_partial: overrides.batch_is_partial ?? false,
     is_being_packed: overrides.is_being_packed ?? false,
+    holds_packing_slot: overrides.holds_packing_slot ?? overrides.is_being_packed ?? false,
+    packing_slots_total: overrides.packing_slots_total ?? 2,
     stage_status: overrides.stage_status,
   };
 }
@@ -1127,11 +1129,45 @@ describe("frontend state consistency", () => {
     render(<PackingWorkOrdersPage />);
 
     await screen.findByText("WO-OWNER :: Klient");
-    // The waiting order shows it is blocked by the order that holds the station, with no claim button.
-    expect(screen.getByText("Zajęte: pakowanie WO-OWNER")).toBeTruthy();
-    // The owner shows the completion form (and a release control), not a fresh claim button.
+    // The owner holds a slot and shows the completion form + release control.
     expect(screen.getByRole("button", { name: "Zakończ pakowanie" })).toBeTruthy();
+    // The waiting order can't start normally (station occupied) but may override to open a 2nd slot.
+    expect(screen.getByRole("button", { name: "Otwórz drugie stanowisko" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Rozpocznij pakowanie" })).toBeNull();
+  });
+
+  it("opens a second packing slot via the manual override (NA22)", async () => {
+    fetchStageWorkOrdersMock.mockResolvedValue([
+      buildStageWorkOrder({
+        id: 51,
+        order_number: "WO-AUTO-RESERVED",
+        current_active_quantity: 14,
+        planned_quantity: 14,
+        production_type: { value: "AUTOMATIC", label: "Automatyczna" },
+        is_being_packed: true,
+        holds_packing_slot: true,
+        stage_status: { stage: "PACKING", status: { value: "IN_PROGRESS", label: "W toku" } },
+      }),
+      buildStageWorkOrder({
+        id: 52,
+        order_number: "WO-MANUAL-WAIT",
+        current_active_quantity: 6,
+        planned_quantity: 6,
+        is_being_packed: false,
+        holds_packing_slot: false,
+        stage_status: { stage: "PACKING", status: { value: "IN_PROGRESS", label: "W toku" } },
+      }),
+    ]);
+    startPackingMock.mockResolvedValue({} as never);
+
+    render(<PackingWorkOrdersPage />);
+
+    await screen.findByText("WO-MANUAL-WAIT :: Klient");
+    // The warning surfaces the reserving automatic order's piece count.
+    expect(screen.getByText(/WO-AUTO-RESERVED \(14 szt./)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Otwórz drugie stanowisko" }));
+
+    await waitFor(() => expect(startPackingMock).toHaveBeenCalledWith(52, undefined, true));
   });
 
   it("keeps stage list visible when one correction detail fetch fails", async () => {

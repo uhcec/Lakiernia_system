@@ -370,7 +370,13 @@ Refinement CONFIRMED 2026-06-17 (factory chat) — automatic reserves packing at
 - **This revises the 2026-06-02 note** ("treat automatic waiting rows as not occupying packing") and the as-built NA16 line ("automatic waiting rows do not hold the claim"; "only one physically started at a time"): for the automatic path the reservation is taken at hanging start, and (see below) packing is no longer strictly single-slot.
 - **Decision 2026-06-17 — manual second-slot override:** packing is **not strictly one-at-a-time**. A manual operator may **override** and open a **second concurrent packing** when two orders can be packed at once. This turns NA16's single-station rule into a small **capacity** model (default 1, manual can open a 2nd slot). The automatic reservation still guarantees the line a slot; the manual override lets a manual order pack alongside instead of waiting.
 - **Decision 2026-06-17 — second automatic:** a second automatic starting hanging while packing is reserved by another automatic **may start/finish hanging but queues for packing** (reservation in arrival order); it completes packing only after the prior automatic releases.
-- Decisions (2026-06-17), open questions resolved — ready to build:
+- **IMPLEMENTED 2026-06-17 (NA22).** Packing is now N configurable slots (`PACKING:1..N`,
+  `packing_max_concurrent_slots`, default 2). Automatic orders reserve a slot at `HANGING` start and
+  hold it through their packing; manual start is the single-station exclusivity gate and a manual
+  `?override=true` opens an additional slot up to N (audited), gated in the UI behind a warning showing
+  the reserving automatic order's piece count. Completion is capacity-bound. Covered by
+  `tests/test_packing_station_lock.py`, API tests, a chaos scenario
+  (`automatic_reserves_packing_then_manual_overrides`), and frontend tests. Decisions captured:
   - **Max concurrent packings is a configurable `N`** (settings value, not hardcoded; sensible default e.g. 2).
   - **Override = explicit button, manual (`PACKING`) only, with a warning** that explains packing can be reserved by an automatic order before any parts physically reach packing (reserved at hanging start) and **shows the reserving automatic order's piece count**; the override opens an additional slot (up to `N`) and is audited.
   - Reservation lifecycle (multi-slot): automatic holds its slot from `HANGING` start through its packing completion (extend packing-claim retention so an automatic reservation counts even before packing is `IN_PROGRESS`); per-slot stale recovery.
@@ -425,7 +431,7 @@ Confirmed direction from 2026-05-30:
 Current repository behavior/evidence:
 
 - Current implementation stores `paint_code`, `paint_producer`, and `paint_stock_snapshot_quantity_kg` on the work order.
-- The current intake form still reflects the old snapshot-only flow and must be updated to read from the app-owned paint inventory.
+- The intake form reads current stock live from the app-owned paint inventory (`CreateWorkOrderPage` calls `lookupPaintStock`) and stores the result as a historical snapshot without reserving — matching the confirmed target. (Corrected 2026-06-17: an earlier note here wrongly claimed the form still used the old snapshot-only flow.)
 - Automatic-production paint consumption is recordable only by `AUTOMATIC_PRODUCTION`, once `HANGING` has started.
 - The frontend records paint usage through `20 kg` / `25 kg` carton selection plus remainder in the last carton; backend stores the resulting net consumed kg.
 - Standard automatic work is blocked in packing until `consumed_paint_quantity_kg > 0`.

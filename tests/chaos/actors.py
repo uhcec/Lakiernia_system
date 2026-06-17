@@ -146,12 +146,15 @@ class PackingAgent:
     def start_packing(self, work_order_id: int):
         return self.client.post(f"/process/work-orders/{work_order_id}/stages/PACKING/start")
 
-    def claim_packing(self, work_order_id: int):
-        return self.client.post(f"/process/work-orders/{work_order_id}/packing/start")
+    def claim_packing(self, work_order_id: int, *, override: bool = False):
+        path = f"/process/work-orders/{work_order_id}/packing/start"
+        if override:
+            path += "?override=true"
+        return self.client.post(path)
 
-    def synchronized_claim_packing(self, barrier: Barrier, work_order_id: int):
+    def synchronized_claim_packing(self, barrier: Barrier, work_order_id: int, *, override: bool = False):
         barrier.wait()
-        return self.claim_packing(work_order_id)
+        return self.claim_packing(work_order_id, override=override)
 
     def complete_packing(
         self,

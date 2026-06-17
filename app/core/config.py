@@ -42,6 +42,16 @@ class Settings(BaseSettings):
         description="Access-token lifetime in minutes (default 12h, ~one operator shift).",
     )
 
+    packing_max_concurrent_slots: int = Field(
+        default=2,
+        ge=1,
+        description=(
+            "Maximum number of work orders that may be physically packed at once (NA22). The default "
+            "behavior is single-station exclusivity; a manual operator can override to open additional "
+            "slots up to this cap. Configurable, never hardcoded."
+        ),
+    )
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

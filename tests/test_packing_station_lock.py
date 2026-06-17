@@ -1,9 +1,9 @@
-"""Single packing-station exclusivity (WORKFLOW.md / validation-checklist #9).
+"""Packing capacity / slot model (WORKFLOW.md / validation-checklist #9, NA16 + NA22).
 
-Only one work order may be physically *started* at packing at a time. The ``PACKING`` resource
-lock is the operator's claim, taken by ``start_packing`` (and defensively at completion) and
-released once packing leaves IN_PROGRESS. Automatic orders that are only waiting at packing must
-not hold the claim.
+Default behavior is single-station exclusivity (one work order packs at a time). An AUTOMATIC order
+reserves a packing slot the moment HANGING starts (NA22a), so a manual order cannot take the slot and
+block the un-pausable automatic line; a manual operator may *override* to open an additional slot up to
+the configured cap N (NA22b). Slots are tracked as ``PACKING:1..N`` resource locks.
 """
 
 from sqlalchemy.orm import Session
@@ -13,7 +13,6 @@ import pytest
 from app.manager.schemas import WorkOrderPlanAssignRequest
 from app.process.enums import ProcessStage, ProductionType, StageStatus
 from app.process.models import ProcessResourceLock
-from app.process.service import ProcessService
 from app.shared.exceptions import InvalidProcessStageTransitionError
 
 from tests.test_process_service import (
@@ -23,7 +22,7 @@ from tests.test_process_service import (
     create_ral_work_order,
 )
 
-PACKING_KEY = ProcessService.PACKING_RESOURCE_KEY
+PACKING_SLOT_PREFIX = "PACKING:"
 
 
 def _plan_and_advance_manual_to_packing(work_order_service, process_service, manager_service, title: str, position: int):
@@ -36,22 +35,22 @@ def _plan_and_advance_manual_to_packing(work_order_service, process_service, man
     return created
 
 
-def _packing_lock_owner(process_repository) -> int | None:
-    lock = process_repository.get_resource_lock(PACKING_KEY)
-    return lock.work_order_id if lock is not None else None
+def _slot_owner_ids(process_repository) -> set[int]:
+    return {lock.work_order_id for lock in process_repository.list_resource_locks_with_prefix(PACKING_SLOT_PREFIX)}
 
 
-def test_start_packing_claims_station_and_flags_being_packed(db_session: Session) -> None:
+def test_start_packing_claims_a_slot_and_flags_being_packed(db_session: Session) -> None:
     work_order_service, process_service, manager_service, _, process_repository = build_services(db_session)
     order = _plan_and_advance_manual_to_packing(work_order_service, process_service, manager_service, "Claim A", 1)
 
     response = process_service.start_packing(order.id)
 
     assert response.is_being_packed is True
-    assert _packing_lock_owner(process_repository) == order.id
+    assert response.holds_packing_slot is True
+    assert _slot_owner_ids(process_repository) == {order.id}
 
 
-def test_second_order_cannot_start_packing_while_station_claimed(db_session: Session) -> None:
+def test_second_order_cannot_start_packing_without_override(db_session: Session) -> None:
     work_order_service, process_service, manager_service, _, process_repository = build_services(db_session)
     first = _plan_and_advance_manual_to_packing(work_order_service, process_service, manager_service, "Busy A", 1)
     second = _plan_and_advance_manual_to_packing(work_order_service, process_service, manager_service, "Busy B", 2)
@@ -59,51 +58,90 @@ def test_second_order_cannot_start_packing_while_station_claimed(db_session: Ses
     process_service.start_packing(first.id)
 
     with pytest.raises(InvalidProcessStageTransitionError) as excinfo:
-        process_service.start_packing(second.id)
+        process_service.start_packing(second.id)  # default (no override) requires a free station
 
-    assert "zaj" in str(excinfo.value).lower()  # "zajęte"
-    assert _packing_lock_owner(process_repository) == first.id
+    assert "zaj" in str(excinfo.value).lower()
+    assert _slot_owner_ids(process_repository) == {first.id}
 
 
-def test_completing_packing_releases_claim_for_next_order(db_session: Session) -> None:
+def test_manual_override_opens_a_second_packing_slot(db_session: Session) -> None:
+    work_order_service, process_service, manager_service, _, process_repository = build_services(db_session)
+    first = _plan_and_advance_manual_to_packing(work_order_service, process_service, manager_service, "Slot A", 1)
+    second = _plan_and_advance_manual_to_packing(work_order_service, process_service, manager_service, "Slot B", 2)
+
+    process_service.start_packing(first.id)
+    response = process_service.start_packing(second.id, override=True)  # default cap N=2
+
+    assert response.is_being_packed is True
+    assert _slot_owner_ids(process_repository) == {first.id, second.id}
+
+
+def test_override_blocked_when_all_slots_full(db_session: Session) -> None:
+    work_order_service, process_service, manager_service, _, process_repository = build_services(db_session)
+    a = _plan_and_advance_manual_to_packing(work_order_service, process_service, manager_service, "Full A", 1)
+    b = _plan_and_advance_manual_to_packing(work_order_service, process_service, manager_service, "Full B", 2)
+    c = _plan_and_advance_manual_to_packing(work_order_service, process_service, manager_service, "Full C", 3)
+
+    process_service.start_packing(a.id)
+    process_service.start_packing(b.id, override=True)  # opens 2nd slot (N=2)
+
+    with pytest.raises(InvalidProcessStageTransitionError) as excinfo:
+        process_service.start_packing(c.id, override=True)  # all N=2 slots full
+
+    assert "wszystkie" in str(excinfo.value).lower()
+    assert _slot_owner_ids(process_repository) == {a.id, b.id}
+
+
+def test_packing_slot_capacity_is_configurable(db_session: Session, monkeypatch: pytest.MonkeyPatch) -> None:
+    work_order_service, process_service, manager_service, _, process_repository = build_services(db_session)
+    a = _plan_and_advance_manual_to_packing(work_order_service, process_service, manager_service, "Cap A", 1)
+    b = _plan_and_advance_manual_to_packing(work_order_service, process_service, manager_service, "Cap B", 2)
+
+    # Cap of 1 → even an override cannot open a second slot.
+    monkeypatch.setattr(process_service, "_packing_slot_count", lambda: 1)
+    process_service.start_packing(a.id)
+    with pytest.raises(InvalidProcessStageTransitionError):
+        process_service.start_packing(b.id, override=True)
+    assert _slot_owner_ids(process_repository) == {a.id}
+
+
+def test_completing_packing_releases_slot_for_next_order(db_session: Session) -> None:
     work_order_service, process_service, manager_service, _, process_repository = build_services(db_session)
     first = _plan_and_advance_manual_to_packing(work_order_service, process_service, manager_service, "Release A", 1)
     second = _plan_and_advance_manual_to_packing(work_order_service, process_service, manager_service, "Release B", 2)
 
     process_service.start_packing(first.id)
     complete_packing(process_service, first.id, ok_quantity=100, correction_quantity=0)
-
-    assert _packing_lock_owner(process_repository) is None
+    assert _slot_owner_ids(process_repository) == set()
 
     response = process_service.start_packing(second.id)
     assert response.is_being_packed is True
-    assert _packing_lock_owner(process_repository) == second.id
+    assert _slot_owner_ids(process_repository) == {second.id}
 
 
-def test_complete_packing_blocked_while_other_order_holds_claim(db_session: Session) -> None:
+def test_complete_packing_blocked_while_other_order_holds_the_only_slot(db_session: Session, monkeypatch: pytest.MonkeyPatch) -> None:
     work_order_service, process_service, manager_service, _, process_repository = build_services(db_session)
     first = _plan_and_advance_manual_to_packing(work_order_service, process_service, manager_service, "Guard A", 1)
     second = _plan_and_advance_manual_to_packing(work_order_service, process_service, manager_service, "Guard B", 2)
 
+    monkeypatch.setattr(process_service, "_packing_slot_count", lambda: 1)  # single station
     process_service.start_packing(first.id)
 
     with pytest.raises(InvalidProcessStageTransitionError):
         complete_packing(process_service, second.id, ok_quantity=100, correction_quantity=0)
 
-    # First order's claim is untouched and it can still complete normally.
-    assert _packing_lock_owner(process_repository) == first.id
+    assert _slot_owner_ids(process_repository) == {first.id}
     complete_packing(process_service, first.id, ok_quantity=100, correction_quantity=0)
-    assert _packing_lock_owner(process_repository) is None
+    assert _slot_owner_ids(process_repository) == set()
 
 
-def test_complete_packing_without_prior_claim_still_works_and_leaves_no_lock(db_session: Session) -> None:
-    # Back-compat: direct completion (no explicit start) auto-claims for the duration and releases.
+def test_complete_packing_without_prior_claim_leaves_no_slot(db_session: Session) -> None:
     work_order_service, process_service, manager_service, _, process_repository = build_services(db_session)
     order = _plan_and_advance_manual_to_packing(work_order_service, process_service, manager_service, "Direct", 1)
 
     complete_packing(process_service, order.id, ok_quantity=100, correction_quantity=0)
 
-    assert _packing_lock_owner(process_repository) is None
+    assert _slot_owner_ids(process_repository) == set()
 
 
 def test_start_packing_is_idempotent_for_same_order(db_session: Session) -> None:
@@ -114,80 +152,56 @@ def test_start_packing_is_idempotent_for_same_order(db_session: Session) -> None
     response = process_service.start_packing(order.id)
 
     assert response.is_being_packed is True
-    assert _packing_lock_owner(process_repository) == order.id
+    assert _slot_owner_ids(process_repository) == {order.id}
 
 
-def test_start_packing_recovers_stale_claim_from_finished_owner(db_session: Session) -> None:
+def test_start_packing_recovers_stale_slot_from_finished_owner(db_session: Session, monkeypatch: pytest.MonkeyPatch) -> None:
     work_order_service, process_service, manager_service, _, process_repository = build_services(db_session)
     finished = _plan_and_advance_manual_to_packing(work_order_service, process_service, manager_service, "Stale", 1)
     waiting = _plan_and_advance_manual_to_packing(work_order_service, process_service, manager_service, "Fresh", 2)
 
-    # Finish the first order's packing, then forge a stale lock owned by the now-finished order.
+    monkeypatch.setattr(process_service, "_packing_slot_count", lambda: 1)
     complete_packing(process_service, finished.id, ok_quantity=100, correction_quantity=0)
-    db_session.add(ProcessResourceLock(resource_key=PACKING_KEY, work_order_id=finished.id))
+    # Forge a stale slot owned by the now-finished order.
+    db_session.add(ProcessResourceLock(resource_key="PACKING:1", work_order_id=finished.id))
     db_session.flush()
 
     response = process_service.start_packing(waiting.id)
 
     assert response.is_being_packed is True
-    assert _packing_lock_owner(process_repository) == waiting.id
+    assert _slot_owner_ids(process_repository) == {waiting.id}
 
 
-def test_release_packing_frees_station_for_another_order(db_session: Session) -> None:
+def test_automatic_order_reserves_packing_slot_at_hanging_start(db_session: Session) -> None:
+    # NA22a: an automatic order holds a packing slot from hanging start, so a manual order is blocked
+    # unless it overrides. advance_to_packing drives surface + hanging for automatic.
     work_order_service, process_service, manager_service, _, process_repository = build_services(db_session)
-    first = _plan_and_advance_manual_to_packing(work_order_service, process_service, manager_service, "Cancel A", 1)
-    second = _plan_and_advance_manual_to_packing(work_order_service, process_service, manager_service, "Cancel B", 2)
-
-    process_service.start_packing(first.id)
-    released = process_service.release_packing(first.id)
-
-    assert released.is_being_packed is False
-    assert _packing_lock_owner(process_repository) is None
-
-    # The station is free again; the second order can now claim it.
-    claim = process_service.start_packing(second.id)
-    assert claim.is_being_packed is True
-    assert _packing_lock_owner(process_repository) == second.id
-
-
-def test_release_packing_is_idempotent_and_does_not_touch_other_claim(db_session: Session) -> None:
-    work_order_service, process_service, manager_service, _, process_repository = build_services(db_session)
-    holder = _plan_and_advance_manual_to_packing(work_order_service, process_service, manager_service, "Holder", 1)
-    other = _plan_and_advance_manual_to_packing(work_order_service, process_service, manager_service, "Other", 2)
-
-    process_service.start_packing(holder.id)
-
-    # Releasing an order that does not hold the claim is a harmless no-op and never steals the claim.
-    process_service.release_packing(other.id)
-    assert _packing_lock_owner(process_repository) == holder.id
-
-    # Releasing the holder twice is idempotent.
-    process_service.release_packing(holder.id)
-    process_service.release_packing(holder.id)
-    assert _packing_lock_owner(process_repository) is None
-
-
-def test_automatic_order_waiting_at_packing_does_not_hold_claim(db_session: Session) -> None:
-    work_order_service, process_service, manager_service, _, process_repository = build_services(db_session)
-    created = create_ral_work_order(work_order_service, "Auto waiting")
+    automatic = create_ral_work_order(work_order_service, "Auto reserve")
     manager_service.assign_plan(
-        created.id,
-        WorkOrderPlanAssignRequest(production_type=ProductionType.AUTOMATIC, queue_position=1),
+        automatic.id, WorkOrderPlanAssignRequest(production_type=ProductionType.AUTOMATIC, queue_position=1)
     )
-    advance_to_packing(process_service, created.id)
+    advance_to_packing(process_service, automatic.id)
 
-    # Automatic packing is IN_PROGRESS implicitly after hanging finishes, but nobody has claimed it.
-    work_order = process_service.get_work_order_process(created.id)
-    packing_state = next(s for s in work_order.stage_states if s.stage == ProcessStage.PACKING)
-    assert packing_state.status == StageStatus.IN_PROGRESS
-    assert _packing_lock_owner(process_repository) is None
+    # The automatic order holds a slot even though packing is only implicitly in progress.
+    assert automatic.id in _slot_owner_ids(process_repository)
 
-    items = process_service.list_stage_work_orders(ProcessStage.PACKING)
-    matching = [item for item in items if item.id == created.id and item.stage_status.stage == ProcessStage.PACKING]
-    assert matching, "automatic order should be visible at packing once hanging is done"
-    assert all(item.is_being_packed is False for item in matching)
+    manual = _plan_and_advance_manual_to_packing(work_order_service, process_service, manager_service, "Manual blocked", 2)
+    with pytest.raises(InvalidProcessStageTransitionError):
+        process_service.start_packing(manual.id)  # blocked by the automatic reservation
 
-    # Explicitly claiming it then flags it as being packed.
-    response = process_service.start_packing(created.id)
-    assert response.is_being_packed is True
-    assert _packing_lock_owner(process_repository) == created.id
+    # ...but the manual operator can override to open a second slot.
+    process_service.start_packing(manual.id, override=True)
+    assert _slot_owner_ids(process_repository) == {automatic.id, manual.id}
+
+
+def test_automatic_releases_packing_slot_after_completion(db_session: Session) -> None:
+    work_order_service, process_service, manager_service, _, process_repository = build_services(db_session)
+    automatic = create_ral_work_order(work_order_service, "Auto release")
+    manager_service.assign_plan(
+        automatic.id, WorkOrderPlanAssignRequest(production_type=ProductionType.AUTOMATIC, queue_position=1)
+    )
+    advance_to_packing(process_service, automatic.id)
+    assert automatic.id in _slot_owner_ids(process_repository)
+
+    complete_packing(process_service, automatic.id, ok_quantity=100, correction_quantity=0)
+    assert _slot_owner_ids(process_repository) == set()

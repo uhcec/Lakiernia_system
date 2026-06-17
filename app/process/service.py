@@ -2,12 +2,14 @@ from collections.abc import Sequence
 from contextlib import ExitStack, contextmanager
 from datetime import UTC, datetime
 import json
+import logging
 from threading import RLock
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 
 from app.audit.context import StationContext, ensure_station_allowed
+from app.core.config import get_settings
 from app.audit.models import AuditEvent
 from app.audit.repository import AuditRepository
 from app.paints.repository import PaintRepository
@@ -22,6 +24,8 @@ from app.work_orders.number_allocator import WorkOrderNumberAllocator
 from app.work_orders.models import WorkOrder
 from app.work_orders.schemas import build_coating_type_view, build_production_type_view, build_queue_namespace_view, build_work_order_kind_view
 
+
+logger = logging.getLogger(__name__)
 
 _PROCESS_MUTATION_LOCKS: dict[int, RLock] = {}
 _PROCESS_MUTATION_LOCKS_GUARD = RLock()
@@ -42,11 +46,13 @@ class ProcessService:
         "HANGING": "Zawieszanie zajęte",
         "AUTOMATIC_LINE": "Linia automatyczna zajęta",
     }
-    # Single physical packing station: only one work order may be actively packed at a time.
-    # The lock row is the operator's claim; it is acquired by an explicit "start packing" action
-    # (and defensively at completion) and released once packing leaves IN_PROGRESS.
-    PACKING_RESOURCE_KEY = "PACKING"
+    # Packing capacity model (NA22). Packing has N configurable slots (PACKING:1..N). By default only
+    # one work order packs at a time; an automatic order reserves a slot when HANGING starts (so it
+    # cannot be blocked by a manual order), and a manual operator may *override* to open an additional
+    # slot up to N when two orders can be packed at once. The lock row per slot is the claim/reservation.
+    PACKING_SLOT_PREFIX = "PACKING:"
     PACKING_OCCUPIED_ERROR = "Stanowisko pakowania jest zajęte przez inne zlecenie."
+    PACKING_ALL_SLOTS_FULL_ERROR = "Wszystkie stanowiska pakowania są zajęte."
 
     def __init__(self, repository: ProcessRepository) -> None:
         self.repository = repository
@@ -160,6 +166,8 @@ class ProcessService:
                     self._acquire_stage_resource_locks(work_order, stage, target_status)
                 stage_state.status = target_status
                 stage_state.updated_at = datetime.now(UTC)
+                # NA22a: automatic orders reserve a packing slot the moment hanging starts.
+                self._reserve_packing_for_automatic_hanging(work_order, stage, target_status)
 
                 # Finishing automatic HANGING implicitly moves PRODUCTION and PACKING into progress
                 # (the automatic line runs without manual start). Log these implicit transitions too,
@@ -373,17 +381,20 @@ class ProcessService:
         work_order_id: int,
         batch_id: int | None = None,
         station_context: StationContext | None = None,
+        override: bool = False,
     ) -> ProcessStageWorkOrderRead:
-        """Claim the single physical packing station for this work order.
+        """Claim a packing slot for this work order (NA22).
 
-        Acquires the ``PACKING`` resource lock so no other order can be started or completed at
-        packing until this one is finished (or its claim released by completing). Automatic orders
-        that are merely IN_PROGRESS at packing while still waiting are NOT claimed here; only this
-        explicit operator action takes the lock. Idempotent for the order that already holds it.
+        Takes one of the N configured packing slots. By default a claim succeeds only when the station
+        is completely free (single-station exclusivity); when packing is occupied — e.g. reserved by an
+        automatic order at hanging start — a manual operator may pass ``override=True`` to open an
+        additional slot up to the configured cap. Automatic orders reserve their slot automatically at
+        hanging start, not here. Idempotent for an order that already holds a slot.
         """
         with self._serialize_process_mutation(work_order_id):
             work_order = self.get_work_order_process(work_order_id)
             self._ensure_packing_station_action(station_context)
+            already_held = self._work_order_packing_slot_key(work_order.id) is not None
             target_batch = self._resolve_batch_for_stage(work_order, ProcessStage.PACKING, batch_id)
 
             if target_batch is not None:
@@ -391,7 +402,9 @@ class ProcessService:
                     return self._to_stage_work_order_read(work_order, ProcessStage.PACKING, batch=target_batch)
                 if target_batch.current_stage != ProcessStage.PACKING:
                     raise InvalidProcessStageTransitionError("Batch is not ready for packing.")
-                self._acquire_packing_claim(work_order)
+                self._acquire_packing_slot(work_order, override=override)
+                if override and not already_held:
+                    self._record_packing_override_audit_event(work_order, station_context, batch_id=target_batch.id)
                 if target_batch.current_stage_status == StageStatus.NOT_STARTED:
                     target_batch.current_stage_status = StageStatus.IN_PROGRESS
                     self._record_stage_audit_event(
@@ -419,7 +432,9 @@ class ProcessService:
                 # Validates prerequisites (previous stage DONE, workflow membership) before claiming.
                 self._validate_transition(work_order, packing_state, StageStatus.IN_PROGRESS)
 
-            self._acquire_packing_claim(work_order)
+            self._acquire_packing_slot(work_order, override=override)
+            if override and not already_held:
+                self._record_packing_override_audit_event(work_order, station_context, batch_id=None)
 
             if packing_state.status == StageStatus.NOT_STARTED:
                 packing_state.status = StageStatus.IN_PROGRESS
@@ -457,9 +472,9 @@ class ProcessService:
         with self._serialize_process_mutation(work_order_id):
             work_order = self.get_work_order_process(work_order_id)
             self._ensure_packing_station_action(station_context)
-            held_claim = self._get_packing_lock_owner_id() == work_order.id
-            with self._serialize_resource_mutation(self.PACKING_RESOURCE_KEY):
-                self.repository.release_resource_lock(self.PACKING_RESOURCE_KEY, work_order.id)
+            held_claim = self._work_order_packing_slot_key(work_order.id) is not None
+            with self._serialize_resource_mutation(self.PACKING_SLOT_PREFIX):
+                self._release_packing_slot(work_order)
             if held_claim:
                 self._record_audit_event(
                     event_type="process.packing.claim_released",
@@ -537,9 +552,10 @@ class ProcessService:
             if packing_state.status != StageStatus.IN_PROGRESS:
                 raise InvalidProcessStageTransitionError("Packing can be completed only from IN_PROGRESS state.")
 
-            # Enforce single-packing-station exclusivity: take/confirm the claim before mutating.
-            # Idempotent if this order already started packing; 409 if another order holds it.
-            self._acquire_packing_claim(work_order)
+            # Confirm a packing slot before mutating: idempotent if this order started packing, else
+            # take any free slot (completion is capacity-bound — the start action is the gate). 409
+            # only when all slots are genuinely full.
+            self._acquire_packing_slot(work_order, for_completion=True)
 
             active_batch = work_order.active_batch
             if active_batch is None:
@@ -1594,8 +1610,8 @@ class ProcessService:
                 "Policzona ilość różni się od planowanej. Wyjaśnij brakujące sztuki."
             )
 
-        # Single-packing-station exclusivity also covers tracked-batch (DECORAL) packing.
-        self._acquire_packing_claim(work_order)
+        # Packing-slot exclusivity also covers tracked-batch (DECORAL) packing (capacity-bound at completion).
+        self._acquire_packing_slot(work_order, for_completion=True)
 
         packing_state = self._get_stage_state(work_order, ProcessStage.PACKING)
         packing_state.counted_quantity = counted_quantity
@@ -1973,6 +1989,24 @@ class ProcessService:
             batch_id=batch_id,
         )
 
+    def _record_packing_override_audit_event(
+        self,
+        work_order: WorkOrder,
+        station_context: StationContext | None,
+        *,
+        batch_id: int | None,
+    ) -> None:
+        # NA22b: a manual operator opened an additional packing slot. Audited for traceability.
+        self._record_audit_event(
+            event_type="process.packing.slot_override_opened",
+            station_context=station_context,
+            work_order=work_order,
+            target_type="process_stage",
+            target_id=batch_id,
+            summary=f"Opened an additional packing slot (override) for work order {work_order.order_number}.",
+            details={"stage": ProcessStage.PACKING.value, "batch_id": batch_id},
+        )
+
     def _record_packing_audit_event(
         self,
         *,
@@ -2219,6 +2253,15 @@ class ProcessService:
             if not self._can_finalize_work_order(current_work_order):
                 break
 
+            # Quantity conservation should already make these equal; if not, finalizing would mask a
+            # leak — surface it (NA19) rather than silently overwriting.
+            if current_work_order.completed_quantity != current_work_order.total_quantity:
+                logger.warning(
+                    "Finalizing work order %s with a quantity gap: completed=%s total=%s (forcing to total).",
+                    current_work_order.order_number,
+                    current_work_order.completed_quantity,
+                    current_work_order.total_quantity,
+                )
             current_work_order.completed_quantity = current_work_order.total_quantity
             current_work_order.current_active_batch_id = None
             self._mark_all_stage_states_done(current_work_order)
@@ -2378,10 +2421,13 @@ class ProcessService:
             paint_code=work_order.paint_code,
         ).current_quantity_kg
 
-        # The single packing station is "occupied" by whichever work order holds the PACKING lock.
-        # Only flag the card whose resolved stage is actually PACKING (automatic waiting rows are
-        # displayed at HANGING and must never read as being packed).
-        is_being_packed = stage == ProcessStage.PACKING and self._get_packing_lock_owner_id() == work_order.id
+        # Packing occupancy (NA22): a work order "holds a slot" if it owns any PACKING:i lock — this
+        # includes an automatic order that reserved a slot at hanging start but has not reached packing
+        # yet. `is_being_packed` (show the packing form) additionally requires the resolved stage to be
+        # PACKING. `packing_slots_total` is the configured capacity N.
+        holds_packing_slot = self._work_order_packing_slot_key(work_order.id) is not None
+        is_being_packed = holds_packing_slot and stage == ProcessStage.PACKING
+        packing_slots_total = self._packing_slot_count()
 
         return ProcessStageWorkOrderRead(
             id=work_order.id,
@@ -2421,6 +2467,8 @@ class ProcessService:
             batch_type=batch_type,
             batch_is_partial=batch_is_partial,
             is_being_packed=is_being_packed,
+            holds_packing_slot=holds_packing_slot,
+            packing_slots_total=packing_slots_total,
             stage_status=ProcessStageStatusRead(
                 stage=stage,
                 status=stage_status,
@@ -2560,14 +2608,102 @@ class ProcessService:
             self.repository.rollback()
             raise self._build_resource_conflict_error(resource_key) from exc
 
-    def _acquire_packing_claim(self, work_order: WorkOrder) -> None:
-        """Take (or confirm) this work order's claim on the single packing station.
+    # --- Packing capacity / slots (NA22) ---------------------------------------------------------
 
-        Idempotent for the order that already holds the claim; raises a controlled conflict when
-        a different order is being packed. Stale claims (owner no longer packing) are recovered.
+    def _packing_slot_count(self) -> int:
+        return max(1, int(get_settings().packing_max_concurrent_slots))
+
+    def _packing_slot_keys(self) -> list[str]:
+        return [f"{self.PACKING_SLOT_PREFIX}{index}" for index in range(1, self._packing_slot_count() + 1)]
+
+    def _packing_slot_locks(self):
+        return self.repository.list_resource_locks_with_prefix(self.PACKING_SLOT_PREFIX)
+
+    def _work_order_packing_slot_key(self, work_order_id: int) -> str | None:
+        return next(
+            (lock.resource_key for lock in self._packing_slot_locks() if lock.work_order_id == work_order_id),
+            None,
+        )
+
+    def _cleanup_stale_packing_slots(self) -> None:
+        # A slot is stale when its owner no longer occupies packing (completed, reset, or — for an
+        # automatic reservation — its packing finished). Releasing keeps occupancy counts honest.
+        for lock in list(self._packing_slot_locks()):
+            owner = self.repository.get_work_order_with_stage_states(lock.work_order_id)
+            if owner is None or not self._occupies_packing(owner):
+                self.repository.release_resource_lock(lock.resource_key, lock.work_order_id)
+
+    def _acquire_packing_slot(
+        self,
+        work_order: WorkOrder,
+        *,
+        override: bool = False,
+        reserve_only: bool = False,
+        for_completion: bool = False,
+    ) -> bool:
+        """Acquire a packing slot for this work order. Returns True if a slot is now held.
+
+        Capacity is N (``packing_max_concurrent_slots``). The **start** action is the exclusivity gate;
+        completion and automatic flow are capacity-bound:
+
+        - **Capacity-bound** (``reserve_only`` automatic hanging-start reservation, automatic flow,
+          completion, or an explicit manual ``override``): take any free slot; ``reserve_only`` queues
+          silently when full, the rest raise "all slots full" at N. The line cannot be paused, and an
+          order that reached packing must be completable into any free slot.
+        - **Manual default start** (``override=False`` and not a completion/automatic): single-station
+          exclusivity — succeed only if this order already holds a slot or the station is completely
+          free, so two manual operators don't accidentally start packing at once.
         """
-        with self._serialize_resource_mutation(self.PACKING_RESOURCE_KEY):
-            self._acquire_resource_lock_with_stale_recovery(self.PACKING_RESOURCE_KEY, work_order)
+        is_automatic = work_order.production_type == ProductionType.AUTOMATIC
+        with self._serialize_resource_mutation(self.PACKING_SLOT_PREFIX):
+            self._cleanup_stale_packing_slots()
+            if self._work_order_packing_slot_key(work_order.id) is not None:
+                return True  # idempotent — already holds a slot
+
+            slot_keys = self._packing_slot_keys()
+            occupied_keys = {lock.resource_key for lock in self._packing_slot_locks()}
+            occupied = len(occupied_keys)
+            capacity = len(slot_keys)
+
+            if reserve_only or is_automatic or override or for_completion:
+                if occupied >= capacity:
+                    if reserve_only:
+                        return False  # queue; do not reserve
+                    raise InvalidProcessStageTransitionError(self.PACKING_ALL_SLOTS_FULL_ERROR)
+            elif occupied != 0:
+                # Manual default start: single-station exclusivity unless overridden.
+                raise InvalidProcessStageTransitionError(self.PACKING_OCCUPIED_ERROR)
+
+            free_key = next((key for key in slot_keys if key not in occupied_keys), None)
+            if free_key is None:
+                if reserve_only:
+                    return False
+                raise InvalidProcessStageTransitionError(self.PACKING_ALL_SLOTS_FULL_ERROR)
+
+            try:
+                self.repository.acquire_resource_lock(free_key, work_order.id)
+            except ValueError:
+                if reserve_only:
+                    return False
+                raise self._build_resource_conflict_error(free_key)
+            return True
+
+    def _release_packing_slot(self, work_order: WorkOrder) -> None:
+        slot_key = self._work_order_packing_slot_key(work_order.id)
+        if slot_key is not None:
+            self.repository.release_resource_lock(slot_key, work_order.id)
+
+    def _reserve_packing_for_automatic_hanging(
+        self, work_order: WorkOrder, stage: ProcessStage, target_status: StageStatus
+    ) -> None:
+        # NA22a: an automatic order reserves a packing slot the moment HANGING starts, so a manual
+        # order cannot take the (default single) slot and block the un-pausable automatic line.
+        if (
+            stage == ProcessStage.HANGING
+            and target_status == StageStatus.IN_PROGRESS
+            and work_order.production_type == ProductionType.AUTOMATIC
+        ):
+            self._acquire_packing_slot(work_order, reserve_only=True)
 
     def _release_stale_resource_lock(self, resource_key: str) -> bool:
         existing_lock = self.repository.get_resource_lock(resource_key)
@@ -2587,7 +2723,7 @@ class ProcessService:
             self.repository.release_resource_lock(resource_key, existing_lock.work_order_id)
             return True
 
-        if resource_key == self.PACKING_RESOURCE_KEY and not self._occupies_packing(lock_owner):
+        if resource_key.startswith(self.PACKING_SLOT_PREFIX) and not self._occupies_packing(lock_owner):
             self.repository.release_resource_lock(resource_key, existing_lock.work_order_id)
             return True
 
@@ -2599,13 +2735,13 @@ class ProcessService:
                 self.repository.release_resource_lock(resource_lock.resource_key, work_order.id)
             elif resource_lock.resource_key == "AUTOMATIC_LINE" and not self._occupies_automatic_line(work_order):
                 self.repository.release_resource_lock(resource_lock.resource_key, work_order.id)
-            elif resource_lock.resource_key == self.PACKING_RESOURCE_KEY and not self._occupies_packing(work_order):
+            elif resource_lock.resource_key.startswith(self.PACKING_SLOT_PREFIX) and not self._occupies_packing(work_order):
                 self.repository.release_resource_lock(resource_lock.resource_key, work_order.id)
 
     def _build_resource_conflict_error(self, resource_key: str) -> InvalidProcessStageTransitionError:
         if resource_key == "AUTOMATIC_LINE":
             return InvalidProcessStageTransitionError("Automatic line is already occupied by another active job.")
-        if resource_key == self.PACKING_RESOURCE_KEY:
+        if resource_key.startswith(self.PACKING_SLOT_PREFIX):
             return InvalidProcessStageTransitionError(self.PACKING_OCCUPIED_ERROR)
         return InvalidProcessStageTransitionError("Hanging resource is already occupied by another active job.")
 
@@ -2655,26 +2791,32 @@ class ProcessService:
         )
 
     def _occupies_packing(self, work_order: WorkOrder) -> bool:
-        """Whether this work order is currently being packed (holds a meaningful packing claim).
+        """Whether this work order should keep a held packing slot.
 
-        True while the full-order packing stage is IN_PROGRESS, or while an active tracked batch is
-        IN_PROGRESS at packing (DECORAL). Used to keep the ``PACKING`` lock and to recover it when
-        the owner's packing has finished or reset.
+        True while the full-order packing stage is IN_PROGRESS, or an active tracked batch is
+        IN_PROGRESS at packing (DECORAL). For an AUTOMATIC order it is also true from HANGING start
+        through packing completion (NA22a reservation): the order reserves its slot when hanging
+        starts and holds it until its own packing finishes. Used to keep slots and to recover stale
+        ones once the owner's packing has finished or reset.
         """
         packing_state = self._get_stage_state(work_order, ProcessStage.PACKING)
         if packing_state.status == StageStatus.IN_PROGRESS:
             return True
 
-        return any(
+        if any(
             batch.is_active
             and batch.current_stage == ProcessStage.PACKING
             and batch.current_stage_status == StageStatus.IN_PROGRESS
             for batch in work_order.quantity_batches
-        )
+        ):
+            return True
 
-    def _get_packing_lock_owner_id(self) -> int | None:
-        lock = self.repository.get_resource_lock(self.PACKING_RESOURCE_KEY)
-        return lock.work_order_id if lock is not None else None
+        if work_order.production_type == ProductionType.AUTOMATIC:
+            hanging_state = self._get_stage_state(work_order, ProcessStage.HANGING)
+            if hanging_state.status in {StageStatus.IN_PROGRESS, StageStatus.DONE} and packing_state.status != StageStatus.DONE:
+                return True
+
+        return False
 
     def _get_surface_preparation_actual_quantity(self, work_order: WorkOrder) -> int | None:
         if self._skips_surface_preparation(work_order):

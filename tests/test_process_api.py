@@ -1807,14 +1807,14 @@ def test_start_packing_claims_station_and_blocks_other_order(test_client: TestCl
     assert claim.status_code == 200
     assert claim.json()["is_being_packed"] is True
 
+    # NA16/NA22: a second manual *start* is blocked (single-station exclusivity) unless overridden.
     blocked = start_packing_request(test_client, second["id"])
     assert blocked.status_code == 409
 
-    # Other operators also cannot complete a different order while the station is claimed.
-    blocked_complete = complete_packing_request(
-        test_client, second["id"], counted_quantity=100, ok_quantity=100, correction_quantity=0
-    )
-    assert blocked_complete.status_code == 409
+    # ...but a manual override opens a second slot (NA22b), up to the configured capacity.
+    override_claim = test_client.post(f"/process/work-orders/{second['id']}/packing/start?override=true")
+    assert override_claim.status_code == 200
+    assert override_claim.json()["is_being_packed"] is True
 
 
 def test_release_packing_frees_station_for_another_order(test_client: TestClient) -> None:

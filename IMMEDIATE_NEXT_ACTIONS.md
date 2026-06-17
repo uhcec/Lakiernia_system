@@ -185,52 +185,6 @@ they are not yet validated against live factory policy where noted.
 
 ---
 
-## Open
-
-### NA22. Packing reservation model: automatic reserves at HANGING start + manual second-slot override (factory, 2026-06-17)
-- Severity: **MEDIUM-HIGH** (factory-confirmed; revises the NA16 single-station model into a small
-  capacity model). Scope grew during the 2026-06-17 decision pass — see NA22b.
-- **NA22a — Automatic reserves packing at HANGING start.** When an **AUTOMATIC** work order **starts
-  HANGING**, it must automatically reserve a packing slot and hold it until its own packing completes,
-  so a manual order cannot take the (default single) packing slot and block the un-pausable automatic
-  line. Manual orders keep the explicit "Rozpocznij pakowanie" button.
-  - Decision (2026-06-17): a **second automatic** starting hanging while packing is already reserved
-    by another automatic **may start/finish hanging normally but queues for packing** (reservation in
-    arrival order); it cannot complete packing until the prior automatic releases. (Matches the
-    HANGING-capacity-releases-on-finish rule.)
-- **NA22b — Manual override to open a SECOND packing slot.** Packing is **not strictly one-at-a-time**:
-  a manual operator may **override** an existing packing reservation/claim and open a **second
-  concurrent packing**, because two orders can sometimes be physically packed at once. This relaxes the
-  NA16 "one physically started at a time" invariant into a small **capacity** model (default 1, manual
-  can open a 2nd slot). The automatic reservation (NA22a) still guarantees the line a slot; the manual
-  override lets a manual order pack alongside rather than wait.
-- Revises: NA16 / validation-checklist #9 as-built behavior ("automatic waiting rows do not hold the
-  claim"; "only one physically started at a time").
-- Backend shape: replace the single `PACKING` PK lock with a **capacity** concept of **N concurrent
-  packing slots** (per-slot lock rows `PACKING:1..N`). Automatic acquires a slot at hanging start and
-  retains it through its packing (extend `_occupies_packing` to count an automatic reservation from
-  hanging start); `start_packing` (manual) takes the next free slot, and 409s only when **all** slots
-  are occupied **and** no override is used. Read model exposes which orders hold slots.
-- **Decisions (2026-06-17), open questions resolved:**
-  - **Max concurrent packings = configurable `N`**, not hardcoded — a settings value (e.g.
-    `packing_max_concurrent_slots` in `app/core/config.py`). Pick a sensible default (e.g. 2) but it
-    must be changeable without code edits.
-  - **Override = explicit button, MANUAL (`PACKING` station) only, with a warning.** The override opens
-    an additional packing slot (up to `N`). The warning must explain that packing can be reserved by an
-    automatic order **before any parts have physically reached packing** (automatic reserves at hanging
-    start), so the area may *look* free but is not — and must **show the piece count of the automatic
-    order that reserved packing** (e.g. "Zlecenie automatyczne {nr} zarezerwowało pakowanie — {X} szt.
-    może jeszcze nie dotrzeć z linii. Otworzyć drugie stanowisko?"). Record an audit event on override.
-- Frontend: manual cards show reservation/occupancy state; when packing is reserved/occupied, a manual
-  card offers the explicit **"Otwórz drugie stanowisko"** override button with the warning + the
-  reserving automatic order's piece count; the reserving automatic shows its slot as reserved.
-- Acceptance: automatic reserves a slot at hanging start; a second automatic queues; a manual
-  `start_packing` takes a free slot or, when all are occupied, is rejected with a controlled 409 unless
-  the operator uses the override (which opens another slot up to `N` and logs an audit event); the
-  warning shows the reserving automatic order's piece count; reservations release at packing completion;
-  `N` is configurable; regression + chaos coverage for the manual-vs-automatic contention and the
-  override; WORKFLOW.md "Packing station exclusivity" updated. **Open questions resolved — ready to build.**
-
 ## Open (from the 2026-06-17 workflow audit)
 
 ### NA19. Finalize force-sets `completed_quantity = total_quantity` without surfacing a mismatch
@@ -251,6 +205,19 @@ they are not yet validated against live factory policy where noted.
   guided walkthrough of each scenario in the running app to produce a factory-confirmation checklist.
 
 ## Done
+
+- **NA22 — Packing capacity model: automatic reserves at HANGING start + manual second-slot override
+  (2026-06-17)** — Replaced the single `PACKING` lock with **N configurable slots** (`PACKING:1..N`,
+  `packing_max_concurrent_slots`, default 2). NA22a: an AUTOMATIC order reserves a slot the moment
+  `HANGING` starts and holds it through its packing; a second automatic queues. NA22b: manual
+  `start_packing` is the single-station exclusivity gate (409 when occupied) and `?override=true` opens
+  an additional slot up to N, audited. Completion is capacity-bound (the start action is the gate). Read
+  models add `holds_packing_slot` + `packing_slots_total`; the packing UI shows "Otwórz drugie
+  stanowisko" with a warning that surfaces the reserving automatic order's piece count. Tests: rewrote
+  `tests/test_packing_station_lock.py` (12), updated API + parallel-hanging tests, chaos
+  `automatic_reserves_packing_then_manual_overrides`, frontend override test; base seed reordered +
+  demo seed frees slots. Verified: backend `pytest` green, `alembic` clean, frontend 70 + build. Docs:
+  WORKFLOW.md "Packing capacity / slots", checklist #9 IMPLEMENTED.
 
 - **Workflow audit (2026-06-17)** — Full read-only audit of the process engine (display-status/READY
   derivation, finalize/merge chain, both correction paths, reopen guards, resource-lock lifecycle,

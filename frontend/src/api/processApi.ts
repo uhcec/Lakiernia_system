@@ -107,10 +107,15 @@ export async function transitionStage(
   return response.json() as Promise<StageWorkOrder>;
 }
 
-export async function startPacking(workOrderId: number, batchId?: number): Promise<StageWorkOrder> {
-  const pathname = batchId
+export async function startPacking(
+  workOrderId: number,
+  batchId?: number,
+  override = false,
+): Promise<StageWorkOrder> {
+  const base = batchId
     ? `/process/work-orders/${workOrderId}/batches/${batchId}/packing/start`
     : `/process/work-orders/${workOrderId}/packing/start`;
+  const pathname = override ? `${base}?override=true` : base;
 
   const response = await fetch(createApiUrl(pathname), {
     method: "POST",

@@ -290,12 +290,12 @@ export function PackingWorkOrdersPage() {
     }
   }
 
-  async function handleStartPacking(workOrder: StageWorkOrder) {
+  async function handleStartPacking(workOrder: StageWorkOrder, override = false) {
     setActiveWorkOrderId(getDraftKey(workOrder));
     setErrorMessage(null);
 
     try {
-      await startPacking(workOrder.id, workOrder.batch_id ?? undefined);
+      await startPacking(workOrder.id, workOrder.batch_id ?? undefined, override);
       await loadWorkOrders();
     } catch (error) {
       const message = getMutationErrorMessage(
@@ -423,15 +423,23 @@ export function PackingWorkOrdersPage() {
   }
 
   function renderWorkOrderCards(items: StageWorkOrder[]) {
-    // The single packing station is held by at most one order at a time (the one it claimed).
-    const packingStationOwner = workOrders.find((candidate) => candidate.is_being_packed);
+    // Packing has N slots (NA22). Orders that hold a slot include automatic orders that reserved one
+    // at hanging start (they may still show as a HANGING waiting row but occupy a slot).
+    const slotOccupants = workOrders.filter((candidate) => candidate.holds_packing_slot);
+    const occupiedCount = slotOccupants.length;
+    const slotsTotal = workOrders[0]?.packing_slots_total ?? 1;
     return (
       <div className="space-y-3">
         {items.map((workOrder) => {
           const status = workOrder.stage_status.status.value;
           const isPackingStage = workOrder.stage_status.stage === "PACKING";
           const isBeingPacked = isPackingStage && workOrder.is_being_packed;
-          const isStationBusyElsewhere = isPackingStage && status !== "DONE" && !isBeingPacked && !!packingStationOwner;
+          // This manual card is at packing but holds no slot: it can start only if the station is
+          // free, otherwise it must override to open another slot (up to N), or all slots are full.
+          const canStartFree = isPackingStage && status !== "DONE" && !isBeingPacked && occupiedCount === 0;
+          const needsOverride = isPackingStage && status !== "DONE" && !isBeingPacked && occupiedCount > 0 && occupiedCount < slotsTotal;
+          const allSlotsFull = isPackingStage && status !== "DONE" && !isBeingPacked && occupiedCount >= slotsTotal;
+          const otherOccupants = slotOccupants.filter((candidate) => getDraftKey(candidate) !== getDraftKey(workOrder));
           const draftKey = getDraftKey(workOrder);
           const isSubmitting = activeWorkOrderId === draftKey;
           const draft = drafts[draftKey] ?? buildEmptyPackingDraft();
@@ -699,19 +707,48 @@ export function PackingWorkOrdersPage() {
                         {isSubmitting ? "Zapisywanie..." : getActionLabel(status)}
                       </button>
                     </div>
-                  ) : isStationBusyElsewhere ? (
+                  ) : needsOverride ? (
+                    <div className="flex h-full flex-col justify-center gap-3">
+                      <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                        <p className="font-semibold">Stanowisko pakowania jest zajęte/zarezerwowane.</p>
+                        <p className="mt-1">
+                          Uwaga: automat rezerwuje pakowanie już przy rozpoczęciu zawieszania — części mogą jeszcze
+                          nie dotrzeć z linii, więc stanowisko może wyglądać na wolne.
+                        </p>
+                        <ul className="mt-1 list-disc pl-4">
+                          {otherOccupants.map((occupant) => (
+                            <li key={occupant.id}>
+                              {occupant.order_number} ({occupant.current_active_quantity} szt.
+                              {occupant.production_type?.value === "AUTOMATIC" ? ", automat" : ""})
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                      <button
+                        type="button"
+                        disabled={isSubmitting}
+                        onClick={() => void handleStartPacking(workOrder, true)}
+                        className="inline-flex w-full items-center justify-center rounded-lg bg-accent px-4 py-3 text-sm font-semibold text-white transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:bg-teal-300"
+                      >
+                        {isSubmitting ? "Zapisywanie..." : "Otwórz drugie stanowisko"}
+                      </button>
+                    </div>
+                  ) : allSlotsFull ? (
                     <div className="flex h-full flex-col justify-center gap-3">
                       <span className="inline-flex w-fit rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800">
-                        Zajęte: pakowanie {packingStationOwner?.order_number}
+                        Wszystkie stanowiska pakowania zajęte
                       </span>
-                      <p className="text-sm text-steel">Zakończ bieżące zlecenie, aby rozpocząć to.</p>
+                      <p className="text-sm text-steel">
+                        Zajęte przez: {otherOccupants.map((occupant) => occupant.order_number).join(", ") || "—"}.
+                        Zakończ jedno z nich, aby rozpocząć to.
+                      </p>
                     </div>
                   ) : (
                     <div className="flex h-full flex-col justify-center gap-3">
                       <p className="text-sm text-steel">Policzono: {workOrder.counted_quantity ?? "-"}</p>
                       <button
                         type="button"
-                        disabled={isSubmitting}
+                        disabled={isSubmitting || !canStartFree}
                         onClick={() => void handleStartPacking(workOrder)}
                         className="inline-flex w-full items-center justify-center rounded-lg bg-accent px-4 py-3 text-sm font-semibold text-white transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:bg-teal-300"
                       >

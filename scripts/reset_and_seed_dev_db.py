@@ -610,32 +610,6 @@ def seed_all_use_cases(session: Session) -> list[SeededScenario]:
         )
     )
 
-    auto_ral_hanging_packing = create_work_order(
-        work_order_service,
-        title="RAL automat - zawieszanie i pakowanie",
-        coating_type=CoatingType.RAL,
-        total_quantity=14,
-        customer_name="Technoalum",
-        ral_code="RAL 6018",
-        profiles_quantity=12,
-        accessories_quantity=2,
-        notes="E2. Automat w zawieszaniu; widoczne tez podglady produkcji i pakowania.",
-    )
-    assign_plan(manager_service, auto_ral_hanging_packing.id, ProductionType.AUTOMATIC, queue_position)
-    queue_position += 10
-    start_surface_preparation(process_service, auto_ral_hanging_packing.id, counted_quantity=14)
-    finish_surface_preparation(process_service, auto_ral_hanging_packing.id)
-    process_service.start_stage(auto_ral_hanging_packing.id, ProcessStage.HANGING)
-    scenarios.append(
-        scenario(
-            "E",
-            auto_ral_hanging_packing.order_number,
-            "Automatic RAL visible for hanging, automatic production preview, and packing",
-            "Hanging / Automatic production / Packing",
-            auto_ral_hanging_packing.notes or "",
-        )
-    )
-
     occupied_queue_first = create_work_order(
         work_order_service,
         title="Konflikt kolejki - zajeta pozycja",
@@ -761,6 +735,34 @@ def seed_all_use_cases(session: Session) -> list[SeededScenario]:
             "Completed order after two correction rounds — history preserved in quantity batches",
             "Work order details / Gotowe",
             history_parent.notes or "",
+        )
+    )
+
+    # Seeded last on purpose: an automatic order parked at HANGING reserves a packing slot (NA22a),
+    # so it must come after the manual packing scenarios above to avoid filling the packing slots.
+    auto_ral_hanging_packing = create_work_order(
+        work_order_service,
+        title="RAL automat - zawieszanie i pakowanie",
+        coating_type=CoatingType.RAL,
+        total_quantity=14,
+        customer_name="Technoalum",
+        ral_code="RAL 6018",
+        profiles_quantity=12,
+        accessories_quantity=2,
+        notes="E2. Automat w zawieszaniu; widoczne tez podglady produkcji i pakowania.",
+    )
+    assign_plan(manager_service, auto_ral_hanging_packing.id, ProductionType.AUTOMATIC, queue_position)
+    queue_position += 10
+    start_surface_preparation(process_service, auto_ral_hanging_packing.id, counted_quantity=14)
+    finish_surface_preparation(process_service, auto_ral_hanging_packing.id)
+    process_service.start_stage(auto_ral_hanging_packing.id, ProcessStage.HANGING)
+    scenarios.append(
+        scenario(
+            "E",
+            auto_ral_hanging_packing.order_number,
+            "Automatic RAL visible for hanging, automatic production preview, and packing",
+            "Hanging / Automatic production / Packing",
+            auto_ral_hanging_packing.notes or "",
         )
     )
 

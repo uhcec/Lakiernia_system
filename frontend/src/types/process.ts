@@ -56,5 +56,7 @@ export interface StageWorkOrder {
   batch_type: "MAIN" | "CORRECTION" | null;
   batch_is_partial: boolean;
   is_being_packed: boolean;
+  holds_packing_slot: boolean;
+  packing_slots_total: number;
   stage_status: ProcessStageStatus;
 }

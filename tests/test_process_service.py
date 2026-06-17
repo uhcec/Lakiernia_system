@@ -1694,8 +1694,11 @@ def test_parallel_automatic_hanging_start_allows_only_one_order_to_acquire_hangi
         if next(stage for stage in work_order.stage_states if stage.stage == ProcessStage.HANGING).status == StageStatus.IN_PROGRESS
     }
     assert len(in_progress_ids) == 1
+    winner_id = next(iter(in_progress_ids))
+    # The winning automatic also reserves a packing slot at hanging start (NA22a).
     assert {(lock.resource_key, lock.work_order_id) for lock in resource_locks} == {
-        ("HANGING", next(iter(in_progress_ids))),
+        ("HANGING", winner_id),
+        ("PACKING:1", winner_id),
     }
 
 

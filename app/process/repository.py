@@ -101,6 +101,10 @@ class ProcessRepository:
         statement = select(ProcessResourceLock).where(ProcessResourceLock.work_order_id == work_order_id)
         return self.session.scalars(statement).all()
 
+    def list_resource_locks_with_prefix(self, prefix: str) -> Sequence[ProcessResourceLock]:
+        statement = select(ProcessResourceLock).where(ProcessResourceLock.resource_key.like(f"{prefix}%"))
+        return self.session.scalars(statement).all()
+
     def commit(self) -> None:
         self.session.commit()
 

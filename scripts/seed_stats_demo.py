@@ -36,7 +36,7 @@ from app.database.session import get_session_factory
 from app.manager.repository import ManagerRepository
 from app.manager.service import ManagerService
 from app.process.enums import CoatingType, ProcessStage, ProductionType, StageStatus
-from app.process.models import StageTransitionEvent
+from app.process.models import ProcessResourceLock, StageTransitionEvent
 from app.process.repository import ProcessRepository
 from app.process.service import ProcessService
 from app.work_orders.models import WorkOrder
@@ -58,6 +58,14 @@ def main() -> int:
     try:
         base.reset_app_data(session)
         base.seed_all_use_cases(session)
+
+        # The base seed parks automatic orders that reserve packing slots (NA22a). Free those slots so
+        # the demo's manual completed orders below are not blocked by "all packing slots full".
+        for lock in session.scalars(
+            select(ProcessResourceLock).where(ProcessResourceLock.resource_key.like("PACKING:%"))
+        ).all():
+            session.delete(lock)
+        session.flush()
 
         work_order_service = WorkOrderService(WorkOrderRepository(session))
         process_service = ProcessService(ProcessRepository(session))

@@ -51,6 +51,8 @@ class ProcessStageWorkOrderRead(BaseModel):
     batch_type: QuantityBatchType | None = None
     batch_is_partial: bool = False
     is_being_packed: bool = False
+    holds_packing_slot: bool = False
+    packing_slots_total: int = 1
     stage_status: ProcessStageStatusRead
 
 
