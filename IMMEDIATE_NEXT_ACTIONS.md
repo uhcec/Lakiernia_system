@@ -201,8 +201,13 @@ they are not yet validated against live factory policy where noted.
   deploy. Durable cross-process idempotency remains future work.
 
 ### NA21. Factory-policy validation of S01–S12 (esp. the single-Decoral-pass correction model)
-- Severity: policy, not code. Tests prove internal consistency, not shop-floor correctness. Recommended:
-  guided walkthrough of each scenario in the running app to produce a factory-confirmation checklist.
+- Severity: policy, not code. Tests prove internal consistency, not shop-floor correctness.
+- Code coverage DONE (2026-06-17): every matrix row S01–S12 now has an explicit end-to-end regression
+  test in `tests/test_scenario_matrix.py` that drives the path to READY and asserts the documented
+  final state — so the matrix is pinned to code and can't silently drift.
+- Still OPEN (human): a guided walkthrough of each scenario in the running app with the factory to
+  confirm the modeled policy matches the shop floor (especially the single-Decoral-pass correction
+  model). This needs the factory, not code.
 
 ## Done
 
