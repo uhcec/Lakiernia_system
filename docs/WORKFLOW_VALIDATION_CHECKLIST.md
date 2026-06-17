@@ -370,11 +370,11 @@ Refinement CONFIRMED 2026-06-17 (factory chat) — automatic reserves packing at
 - **This revises the 2026-06-02 note** ("treat automatic waiting rows as not occupying packing") and the as-built NA16 line ("automatic waiting rows do not hold the claim"; "only one physically started at a time"): for the automatic path the reservation is taken at hanging start, and (see below) packing is no longer strictly single-slot.
 - **Decision 2026-06-17 — manual second-slot override:** packing is **not strictly one-at-a-time**. A manual operator may **override** and open a **second concurrent packing** when two orders can be packed at once. This turns NA16's single-station rule into a small **capacity** model (default 1, manual can open a 2nd slot). The automatic reservation still guarantees the line a slot; the manual override lets a manual order pack alongside instead of waiting.
 - **Decision 2026-06-17 — second automatic:** a second automatic starting hanging while packing is reserved by another automatic **may start/finish hanging but queues for packing** (reservation in arrival order); it completes packing only after the prior automatic releases.
-- Open design questions for implementation (tracked as NA22 in `IMMEDIATE_NEXT_ACTIONS.md`):
-  - Max concurrent packings — cap at 2, or configurable N? (factory said "two orders").
-  - Override authorization/UX — manual (`PACKING`) only; explicit button vs automatic; audit event?
-  - Reservation lifecycle for the multi-slot model: automatic holds its slot from `HANGING` start through its packing completion (requires extending the packing-claim retention so an automatic reservation is kept even before packing is `IN_PROGRESS`); stale recovery per slot.
-  - Frontend: manual cards show occupancy/reservation state and an explicit override action to open a second slot; a reserving automatic shows its slot as reserved.
+- Decisions (2026-06-17), open questions resolved — ready to build:
+  - **Max concurrent packings is a configurable `N`** (settings value, not hardcoded; sensible default e.g. 2).
+  - **Override = explicit button, manual (`PACKING`) only, with a warning** that explains packing can be reserved by an automatic order before any parts physically reach packing (reserved at hanging start) and **shows the reserving automatic order's piece count**; the override opens an additional slot (up to `N`) and is audited.
+  - Reservation lifecycle (multi-slot): automatic holds its slot from `HANGING` start through its packing completion (extend packing-claim retention so an automatic reservation counts even before packing is `IN_PROGRESS`); per-slot stale recovery.
+  - Frontend: manual cards show occupancy/reservation state and the explicit override action; a reserving automatic shows its slot as reserved.
 
 Why this matters:
 

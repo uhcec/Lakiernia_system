@@ -206,23 +206,30 @@ they are not yet validated against live factory policy where noted.
   override lets a manual order pack alongside rather than wait.
 - Revises: NA16 / validation-checklist #9 as-built behavior ("automatic waiting rows do not hold the
   claim"; "only one physically started at a time").
-- Likely backend shape: replace the single `PACKING` PK lock with a small **capacity** concept
-  (e.g. up to 2 concurrent claims, or per-slot lock rows `PACKING:1`/`PACKING:2`); automatic acquires a
-  slot at hanging start and retains it through packing (extend `_occupies_packing` to count an automatic
-  reservation from hanging start); `start_packing` 409s only when no slot is free **unless** a manual
-  override is requested, which opens the second slot. Read model exposes which orders hold slots.
-- Open questions to resolve before implementation:
-  - **Max concurrent packings** — cap at 2, or configurable N? (factory said "two orders".)
-  - **Override authorization/UX** — manual (`PACKING` station) only? Explicit "Otwórz drugie
-    stanowisko / Pakuj mimo to" button vs automatic when a 2nd order is started? Any audit event?
-  - Does the override apply to any occupied state, or specifically to unblock manual-vs-automatic?
-  - Reservation release timing and stale recovery for the multi-slot model.
-- Frontend: manual cards show reservation/occupancy state and an explicit **override** action to open a
-  second slot; the reserving automatic shows its slot as reserved.
-- Acceptance: automatic reserves a slot at hanging start; a manual `start_packing` is rejected with a
-  controlled 409 **only when no slot is free and no override is used**; manual override opens a second
-  concurrent packing; reservations release at packing completion; regression + chaos coverage for the
-  manual-vs-automatic contention and the override; WORKFLOW.md "Packing station exclusivity" updated.
+- Backend shape: replace the single `PACKING` PK lock with a **capacity** concept of **N concurrent
+  packing slots** (per-slot lock rows `PACKING:1..N`). Automatic acquires a slot at hanging start and
+  retains it through its packing (extend `_occupies_packing` to count an automatic reservation from
+  hanging start); `start_packing` (manual) takes the next free slot, and 409s only when **all** slots
+  are occupied **and** no override is used. Read model exposes which orders hold slots.
+- **Decisions (2026-06-17), open questions resolved:**
+  - **Max concurrent packings = configurable `N`**, not hardcoded — a settings value (e.g.
+    `packing_max_concurrent_slots` in `app/core/config.py`). Pick a sensible default (e.g. 2) but it
+    must be changeable without code edits.
+  - **Override = explicit button, MANUAL (`PACKING` station) only, with a warning.** The override opens
+    an additional packing slot (up to `N`). The warning must explain that packing can be reserved by an
+    automatic order **before any parts have physically reached packing** (automatic reserves at hanging
+    start), so the area may *look* free but is not — and must **show the piece count of the automatic
+    order that reserved packing** (e.g. "Zlecenie automatyczne {nr} zarezerwowało pakowanie — {X} szt.
+    może jeszcze nie dotrzeć z linii. Otworzyć drugie stanowisko?"). Record an audit event on override.
+- Frontend: manual cards show reservation/occupancy state; when packing is reserved/occupied, a manual
+  card offers the explicit **"Otwórz drugie stanowisko"** override button with the warning + the
+  reserving automatic order's piece count; the reserving automatic shows its slot as reserved.
+- Acceptance: automatic reserves a slot at hanging start; a second automatic queues; a manual
+  `start_packing` takes a free slot or, when all are occupied, is rejected with a controlled 409 unless
+  the operator uses the override (which opens another slot up to `N` and logs an audit event); the
+  warning shows the reserving automatic order's piece count; reservations release at packing completion;
+  `N` is configurable; regression + chaos coverage for the manual-vs-automatic contention and the
+  override; WORKFLOW.md "Packing station exclusivity" updated. **Open questions resolved — ready to build.**
 
 ## Open (from the 2026-06-17 workflow audit)
 
