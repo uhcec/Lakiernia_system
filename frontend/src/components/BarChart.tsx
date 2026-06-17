@@ -1,3 +1,9 @@
+export interface BarChartSegment {
+  value: number;
+  /** Tailwind background class for this segment, e.g. "bg-accent". */
+  className: string;
+}
+
 export interface BarChartPoint {
   /** Stable key (e.g. ISO date) used for React keys. */
   key: string;
@@ -6,6 +12,8 @@ export interface BarChartPoint {
   /** Full human label for the tooltip, e.g. "16.06.2026". */
   label: string;
   value: number;
+  /** Optional stacked breakdown; segment values should sum to `value`. */
+  segments?: BarChartSegment[];
 }
 
 interface BarChartProps {
@@ -23,6 +31,8 @@ interface BarChartProps {
   yTickStep?: number;
   /** Plot area height in px (default 176). Increase for denser Y gridlines. */
   plotHeight?: number;
+  /** Optional legend swatches shown under the title (for stacked charts). */
+  legend?: { label: string; className: string }[];
 }
 
 const DEFAULT_PLOT_HEIGHT_PX = 176; // h-44
@@ -43,6 +53,7 @@ export function BarChart({
   yMax,
   yTickStep,
   plotHeight = DEFAULT_PLOT_HEIGHT_PX,
+  legend,
 }: BarChartProps) {
   const maxValue = data.reduce((max, point) => Math.max(max, point.value), 0);
   const total = data.reduce((sum, point) => sum + point.value, 0);
@@ -66,6 +77,17 @@ export function BarChart({
           {formatValue(total, decimals)} <span className="text-xs font-normal text-steel">{unit}</span>
         </span>
       </div>
+
+      {legend && legend.length > 0 ? (
+        <div className="mb-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-steel">
+          {legend.map((item) => (
+            <span key={item.label} className="inline-flex items-center gap-1.5">
+              <span className={`inline-block h-2.5 w-2.5 rounded-sm ${item.className}`} />
+              {item.label}
+            </span>
+          ))}
+        </div>
+      ) : null}
 
       {hasData ? (
         <div className="flex gap-2">
@@ -104,13 +126,30 @@ export function BarChart({
                       <div className="pointer-events-none absolute bottom-full z-10 mb-1 hidden -translate-y-0 whitespace-nowrap rounded-lg bg-ink px-2 py-1 text-[11px] font-medium text-white shadow-lg group-hover:block">
                         {point.label}: {formatValue(point.value, decimals)} {unit}
                       </div>
-                      <div
-                        className={[
-                          "w-full rounded-t-sm transition group-hover:brightness-110",
-                          point.value > 0 ? barClassName : "bg-line",
-                        ].join(" ")}
-                        style={{ height: point.value > 0 ? `max(${heightPercent}%, 2px)` : "2px" }}
-                      />
+                      {point.segments && point.value > 0 ? (
+                        <div
+                          className="w-full overflow-hidden rounded-t-sm transition group-hover:brightness-110"
+                          style={{ height: `max(${heightPercent}%, 2px)` }}
+                        >
+                          <div className="flex h-full w-full flex-col-reverse">
+                            {point.segments.map((segment, index) => (
+                              <div
+                                key={index}
+                                className={segment.className}
+                                style={{ height: `${(segment.value / point.value) * 100}%` }}
+                              />
+                            ))}
+                          </div>
+                        </div>
+                      ) : (
+                        <div
+                          className={[
+                            "w-full rounded-t-sm transition group-hover:brightness-110",
+                            point.value > 0 ? barClassName : "bg-line",
+                          ].join(" ")}
+                          style={{ height: point.value > 0 ? `max(${heightPercent}%, 2px)` : "2px" }}
+                        />
+                      )}
                     </div>
                   );
                 })}

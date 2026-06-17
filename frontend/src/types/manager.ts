@@ -34,7 +34,9 @@ export interface ThroughputPeriod {
   period_label: string;
   m2_manual: number;
   m2_automatic: number;
+  m2_ral_only: number;
   m2_decoral: number;
+  m2_decoral_pass: number;
   m2_total: number;
   orders_count: number;
   correction_pieces: number;

@@ -198,6 +198,28 @@ class ManagerService:
                         else_=0.0,
                     )
                 ).label("m2_automatic"),
+                # Coating partition of the same base-coat total (each order counted once): a decoral
+                # order's area lands on the decoral side, a RAL order's on the RAL-only side, so
+                # m2_ral_only + m2_decoral(product) == m2_total. This is NOT the decoral pass workload
+                # (that is decoral_by_period below, attributed at DECORAL_PRODUCTION completion).
+                func.sum(
+                    case(
+                        (
+                            WorkOrder.coating_type == CoatingType.RAL,
+                            func.coalesce(WorkOrder.total_area_m2, 0.0),
+                        ),
+                        else_=0.0,
+                    )
+                ).label("m2_ral_only"),
+                func.sum(
+                    case(
+                        (
+                            WorkOrder.coating_type == CoatingType.DECORAL,
+                            func.coalesce(WorkOrder.total_area_m2, 0.0),
+                        ),
+                        else_=0.0,
+                    )
+                ).label("m2_decoral_product"),
                 func.sum(func.coalesce(WorkOrder.total_area_m2, 0.0)).label("m2_total"),
                 func.count(WorkOrder.id).label("orders_count"),
             )
@@ -315,7 +337,9 @@ class ManagerService:
                     period_label=_format_period_label(key, group_by),
                     m2_manual=round(float(t.m2_manual) if t else 0.0, 2),
                     m2_automatic=round(float(t.m2_automatic) if t else 0.0, 2),
-                    m2_decoral=round(decoral_by_period.get(key, 0.0), 2),
+                    m2_ral_only=round(float(t.m2_ral_only) if t else 0.0, 2),
+                    m2_decoral=round(float(t.m2_decoral_product) if t else 0.0, 2),
+                    m2_decoral_pass=round(decoral_by_period.get(key, 0.0), 2),
                     m2_total=round(float(t.m2_total) if t else 0.0, 2),
                     orders_count=int(t.orders_count) if t else 0,
                     correction_pieces=c[0] if c else 0,
@@ -328,7 +352,9 @@ class ManagerService:
             period_label="Razem",
             m2_manual=round(sum(p.m2_manual for p in periods), 2),
             m2_automatic=round(sum(p.m2_automatic for p in periods), 2),
+            m2_ral_only=round(sum(p.m2_ral_only for p in periods), 2),
             m2_decoral=round(sum(p.m2_decoral for p in periods), 2),
+            m2_decoral_pass=round(sum(p.m2_decoral_pass for p in periods), 2),
             m2_total=round(sum(p.m2_total for p in periods), 2),
             orders_count=sum(p.orders_count for p in periods),
             correction_pieces=sum(p.correction_pieces for p in periods),

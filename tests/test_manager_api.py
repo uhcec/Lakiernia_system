@@ -464,14 +464,19 @@ def test_throughput_splits_base_production_by_production_type_including_decoral(
     totals = response.json()["totals"]
     assert totals["m2_manual"] == 25.0  # base coat: RAL (10) + Decoral base coat (15)
     assert totals["m2_automatic"] == 0.0
-    assert totals["m2_decoral"] == 15.0  # decoral pass: only the decoral order's area
+    # Coating partition (product, counted once) sums to the same total as the method partition.
+    assert totals["m2_ral_only"] == 10.0  # RAL-only order
+    assert totals["m2_decoral"] == 15.0  # decoral order's product area (counted once at base packing)
+    assert totals["m2_ral_only"] + totals["m2_decoral"] == totals["m2_total"]
+    assert totals["m2_decoral_pass"] == 15.0  # decoral pass workload (separate, not in m2_total)
     assert totals["m2_total"] == 25.0  # base-coat total is unchanged by the decoral pass
 
 
 def test_decoral_pass_m2_attributed_at_pass_not_at_packing(test_client: TestClient) -> None:
-    # NA15: m2_decoral measures the actual Decoral pass (DECORAL_PRODUCTION -> DONE), not the
-    # base coat at packing. Before the pass runs, the base coat already counts toward m2_manual
-    # but m2_decoral is still 0; only after the pass completes does the area appear in m2_decoral.
+    # NA15: m2_decoral_pass measures the actual Decoral pass (DECORAL_PRODUCTION -> DONE), not the
+    # base coat at packing. Before the pass runs, the base coat already counts toward m2_manual and
+    # the product-side m2_decoral, but m2_decoral_pass is still 0; only after the pass completes does
+    # the area appear in m2_decoral_pass.
     decoral = create_work_order(test_client, "Decoral pass timing", coating_type="DECORAL", total_area_m2=20.0)
     test_client.post(f"/manager/work-orders/{decoral['id']}/plan", json={"production_type": "MANUAL", "queue_position": 1})
     complete_manual_ral_order(test_client, decoral["id"])
@@ -479,14 +484,16 @@ def test_decoral_pass_m2_attributed_at_pass_not_at_packing(test_client: TestClie
     params = {"date_from": "2000-01-01", "date_to": "2100-01-01"}
     before = test_client.get("/manager/stats/throughput", params=params).json()["totals"]
     assert before["m2_manual"] == 20.0  # base coat counted at packing
-    assert before["m2_decoral"] == 0.0  # decoral pass not run yet
+    assert before["m2_decoral"] == 20.0  # product (counted once at base packing), independent of pass
+    assert before["m2_decoral_pass"] == 0.0  # decoral pass not run yet
 
     test_client.post(f"/process/work-orders/{decoral['id']}/stages/DECORAL_PRODUCTION/start")
     test_client.post(f"/process/work-orders/{decoral['id']}/stages/DECORAL_PRODUCTION/finish")
 
     after = test_client.get("/manager/stats/throughput", params=params).json()["totals"]
     assert after["m2_manual"] == 20.0  # base coat unchanged
-    assert after["m2_decoral"] == 20.0  # now attributed at the Decoral pass
+    assert after["m2_decoral"] == 20.0  # product unchanged by the pass
+    assert after["m2_decoral_pass"] == 20.0  # now attributed at the Decoral pass
 
 
 def test_throughput_corrections_count_both_ral_batch_and_decoral_child(test_client: TestClient) -> None:

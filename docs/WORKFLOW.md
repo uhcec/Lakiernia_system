@@ -353,6 +353,12 @@ counter, never a re-slice of the base throughput.
   regardless of coating. A DECORAL order's RAL base coat therefore counts toward manual/automatic
   exactly like a RAL order — this is intended (confirmed 2026-06-17) — so
   `m2_manual + m2_automatic = m2_total` (every produced order has one production type).
+- **m² by order coating type (NA23).** The same base-coat total is *also* partitioned by the order's
+  coating: `m2_ral_only` = orders coated `RAL` only, `m2_decoral` = orders coated `DECORAL`, each
+  counted **once** at base-coat packing (`total_area_m2`), so `m2_ral_only + m2_decoral = m2_total`.
+  This is the **decoral product** (one product through the factory), distinct from the decoral *pass*
+  below. The method split and the coating split are two independent cuts of the same total; do not add
+  them together.
 - **Base-coat m² is attributed at PACKING completion** (`PACKING` stage `DONE` date), using
   `total_area_m2`. Orders without a filled `total_area_m2` are excluded from m² and surfaced as a
   separate count. The completion date comes from the append-only **stage-transition log**
@@ -363,12 +369,14 @@ counter, never a re-slice of the base throughput.
   `DECORAL_PRODUCTION` stage `DONE` date and using the same `total_area_m2` (same parts → same area as
   the base coat). It is never added into manual/automatic and is not a subset of them — it is its own
   series for the Decoral line's daily output, and it does **not** add into `m2_total` (which is the
-  base-coat total). `m2_decoral` is computed from the stage-transition log (latest
+  base-coat total). `m2_decoral_pass` is computed from the stage-transition log (latest
   `DECORAL_PRODUCTION`→`DONE` `occurred_at`) for non-correction orders, exactly like the base-coat
   attribution but at the pass moment. There is no `updated_at` fallback for this series — the pass date
   is only reliable from the log, so passes completed before the log existed do not appear (this
   intentionally replaced the earlier packing-time approximation). The Statystyki page renders it as its
-  own "Przejazd Decoral — m² / dzień" bar chart and the "m² Decoral (przejazd)" table column.
+  own "Przejazd Decoral — m² / dzień" bar chart and the "Przejazd Decoral*" table column, flagged as
+  not part of `m2_total`. (Field renamed from `m2_decoral` to `m2_decoral_pass` in NA23, freeing
+  `m2_decoral` for the coating-partition product above.)
 - **Corrections** are counted from **both** correction sources of the hybrid model (same as
   `list_correction_reason_report`, so the chart and the reason report agree): `CORRECTION` quantity
   batches (RAL packing / DECORAL decoral-stage resets) **plus** child correction work orders
@@ -376,8 +384,13 @@ counter, never a re-slice of the base throughput.
   sums batch `quantity` + child `total_quantity`, `correction_orders_count` counts the correction
   events. The two sources are disjoint, so there is no double counting. (Counting only child orders
   would undercount RAL corrections — historical bug NA4.)
-- The frontend renders per-day bar charts (automatic m², manual m², correction pieces) plus a detail
-  table; it must not re-derive these buckets locally beyond zero-filling missing days in the range.
+- The frontend (Statystyki "Przepustowość") renders, for the selected month: a headline total
+  ("Przez fabrykę"), two equal-width composition bars (the same total cut by method and by coating), a
+  daily **stacked** m² chart with a Metoda/Powłoka cross-section toggle (bar height = `m2_total`,
+  unchanged by the toggle), a separate "Przejazd Decoral" chart, a corrections chart, and a detail
+  table with grouped columns (method + coating, each summing to `m2_total`, plus the przejazd column).
+  It must not re-derive these buckets locally beyond zero-filling missing days in the range.
+  (Unit is m²; a pieces toggle is deferred.)
 
 ### Stage-transition log (analytics foundation)
 

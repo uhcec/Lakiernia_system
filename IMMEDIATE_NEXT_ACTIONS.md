@@ -201,6 +201,7 @@ they are not yet validated against live factory policy where noted.
   deploy. Durable cross-process idempotency remains future work.
 
 ### NA23. Every production stat should also expose a manual / automatic / decoral breakdown that sums to the whole
+- Status: **DONE (2026-06-17, throughput section)** — see Done section. (Cycle-time/WIP breakdown = deferred phase 2.)
 - Severity: MEDIUM (truth/visibility — managers can't see what composes a production total).
 - Problem: the Statystyki stats currently surface production figures (pieces, m², cycle-time,
   WIP-aging, etc.) without a consistent, drill-down split into the three production kinds. Some series
@@ -357,6 +358,20 @@ only. Five elements, top to bottom:
 
 ## Done
 
+- **NA23 — Throughput stats: one total, two cross-sections (2026-06-17)** — The Statystyki
+  "Przepustowość" section now shows the production total cut two independent ways that each sum to it.
+  Backend (`ManagerService.get_throughput_stats` + `ThroughputPeriod`): renamed the decoral *pass*
+  workload `m2_decoral` → **`m2_decoral_pass`** and added the coating-of-order partition
+  **`m2_ral_only` + `m2_decoral`** (decoral product counted once at base packing), so
+  `m2_ral_only + m2_decoral == m2_total` (alongside `m2_manual + m2_automatic == m2_total`). Frontend:
+  headline ("Przez fabrykę"), two equal-width composition bars (by method, by coating), a daily
+  **stacked** chart with a Metoda/Powłoka toggle (extended `BarChart` with `segments` + `legend`),
+  the separate "Przejazd Decoral" chart (now `m2_decoral_pass`, flagged not-in-total), corrections
+  chart, and a grouped detail table (method + coating columns each summing to Razem, plus przejazd*).
+  m² only; pieces toggle deferred; cycle-time/WIP breakdown deferred (phase 2). Tests:
+  `tests/test_manager_api.py` updated (coating partition sums + `m2_decoral_pass`). Docs:
+  WORKFLOW.md "Throughput Reporting". Verified: full backend `pytest` green, `alembic check` clean,
+  frontend 73 + build.
 - **NA26 — Stations now display the actual received (counted) operational quantity (2026-06-17)** —
   Added `operational_quantity` to the station read model (`ProcessStageWorkOrderRead`):
   `ProcessService._get_operational_quantity` returns a tracked batch's own quantity, else the

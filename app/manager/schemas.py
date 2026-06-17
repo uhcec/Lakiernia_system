@@ -49,7 +49,11 @@ class ThroughputPeriod(BaseModel):
     period_label: str
     m2_manual: float
     m2_automatic: float
+    # Coating partition of the same total (counted once per order): RAL-only + decoral = m2_total.
+    m2_ral_only: float
     m2_decoral: float
+    # Decoral *pass* ("przejazd") workload — overlaps the base coat, NOT part of m2_total.
+    m2_decoral_pass: float
     m2_total: float
     orders_count: int
     correction_pieces: int
