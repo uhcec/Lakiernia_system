@@ -283,6 +283,13 @@ only. Five elements, top to bottom:
 - Acceptance: a single pass exists where the docs no longer contradict each other; each topic has one
   authoritative home; the list of "should be documented but isn't" is raised with the owner; no code
   changes made under this item.
+- Progress (2026-06-17): **findings pass DONE** → written reconciliation in
+  `docs/DOC_COHERENCE_AUDIT.md` (9 doc-vs-doc conflicts incl. paint-formula 100-vs-70 m² and
+  shortage-warning staleness, both grounded against code; 3 stale snapshot docs; duplication owners;
+  7 missing-topic gaps incl. glossary + undocumented ocynk/przemalowanka/surface-prep/incomplete-on-
+  arrival; proposed canonical hierarchy). Pending owner input: Q1 paint threshold (real policy 100 vs
+  70), Q2 mark-historical vs edit the dated snapshots, Q3 green-light to apply safe edits now. Apply
+  agreed edits, then NA25.
 
 ### NA25. Conformance audit — documented "coherent whole" (NA24) vs. what is actually coded
 - Severity: MEDIUM. Depends on NA24 (audits against its result).
