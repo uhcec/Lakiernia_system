@@ -46,3 +46,18 @@ export interface ThroughputStats {
   totals: ThroughputPeriod;
   orders_without_m2_count: number;
 }
+
+export interface StageCycleTime {
+  stage: string;
+  stage_label: string;
+  average_seconds: number;
+  orders_count: number;
+}
+
+export interface CycleTimeStats {
+  date_from: string;
+  date_to: string;
+  orders_count: number;
+  overall_average_seconds: number | null;
+  stages: StageCycleTime[];
+}

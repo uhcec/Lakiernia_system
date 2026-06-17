@@ -391,6 +391,29 @@ def test_manager_statistics_require_manager_or_admin(test_client: TestClient) ->
     assert manager_report.status_code == 200
 
 
+def test_cycle_time_stats_reports_completed_order_stages_and_is_manager_gated(test_client: TestClient) -> None:
+    order = create_work_order(test_client, "Cycle time API", total_area_m2=10.0)
+    test_client.post(f"/manager/work-orders/{order['id']}/plan", json={"production_type": "MANUAL", "queue_position": 1})
+    complete_manual_ral_order(test_client, order["id"])
+
+    params = {"date_from": "2000-01-01", "date_to": "2100-01-01"}
+
+    forbidden = test_client.get("/manager/stats/cycle-time", params=params, headers={"X-Station-Id": "PACKING"})
+    assert forbidden.status_code == 403
+
+    response = test_client.get("/manager/stats/cycle-time", params=params)  # admin (no header)
+    assert response.status_code == 200
+    body = response.json()
+    assert body["orders_count"] >= 1
+    stages_by_name = {item["stage"]: item for item in body["stages"]}
+    # A completed manual order passed through these stages, each logged with start + finish.
+    assert {"SURFACE_PREPARATION", "PRODUCTION", "PACKING"} <= set(stages_by_name)
+    for item in body["stages"]:
+        assert item["average_seconds"] >= 0
+        assert item["stage_label"]
+    assert body["overall_average_seconds"] is not None and body["overall_average_seconds"] >= 0
+
+
 def test_throughput_splits_base_production_by_production_type_including_decoral(test_client: TestClient) -> None:
     # Base-production throughput is split purely by production type: a DECORAL order's base
     # coat counts toward m2_manual/m2_automatic exactly like RAL. The Decoral pass m² is a

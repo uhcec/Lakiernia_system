@@ -12,6 +12,7 @@ from app.database.session import get_db_session
 from app.manager.repository import ManagerRepository
 from app.manager.schemas import (
     CorrectionReasonReportItem,
+    CycleTimeStats,
     ThroughputStats,
     WorkOrderPlanAssignRequest,
     WorkOrderProductionTypeUpdateRequest,
@@ -52,6 +53,16 @@ def get_throughput_stats(
     service: Annotated[ManagerService, Depends(get_manager_service)] = ...,
 ) -> ThroughputStats:
     return service.get_throughput_stats(date_from, date_to, group_by, station_context=station_context)
+
+
+@router.get("/stats/cycle-time", response_model=CycleTimeStats)
+def get_cycle_time_stats(
+    date_from: Annotated[date, Query()],
+    date_to: Annotated[date, Query()],
+    station_context: Annotated[StationContext, Depends(get_station_context)],
+    service: Annotated[ManagerService, Depends(get_manager_service)] = ...,
+) -> CycleTimeStats:
+    return service.get_cycle_time_stats(date_from, date_to, station_context=station_context)
 
 
 @router.get("/corrections/reason-report", response_model=list[CorrectionReasonReportItem])

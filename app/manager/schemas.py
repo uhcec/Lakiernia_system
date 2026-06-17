@@ -2,7 +2,7 @@ from datetime import date, datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.process.enums import ProductionType
+from app.process.enums import ProcessStage, ProductionType
 
 
 class WorkOrderPlanAssignRequest(BaseModel):
@@ -60,3 +60,18 @@ class ThroughputStats(BaseModel):
     periods: list[ThroughputPeriod]
     totals: ThroughputPeriod
     orders_without_m2_count: int
+
+
+class StageCycleTime(BaseModel):
+    stage: ProcessStage
+    stage_label: str
+    average_seconds: float
+    orders_count: int
+
+
+class CycleTimeStats(BaseModel):
+    date_from: date
+    date_to: date
+    orders_count: int
+    overall_average_seconds: float | None
+    stages: list[StageCycleTime]

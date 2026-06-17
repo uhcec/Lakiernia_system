@@ -18,6 +18,8 @@ from app.process.service import ProcessService
 from app.manager.repository import ManagerRepository
 from app.manager.schemas import (
     CorrectionReasonReportItem,
+    CycleTimeStats,
+    StageCycleTime,
     ThroughputPeriod,
     ThroughputStats,
     WorkOrderPlanAssignRequest,
@@ -51,6 +53,22 @@ from app.work_orders.service import WorkOrderService
 
 
 _QUEUE_MUTATION_LOCK = RLock()
+
+# Canonical stage order + Polish labels for the cycle-time / bottleneck report.
+_STAGE_DISPLAY_ORDER: tuple[ProcessStage, ...] = (
+    ProcessStage.SURFACE_PREPARATION,
+    ProcessStage.HANGING,
+    ProcessStage.PRODUCTION,
+    ProcessStage.PACKING,
+    ProcessStage.DECORAL_PRODUCTION,
+)
+_STAGE_LABELS_PL: dict[ProcessStage, str] = {
+    ProcessStage.SURFACE_PREPARATION: "Przygotowanie powierzchni",
+    ProcessStage.HANGING: "Zawieszanie",
+    ProcessStage.PRODUCTION: "Produkcja",
+    ProcessStage.PACKING: "Pakowanie",
+    ProcessStage.DECORAL_PRODUCTION: "Decoral",
+}
 
 
 class ManagerService:
@@ -305,6 +323,134 @@ class ManagerService:
         )
 
         return ThroughputStats(periods=periods, totals=totals, orders_without_m2_count=without_m2_count)
+
+    def get_cycle_time_stats(
+        self,
+        date_from: date,
+        date_to: date,
+        station_context: StationContext | None = None,
+    ) -> CycleTimeStats:
+        """Average active processing time per stage, derived from the stage-transition log.
+
+        Cohort: non-correction work orders whose latest ``PACKING``->``DONE`` falls in
+        ``[date_from, date_to]`` (the same "completed in window" cohort as throughput). For each
+        order and stage we measure the **most recent completed pass** — the gap from the latest
+        ``IN_PROGRESS`` to the latest ``DONE`` (at or after it) of that stage — so correction
+        re-runs report the final pass rather than a sum. ``overall_average_seconds`` is the average
+        production lead time per order (earliest stage ``IN_PROGRESS`` to the packing ``DONE``).
+        Bottleneck visibility for managers; reads only the append-only log so values are durable.
+        """
+        self._ensure_stats_viewer(station_context)
+        session = self.repository.session
+
+        packing_done_events = (
+            select(
+                StageTransitionEvent.work_order_id,
+                func.max(StageTransitionEvent.occurred_at).label("packing_done_at"),
+            )
+            .where(
+                StageTransitionEvent.stage == ProcessStage.PACKING,
+                StageTransitionEvent.status == StageStatus.DONE,
+            )
+            .group_by(StageTransitionEvent.work_order_id)
+            .subquery()
+        )
+        cohort_ids = [
+            row.work_order_id
+            for row in session.execute(
+                select(packing_done_events.c.work_order_id)
+                .join(WorkOrder, WorkOrder.id == packing_done_events.c.work_order_id)
+                .where(
+                    WorkOrder.is_correction == False,  # noqa: E712
+                    func.date(packing_done_events.c.packing_done_at) >= date_from,
+                    func.date(packing_done_events.c.packing_done_at) <= date_to,
+                )
+            ).all()
+        ]
+
+        if not cohort_ids:
+            return CycleTimeStats(
+                date_from=date_from,
+                date_to=date_to,
+                orders_count=0,
+                overall_average_seconds=None,
+                stages=[],
+            )
+
+        events = session.execute(
+            select(
+                StageTransitionEvent.work_order_id,
+                StageTransitionEvent.stage,
+                StageTransitionEvent.status,
+                StageTransitionEvent.occurred_at,
+            )
+            .where(StageTransitionEvent.work_order_id.in_(cohort_ids))
+            .order_by(StageTransitionEvent.work_order_id, StageTransitionEvent.occurred_at)
+        ).all()
+
+        # work_order_id -> stage -> {"IN_PROGRESS": [datetimes], "DONE": [datetimes]}
+        per_order: dict[int, dict[ProcessStage, dict[StageStatus, list[datetime]]]] = {}
+        for event in events:
+            stage_map = per_order.setdefault(event.work_order_id, {})
+            status_map = stage_map.setdefault(event.stage, {})
+            status_map.setdefault(event.status, []).append(event.occurred_at)
+
+        stage_total_seconds: dict[ProcessStage, float] = {}
+        stage_order_counts: dict[ProcessStage, int] = {}
+        lead_time_seconds_total = 0.0
+        lead_time_orders = 0
+
+        for stage_map in per_order.values():
+            earliest_in_progress: datetime | None = None
+            for occurrences in stage_map.values():
+                for ip in occurrences.get(StageStatus.IN_PROGRESS, []):
+                    if earliest_in_progress is None or ip < earliest_in_progress:
+                        earliest_in_progress = ip
+
+            for stage, occurrences in stage_map.items():
+                done_times = occurrences.get(StageStatus.DONE, [])
+                in_progress_times = occurrences.get(StageStatus.IN_PROGRESS, [])
+                if not done_times or not in_progress_times:
+                    continue
+                last_done = max(done_times)
+                candidate_starts = [ip for ip in in_progress_times if ip <= last_done]
+                if not candidate_starts:
+                    continue
+                duration = (last_done - max(candidate_starts)).total_seconds()
+                if duration < 0:
+                    continue
+                stage_total_seconds[stage] = stage_total_seconds.get(stage, 0.0) + duration
+                stage_order_counts[stage] = stage_order_counts.get(stage, 0) + 1
+
+            packing_done_times = stage_map.get(ProcessStage.PACKING, {}).get(StageStatus.DONE, [])
+            if packing_done_times and earliest_in_progress is not None:
+                lead = (max(packing_done_times) - earliest_in_progress).total_seconds()
+                if lead >= 0:
+                    lead_time_seconds_total += lead
+                    lead_time_orders += 1
+
+        stages = [
+            StageCycleTime(
+                stage=stage,
+                stage_label=_STAGE_LABELS_PL[stage],
+                average_seconds=round(stage_total_seconds[stage] / stage_order_counts[stage], 1),
+                orders_count=stage_order_counts[stage],
+            )
+            for stage in _STAGE_DISPLAY_ORDER
+            if stage_order_counts.get(stage)
+        ]
+
+        overall_average = (
+            round(lead_time_seconds_total / lead_time_orders, 1) if lead_time_orders else None
+        )
+
+        return CycleTimeStats(
+            date_from=date_from,
+            date_to=date_to,
+            orders_count=len(cohort_ids),
+            overall_average_seconds=overall_average,
+            stages=stages,
+        )
 
     def assign_plan(
         self,

@@ -187,6 +187,20 @@ they are not yet validated against live factory policy where noted.
 
 ## Done
 
+- **NA17 — Stage cycle-time / bottleneck stats (2026-06-17)** — First time-in-stage analytics read off
+  the `stage_transition_events` log (built as the analytics backbone but previously only feeding packing
+  throughput + Decoral-pass m²). New `ManagerService.get_cycle_time_stats` + `GET /manager/stats/cycle-time`
+  (manager/admin only): for non-correction orders packed in the window, reports average active time per
+  stage (latest `IN_PROGRESS`→latest `DONE`, i.e. the most recent completed pass, so corrections report
+  the final pass) and the overall production lead time (first stage `IN_PROGRESS` → packing `DONE`).
+  Frontend: new "Czasy etapów" section on the Statystyki page (per-stage average-minutes bar chart,
+  headline lead-time figure, table). Tests: `tests/test_cycle_time_stats.py` (4: per-stage averages +
+  lead time, most-recent-pass for corrections, out-of-window exclusion, manager gating), API test in
+  `tests/test_manager_api.py`. Docs: WORKFLOW.md "Stage cycle-time / bottleneck stats". Verified: full
+  backend `pytest` green, `alembic check` clean, frontend tests + build. Read-only analytics — no
+  workflow/queue behavior change. Future: queue-wait time between stages, per-operator splits once
+  personal login populates `user_id`.
+
 - **NA16 — Packing station exclusivity (2026-06-17)** — Implemented the confirmed single-packing-station
   rule (validation-checklist #9) using the explicit-claim model the user chose. A `PACKING`
   `ProcessResourceLock` (same machinery as `HANGING`/`AUTOMATIC_LINE`, no schema change) is the

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import { fetchThroughputStats } from "../api/managerApi";
-import type { ThroughputPeriod, ThroughputStats } from "../types/manager";
+import { fetchCycleTimeStats, fetchThroughputStats } from "../api/managerApi";
+import type { CycleTimeStats, ThroughputPeriod, ThroughputStats } from "../types/manager";
 import { BarChart, type BarChartPoint } from "../components/BarChart";
 
 type GroupBy = "day" | "week" | "month";
@@ -79,9 +79,29 @@ function buildPoints(
   }));
 }
 
+function formatDuration(seconds: number): string {
+  const total = Math.round(seconds);
+  if (total < 60) return `${total} s`;
+  const minutes = Math.round(total / 60);
+  if (minutes < 60) return `${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  const remainder = minutes % 60;
+  return remainder === 0 ? `${hours} godz` : `${hours} godz ${remainder} min`;
+}
+
+function buildCycleTimePoints(stats: CycleTimeStats): BarChartPoint[] {
+  return stats.stages.map((stage) => ({
+    key: stage.stage,
+    tick: stage.stage_label,
+    label: `${stage.stage_label} (${stage.orders_count} zleceń)`,
+    value: Math.round((stage.average_seconds / 60) * 10) / 10,
+  }));
+}
+
 export function StatystykiPage() {
   const [anchor, setAnchor] = useState<MonthAnchor>(currentMonthAnchor);
   const [throughputStats, setThroughputStats] = useState<ThroughputStats | null>(null);
+  const [cycleTimeStats, setCycleTimeStats] = useState<CycleTimeStats | null>(null);
   const [loadedParams, setLoadedParams] = useState<LoadedParams | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -94,10 +114,11 @@ export function StatystykiPage() {
     let cancelled = false;
     setIsLoading(true);
     setErrorMessage(null);
-    fetchThroughputStats(from, to, "day")
-      .then((stats) => {
+    Promise.all([fetchThroughputStats(from, to, "day"), fetchCycleTimeStats(from, to)])
+      .then(([throughput, cycleTime]) => {
         if (cancelled) return;
-        setThroughputStats(stats);
+        setThroughputStats(throughput);
+        setCycleTimeStats(cycleTime);
         setLoadedParams({ from, to, groupBy: "day" });
       })
       .catch((error) => {
@@ -310,6 +331,61 @@ export function StatystykiPage() {
           </div>
         ) : null}
       </section>
+
+      {cycleTimeStats && cycleTimeStats.orders_count > 0 ? (
+        <section className="rounded-[2rem] border border-white/70 bg-white/80 p-6 shadow-panel backdrop-blur sm:p-8">
+          <div className="mb-6">
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">Wąskie gardła</p>
+            <h2 className="mt-1 text-3xl font-semibold text-ink sm:text-4xl">Czasy etapów</h2>
+            <p className="mt-2 text-sm text-steel">
+              Średni czas aktywnej pracy na etapie (od rozpoczęcia do zakończenia ostatniego przejścia),
+              dla {cycleTimeStats.orders_count}{" "}
+              {cycleTimeStats.orders_count === 1 ? "zlecenia spakowanego" : "zleceń spakowanych"} w tym miesiącu.
+            </p>
+          </div>
+
+          {cycleTimeStats.overall_average_seconds !== null ? (
+            <div className="mb-6 inline-flex flex-col rounded-2xl border border-line bg-mist px-5 py-3">
+              <span className="text-xs font-semibold uppercase tracking-[0.1em] text-steel">
+                Średni czas realizacji (od 1. etapu do pakowania)
+              </span>
+              <span className="mt-1 text-2xl font-semibold text-ink">
+                {formatDuration(cycleTimeStats.overall_average_seconds)}
+              </span>
+            </div>
+          ) : null}
+
+          <BarChart
+            title="Średni czas na etapie — minuty"
+            unit="min"
+            decimals={1}
+            barClassName="bg-teal-500"
+            plotHeight={320}
+            data={buildCycleTimePoints(cycleTimeStats)}
+          />
+
+          <div className="mt-6 overflow-x-auto rounded-3xl border border-line bg-white">
+            <table className="w-full min-w-[480px] text-sm">
+              <thead>
+                <tr className="border-b border-line bg-mist text-xs font-semibold uppercase tracking-[0.1em] text-steel">
+                  <th className="px-5 py-3 text-left">Etap</th>
+                  <th className="px-4 py-3 text-right">Średni czas</th>
+                  <th className="px-4 py-3 text-right">Zleceń</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-line">
+                {cycleTimeStats.stages.map((stage) => (
+                  <tr key={stage.stage} className="text-ink hover:bg-mist/40">
+                    <td className="px-5 py-3 font-medium">{stage.stage_label}</td>
+                    <td className="px-4 py-3 text-right font-semibold">{formatDuration(stage.average_seconds)}</td>
+                    <td className="px-4 py-3 text-right text-steel">{stage.orders_count}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      ) : null}
     </main>
   );
 }

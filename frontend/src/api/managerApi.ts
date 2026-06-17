@@ -3,6 +3,7 @@ import { getCurrentStationHeaders } from "./stationContext";
 import type {
   AssignWorkOrderPlanRequest,
   CorrectionReasonReportItem,
+  CycleTimeStats,
   ReorderQueueRequest,
   ThroughputStats,
   UpdateProductionTypeRequest,
@@ -90,6 +91,25 @@ export async function fetchThroughputStats(
   }
 
   return response.json() as Promise<ThroughputStats>;
+}
+
+export async function fetchCycleTimeStats(dateFrom: string, dateTo: string): Promise<CycleTimeStats> {
+  const url = new URL(createApiUrl("/manager/stats/cycle-time"), window.location.origin);
+  url.searchParams.set("date_from", dateFrom);
+  url.searchParams.set("date_to", dateTo);
+  const finalUrl = createApiUrl("/manager/stats/cycle-time").startsWith("http")
+    ? url.toString()
+    : `${url.pathname}${url.search}`;
+
+  const response = await fetch(finalUrl, {
+    headers: { Accept: "application/json", ...getCurrentStationHeaders() },
+  });
+
+  if (!response.ok) {
+    throw await createApiError(response, "Nie udało się pobrać statystyk czasów etapów");
+  }
+
+  return response.json() as Promise<CycleTimeStats>;
 }
 
 export function getCorrectionReasonReportExportUrl(): string {

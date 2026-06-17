@@ -380,6 +380,23 @@ bottlenecks, per-day throughput) and lets new metrics be added without changing 
 `user_id` column is populated only once stations have personal operator login (today it records the
 shared station account, or NULL for internal/seed actions).
 
+### Stage cycle-time / bottleneck stats
+
+`ManagerService.get_cycle_time_stats` (manager/admin only, `GET /manager/stats/cycle-time`) is the
+first time-in-stage read off the log. Definitions:
+
+- **Cohort:** non-correction work orders whose latest `PACKING`→`DONE` falls in `[date_from, date_to]`
+  — the same "completed in window" cohort as throughput.
+- **Per-stage active time:** for each order and stage, the gap from the latest `IN_PROGRESS` to the
+  latest `DONE` (at or after it) of that stage — i.e. the **most recent completed pass**, so a
+  correction re-run reports the final pass rather than a sum. Reported per stage as an average across
+  the cohort orders that have that stage, with the contributing `orders_count`.
+- **Overall lead time** (`overall_average_seconds`): per order, the earliest stage `IN_PROGRESS` to the
+  packing `DONE`, averaged across the cohort.
+- Stages are returned in canonical workflow order with Polish labels. The Statystyki page renders a
+  "Czasy etapów" section (per-stage average-minutes bar chart, a headline lead-time figure, and a
+  table). This is bottleneck visibility only; it never changes workflow or queue behavior.
+
 ## Additional Work Types
 
 Confirmed concepts:
