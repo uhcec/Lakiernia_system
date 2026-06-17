@@ -1,8 +1,15 @@
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
+# Ensure THIS repo resolves `app` even when run as `python scripts/reset_and_seed_dev_db.py` (where the
+# script dir, not the repo root, is on sys.path). Otherwise an editable install in a system Python could
+# shadow `app` with a copy at another path. Must run before importing `app`.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
-from pathlib import Path
 import shutil
 
 from alembic import command

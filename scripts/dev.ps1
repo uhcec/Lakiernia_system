@@ -19,6 +19,26 @@ function Write-Step { param([string]$msg) Write-Host "`n==> $msg" -ForegroundCol
 function Write-Ok   { param([string]$msg) Write-Host "    OK  $msg" -ForegroundColor Green }
 function Write-Fail { param([string]$msg) Write-Host "    ERR $msg" -ForegroundColor Red }
 
+# Stop any stale dev servers from a previous run. uvicorn --reload and npm/vite spawn child
+# processes that survive Stop-Job and keep holding :8000 / :5173 — so a new run would fail to bind
+# and the browser would be served STALE code. We match this repo's backend (app.main:app) and
+# frontend (vite under this repo) and tree-kill them (/T also kills the reload worker child).
+function Stop-DevServers {
+    param([string]$root)
+    $frontend = [regex]::Escape((Join-Path $root "frontend"))
+    $stale = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
+        $_.CommandLine -and (
+            $_.CommandLine -match 'app\.main:app' -or
+            ($_.CommandLine -match 'vite' -and $_.CommandLine -match $frontend)
+        )
+    }
+    foreach ($p in $stale) {
+        Write-Host ("    stopping stale dev process PID {0}" -f $p.ProcessId) -ForegroundColor DarkYellow
+        & taskkill /PID $p.ProcessId /T /F *> $null
+    }
+    if ($stale) { Start-Sleep -Milliseconds 700 }
+}
+
 $backendJob  = $null
 $frontendJob = $null
 
@@ -43,6 +63,9 @@ try {
     }
 
     # -- 2. Start backend ----------------------------------------------------
+    Write-Step "Reclaiming dev ports (stopping any stale servers from a previous run)"
+    Stop-DevServers -root $repoRoot
+
     Write-Step "Starting backend (uvicorn) on http://127.0.0.1:8000"
     $backendJob = Start-Job -ScriptBlock {
         param($root, $uvicorn)
@@ -110,5 +133,8 @@ try {
 } finally {
     if ($backendJob)  { Stop-Job $backendJob;  Remove-Job $backendJob  -ErrorAction SilentlyContinue }
     if ($frontendJob) { Stop-Job $frontendJob; Remove-Job $frontendJob -ErrorAction SilentlyContinue }
+    # Stop-Job kills the job wrappers but the uvicorn reload worker / vite child can survive and keep
+    # holding the ports. Kill them too so the next run starts clean (and never serves stale code).
+    Stop-DevServers -root $repoRoot
     Pop-Location
 }
