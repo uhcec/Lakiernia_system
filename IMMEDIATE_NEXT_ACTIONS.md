@@ -321,6 +321,7 @@ only. Five elements, top to bottom:
   doc-understatement: NA27. No code changed.
 
 ### NA26. Most screens display the ordered quantity instead of the real counted (actual received) quantity
+- Status: **DONE (2026-06-17)** — see Done section.
 - Severity: MEDIUM (operator-visible truth — but reported as "almost everything works"; verify before fixing).
 - Reported by owner (2026-06-17): surface preparation counts the **real received** pieces, and packing
   correctly validates "did anything go missing?" against that real value — but **almost everywhere the
@@ -346,6 +347,7 @@ only. Five elements, top to bottom:
   owner before fixing.
 
 ### NA27. WORKFLOW "Station Permissions" understates which stats endpoints are manager-gated
+- Status: **DONE (2026-06-17)** — see Done section.
 - Severity: LOW (doc-understatement, not a defect — code is safe/broader).
 - `WORKFLOW.md` "Station Permissions → Current enforcement" lists only `/manager/stats/throughput` and
   `/manager/corrections/reason-report` as manager/admin-gated, but `_ensure_stats_viewer` also gates
@@ -354,6 +356,22 @@ only. Five elements, top to bottom:
 - Acceptance: the doc matches the code; no behaviour change.
 
 ## Done
+
+- **NA26 — Stations now display the actual received (counted) operational quantity (2026-06-17)** —
+  Added `operational_quantity` to the station read model (`ProcessStageWorkOrderRead`):
+  `ProcessService._get_operational_quantity` returns a tracked batch's own quantity, else the
+  surface-prep actual received quantity once counted, else `total_quantity`. It now feeds the
+  profile/accessory category derivation, and the three station cards (`StageWorkOrdersPage`,
+  `PackingWorkOrdersPage`, `DecoralWorkOrdersPage`) render it (label "Sztuki") instead of the ordered
+  `planned_quantity`. Validation/READY/quantity-conservation are untouched (still use
+  `total_quantity`/counted); `planned_quantity` stays the original expected for audit + office/manager
+  see declared/counted/difference. Docs: `WORKFLOW.md` "Quantity Discrepancy Visibility". Test:
+  `tests/test_process_service.py::test_operational_quantity_reflects_actual_received_after_surface_preparation`
+  + frontend factory updated. Verified: full backend `pytest` green, `alembic check` clean, frontend
+  73 + build.
+- **NA27 — WORKFLOW stats-gating line broadened (2026-06-17)** — "Station Permissions → Current
+  enforcement" now states all `/manager/stats/*` (throughput, cycle-time, wip-aging) + the corrections
+  reason report are manager/admin-gated via `_ensure_stats_viewer`. Doc-only.
 
 - **NA22 — Packing capacity model: automatic reserves at HANGING start + manual second-slot override
   (2026-06-17)** — Replaced the single `PACKING` lock with **N configurable slots** (`PACKING:1..N`,

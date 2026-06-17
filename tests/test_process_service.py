@@ -231,6 +231,33 @@ def test_surface_preparation_finish_persists_counted_quantity(db_session: Sessio
     assert surface_state.counted_quantity == 95
 
 
+def test_operational_quantity_reflects_actual_received_after_surface_preparation(db_session: Session) -> None:
+    # NA26: stations show the actual received (counted) quantity as the operational count, while
+    # total_quantity / planned_quantity stay the ordered values (office/manager + audit).
+    work_order_service, process_service, manager_service, _, _ = build_services(db_session)
+    created = create_ral_work_order(work_order_service, "Operational quantity NA26")
+    manager_service.assign_plan(
+        created.id,
+        WorkOrderPlanAssignRequest(production_type=ProductionType.MANUAL, queue_position=1),
+    )
+
+    process_service.start_stage(created.id, ProcessStage.SURFACE_PREPARATION)
+    sp_done = process_service.finish_stage(created.id, ProcessStage.SURFACE_PREPARATION, counted_quantity=95)
+
+    # Surface-prep read already reflects the counted operational quantity.
+    assert sp_done.operational_quantity == 95
+    assert sp_done.total_quantity == 100
+    assert sp_done.planned_quantity == 100
+
+    # Downstream station (manual production) shows the actual received quantity as operational,
+    # not the ordered total.
+    production_rows = process_service.list_stage_work_orders(ProcessStage.PRODUCTION)
+    row = next(item for item in production_rows if item.id == created.id)
+    assert row.operational_quantity == 95
+    assert row.total_quantity == 100
+    assert row.planned_quantity == 100
+
+
 def test_office_and_manager_read_models_expose_surface_preparation_discrepancy(db_session: Session) -> None:
     work_order_service, process_service, manager_service, _, _ = build_services(db_session)
     created = create_ral_work_order(work_order_service, "Office manager discrepancy")

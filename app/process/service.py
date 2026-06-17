@@ -2411,9 +2411,10 @@ class ProcessService:
         counted_quantity = self._get_stage_counted_quantity(work_order, stage, batch=batch)
         quantity_difference = counted_quantity - planned_quantity if counted_quantity is not None else None
 
+        operational_quantity = self._get_operational_quantity(work_order, batch)
         category_fields = self._derive_category_fields_for_operational_quantity(
             work_order,
-            batch_quantity if batch_quantity is not None else current_active_quantity,
+            operational_quantity,
         )
         current_paint_stock_quantity_kg = self.paint_service.lookup_current_stock(
             ral_code=work_order.ral_code,
@@ -2450,6 +2451,7 @@ class ProcessService:
             total_area_m2=work_order.total_area_m2,
             total_quantity=work_order.total_quantity,
             current_active_quantity=current_active_quantity,
+            operational_quantity=operational_quantity,
             batch_quantity=batch_quantity,
             planned_quantity=planned_quantity,
             counted_quantity=counted_quantity,
@@ -2824,6 +2826,21 @@ class ProcessService:
 
         surface_preparation_state = self._get_stage_state(work_order, ProcessStage.SURFACE_PREPARATION)
         return surface_preparation_state.counted_quantity
+
+    def _get_operational_quantity(
+        self,
+        work_order: WorkOrder,
+        batch: WorkOrderQuantityBatch | None,
+    ) -> int:
+        # The count operators physically handle (NA26): a tracked batch's own quantity, otherwise the
+        # surface-preparation actual received quantity once counted, else the ordered total before
+        # counting. Does not affect validation/READY (those keep using total_quantity / counted).
+        if batch is not None:
+            return batch.quantity
+        actual_received = self._get_surface_preparation_actual_quantity(work_order)
+        if actual_received is not None:
+            return actual_received
+        return work_order.current_active_quantity
 
     def _get_stage_counted_quantity(
         self,

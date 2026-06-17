@@ -195,6 +195,7 @@ function buildStageWorkOrder(
     total_area_m2: overrides.total_area_m2 ?? null,
     total_quantity: overrides.total_quantity ?? 10,
     current_active_quantity: overrides.current_active_quantity ?? 10,
+    operational_quantity: overrides.operational_quantity ?? overrides.planned_quantity ?? 10,
     batch_quantity: overrides.batch_quantity ?? null,
     planned_quantity: overrides.planned_quantity ?? 10,
     counted_quantity: overrides.counted_quantity ?? null,

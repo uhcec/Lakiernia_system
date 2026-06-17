@@ -294,7 +294,7 @@ Rules:
 
 Current enforcement:
 - Wrong-role mutating requests return `403` for current office, manager, process, packing, and completed-release actions, **derived from the authenticated user's role** (NA1).
-- Statistics (`/manager/stats/throughput`, `/manager/corrections/reason-report[/export.csv]`) require manager/admin.
+- Statistics require manager/admin: **all** `/manager/stats/*` endpoints (`throughput`, `cycle-time`, `wip-aging`) and `/manager/corrections/reason-report[/export.csv]`, gated by `_ensure_stats_viewer`.
 - `SYSTEM` (internal/seed callers, passed as no station context) remains the trusted identity; admins bypass station checks. `UNKNOWN` is no longer an allow-bypass — a request with an unknown/unauthorized role is denied.
 - Station-origin links to work-order details preserve the source station identity. Detail pages reached from production stations are read-only for office/manager mutations while keeping drawings/attachments downloadable.
 - Current automatic paint-consumption action is restricted to `AUTOMATIC_PRODUCTION`; future shared inventory or stock-receipt actions still need their own allowed-station rules.
@@ -305,6 +305,7 @@ Current enforcement:
 Rules:
 - Office and manager should see declared client quantity, surface-preparation counted quantity, and their difference.
 - Production/station operators should see only the current operational quantity they need to process.
+- **The station-facing operational quantity is the actual received (surface-preparation counted) quantity once it has been counted, not the ordered `total_quantity`** (NA26). Station read models expose it as `operational_quantity` (= the active batch quantity for tracked batches; otherwise the surface-preparation counted quantity when available, else `total_quantity` before counting). The profile/accessory "to verify" counts derive from this operational quantity. `planned_quantity` stays the **original expected** quantity for audit/office-manager visibility (principle 6) and is not the operator-facing count.
 - Quantity discrepancies should be recorded and visible to office/manager, but should not block the work order for now.
 - Surface-preparation operators record the counted quantity where counting happens; no separate discrepancy confirmation step is required for now.
 - Starting `SURFACE_PREPARATION` does not require counted quantity.

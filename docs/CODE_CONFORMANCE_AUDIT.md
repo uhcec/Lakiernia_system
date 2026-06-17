@@ -10,10 +10,12 @@ Verdict legend: **CONFORMS** (code matches docs, read directly) · **DIVERGES** 
 
 ## Summary
 
-- **1 real divergence: NA26** — downstream stations display the **ordered** quantity, not the
+- **1 real divergence: NA26** — downstream stations displayed the **ordered** quantity, not the
   **actual received (counted)** quantity (operator-truth gap). Confirmed in code below.
-- **1 doc-understatement** — WORKFLOW "Station Permissions" lists only 2 stats endpoints as
-  manager-gated; code gates all 4.
+  **FIXED 2026-06-17** (added `operational_quantity` to the station read model; stations now show the
+  counted operational quantity, validation/READY untouched).
+- **1 doc-understatement: NA27** — WORKFLOW "Station Permissions" listed only 2 stats endpoints as
+  manager-gated; code gates all 4. **FIXED 2026-06-17** (WORKFLOW line broadened).
 - Everything else audited **conforms**.
 
 ## Topic-by-topic

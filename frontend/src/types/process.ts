@@ -40,6 +40,7 @@ export interface StageWorkOrder {
   total_quantity: number;
   completed_quantity: number;
   current_active_quantity: number;
+  operational_quantity: number;
   batch_quantity: number | null;
   planned_quantity: number;
   counted_quantity: number | null;

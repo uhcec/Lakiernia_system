@@ -35,6 +35,9 @@ class ProcessStageWorkOrderRead(BaseModel):
     total_area_m2: float | None = None
     total_quantity: int
     current_active_quantity: int
+    # Operator-facing count = actual received (surface-prep counted) once counted, else total_quantity
+    # (for tracked batches: the batch quantity). `planned_quantity` stays the original expected (audit).
+    operational_quantity: int
     batch_quantity: int | None = None
     planned_quantity: int
     counted_quantity: int | None = None

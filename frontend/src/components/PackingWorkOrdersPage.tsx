@@ -556,8 +556,8 @@ export function PackingWorkOrdersPage() {
                       <dd className="mt-1 font-semibold text-ink">{formatPaint(workOrder)}</dd>
                     </div>
                     <div>
-                      <dt className="font-medium text-steel">Plan</dt>
-                      <dd className="mt-1 font-semibold text-ink">{workOrder.planned_quantity} szt.</dd>
+                      <dt className="font-medium text-steel">Sztuki</dt>
+                      <dd className="mt-1 font-semibold text-ink">{workOrder.operational_quantity} szt.</dd>
                     </div>
                   </dl>
 
