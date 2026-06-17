@@ -187,30 +187,42 @@ they are not yet validated against live factory policy where noted.
 
 ## Open
 
-### NA22. Automatic order must reserve packing at HANGING start (factory requirement, 2026-06-17)
-- Severity: **MEDIUM** (factory-confirmed workflow refinement; revises NA16).
-- Source: factory chat 2026-06-17. Rule: when an **AUTOMATIC** work order **starts HANGING**, it must
-  automatically reserve the single packing station (the `PACKING` resource lock) and hold it until its
-  own packing completes. The automatic line cannot be paused, so a manual order must not be able to
-  claim packing and block an in-flight automatic order. Manual orders keep the explicit
-  "Rozpocznij pakowanie" button and may claim only when packing is free.
+### NA22. Packing reservation model: automatic reserves at HANGING start + manual second-slot override (factory, 2026-06-17)
+- Severity: **MEDIUM-HIGH** (factory-confirmed; revises the NA16 single-station model into a small
+  capacity model). Scope grew during the 2026-06-17 decision pass — see NA22b.
+- **NA22a — Automatic reserves packing at HANGING start.** When an **AUTOMATIC** work order **starts
+  HANGING**, it must automatically reserve a packing slot and hold it until its own packing completes,
+  so a manual order cannot take the (default single) packing slot and block the un-pausable automatic
+  line. Manual orders keep the explicit "Rozpocznij pakowanie" button.
+  - Decision (2026-06-17): a **second automatic** starting hanging while packing is already reserved
+    by another automatic **may start/finish hanging normally but queues for packing** (reservation in
+    arrival order); it cannot complete packing until the prior automatic releases. (Matches the
+    HANGING-capacity-releases-on-finish rule.)
+- **NA22b — Manual override to open a SECOND packing slot.** Packing is **not strictly one-at-a-time**:
+  a manual operator may **override** an existing packing reservation/claim and open a **second
+  concurrent packing**, because two orders can sometimes be physically packed at once. This relaxes the
+  NA16 "one physically started at a time" invariant into a small **capacity** model (default 1, manual
+  can open a 2nd slot). The automatic reservation (NA22a) still guarantees the line a slot; the manual
+  override lets a manual order pack alongside rather than wait.
 - Revises: NA16 / validation-checklist #9 as-built behavior ("automatic waiting rows do not hold the
-  claim"). For the automatic path the reservation now starts at hanging start, not at packing.
-- Required fix (backend): in `start_stage`/`transition_stage` for `HANGING` → `IN_PROGRESS` on an
-  AUTOMATIC order, acquire the `PACKING` reservation for that order (alongside the existing `HANGING`
-  acquire). Extend the claim-retention predicate (`_occupies_packing`) so an automatic reservation is
-  kept from hanging start through packing completion (today it only counts packing `IN_PROGRESS`).
-  `start_packing` (manual claim) must 409 when an automatic holds the reservation, with a clear message
-  ("Stanowisko pakowania zarezerwowane przez zlecenie automatyczne {order}").
-- Open design questions (see checklist #9): second automatic starting hanging while packing reserved
-  (queue vs deny); manual that already started packing before the automatic begins hanging (automatic
-  waits — first-come); release timing.
-- Frontend: manual packing cards show "Zarezerwowane przez automat {order}" instead of the claim button
-  while an automatic holds the reservation; the reserving automatic shows packing as reserved.
-- Acceptance: starting hanging on an automatic order reserves packing; a manual `start_packing` is then
-  rejected with a controlled 409; the reservation releases at the automatic order's packing completion,
-  after which the manual order can claim; regression + chaos coverage for the manual-vs-automatic
-  contention race; WORKFLOW.md "Packing station exclusivity" updated.
+  claim"; "only one physically started at a time").
+- Likely backend shape: replace the single `PACKING` PK lock with a small **capacity** concept
+  (e.g. up to 2 concurrent claims, or per-slot lock rows `PACKING:1`/`PACKING:2`); automatic acquires a
+  slot at hanging start and retains it through packing (extend `_occupies_packing` to count an automatic
+  reservation from hanging start); `start_packing` 409s only when no slot is free **unless** a manual
+  override is requested, which opens the second slot. Read model exposes which orders hold slots.
+- Open questions to resolve before implementation:
+  - **Max concurrent packings** — cap at 2, or configurable N? (factory said "two orders".)
+  - **Override authorization/UX** — manual (`PACKING` station) only? Explicit "Otwórz drugie
+    stanowisko / Pakuj mimo to" button vs automatic when a 2nd order is started? Any audit event?
+  - Does the override apply to any occupied state, or specifically to unblock manual-vs-automatic?
+  - Reservation release timing and stale recovery for the multi-slot model.
+- Frontend: manual cards show reservation/occupancy state and an explicit **override** action to open a
+  second slot; the reserving automatic shows its slot as reserved.
+- Acceptance: automatic reserves a slot at hanging start; a manual `start_packing` is rejected with a
+  controlled 409 **only when no slot is free and no override is used**; manual override opens a second
+  concurrent packing; reservations release at packing completion; regression + chaos coverage for the
+  manual-vs-automatic contention and the override; WORKFLOW.md "Packing station exclusivity" updated.
 
 ## Open (from the 2026-06-17 workflow audit)
 
