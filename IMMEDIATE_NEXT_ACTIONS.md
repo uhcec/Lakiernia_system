@@ -158,30 +158,9 @@ they are not yet validated against live factory policy where noted.
 - Acceptance: Over-long passwords are rejected or handled deterministically.
 
 ### NA15. Dedicated Decoral-pass (`DECORAL_PRODUCTION`) throughput chart
-- Status: OPEN (business model confirmed 2026-06-17; ready to implement)
-- Context: The Statystyki page shows per-day bar charts for automatic m², manual m², and correction
-  pieces. Factory model (confirmed 2026-06-17, now in WORKFLOW.md "Throughput Reporting"): a DECORAL
-  order gets a **RAL base coat** through the normal stages (ends at `PACKING`) and **then** a **separate
-  Decoral coating** on `DECORAL_PRODUCTION`. Both coats cover the same parts, so the m² is identical —
-  but they are two distinct work events and must be counted separately.
-- Confirmed decisions (2026-06-17):
-  - The RAL base coat of a DECORAL order **stays counted** toward automatic/manual m² at packing, exactly
-    like RAL — do not change base-coat accounting.
-  - The Decoral pass is a **separate, additional** counter (not a subset of automatic/manual), keyed on
-    the `DECORAL_PRODUCTION` stage `DONE` date, using the order's `total_area_m2`.
-- Problem: today's `m2_decoral` is measured at `PACKING` completion (coating = DECORAL) — the base-coat
-  moment, not the actual Decoral pass. There is no per-day series keyed on `DECORAL_PRODUCTION` `DONE`.
-- Required fix: Add a Decoral-pass throughput series keyed on `DECORAL_PRODUCTION` `DONE` (m²; pieces
-  optional), expose it in `ThroughputPeriod`, and render a fourth bar chart. Replace the packing-time
-  `m2_decoral` approximation with the pass-time number (keep the label "m² Decoral").
-- Now unblocked: the `stage_transition_events` log (NA-tracking, done 2026-06-17) already records
-  `DECORAL_PRODUCTION`→`DONE` with `occurred_at`, so the pass-time series can be read straight from it
-  (same pattern as the repointed packing attribution in `ManagerService.get_throughput_stats`).
-- Still to confirm with the business friend: whether the Decoral chart should also show **pieces** (m²
-  is the default), per the Polish question set sent 2026-06-17.
-- Acceptance: A Decoral-pass chart shows m² processed on the Decoral line per day, attributed at
-  `DECORAL_PRODUCTION` completion; base-coat automatic/manual totals unchanged; covered by a test;
-  WORKFLOW.md updated.
+- Status: DONE (2026-06-17) — see Done section.
+- Still open (minor, optional): whether the Decoral chart should also show **pieces** (m² shipped as the
+  confirmed default), per the Polish question set sent 2026-06-17.
 
 ### NA14. `WorkOrdersTable` is dead code (kept alive only by tests)
 - Status: DONE (2026-06-17) — see Done section.
@@ -208,6 +187,18 @@ they are not yet validated against live factory policy where noted.
 
 ## Done
 
+- **NA15 (2026-06-17)** — Dedicated Decoral-pass throughput, built on the new stage-transition log.
+  `m2_decoral` is now a separate, additional series attributed at the actual Decoral pass (latest
+  `DECORAL_PRODUCTION`→`DONE` `occurred_at`) for non-correction orders, using `total_area_m2` — no
+  longer the packing-time approximation, and it does not add into `m2_total`. Backend:
+  `ManagerService.get_throughput_stats` drops the packing-time `m2_decoral` case and adds a
+  `decoral_by_period` query (no `updated_at` fallback — pass date is only reliable from the log).
+  Frontend: new "Przejazd Decoral — m² / dzień" bar chart and the "m² Decoral (przejazd)" table column
+  (tooltip clarifies it's an additional counter, not part of m² Razem). Base-coat manual/automatic
+  accounting unchanged. Tests: updated `test_throughput_splits_base_production_by_production_type_including_decoral`
+  to run the pass, plus new `test_decoral_pass_m2_attributed_at_pass_not_at_packing` (0 before the pass,
+  area after). Docs: WORKFLOW.md "Throughput Reporting". Verified: backend `pytest` green, Alembic clean,
+  frontend 67 + build. (Open/optional: pieces series for the Decoral chart.)
 - **NA-tracking foundation (2026-06-17)** — Added `stage_transition_events`, an append-only log of
   every meaningful stage transition (stage, new status, `occurred_at`, work order, batch, counted
   quantity, station, nullable user) — the durable analytics backbone, since `work_order_stage_states`

@@ -343,10 +343,13 @@ counter, never a re-slice of the base throughput.
 - **Decoral-pass throughput is a separate, additional counter** (confirmed 2026-06-17), keyed on the
   `DECORAL_PRODUCTION` stage `DONE` date and using the same `total_area_m2` (same parts → same area as
   the base coat). It is never added into manual/automatic and is not a subset of them — it is its own
-  series for the Decoral line's daily output. **Current limitation:** the existing `m2_decoral` figure
-  is still measured at `PACKING` completion for `coating_type = DECORAL` orders, i.e. at the base-coat
-  moment rather than at the actual Decoral pass — an approximation. Moving it to `DECORAL_PRODUCTION`
-  completion and rendering its own bar chart is tracked as NA15.
+  series for the Decoral line's daily output, and it does **not** add into `m2_total` (which is the
+  base-coat total). `m2_decoral` is computed from the stage-transition log (latest
+  `DECORAL_PRODUCTION`→`DONE` `occurred_at`) for non-correction orders, exactly like the base-coat
+  attribution but at the pass moment. There is no `updated_at` fallback for this series — the pass date
+  is only reliable from the log, so passes completed before the log existed do not appear (this
+  intentionally replaced the earlier packing-time approximation). The Statystyki page renders it as its
+  own "Przejazd Decoral — m² / dzień" bar chart and the "m² Decoral (przejazd)" table column.
 - **Corrections** are counted from **both** correction sources of the hybrid model (same as
   `list_correction_reason_report`, so the chart and the reason report agree): `CORRECTION` quantity
   batches (RAL packing / DECORAL decoral-stage resets) **plus** child correction work orders

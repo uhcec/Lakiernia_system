@@ -126,8 +126,9 @@ export function StatystykiPage() {
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">Produkcja</p>
           <h2 className="mt-1 text-3xl font-semibold text-ink sm:text-4xl">Przepustowość</h2>
           <p className="mt-2 text-sm text-steel">
-            Zrealizowane m² (wg typu produkcji — ręczna/automat obejmują też bazę zleceń Decoral) i sztuki poprawek
-            w skali dnia, według daty zakończenia pakowania.
+            Zrealizowane m² (wg typu produkcji — ręczna/automat obejmują też bazę zleceń Decoral, liczone w dniu
+            zakończenia pakowania), osobny przejazd Decoral (liczony w dniu zakończenia powłoki Decoral) oraz sztuki
+            poprawek, w skali dnia.
           </p>
         </div>
 
@@ -203,6 +204,16 @@ export function StatystykiPage() {
                   data={buildPoints(throughputStats, loadedParams, (p) => p.m2_manual)}
                 />
                 <BarChart
+                  title="Przejazd Decoral — m² / dzień"
+                  unit="m²"
+                  decimals={1}
+                  barClassName="bg-violet-500"
+                  yMax={70}
+                  yTickStep={10}
+                  plotHeight={360}
+                  data={buildPoints(throughputStats, loadedParams, (p) => p.m2_decoral)}
+                />
+                <BarChart
                   title="Poprawki — sztuki / dzień"
                   unit="szt."
                   barClassName="bg-amber-500"
@@ -218,8 +229,8 @@ export function StatystykiPage() {
                     <th className="px-5 py-3 text-left">Okres</th>
                     <th className="px-4 py-3 text-right">m² Ręczna</th>
                     <th className="px-4 py-3 text-right">m² Automat</th>
-                    <th className="px-4 py-3 text-right" title="Z tego zlecenia Decoral — podzbiór, nie sumuje się z Ręczną/Automat">
-                      m² z tego Decoral
+                    <th className="px-4 py-3 text-right" title="Przejazd Decoral (etap DECORAL_PRODUCTION) — osobny licznik, liczony w dniu zakończenia powłoki Decoral; nie wlicza się do m² Razem">
+                      m² Decoral (przejazd)
                     </th>
                     <th className="px-4 py-3 text-right font-bold">m² Razem</th>
                     <th className="px-4 py-3 text-right">Zlecenia</th>

@@ -145,10 +145,10 @@ class ManagerService:
         throughput_rows = session.execute(
             select(
                 period_expr.label("period"),
-                # Base-production throughput is split purely by production type, so a
-                # DECORAL order's base coat counts toward manual/automatic just like RAL.
-                # The dedicated decoral pass (DECORAL_PRODUCTION) is reported separately
-                # via m2_decoral below (an overlapping subset, not an exclusive bucket).
+                # Base-production throughput is split purely by production type, so a DECORAL
+                # order's base coat counts toward manual/automatic just like RAL. The Decoral
+                # pass itself (DECORAL_PRODUCTION) is a separate, additional series attributed at
+                # its own completion date (decoral_by_period below), not a slice of this query.
                 func.sum(
                     case(
                         (
@@ -167,15 +167,6 @@ class ManagerService:
                         else_=0.0,
                     )
                 ).label("m2_automatic"),
-                func.sum(
-                    case(
-                        (
-                            WorkOrder.coating_type == CoatingType.DECORAL,
-                            func.coalesce(WorkOrder.total_area_m2, 0.0),
-                        ),
-                        else_=0.0,
-                    )
-                ).label("m2_decoral"),
                 func.sum(func.coalesce(WorkOrder.total_area_m2, 0.0)).label("m2_total"),
                 func.count(WorkOrder.id).label("orders_count"),
             )
@@ -244,8 +235,44 @@ class ManagerService:
             )
         ).scalar() or 0
 
+        # Decoral-pass m² is a separate, additional series (not a slice of base production):
+        # the same parts get a base RAL coat (counted at packing, above) and then a Decoral
+        # coating on the DECORAL_PRODUCTION stage afterwards. We attribute it to the actual pass
+        # completion via the stage-transition log (latest DECORAL_PRODUCTION->DONE occurred_at),
+        # using the order's total_area_m2. Like the base coat, only non-correction orders count.
+        # There is no updated_at fallback here: the pass date is only reliable from the log, and
+        # this intentionally replaces the old packing-time approximation, so passes completed
+        # before the log existed simply do not appear.
+        decoral_done_events = (
+            select(
+                StageTransitionEvent.work_order_id,
+                func.max(StageTransitionEvent.occurred_at).label("event_done_at"),
+            )
+            .where(
+                StageTransitionEvent.stage == ProcessStage.DECORAL_PRODUCTION,
+                StageTransitionEvent.status == StageStatus.DONE,
+            )
+            .group_by(StageTransitionEvent.work_order_id)
+            .subquery()
+        )
+        decoral_period_expr = func.strftime(date_fmt, decoral_done_events.c.event_done_at)
+        decoral_rows = session.execute(
+            select(
+                decoral_period_expr.label("period"),
+                func.sum(func.coalesce(WorkOrder.total_area_m2, 0.0)).label("m2_decoral"),
+            )
+            .join(decoral_done_events, WorkOrder.id == decoral_done_events.c.work_order_id)
+            .where(
+                WorkOrder.is_correction == False,  # noqa: E712
+                func.date(decoral_done_events.c.event_done_at) >= date_from,
+                func.date(decoral_done_events.c.event_done_at) <= date_to,
+            )
+            .group_by(decoral_period_expr)
+        ).all()
+        decoral_by_period = {row.period: float(row.m2_decoral or 0.0) for row in decoral_rows}
+
         throughput_by_period = {row.period: row for row in throughput_rows}
-        all_period_keys = sorted(set(throughput_by_period) | set(corrections_by_period))
+        all_period_keys = sorted(set(throughput_by_period) | set(corrections_by_period) | set(decoral_by_period))
 
         periods: list[ThroughputPeriod] = []
         for key in all_period_keys:
@@ -257,7 +284,7 @@ class ManagerService:
                     period_label=_format_period_label(key, group_by),
                     m2_manual=round(float(t.m2_manual) if t else 0.0, 2),
                     m2_automatic=round(float(t.m2_automatic) if t else 0.0, 2),
-                    m2_decoral=round(float(t.m2_decoral) if t else 0.0, 2),
+                    m2_decoral=round(decoral_by_period.get(key, 0.0), 2),
                     m2_total=round(float(t.m2_total) if t else 0.0, 2),
                     orders_count=int(t.orders_count) if t else 0,
                     correction_pieces=c[0] if c else 0,
