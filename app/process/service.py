@@ -2643,18 +2643,18 @@ class ProcessService:
     ) -> bool:
         """Acquire a packing slot for this work order. Returns True if a slot is now held.
 
-        Capacity is N (``packing_max_concurrent_slots``). The **start** action is the exclusivity gate;
-        completion and automatic flow are capacity-bound:
+        Capacity is N (``packing_max_concurrent_slots``). **Only manual orders may use a second slot**
+        — an automatic order always uses the single station, never opening a 2nd packing:
 
-        - **Capacity-bound** (``reserve_only`` automatic hanging-start reservation, automatic flow,
-          completion, or an explicit manual ``override``): take any free slot; ``reserve_only`` queues
-          silently when full, the rest raise "all slots full" at N. The line cannot be paused, and an
-          order that reached packing must be completable into any free slot.
-        - **Manual default start** (``override=False`` and not a completion/automatic): single-station
-          exclusivity — succeed only if this order already holds a slot or the station is completely
-          free, so two manual operators don't accidentally start packing at once.
+        - **Capacity-bound** (occupied < N): a manual ``override`` start, or a manual completion. This
+          is the only way to open slots 2..N.
+        - **Single-station** (slot held, or station completely free): automatic hanging-start
+          reservation (``reserve_only`` — a 2nd automatic queues silently), automatic completion (a
+          queued 2nd automatic waits, raising "occupied" rather than taking a 2nd slot), and a manual
+          default start (so two manual operators don't accidentally start at once).
         """
         is_automatic = work_order.production_type == ProductionType.AUTOMATIC
+        capacity_bound = override or (for_completion and not is_automatic)
         with self._serialize_resource_mutation(self.PACKING_SLOT_PREFIX):
             self._cleanup_stale_packing_slots()
             if self._work_order_packing_slot_key(work_order.id) is not None:
@@ -2665,13 +2665,13 @@ class ProcessService:
             occupied = len(occupied_keys)
             capacity = len(slot_keys)
 
-            if reserve_only or is_automatic or override or for_completion:
+            if capacity_bound:
                 if occupied >= capacity:
-                    if reserve_only:
-                        return False  # queue; do not reserve
                     raise InvalidProcessStageTransitionError(self.PACKING_ALL_SLOTS_FULL_ERROR)
             elif occupied != 0:
-                # Manual default start: single-station exclusivity unless overridden.
+                # Single-station: automatic reservation/completion and manual default start.
+                if reserve_only:
+                    return False  # 2nd automatic queues; it does not reserve a second slot
                 raise InvalidProcessStageTransitionError(self.PACKING_OCCUPIED_ERROR)
 
             free_key = next((key for key in slot_keys if key not in occupied_keys), None)

@@ -194,6 +194,32 @@ def test_automatic_order_reserves_packing_slot_at_hanging_start(db_session: Sess
     assert _slot_owner_ids(process_repository) == {automatic.id, manual.id}
 
 
+def test_second_automatic_cannot_reserve_or_take_a_second_slot(db_session: Session) -> None:
+    # Only manual orders may open a second packing slot. A second automatic order queues: it does not
+    # reserve a slot at hanging start, and the slot logic refuses to give it a second slot.
+    work_order_service, process_service, manager_service, _, process_repository = build_services(db_session)
+
+    first = create_ral_work_order(work_order_service, "Auto first")
+    manager_service.assign_plan(first.id, WorkOrderPlanAssignRequest(production_type=ProductionType.AUTOMATIC, queue_position=1))
+    advance_to_packing(process_service, first.id)  # reserves the single slot at hanging start
+    assert _slot_owner_ids(process_repository) == {first.id}
+
+    # Drive a second automatic to HANGING start (it can overlap hanging while the first is on the line),
+    # but it must NOT reserve a second packing slot — it queues.
+    second = create_ral_work_order(work_order_service, "Auto second")
+    manager_service.assign_plan(second.id, WorkOrderPlanAssignRequest(production_type=ProductionType.AUTOMATIC, queue_position=2))
+    process_service.transition_stage(second.id, ProcessStage.SURFACE_PREPARATION, StageStatus.IN_PROGRESS)
+    process_service.transition_stage(second.id, ProcessStage.SURFACE_PREPARATION, StageStatus.DONE)
+    process_service.start_stage(second.id, ProcessStage.HANGING)
+
+    assert _slot_owner_ids(process_repository) == {first.id}  # second queued, holds no slot
+
+    # The slot logic refuses to hand a second automatic a second slot (it waits for the single station).
+    second_wo = process_service.get_work_order_process(second.id)
+    with pytest.raises(InvalidProcessStageTransitionError):
+        process_service._acquire_packing_slot(second_wo, for_completion=True)
+
+
 def test_automatic_releases_packing_slot_after_completion(db_session: Session) -> None:
     work_order_service, process_service, manager_service, _, process_repository = build_services(db_session)
     automatic = create_ral_work_order(work_order_service, "Auto release")
