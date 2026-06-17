@@ -143,6 +143,25 @@ def start_packing_for_batch(
     return service.start_packing(work_order_id, batch_id=batch_id, station_context=station_context)
 
 
+@router.post("/work-orders/{work_order_id}/packing/release", response_model=ProcessStageWorkOrderRead)
+def release_packing(
+    work_order_id: int,
+    service: Annotated[ProcessService, Depends(get_process_service)],
+    station_context: Annotated[StationContext, Depends(get_station_context)],
+) -> ProcessStageWorkOrderRead:
+    return service.release_packing(work_order_id, station_context=station_context)
+
+
+@router.post("/work-orders/{work_order_id}/batches/{batch_id}/packing/release", response_model=ProcessStageWorkOrderRead)
+def release_packing_for_batch(
+    work_order_id: int,
+    batch_id: int,
+    service: Annotated[ProcessService, Depends(get_process_service)],
+    station_context: Annotated[StationContext, Depends(get_station_context)],
+) -> ProcessStageWorkOrderRead:
+    return service.release_packing(work_order_id, batch_id=batch_id, station_context=station_context)
+
+
 @router.post("/work-orders/{work_order_id}/packing/complete", response_model=ProcessStageWorkOrderRead)
 def complete_packing(
     work_order_id: int,

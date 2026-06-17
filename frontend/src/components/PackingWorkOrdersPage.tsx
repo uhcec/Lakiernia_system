@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 
 import { getMutationErrorMessage } from "../utils/mutationError";
 import { buildWorkOrderDetailHref, getStationIdForLocation } from "../api/stationContext";
-import { completePacking, fetchStageWorkOrders, startPacking, transitionStage } from "../api/processApi";
+import { completePacking, fetchStageWorkOrders, releasePacking, startPacking, transitionStage } from "../api/processApi";
 import type { StageWorkOrder, StageStatusValue } from "../types/process";
 import { loadCorrectionContexts, type CorrectionContext } from "../utils/correctionContext";
 import {
@@ -301,6 +301,28 @@ export function PackingWorkOrdersPage() {
       const message = getMutationErrorMessage(
         error,
         "Nie udało się rozpocząć pakowania. Widok został odświeżony do aktualnego stanu backendu.",
+      );
+      const reloaded = await loadWorkOrders({ preserveErrorMessage: true });
+
+      if (reloaded) {
+        setErrorMessage(message);
+      }
+    } finally {
+      setActiveWorkOrderId(null);
+    }
+  }
+
+  async function handleReleasePacking(workOrder: StageWorkOrder) {
+    setActiveWorkOrderId(getDraftKey(workOrder));
+    setErrorMessage(null);
+
+    try {
+      await releasePacking(workOrder.id, workOrder.batch_id ?? undefined);
+      await loadWorkOrders();
+    } catch (error) {
+      const message = getMutationErrorMessage(
+        error,
+        "Nie udało się zwolnić stanowiska pakowania. Widok został odświeżony do aktualnego stanu backendu.",
       );
       const reloaded = await loadWorkOrders({ preserveErrorMessage: true });
 
@@ -646,14 +668,24 @@ export function PackingWorkOrdersPage() {
                         </div>
                       ) : null}
 
-                      <button
-                        type="button"
-                        disabled={isSubmitting || !isDraftValid || !isPackingStage}
-                        onClick={() => void handlePackingSubmit(workOrder)}
-                        className="inline-flex w-full items-center justify-center rounded-lg bg-accent px-4 py-3 text-sm font-semibold text-white transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:bg-teal-300"
-                      >
-                        {isSubmitting ? "Zapisywanie..." : getActionLabel(status)}
-                      </button>
+                      <div className="space-y-2">
+                        <button
+                          type="button"
+                          disabled={isSubmitting || !isDraftValid || !isPackingStage}
+                          onClick={() => void handlePackingSubmit(workOrder)}
+                          className="inline-flex w-full items-center justify-center rounded-lg bg-accent px-4 py-3 text-sm font-semibold text-white transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:bg-teal-300"
+                        >
+                          {isSubmitting ? "Zapisywanie..." : getActionLabel(status)}
+                        </button>
+                        <button
+                          type="button"
+                          disabled={isSubmitting}
+                          onClick={() => void handleReleasePacking(workOrder)}
+                          className="inline-flex w-full items-center justify-center rounded-lg border border-line bg-white px-4 py-2 text-sm font-medium text-steel transition hover:border-accent hover:text-accent disabled:cursor-not-allowed disabled:text-slate-400"
+                        >
+                          Zwolnij stanowisko
+                        </button>
+                      </div>
                     </div>
                   ) : status === "DONE" ? (
                     <div className="flex h-full flex-col justify-center gap-3">

@@ -133,6 +133,40 @@ def test_start_packing_recovers_stale_claim_from_finished_owner(db_session: Sess
     assert _packing_lock_owner(process_repository) == waiting.id
 
 
+def test_release_packing_frees_station_for_another_order(db_session: Session) -> None:
+    work_order_service, process_service, manager_service, _, process_repository = build_services(db_session)
+    first = _plan_and_advance_manual_to_packing(work_order_service, process_service, manager_service, "Cancel A", 1)
+    second = _plan_and_advance_manual_to_packing(work_order_service, process_service, manager_service, "Cancel B", 2)
+
+    process_service.start_packing(first.id)
+    released = process_service.release_packing(first.id)
+
+    assert released.is_being_packed is False
+    assert _packing_lock_owner(process_repository) is None
+
+    # The station is free again; the second order can now claim it.
+    claim = process_service.start_packing(second.id)
+    assert claim.is_being_packed is True
+    assert _packing_lock_owner(process_repository) == second.id
+
+
+def test_release_packing_is_idempotent_and_does_not_touch_other_claim(db_session: Session) -> None:
+    work_order_service, process_service, manager_service, _, process_repository = build_services(db_session)
+    holder = _plan_and_advance_manual_to_packing(work_order_service, process_service, manager_service, "Holder", 1)
+    other = _plan_and_advance_manual_to_packing(work_order_service, process_service, manager_service, "Other", 2)
+
+    process_service.start_packing(holder.id)
+
+    # Releasing an order that does not hold the claim is a harmless no-op and never steals the claim.
+    process_service.release_packing(other.id)
+    assert _packing_lock_owner(process_repository) == holder.id
+
+    # Releasing the holder twice is idempotent.
+    process_service.release_packing(holder.id)
+    process_service.release_packing(holder.id)
+    assert _packing_lock_owner(process_repository) is None
+
+
 def test_automatic_order_waiting_at_packing_does_not_hold_claim(db_session: Session) -> None:
     work_order_service, process_service, manager_service, _, process_repository = build_services(db_session)
     created = create_ral_work_order(work_order_service, "Auto waiting")

@@ -1817,6 +1817,24 @@ def test_start_packing_claims_station_and_blocks_other_order(test_client: TestCl
     assert blocked_complete.status_code == 409
 
 
+def test_release_packing_frees_station_for_another_order(test_client: TestClient) -> None:
+    first = create_planned_work_order(test_client, title="Pack cancel A", queue_position=1)
+    second = create_planned_work_order(test_client, title="Pack cancel B", queue_position=2)
+    advance_to_packing(test_client, first["id"])
+    advance_to_packing(test_client, second["id"])
+
+    assert start_packing_request(test_client, first["id"]).status_code == 200
+    assert start_packing_request(test_client, second["id"]).status_code == 409
+
+    released = test_client.post(f"/process/work-orders/{first['id']}/packing/release")
+    assert released.status_code == 200
+    assert released.json()["is_being_packed"] is False
+
+    claim_second = start_packing_request(test_client, second["id"])
+    assert claim_second.status_code == 200
+    assert claim_second.json()["is_being_packed"] is True
+
+
 def test_completing_packing_releases_station_for_next_order(test_client: TestClient) -> None:
     first = create_planned_work_order(test_client, title="Pack release A", queue_position=1)
     second = create_planned_work_order(test_client, title="Pack release B", queue_position=2)

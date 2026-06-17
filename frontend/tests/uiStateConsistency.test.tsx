@@ -31,6 +31,8 @@ vi.mock("../src/api/processApi", () => ({
   completePacking: vi.fn(),
   fetchStageWorkOrders: vi.fn(),
   recordAutomaticPaintConsumption: vi.fn(),
+  startPacking: vi.fn(),
+  releasePacking: vi.fn(),
   transitionStage: vi.fn(),
 }));
 
@@ -104,6 +106,8 @@ const fetchStageWorkOrdersMock = vi.mocked(processApi.fetchStageWorkOrders);
 const recordAutomaticPaintConsumptionMock = vi.mocked(processApi.recordAutomaticPaintConsumption);
 const transitionStageMock = vi.mocked(processApi.transitionStage);
 const completePackingMock = vi.mocked(processApi.completePacking);
+const startPackingMock = vi.mocked(processApi.startPacking);
+const releasePackingMock = vi.mocked(processApi.releasePacking);
 const createWorkOrderMock = vi.mocked(workOrdersApi.createWorkOrder);
 const fetchWorkOrdersMock = vi.mocked(workOrdersApi.fetchWorkOrders);
 const fetchWorkOrderMock = vi.mocked(workOrdersApi.fetchWorkOrder);
@@ -251,6 +255,8 @@ beforeEach(() => {
   recordAutomaticPaintConsumptionMock.mockReset();
   transitionStageMock.mockReset();
   completePackingMock.mockReset();
+  startPackingMock.mockReset();
+  releasePackingMock.mockReset();
   createWorkOrderMock.mockReset();
   fetchWorkOrdersMock.mockReset();
   fetchPaintsMock.mockReset();
@@ -1074,6 +1080,58 @@ describe("frontend state consistency", () => {
     expect(screen.getByText("Podział poprawki: Brakuje 1 szt.")).toBeTruthy();
     fireEvent.change(correctionInputs[4], { target: { value: "1" } });
     expect(screen.getByText("Podział poprawki: Suma zgodna")).toBeTruthy();
+  });
+
+  it("releases the packing station from the claimed order card", async () => {
+    fetchStageWorkOrdersMock.mockResolvedValue([
+      buildStageWorkOrder({
+        id: 33,
+        order_number: "WO-PACK-CLAIM",
+        batch_id: 330,
+        current_active_quantity: 6,
+        planned_quantity: 6,
+        is_being_packed: true,
+        stage_status: { stage: "PACKING", status: { value: "IN_PROGRESS", label: "W toku" } },
+      }),
+    ]);
+    releasePackingMock.mockResolvedValue({} as never);
+
+    render(<PackingWorkOrdersPage />);
+
+    await screen.findByText("WO-PACK-CLAIM :: Klient");
+    fireEvent.click(screen.getByRole("button", { name: "Zwolnij stanowisko" }));
+
+    await waitFor(() => expect(releasePackingMock).toHaveBeenCalledWith(33, 330));
+  });
+
+  it("shows the station as busy and offers a claim button across packing cards", async () => {
+    fetchStageWorkOrdersMock.mockResolvedValue([
+      buildStageWorkOrder({
+        id: 41,
+        order_number: "WO-OWNER",
+        current_active_quantity: 6,
+        planned_quantity: 6,
+        is_being_packed: true,
+        stage_status: { stage: "PACKING", status: { value: "IN_PROGRESS", label: "W toku" } },
+      }),
+      buildStageWorkOrder({
+        id: 42,
+        order_number: "WO-WAITING",
+        current_active_quantity: 6,
+        planned_quantity: 6,
+        is_being_packed: false,
+        stage_status: { stage: "PACKING", status: { value: "IN_PROGRESS", label: "W toku" } },
+      }),
+    ]);
+
+    render(<PackingWorkOrdersPage />);
+
+    await screen.findByText("WO-OWNER :: Klient");
+    // The waiting order shows it is blocked by the order that holds the station, with no claim button.
+    expect(screen.getByText("Zajęte: pakowanie WO-OWNER")).toBeTruthy();
+    // The owner shows the completion form (and a release control), not a fresh claim button.
+    expect(screen.getByRole("button", { name: "Zakończ pakowanie" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Rozpocznij pakowanie" })).toBeNull();
   });
 
   it("keeps stage list visible when one correction detail fetch fails", async () => {

@@ -201,8 +201,12 @@ they are not yet validated against live factory policy where noted.
   `tests/test_packing_station_lock.py` (8), two API tests in `tests/test_process_api.py`, chaos scenario
   `two_operators_claim_same_packing_station`. Docs: WORKFLOW.md "Packing station exclusivity",
   WORKFLOW_VALIDATION_CHECKLIST.md #9 → IMPLEMENTED. Verified: full backend `pytest` green, `alembic check`
-  clean, frontend 67 passed + build. Optional follow-up: an explicit "release/cancel claim" action
-  (today the claim frees on completion or correction reset).
+  clean, frontend + build.
+  Follow-up DONE (2026-06-17): explicit **release/cancel claim** — `release_packing` +
+  `POST .../packing/release` (and batch variant) frees the station without completing (drops the claim
+  only, idempotent, cannot release another order's claim); UI "Zwolnij stanowisko" control on the claimed
+  card. Covered by service tests (release frees station, idempotent/no-steal), an API test, and frontend
+  tests (release button + busy/claim states).
 
 - **NA15 (2026-06-17)** — Dedicated Decoral-pass throughput, built on the new stage-transition log.
   `m2_decoral` is now a separate, additional series attributed at the actual Decoral pass (latest

@@ -441,6 +441,44 @@ class ProcessService:
             refreshed_work_order = self.get_work_order_process(work_order_id)
             return self._to_stage_work_order_read(refreshed_work_order, ProcessStage.PACKING)
 
+    def release_packing(
+        self,
+        work_order_id: int,
+        batch_id: int | None = None,
+        station_context: StationContext | None = None,
+    ) -> ProcessStageWorkOrderRead:
+        """Release this work order's claim on the packing station without completing it.
+
+        For when an operator claimed the wrong order. Only frees the claim (drops the ``PACKING``
+        lock if this order holds it); it does not change packing stage status, so the card simply
+        returns to the unclaimed "ready to start" state. Idempotent and cannot release another
+        order's claim (the repository only deletes a lock owned by this work order).
+        """
+        with self._serialize_process_mutation(work_order_id):
+            work_order = self.get_work_order_process(work_order_id)
+            self._ensure_packing_station_action(station_context)
+            held_claim = self._get_packing_lock_owner_id() == work_order.id
+            with self._serialize_resource_mutation(self.PACKING_RESOURCE_KEY):
+                self.repository.release_resource_lock(self.PACKING_RESOURCE_KEY, work_order.id)
+            if held_claim:
+                self._record_audit_event(
+                    event_type="process.packing.claim_released",
+                    station_context=station_context,
+                    work_order=work_order,
+                    target_type="process_stage",
+                    target_id=batch_id,
+                    summary=f"Released packing-station claim for work order {work_order.order_number}.",
+                    details={"stage": ProcessStage.PACKING.value, "batch_id": batch_id},
+                )
+            try:
+                self.repository.commit()
+            except Exception:
+                self.repository.rollback()
+                raise
+            refreshed_work_order = self.get_work_order_process(work_order_id)
+            target_batch = self._resolve_batch_for_stage(refreshed_work_order, ProcessStage.PACKING, batch_id)
+            return self._to_stage_work_order_read(refreshed_work_order, ProcessStage.PACKING, batch=target_batch)
+
     def complete_packing(
         self,
         work_order_id: int,
