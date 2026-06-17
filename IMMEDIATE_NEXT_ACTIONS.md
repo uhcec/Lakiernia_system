@@ -185,7 +185,39 @@ they are not yet validated against live factory policy where noted.
 
 ---
 
+## Open (from the 2026-06-17 workflow audit)
+
+### NA19. Finalize force-sets `completed_quantity = total_quantity` without surfacing a mismatch
+- Severity: LOW. `ProcessService._can_finalize_work_order` finalizes when correction children exist,
+  no open corrections remain, and `current_active_quantity == 0` — then sets `completed = total` even
+  if `completed < total`. Quantity conservation should make them equal, so this is a safety net, but it
+  would *mask* a hypothetical leak rather than surface it.
+- Fix: assert/log when `completed != total` at force-finalize instead of silently overwriting.
+- Acceptance: a finalize with an unexpected quantity gap is observable (log/raised), normal cases
+  unchanged.
+
+### NA20. Multi-worker durability for "no duplicate correction child" (carried from NA8)
+- Severity: known/accepted. The guarantee relies on the in-process lock; documented single-worker
+  deploy. Durable cross-process idempotency remains future work.
+
+### NA21. Factory-policy validation of S01–S12 (esp. the single-Decoral-pass correction model)
+- Severity: policy, not code. Tests prove internal consistency, not shop-floor correctness. Recommended:
+  guided walkthrough of each scenario in the running app to produce a factory-confirmation checklist.
+
 ## Done
+
+- **Workflow audit (2026-06-17)** — Full read-only audit of the process engine (display-status/READY
+  derivation, finalize/merge chain, both correction paths, reopen guards, resource-lock lifecycle,
+  auto/manual separation). Verdict: no critical code defect; corrections use a robust *flat-child*
+  model (all descendants are children of the root, avoiding deep recursion) and auto/manual cannot be
+  tangled mid-flow (`_ensure_production_not_started` guards `update_production_type`). Fixed: the
+  **S07/S08 (and tightened S11/S12) scenario-matrix drift** — the matrix claimed correction children run
+  their own `DECORAL_PRODUCTION`, but the code (and the Corrections-Behavior section) implement one
+  Decoral pass on the root with the child closing at packing. Closed audit test gaps: added
+  `test_cannot_change_production_type_after_production_started` (D1), `…_S08` automatic DECORAL
+  correction to READY, and `…_S11` correction-of-a-correction to READY (D2). Remaining items logged
+  above as NA19 (LOW), NA20 (known), NA21 (policy). Verified: full backend `pytest` green, `alembic`
+  clean.
 
 - **NA18 — Live WIP-aging / "stuck orders" view (2026-06-17)** — A live manager view of work currently
   in progress, ordered by how long it has sat in its current stage. New
