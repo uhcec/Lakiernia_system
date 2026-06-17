@@ -217,11 +217,36 @@ they are not yet validated against live factory policy where noted.
   ONCE (m² through the factory). So "manual + automatic + decoral" is NOT a valid single sum (it would
   double-count decoral orders, which already sit inside manual/automatic). Instead the detailed view is
   **two independent partitions of the same total**, each of which sums to the whole:
-  (1) by production method `manual + automatic = total`, (2) by coating `RAL + decoral = total`.
-  The existing "Przejazd Decoral" m² is a *separate line-workload counter* (overlaps base coat) and
-  must stay out of the total. m² is the primary unit; pieces secondary but should be supported.
-- Still to confirm before building: UI presentation (the two partitions as stacked bars / columns /
-  drill-down) and exactly which stats get it (throughput, cycle-time, WIP-aging).
+  (1) by production method `manual + automatic = total`, (2) by order coating type
+  `RAL-only ("czysty RAL") + decoral = total` — the RAL bucket is RAL-*only* orders, NOT "all RAL
+  coats" (a decoral order counts once, on the decoral side; mislabeling it "RAL" breaks the sum).
+  "manual + automatic + decoral" is NOT a valid single sum. The existing "Przejazd Decoral" m² is a
+  *separate line-workload counter* (coats applied, overlaps base coat) and must stay out of the total.
+  m² is the primary unit; pieces secondary but should be supported.
+- Still to confirm before building: exactly which stats beyond throughput get it (cycle-time,
+  WIP-aging) — deferred. m² first; pieces later via the same pattern.
+
+#### Proposed visualization (agreed with owner 2026-06-17, NOT yet implemented)
+Theme: **one total, shown in two cross-sections** — makes it obvious it's the same whole cut twice,
+not three separate slices. Scope of this first pass = the **Przepustowość** (throughput) section, m²
+only. Five elements, top to bottom:
+1. **Headline** — "PRZEZ FABRYKĘ · {miesiąc}: {m2_total} m² · {orders_count} zleceń".
+2. **"Skład produkcji" — two equal-width horizontal 100% bars** (same total length), cut differently:
+   one by method (Ręczna / Automat), one by coating (Czysty RAL / Decoral). The equal length visually
+   asserts both partitions equal the same whole. Cheap to build (flex-width divs), highest "wow".
+3. **Daily stacked bar chart with a cross-section toggle** `[ Metoda ] ( Powłoka )` — bar segments
+   switch between Ręczna/Automat and Czysty RAL/Decoral; **total bar height stays constant** when
+   toggling (reinforces "two cuts of one whole"). Extends the existing `BarChart` to stacked.
+4. **Przejazd Decoral** — keep the existing separate small chart, explicitly labelled "obciążenie
+   linii decoral — nie wlicza się do sumy" (this is coats-applied workload, overlaps base coat).
+5. **Detail table with grouped columns** — `Okres | Razem | (Ręczna, Automat) | (Czysty RAL, Decoral)
+   | Przejazd Decoral*`, where each group sums to Razem (visually verifiable), przejazd flagged with
+   `*osobny licznik, nie wlicza się do „Razem"`.
+- Backend shape when built: add to `ThroughputPeriod` the coating-of-order split, e.g.
+  `m2_ral_only` + `m2_decoral_product` (decoral order counted ONCE at base-coat packing) so that
+  `m2_ral_only + m2_decoral_product == m2_total`. **Naming trap:** the existing field `m2_decoral` is
+  the *przejazd* (decoral pass / coats workload); rename it to `m2_decoral_pass` to free `m2_decoral`
+  / avoid confusion with the new product-side decoral. Touches frontend + tests.
 
 ### NA21. Factory-policy validation of S01–S12 (esp. the single-Decoral-pass correction model)
 - Severity: policy, not code. Tests prove internal consistency, not shop-floor correctness.

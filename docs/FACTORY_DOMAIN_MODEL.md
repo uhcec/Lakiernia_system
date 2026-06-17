@@ -67,11 +67,10 @@ Key consequences (confirmed by the owner):
   - **Nature/purpose of the second coat:** **[TBD — parked]** — deliberately deferred; to be clarified
     with a knowledgeable colleague. Not needed for the current modelling/stats work.
 
-  > ⚠️ **Possible model/reality gap (to verify, do not "fix" yet):** the system today models the
-  > decoral pass as a single trailing `DECORAL_PRODUCTION` stage after `PACKING`, with **no separate
-  > decoral-packing stage**. The owner describes a distinct decoral packing station *after* the decoral
-  > coat. Confirm whether decoral packing is (a) a real, separately tracked step the system is missing,
-  > or (b) physically real but intentionally out of system scope, before changing anything.
+  > **Modelling decision (confirmed by owner 2026-06-17):** physically there is a separate decoral
+  > packing station after the decoral coat, but the **system intentionally does not track it as its own
+  > stage**. The current model — a single trailing `DECORAL_PRODUCTION` stage after `PACKING`, with no
+  > separate decoral-packing stage — is accepted as-is. Do **not** add a decoral-packing stage/tab.
 
 ### Production axis in detail (confirmed)
 
@@ -192,14 +191,25 @@ This is **consistent with how throughput is already computed** (`m2_total` sums 
 total). It also makes one thing explicit that the system did not yet expose — a clean **coating
 partition** of the total:
 
-- **Total production** = the m² (or pieces) of each order, counted **once**.
+- **Total production** = the m² (or pieces) of each order, counted **once** ("how much product passed
+  through the factory").
 - It partitions cleanly along **either** axis, and **both partitions sum to the same total**:
   - **By production method:** `manual + automatic = total` (every order has exactly one method).
-  - **By coating:** `RAL + decoral = total` (every order has exactly one coating; a decoral order's
-    m² counts once, on the decoral side).
-- Therefore the manual/automatic and the RAL/decoral splits are **two independent breakdowns of the
-  same whole**, not a single three-way bucket. "Manual + automatic + decoral" is **not** a valid sum
-  (it would double-count decoral orders, which are already inside manual/automatic).
+  - **By order coating type:** `RAL-only + decoral = total`. ⚠️ The "RAL" bucket here means
+    **orders whose coating type is RAL only** (no decoral) — *not* "everything that received a RAL
+    coat." A decoral order physically gets a RAL base coat too, but as a **product** it is classified
+    `DECORAL` and counts **once, on the decoral side**. Label this bucket "czysty RAL / RAL only", never
+    just "RAL", or it reads as "all RAL coats" and the partition stops summing (this exact mislabel
+    caused real confusion — owner, 2026-06-17).
+- Therefore the method split and the coating split are **two independent ways of cutting the same
+  whole**, not a single three-way bucket. **"Manual + automatic + decoral" is NOT a valid sum** —
+  manual + automatic already equals the whole; decoral lives on the other axis, so adding it
+  double-counts every decoral order. (This was the owner's original phrasing; it was retracted once we
+  worked a numeric example.)
+- **Counting *coats applied* is a different question** that deliberately does **not** sum to total
+  product: every order gets a RAL coat (incl. decoral orders' base), and decoral orders get an extra
+  decoral coat, so "RAL coats + decoral coats" > total product. That is line/coat workload (see the
+  "przejazd decoral" counter below), not throughput.
 
 **Two different meanings of "decoral m²" — do not conflate:**
 
