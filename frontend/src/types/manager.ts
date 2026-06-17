@@ -63,3 +63,19 @@ export interface CycleTimeStats {
   overall_average_seconds: number | null;
   stages: StageCycleTime[];
 }
+
+export interface WipAgingItem {
+  work_order_id: number;
+  order_number: string;
+  customer_name: string | null;
+  stage: string;
+  stage_label: string;
+  production_type: string | null;
+  queue_position: number | null;
+  age_seconds: number;
+}
+
+export interface WipAgingStats {
+  generated_at: string;
+  items: WipAgingItem[];
+}

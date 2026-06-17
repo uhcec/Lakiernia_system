@@ -14,6 +14,7 @@ from app.manager.schemas import (
     CorrectionReasonReportItem,
     CycleTimeStats,
     ThroughputStats,
+    WipAgingStats,
     WorkOrderPlanAssignRequest,
     WorkOrderProductionTypeUpdateRequest,
     WorkOrderQueuePositionUpdateRequest,
@@ -63,6 +64,14 @@ def get_cycle_time_stats(
     service: Annotated[ManagerService, Depends(get_manager_service)] = ...,
 ) -> CycleTimeStats:
     return service.get_cycle_time_stats(date_from, date_to, station_context=station_context)
+
+
+@router.get("/stats/wip-aging", response_model=WipAgingStats)
+def get_work_in_progress_aging(
+    station_context: Annotated[StationContext, Depends(get_station_context)],
+    service: Annotated[ManagerService, Depends(get_manager_service)] = ...,
+) -> WipAgingStats:
+    return service.get_work_in_progress_aging(station_context=station_context)
 
 
 @router.get("/corrections/reason-report", response_model=list[CorrectionReasonReportItem])

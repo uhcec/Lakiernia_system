@@ -77,3 +77,19 @@ class CycleTimeStats(BaseModel):
     orders_count: int
     overall_average_seconds: float | None
     stages: list[StageCycleTime]
+
+
+class WipAgingItem(BaseModel):
+    work_order_id: int
+    order_number: str
+    customer_name: str | None
+    stage: ProcessStage
+    stage_label: str
+    production_type: ProductionType | None
+    queue_position: int | None
+    age_seconds: float
+
+
+class WipAgingStats(BaseModel):
+    generated_at: datetime
+    items: list[WipAgingItem]

@@ -22,6 +22,8 @@ from app.manager.schemas import (
     StageCycleTime,
     ThroughputPeriod,
     ThroughputStats,
+    WipAgingItem,
+    WipAgingStats,
     WorkOrderPlanAssignRequest,
     WorkOrderProductionTypeUpdateRequest,
     WorkOrderQueuePositionUpdateRequest,
@@ -69,6 +71,17 @@ _STAGE_LABELS_PL: dict[ProcessStage, str] = {
     ProcessStage.PACKING: "Pakowanie",
     ProcessStage.DECORAL_PRODUCTION: "Decoral",
 }
+
+
+def _as_naive_utc(value: datetime) -> datetime:
+    """Normalize a datetime to naive UTC so log/now timestamps subtract cleanly.
+
+    SQLite returns naive datetimes even for tz-aware columns, while ``datetime.now(UTC)`` is aware;
+    coercing both avoids "can't subtract offset-naive and offset-aware" errors.
+    """
+    if value.tzinfo is not None:
+        return value.astimezone(UTC).replace(tzinfo=None)
+    return value
 
 
 class ManagerService:
@@ -478,6 +491,80 @@ class ManagerService:
             overall_average_seconds=overall_average,
             stages=stages,
         )
+
+    def get_work_in_progress_aging(
+        self,
+        station_context: StationContext | None = None,
+        now: datetime | None = None,
+    ) -> WipAgingStats:
+        """Live "stuck orders" view: work currently IN_PROGRESS, by how long it has sat there.
+
+        Cohort is taken from the **live** ``WorkOrderStageState`` rows that are actually
+        ``IN_PROGRESS`` (so a correction reset can never leave a stale "stuck" row), one row per
+        order at its furthest-advanced in-progress stage. The age timestamp comes from the durable
+        stage-transition log (latest ``IN_PROGRESS`` event for that order+stage), falling back to the
+        stage state's ``updated_at`` when no log row exists. Manager/admin only; read-only.
+        """
+        self._ensure_stats_viewer(station_context)
+        session = self.repository.session
+        reference_now = now or datetime.now(UTC)
+
+        rows = session.execute(
+            select(WorkOrderStageState, WorkOrder)
+            .join(WorkOrder, WorkOrder.id == WorkOrderStageState.work_order_id)
+            .where(WorkOrderStageState.status == StageStatus.IN_PROGRESS)
+        ).all()
+
+        # One entry per order: the furthest-advanced stage currently IN_PROGRESS (automatic orders
+        # have PRODUCTION + PACKING both in progress; the later stage is the meaningful one).
+        chosen: dict[int, tuple[WorkOrderStageState, WorkOrder]] = {}
+        for stage_state, work_order in rows:
+            if stage_state.stage not in _STAGE_DISPLAY_ORDER:
+                continue
+            existing = chosen.get(work_order.id)
+            if existing is None or _STAGE_DISPLAY_ORDER.index(stage_state.stage) > _STAGE_DISPLAY_ORDER.index(
+                existing[0].stage
+            ):
+                chosen[work_order.id] = (stage_state, work_order)
+
+        if not chosen:
+            return WipAgingStats(generated_at=reference_now, items=[])
+
+        event_at: dict[tuple[int, ProcessStage], datetime] = {
+            (row.work_order_id, row.stage): row.started_at
+            for row in session.execute(
+                select(
+                    StageTransitionEvent.work_order_id,
+                    StageTransitionEvent.stage,
+                    func.max(StageTransitionEvent.occurred_at).label("started_at"),
+                )
+                .where(
+                    StageTransitionEvent.status == StageStatus.IN_PROGRESS,
+                    StageTransitionEvent.work_order_id.in_(list(chosen)),
+                )
+                .group_by(StageTransitionEvent.work_order_id, StageTransitionEvent.stage)
+            ).all()
+        }
+
+        items: list[WipAgingItem] = []
+        for work_order_id, (stage_state, work_order) in chosen.items():
+            started_at = event_at.get((work_order_id, stage_state.stage), stage_state.updated_at)
+            age_seconds = (_as_naive_utc(reference_now) - _as_naive_utc(started_at)).total_seconds()
+            items.append(
+                WipAgingItem(
+                    work_order_id=work_order_id,
+                    order_number=work_order.order_number,
+                    customer_name=work_order.customer_name,
+                    stage=stage_state.stage,
+                    stage_label=_STAGE_LABELS_PL[stage_state.stage],
+                    production_type=work_order.production_type,
+                    queue_position=work_order.queue_position,
+                    age_seconds=round(max(age_seconds, 0.0), 1),
+                )
+            )
+
+        items.sort(key=lambda item: item.age_seconds, reverse=True)
+        return WipAgingStats(generated_at=reference_now, items=items)
 
     def assign_plan(
         self,

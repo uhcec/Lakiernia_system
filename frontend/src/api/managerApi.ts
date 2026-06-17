@@ -8,6 +8,7 @@ import type {
   ThroughputStats,
   UpdateProductionTypeRequest,
   UpdateQueuePositionRequest,
+  WipAgingStats,
 } from "../types/manager";
 import type { WorkOrder } from "../types/workOrders";
 
@@ -110,6 +111,19 @@ export async function fetchCycleTimeStats(dateFrom: string, dateTo: string): Pro
   }
 
   return response.json() as Promise<CycleTimeStats>;
+}
+
+export async function fetchWipAging(): Promise<WipAgingStats> {
+  const finalUrl = createApiUrl("/manager/stats/wip-aging");
+  const response = await fetch(finalUrl, {
+    headers: { Accept: "application/json", ...getCurrentStationHeaders() },
+  });
+
+  if (!response.ok) {
+    throw await createApiError(response, "Nie udało się pobrać zleceń w toku");
+  }
+
+  return response.json() as Promise<WipAgingStats>;
 }
 
 export function getCorrectionReasonReportExportUrl(): string {

@@ -414,6 +414,30 @@ def test_cycle_time_stats_reports_completed_order_stages_and_is_manager_gated(te
     assert body["overall_average_seconds"] is not None and body["overall_average_seconds"] >= 0
 
 
+def test_wip_aging_lists_in_progress_order_and_is_manager_gated(test_client: TestClient) -> None:
+    order = create_work_order(test_client, "WIP aging API", total_area_m2=10.0)
+    test_client.post(f"/manager/work-orders/{order['id']}/plan", json={"production_type": "MANUAL", "queue_position": 1})
+    # Drive to PRODUCTION IN_PROGRESS (do not finish), so the order is genuinely "in progress".
+    test_client.post(f"/process/work-orders/{order['id']}/stages/SURFACE_PREPARATION/start")
+    test_client.post(
+        f"/process/work-orders/{order['id']}/stages/SURFACE_PREPARATION/finish",
+        json={"counted_quantity": 100},
+    )
+    test_client.post(f"/process/work-orders/{order['id']}/stages/PRODUCTION/start")
+
+    forbidden = test_client.get("/manager/stats/wip-aging", headers={"X-Station-Id": "PACKING"})
+    assert forbidden.status_code == 403
+
+    response = test_client.get("/manager/stats/wip-aging")  # admin (no header)
+    assert response.status_code == 200
+    body = response.json()
+    matching = [item for item in body["items"] if item["order_number"] == order["order_number"]]
+    assert len(matching) == 1
+    assert matching[0]["stage"] == "PRODUCTION"
+    assert matching[0]["production_type"] == "MANUAL"
+    assert matching[0]["age_seconds"] >= 0
+
+
 def test_throughput_splits_base_production_by_production_type_including_decoral(test_client: TestClient) -> None:
     # Base-production throughput is split purely by production type: a DECORAL order's base
     # coat counts toward m2_manual/m2_automatic exactly like RAL. The Decoral pass m² is a

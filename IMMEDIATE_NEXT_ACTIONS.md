@@ -187,6 +187,19 @@ they are not yet validated against live factory policy where noted.
 
 ## Done
 
+- **NA18 — Live WIP-aging / "stuck orders" view (2026-06-17)** — A live manager view of work currently
+  in progress, ordered by how long it has sat in its current stage. New
+  `ManagerService.get_work_in_progress_aging` + `GET /manager/stats/wip-aging` (manager/admin only).
+  Cohort comes from **live** `WorkOrderStageState` rows that are `IN_PROGRESS` (one per order at its
+  furthest-advanced in-progress stage; automatic → `PACKING` over `PRODUCTION`), so a correction reset
+  can't leave a stale row; age = `now` − the durable latest `IN_PROGRESS` event from the transition log
+  (fallback stage-state `updated_at`). `_as_naive_utc` normalizes log vs `now()` timestamps (SQLite
+  returns naive). Statystyki page shows a "Zlecenia w toku" table at the top (oldest first, rows >24h
+  highlighted), fetched live independent of the month anchor. Tests: `tests/test_wip_aging.py` (4: sort
+  by age, furthest-advanced stage for automatic, excludes not-started, manager gating) + API test in
+  `tests/test_manager_api.py`. Docs: WORKFLOW.md "Live WIP-aging". Verified: backend `pytest` green,
+  `alembic check` clean, frontend tests + build. Read-only; no workflow/queue change.
+
 - **NA17 — Stage cycle-time / bottleneck stats (2026-06-17)** — First time-in-stage analytics read off
   the `stage_transition_events` log (built as the analytics backbone but previously only feeding packing
   throughput + Decoral-pass m²). New `ManagerService.get_cycle_time_stats` + `GET /manager/stats/cycle-time`

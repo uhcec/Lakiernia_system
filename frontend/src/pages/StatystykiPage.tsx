@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import { fetchCycleTimeStats, fetchThroughputStats } from "../api/managerApi";
-import type { CycleTimeStats, ThroughputPeriod, ThroughputStats } from "../types/manager";
+import { fetchCycleTimeStats, fetchThroughputStats, fetchWipAging } from "../api/managerApi";
+import type { CycleTimeStats, ThroughputPeriod, ThroughputStats, WipAgingStats } from "../types/manager";
 import { BarChart, type BarChartPoint } from "../components/BarChart";
 
 type GroupBy = "day" | "week" | "month";
@@ -98,6 +98,12 @@ function buildCycleTimePoints(stats: CycleTimeStats): BarChartPoint[] {
   }));
 }
 
+function productionTypeLabel(value: string | null): string {
+  if (value === "MANUAL") return "Ręczna";
+  if (value === "AUTOMATIC") return "Automat";
+  return "—";
+}
+
 function buildWaitTimePoints(stats: CycleTimeStats): BarChartPoint[] {
   return stats.stages
     .filter((stage) => stage.average_wait_before_seconds !== null)
@@ -113,6 +119,7 @@ export function StatystykiPage() {
   const [anchor, setAnchor] = useState<MonthAnchor>(currentMonthAnchor);
   const [throughputStats, setThroughputStats] = useState<ThroughputStats | null>(null);
   const [cycleTimeStats, setCycleTimeStats] = useState<CycleTimeStats | null>(null);
+  const [wipAging, setWipAging] = useState<WipAgingStats | null>(null);
   const [loadedParams, setLoadedParams] = useState<LoadedParams | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -144,6 +151,22 @@ export function StatystykiPage() {
     };
   }, [anchor]);
 
+  // WIP-aging is a live "what's stuck right now" view, independent of the selected month.
+  useEffect(() => {
+    let cancelled = false;
+    fetchWipAging()
+      .then((stats) => {
+        if (!cancelled) setWipAging(stats);
+      })
+      .catch(() => {
+        // Non-blocking: the rest of the page stays usable if this live view fails.
+        if (!cancelled) setWipAging(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   function shiftMonth(delta: number) {
     setAnchor((current) => {
       const d = new Date(current.year, current.month + delta, 1);
@@ -153,6 +176,47 @@ export function StatystykiPage() {
 
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-7xl flex-col gap-6 px-4 py-8 sm:px-6 lg:px-8">
+      {wipAging && wipAging.items.length > 0 ? (
+        <section className="rounded-[2rem] border border-white/70 bg-white/80 p-6 shadow-panel backdrop-blur sm:p-8">
+          <div className="mb-4">
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">Na żywo</p>
+            <h2 className="mt-1 text-3xl font-semibold text-ink sm:text-4xl">Zlecenia w toku</h2>
+            <p className="mt-2 text-sm text-steel">
+              Zlecenia aktualnie w realizacji, według czasu spędzonego na bieżącym etapie (najdłużej u góry).
+            </p>
+          </div>
+          <div className="overflow-x-auto rounded-3xl border border-line bg-white">
+            <table className="w-full min-w-[640px] text-sm">
+              <thead>
+                <tr className="border-b border-line bg-mist text-xs font-semibold uppercase tracking-[0.1em] text-steel">
+                  <th className="px-5 py-3 text-left">Zlecenie</th>
+                  <th className="px-4 py-3 text-left">Klient</th>
+                  <th className="px-4 py-3 text-left">Etap</th>
+                  <th className="px-4 py-3 text-left">Produkcja</th>
+                  <th className="px-4 py-3 text-right">Czas na etapie</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-line">
+                {wipAging.items.map((item) => {
+                  const isLong = item.age_seconds >= 24 * 3600;
+                  return (
+                    <tr key={item.work_order_id} className={isLong ? "bg-rose-50/60 text-ink" : "text-ink hover:bg-mist/40"}>
+                      <td className="px-5 py-3 font-medium">{item.order_number}</td>
+                      <td className="px-4 py-3 text-steel">{item.customer_name ?? "—"}</td>
+                      <td className="px-4 py-3 text-steel">{item.stage_label}</td>
+                      <td className="px-4 py-3 text-steel">{productionTypeLabel(item.production_type)}</td>
+                      <td className={`px-4 py-3 text-right font-semibold ${isLong ? "text-rose-700" : ""}`}>
+                        {formatDuration(item.age_seconds)}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      ) : null}
+
       <section className="rounded-[2rem] border border-white/70 bg-white/80 p-6 shadow-panel backdrop-blur sm:p-8">
         <div className="mb-6">
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">Produkcja</p>

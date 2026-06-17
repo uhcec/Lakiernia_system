@@ -403,6 +403,17 @@ first time-in-stage read off the log. Definitions:
   lead-time figure, and a table). This is bottleneck visibility only; it never changes workflow or queue
   behavior.
 
+### Live WIP-aging ("stuck orders")
+
+`ManagerService.get_work_in_progress_aging` (manager/admin only, `GET /manager/stats/wip-aging`) is a
+**live** "what's stuck right now" view, independent of any date window. Cohort is taken from the **live**
+`WorkOrderStageState` rows that are actually `IN_PROGRESS` (one entry per order at its furthest-advanced
+in-progress stage — automatic orders have `PRODUCTION` + `PACKING` both in progress, so `PACKING` wins),
+so a correction reset can never leave a stale "stuck" row. Each item's age is `now -` the durable latest
+`IN_PROGRESS` event for that order+stage from the transition log (falling back to the stage state's
+`updated_at`). Items are sorted oldest-first. The Statystyki page renders it as a "Zlecenia w toku" table
+at the top, highlighting rows older than 24h. Read-only; it never changes workflow or queue behavior.
+
 ## Additional Work Types
 
 Confirmed concepts:
