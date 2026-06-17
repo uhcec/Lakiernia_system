@@ -257,6 +257,47 @@ only. Five elements, top to bottom:
   confirm the modeled policy matches the shop floor (especially the single-Decoral-pass correction
   model). This needs the factory, not code.
 
+### NA24. Whole-repo documentation coherence audit (factory + system expectations, into one consistent whole)
+- Severity: MEDIUM (foundational — every future plan/implementation rests on the docs being a single,
+  consistent, complete source of truth). Do this **before** NA25 (NA25 audits code *against* the
+  result of this).
+- Goal: read **all** documentation across the repository and reconcile it into **one coherent whole**
+  that explains (a) how the factory physically works, (b) what we expect the system to do, and
+  (c) surfaces topics that *should* be documented but currently are not (the owner explicitly expects
+  gaps he hasn't named yet to be found and raised).
+- Scope: at least `CLAUDE.md`, `README.md`, `docs/FACTORY_DOMAIN_MODEL.md`, `docs/WORKFLOW.md`,
+  `docs/WORKFLOW_VALIDATION_CHECKLIST.md`, `docs/FACTORY_USAGE_NOTES.md`,
+  `docs/FACTORY_DECISION_IMPLEMENTATION_MAP_PL.md`, `docs/PAINT_SYSTEM_DEFINITION_DRAFT_PL.md`,
+  `docs/STATION_IDENTITY_AND_AUDIT.md`, `docs/OPERATOR_USABILITY_AUDIT_PL.md`,
+  `docs/UI_PASSIVE_REVIEW_PL.md`, `docs/AUTHZ_DESIGN_PROPOSAL.md`, `docs/WORKING_CONTRACT.md`,
+  `docs/DEVELOPMENT_RUNBOOK.md`, `HARDENING_BACKLOG.md`, this file. (Code is NOT in scope here — that
+  is NA25.)
+- Method: build a topic map; for each topic check the docs agree with each other; record every
+  (1) contradiction between docs, (2) duplicate/overlapping statement that should have one owner,
+  (3) stale claim, and (4) **missing topic** that the coherent whole needs. Respect the doc hierarchy
+  (physical truth → `WORKFLOW.md` → implementation) and the rule that workflow meaning lives in
+  `WORKFLOW.md`. Confirm factory-policy questions with the owner rather than guessing.
+- Output: a written reconciliation (gaps + conflicts list with proposed resolution per item), and the
+  doc edits that bring everything into one consistent whole (or, where policy is unclear, questions
+  for the owner). Do not change code.
+- Acceptance: a single pass exists where the docs no longer contradict each other; each topic has one
+  authoritative home; the list of "should be documented but isn't" is raised with the owner; no code
+  changes made under this item.
+
+### NA25. Conformance audit — documented "coherent whole" (NA24) vs. what is actually coded
+- Severity: MEDIUM. Depends on NA24 (audits against its result).
+- Goal: with the reconciled documentation as the spec, audit the **codebase** (backend services/read
+  models, frontend renderers, tests, migrations) for where implementation **diverges** from the
+  documented intent — both directions: behavior the docs require but code lacks/contradicts, and
+  behavior the code has that the docs don't describe.
+- Method: walk topic-by-topic from the NA24 map; for each, cite `file:line` evidence of agreement or
+  divergence; classify each divergence as doc-wrong (update docs) vs. code-wrong (fix code) vs.
+  needs-owner-decision. Read-only audit first — do not fix as you go.
+- Output: a divergence report (per item: doc says X, code does Y at `file:line`, proposed direction +
+  severity), feeding concrete follow-up items back into this file.
+- Acceptance: every major documented topic has an explicit conformance verdict with evidence;
+  divergences are logged as actionable items; no silent fixes bundled into the audit.
+
 ## Done
 
 - **NA22 — Packing capacity model: automatic reserves at HANGING start + manual second-slot override
