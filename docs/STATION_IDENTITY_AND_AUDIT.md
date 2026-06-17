@@ -58,6 +58,11 @@ Near-term API transport:
 - invalid station values are rejected with a controlled client error once enforcement is enabled for audited mutations
 - during rollout, missing station values may be accepted as `UNKNOWN` to avoid breaking existing clients/tests
 
+> **Update (NA1, 2026-06-16):** authorization no longer comes from this header at all — it is derived
+> from the authenticated JWT user's role, and the `UNKNOWN` allow-bypass was removed (a missing header
+> no longer bypasses anything). The header is now inert server-side, kept only as audit/device context.
+> The transport notes above are retained as historical rollout design.
+
 Frontend mapping should be route/panel based, not user-entered on every action:
 
 - `/zlecenia` -> `OFFICE`
@@ -157,7 +162,7 @@ Confirmed permission direction:
 
 - `OFFICE`: individual login; create/update intake, enter external work-order number, enter paint identity plus the current stock snapshot fields required by the paint slice, later enter/select stock state once a shared inventory exists, view discrepancies, manage attachments, mark completed order as issued/released, generate WZ when implemented
 - `MANAGER`: assign production type, queue/reorder, view global queue and discrepancies, view paint/inventory warnings, view manager-only statistics
-- `SURFACE_PREPARATION`: start surface prep, enter counted quantity, confirm quantity discrepancy, finish surface prep after counted quantity exists
+- `SURFACE_PREPARATION`: start surface prep, enter counted quantity, finish surface prep after counted quantity exists (no separate discrepancy-confirmation step — see `WORKFLOW.md` / `FACTORY_USAGE_NOTES.md`)
 - `HANGING`: start/finish hanging
 - `AUTOMATIC_PRODUCTION`: enter paint consumption for automatic work according to the current paint slice implementation; no manual start/finish for automatic production unless separately decided
 - `MANUAL_PRODUCTION`: start/finish manual production

@@ -2,6 +2,13 @@
 
 Status: robocza mapa po odpowiedziach fabryki z 2026-06-01. Sluzy do szybkiego przetlumaczenia potwierdzonych odpowiedzi na bezpieczne zadania techniczne.
 
+> ⚠️ **MIGAWKA HISTORYCZNA (2026-06-01) — NIE JEST AKTUALNYM ZRODLEM PRAWDY.** Zachowana jako zapis
+> decyzji z tamtego dnia. Czesc tresci jest juz nieaktualna wzgledem `docs/WORKFLOW.md` i kodu —
+> weryfikuj kazda pozycje wzgledem aktualnych dokow (`docs/DOC_COHERENCE_AUDIT.md`). Znane rozbieznosci:
+> sekcja 3 (dokument QC jest **zaimplementowany**), sekcja 4 (prog formuly farby to **100 m², nie 70 m²**,
+> a ostrzezenie o brakach farby przy przyjeciu **dziala**), sekcja 8 (pakowanie ma juz model N stanowisk
+> — `PACKING:1..N`, domyslnie 2).
+
 Zasada pracy: jesli odpowiedz dotyczy realnej polityki fabryki, najpierw aktualizujemy `docs/WORKFLOW.md` i `docs/FACTORY_USAGE_NOTES.md`, potem dodajemy testy, potem implementujemy najmniejsza spojna zmiane.
 
 ## Jak klasyfikowac odpowiedzi

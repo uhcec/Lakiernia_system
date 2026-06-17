@@ -71,7 +71,8 @@ Local URLs:
 All business endpoints require a logged-in user (JWT). `scripts/reset_and_seed_dev_db.py` seeds one
 account per station plus an admin. The full local credential table is in `README.md` (Login section);
 the most common are `biuro`/`bi1` (office), `kierownik`/`ki1` (manager), and `admin`/`adm1` (admin).
-Set `JWT_SECRET` in `.env` for anything beyond local use (it has an insecure default).
+Set `JWT_SECRET` in `.env` for anything beyond local use; it has a development-only default, and
+outside a development `APP_ENV` the app refuses to start with the default/empty secret (NA12).
 
 ## Verification
 

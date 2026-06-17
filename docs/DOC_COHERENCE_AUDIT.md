@@ -183,19 +183,42 @@ contain claims that contradict current truth (see A6/A7 above). They "compete wi
    never override 1–2.
 6. `README.md` / `DEVELOPMENT_RUNBOOK.md` — setup only.
 
-## Open questions for the owner
+## Owner decisions (2026-06-17)
 
-- **Q1 (A1):** Paint-demand threshold — is the correct split **100 m²** (code + WORKFLOW) or **70 m²**
-  (2026-06-01 decision capture)? This decides whether the decision-map/UI-review get corrected, or
-  whether the code is wrong (→ NA25 defect).
-- **Q2 (B):** For the dated snapshot docs (decision map, the two PL audits) — edit them to current truth,
-  or freeze them as history with a "superseded" banner?
-- **Q3 (scope):** Apply the SAFE-TO-FIX edits (A2–A9, D1–D4) now as part of NA24, or after you review
-  this report?
+- **Q1 (A1): threshold = 100 m²** (code is correct). The 70 m² mentions are stale; handled via the
+  historical banners on the snapshot docs (no code change).
+- **Q2 (B): freeze the dated snapshots as history** with a "MIGAWKA HISTORYCZNA" banner (no body
+  rewrite). Applied to the decision map and the two PL audits.
+- **Q3 (scope): apply the safe edits now.** Done (see below).
 
-## Status / next steps
+## Applied (2026-06-17)
 
-- Findings pass: **done**.
-- Pending owner input: Q1, Q2, Q3.
-- After answers: apply agreed doc edits, add the glossary/missing-concept interview items, then proceed
-  to NA25 (docs-vs-code conformance) using the reconciled docs as the spec.
+- **Banners (Q2/B):** `FACTORY_DECISION_IMPLEMENTATION_MAP_PL.md`, `OPERATOR_USABILITY_AUDIT_PL.md`,
+  `UI_PASSIVE_REVIEW_PL.md` now carry a historical-snapshot banner naming their known-stale points
+  (QC, packing, paint 70-vs-100, paint consumption).
+- **A2** (shortage warning is implemented): `PAINT_SYSTEM_DEFINITION_DRAFT_PL.md`,
+  `FACTORY_USAGE_NOTES.md`, `WORKFLOW_VALIDATION_CHECKLIST.md` #11 updated.
+- **A3/A4/A5** (README pre-NA1 auth, pre-NA5 Excel import, pre-NA12 JWT default) + **A5** RUNBOOK JWT
+  note: corrected.
+- **A8** checklist #9 "default 1" → single-station default + override up to N (default 2).
+- **A9** `STATION_IDENTITY_AND_AUDIT.md`: NA1 update note on the transport section; removed the stale
+  "confirm quantity discrepancy" permission line.
+- **D1** wired `FACTORY_DOMAIN_MODEL.md` into the hierarchy in `README.md` and `WORKING_CONTRACT.md`.
+- **D2/D3/D4** `WORKFLOW.md`: two-axis cross-ref + decoral-packing-folded note in Stage Model; canonical
+  measurement-model reference in Throughput Reporting.
+
+## Still open (follow-up, not in this safe-edit pass)
+
+- **D5 glossary**, **D6 undocumented physical concepts** (ocynk / przemalowanka / surface-prep /
+  incomplete-on-arrival), **D7 canonical doc-map page** — these need interview content or a larger
+  structural addition; capture them in `FACTORY_DOMAIN_MODEL.md` (some already `[TBD]`) as a separate
+  step.
+- **C (single-owner refactor)** of station-columns / permission-matrix / correction-categories
+  duplication — left as-is for now (currently consistent); convert restatements into references when
+  next touched.
+
+## Next steps
+
+- Findings pass + safe edits: **done**. Remaining: D5–D7 (interview/structural) and the optional C
+  refactor.
+- Then proceed to **NA25** (docs-vs-code conformance) using the reconciled docs as the spec.

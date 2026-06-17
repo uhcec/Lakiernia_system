@@ -8,7 +8,7 @@ Potwierdzone kierunki:
 
 - Magazyn farb w tej aplikacji jest zrodlem prawdy dla aktualnego stanu farb.
 - Biuro przy tworzeniu zlecenia wybiera farbe i widzi aktualny stan, ale samo utworzenie zlecenia nie robi rezerwacji.
-- Alert `za malo farby` nie wchodzi do pierwszego slice'u, bo nie ma jeszcze potwierdzonej reguly liczenia wymaganej ilosci dla zlecenia.
+- Ostrzezenie o brakach farby przy przyjeciu JEST wdrozone (aktualizacja 2026-06-17): read model liczy przewidywane zapotrzebowanie (`total_area_m2 / 4` ponizej 100 m², `/6` od 100 m²) i ostrzega, gdy przekracza biezacy stan (`paint_inventory_insufficient_for_prediction`). Poza pierwszym slice'em pozostaje dopiero alert oparty na rezerwacji/demandzie wzgledem wspolnego magazynu. (Pierwotne zalozenie "alert nie wchodzi do slice'u" jest nieaktualne.)
 - Automatyczne poprawki maja dzialac tak samo jak zwykle zlecenia automatyczne w zakresie zuzycia farby.
 - Tylko automat zapisuje zuzycie farby.
 - Stan magazynowy nie moze zejsc ponizej zera.

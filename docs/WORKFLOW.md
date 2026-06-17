@@ -40,9 +40,17 @@ Open implementation design:
 
 ## Stage Model
 
+> Physical context: a work order has two **independent** axes — production method (`MANUAL`/`AUTOMATIC`)
+> and coating (`RAL`/`DECORAL`). See `docs/FACTORY_DOMAIN_MODEL.md` §1 for what they physically mean.
+
 Configured stages:
 - Base: `SURFACE_PREPARATION` -> `HANGING` -> `PRODUCTION` -> `PACKING`
 - `DECORAL` adds: `DECORAL_PRODUCTION`
+
+Note: physically the decoral coat is applied at a separate Decoral station after base-coat packing and
+has its own packing, but the system intentionally does **not** model a separate decoral-packing stage —
+that packing is folded into `DECORAL_PRODUCTION` completion (confirmed out of scope; see
+`docs/FACTORY_DOMAIN_MODEL.md` §1).
 
 Actionable stage sequence depends on production type:
 - `MANUAL`: all configured stages are actionable
@@ -324,6 +332,11 @@ Current enforcement:
 
 Manager statistics (`/manager/stats/throughput`, station MANAGER/admin only) report processed area
 and corrections per period (day/week/month), keyed by the date a stage event occurs:
+
+> Canonical measurement model: `docs/FACTORY_DOMAIN_MODEL.md` §4. Total production = m² of product that
+> passed through the factory, counted **once** per order; `manual + automatic` and `RAL-only + decoral`
+> are two independent cuts of that same total. The decoral **pass** ("przejazd Decoral") is a separate
+> line-workload counter (it overlaps the base coat) and is **never** added into the total.
 
 **Two coats, two separate work events (the Decoral model).** A RAL order receives one coat of RAL
 paint, runs through the stages, and ends at `PACKING` — that packing event is the RAL coat. A DECORAL

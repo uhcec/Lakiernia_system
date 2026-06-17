@@ -283,13 +283,16 @@ only. Five elements, top to bottom:
 - Acceptance: a single pass exists where the docs no longer contradict each other; each topic has one
   authoritative home; the list of "should be documented but isn't" is raised with the owner; no code
   changes made under this item.
-- Progress (2026-06-17): **findings pass DONE** → written reconciliation in
-  `docs/DOC_COHERENCE_AUDIT.md` (9 doc-vs-doc conflicts incl. paint-formula 100-vs-70 m² and
-  shortage-warning staleness, both grounded against code; 3 stale snapshot docs; duplication owners;
-  7 missing-topic gaps incl. glossary + undocumented ocynk/przemalowanka/surface-prep/incomplete-on-
-  arrival; proposed canonical hierarchy). Pending owner input: Q1 paint threshold (real policy 100 vs
-  70), Q2 mark-historical vs edit the dated snapshots, Q3 green-light to apply safe edits now. Apply
-  agreed edits, then NA25.
+- Progress (2026-06-17): **findings pass DONE + safe edits APPLIED** → `docs/DOC_COHERENCE_AUDIT.md`.
+  Owner decisions: paint threshold = **100 m²** (code right); dated snapshots **frozen as history**
+  (banners); safe edits applied now. Applied: historical banners on the 3 snapshot docs; A2 shortage-
+  warning currency (paint draft / usage notes / checklist #11); A3–A5 README + runbook (auth/Excel/JWT);
+  A8 checklist #9 default-slots; A9 STATION_IDENTITY (NA1 note + dropped stale discrepancy-confirm line);
+  D1 domain-model wired into README + WORKING_CONTRACT hierarchy; D2–D4 WORKFLOW cross-refs (two axes,
+  decoral-packing-folded, canonical measurement model).
+- **Still open under NA24:** D5 glossary, D6 undocumented physical concepts (ocynk / przemalowanka /
+  surface-prep / incomplete-on-arrival), D7 canonical doc-map — need interview/structural work;
+  optional C single-owner refactor of duplicated topics. Then NA25.
 
 ### NA25. Conformance audit — documented "coherent whole" (NA24) vs. what is actually coded
 - Severity: MEDIUM. Depends on NA24 (audits against its result).

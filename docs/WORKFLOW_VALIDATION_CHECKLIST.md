@@ -368,7 +368,7 @@ Refinement CONFIRMED 2026-06-17 (factory chat) — automatic reserves packing at
 - New rule: when an **AUTOMATIC** work order **starts HANGING**, it must **automatically reserve the packing station** and hold that reservation until its own packing completes. Rationale: the automatic line cannot be paused, so a manual order must not be able to grab packing and block an automatic order that is already on the line. Scenario given: two orders both finished surface prep (one manual, one automatic); starting hanging on the automatic one reserves packing immediately.
 - Manual orders keep the **explicit "start packing" button** (already implemented) and may claim packing only when it is free; they start "when convenient" after the automatic order releases it.
 - **This revises the 2026-06-02 note** ("treat automatic waiting rows as not occupying packing") and the as-built NA16 line ("automatic waiting rows do not hold the claim"; "only one physically started at a time"): for the automatic path the reservation is taken at hanging start, and (see below) packing is no longer strictly single-slot.
-- **Decision 2026-06-17 — manual second-slot override:** packing is **not strictly one-at-a-time**. A manual operator may **override** and open a **second concurrent packing** when two orders can be packed at once. This turns NA16's single-station rule into a small **capacity** model (default 1, manual can open a 2nd slot). The automatic reservation still guarantees the line a slot; the manual override lets a manual order pack alongside instead of waiting.
+- **Decision 2026-06-17 — manual second-slot override:** packing is **not strictly one-at-a-time**. A manual operator may **override** and open a **second concurrent packing** when two orders can be packed at once. This turns NA16's single-station rule into a small **capacity** model: the default behaviour stays single-station exclusivity, and a manual override opens an additional slot up to a configurable `N` (`packing_max_concurrent_slots`, default **2**). The automatic reservation still guarantees the line a slot; the manual override lets a manual order pack alongside instead of waiting.
 - **Decision 2026-06-17 — second automatic:** a second automatic starting hanging while packing is reserved by another automatic **may start/finish hanging but queues for packing** (reservation in arrival order); it completes packing only after the prior automatic releases.
 - **IMPLEMENTED 2026-06-17 (NA22).** Packing is now N configurable slots (`PACKING:1..N`,
   `packing_max_concurrent_slots`, default 2). Automatic orders reserve a slot at `HANGING` start and
@@ -428,7 +428,7 @@ Confirmed direction from 2026-05-30:
 - Stock unit is kilograms.
 - Stock balance is aggregate per paint card, not separate tracked stock per paint batch.
 - Paint receipt data should include amount, date, and optional note in the first slice.
-- The first slice does not detect or report insufficient paint for an order yet.
+- Update 2026-06-17: the intake **shortage warning is implemented** — the read model computes predicted demand (`/4` below 100 m², `/6` from 100 m²) and flags when it exceeds current stock (`paint_inventory_insufficient_for_prediction`). Demand-based reservation/accounting against a shared inventory remains future work.
 - Stock should never be allowed to go below zero.
 - Manual office adjustments are part of the first slice.
 - Automatic production enters actual paint consumption manually.

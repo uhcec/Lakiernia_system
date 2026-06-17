@@ -2,6 +2,11 @@
 
 Status: roboczy audyt systemu na 2026-05-31. Ten dokument nie jest zrodlem prawdy o polityce fabryki. Zrodlem semantyki pozostaje `docs/WORKFLOW.md`, a pytania otwarte sa sledzone w `docs/WORKFLOW_VALIDATION_CHECKLIST.md`.
 
+> ⚠️ **MIGAWKA HISTORYCZNA (2026-05-31) — NIE JEST AKTUALNYM ZRODLEM PRAWDY.** Zachowana jako zapis stanu
+> z tamtego dnia. Od tego czasu wdrozono m.in.: dokument kontroli jakosci (QC), wyłącznosc/model stanowisk
+> pakowania (`PACKING:1..N`) i wpisywanie zuzycia farby na produkcji automatycznej. Weryfikuj wzgledem
+> `docs/WORKFLOW.md` i `docs/DOC_COHERENCE_AUDIT.md`.
+
 Cel: opisac, co obecny system daje kazdej roli, gdzie jest ergonomicznie dobry, gdzie moze wprowadzac w blad, oraz co warto sprawdzic z uzytkownikami zanim dopiszemy kolejne funkcje.
 
 ## Szybki wniosek

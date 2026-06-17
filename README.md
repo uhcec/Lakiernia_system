@@ -9,10 +9,11 @@ The backend owns business semantics. The frontend displays backend-provided work
 Read these first when changing the system:
 
 1. `IMMEDIATE_NEXT_ACTIONS.md` is the living list of open, actionable work — start here.
-2. `docs/WORKFLOW.md` defines workflow behavior and business semantics.
-3. `docs/WORKING_CONTRACT.md` defines how we work on the system together.
-4. `HARDENING_BACKLOG.md` tracks *closed* risk/hardening work, but verify each item against current code before trusting it.
-5. Tests and Alembic migrations describe implemented behavior and durable schema history.
+2. `docs/FACTORY_DOMAIN_MODEL.md` describes the physical factory (production-method × coating axes, the line, what is measured) — the "why" beneath the workflow.
+3. `docs/WORKFLOW.md` defines workflow behavior and business semantics.
+4. `docs/WORKING_CONTRACT.md` defines how we work on the system together.
+5. `HARDENING_BACKLOG.md` tracks *closed* risk/hardening work, but verify each item against current code before trusting it.
+6. Tests and Alembic migrations describe implemented behavior and durable schema history.
 
 Automated agents (Claude Code, Copilot) are wired to `IMMEDIATE_NEXT_ACTIONS.md` via `CLAUDE.md` and `.github/copilot-instructions.md`.
 
@@ -110,8 +111,8 @@ WORK_ORDER_ATTACHMENT_MAX_SIZE_BYTES=10485760
 JWT_SECRET=change-me-in-every-real-deployment
 ```
 
-`JWT_SECRET` has an insecure built-in default; override it in any non-local environment (see
-`IMMEDIATE_NEXT_ACTIONS.md` NA12).
+`JWT_SECRET` has a development-only default. Outside a local/development `APP_ENV` the app refuses to
+start with the default (or an empty) secret, so a real deployment must set `JWT_SECRET` (NA12 closed).
 
 Apply migrations:
 
@@ -228,9 +229,10 @@ plus an admin. Default local credentials (login / password):
 | `decoral` | `dec1` | DECORAL_PRODUCTION |
 | `admin` | `adm1` | OFFICE + admin |
 
-These are development-only credentials seeded by `scripts/reset_and_seed_dev_db.py`. Note: today the
-backend authorizes station actions from the `X-Station-Id` header (sent by the frontend per page), not
-from the logged-in account's role — see `IMMEDIATE_NEXT_ACTIONS.md` (NA1).
+These are development-only credentials seeded by `scripts/reset_and_seed_dev_db.py`. Authorization is
+derived from the authenticated user's role (`station_id`/`is_admin` in the JWT), not from the
+`X-Station-Id` header — the header is now inert server-side and used only as audit context (NA1 closed;
+see `docs/AUTHZ_DESIGN_PROPOSAL.md`).
 
 ## Quality Checks
 
@@ -305,7 +307,7 @@ Work-order attachments are stored on the local filesystem under `WORK_ORDER_ATTA
 - Queue positions are globally unique for planned work orders.
 - Correction orders are child work orders and join the same queue only after planning.
 - State-changing process actions must remain safe under retries, double clicks, and parallel users.
-- The quality-control document feature converts an Excel template to PDF and requires Windows + Excel + `pywin32`; importing `app/work_orders/service.py` currently starts an Excel worker thread (see `IMMEDIATE_NEXT_ACTIONS.md` NA2/NA5).
+- The quality-control document feature converts an Excel template to PDF and requires Windows + Excel + `pywin32`. The Excel COM worker is built lazily on the first `convert()` (NA5 closed), so importing `app/work_orders/service.py` has no side effects; off-Windows / missing `pywin32`, QC generation fails fast with a clear error. `pywin32` is a Windows-only dependency (NA2 closed), so `pip install` works on Linux/CI.
 - Concurrency safety assumes a single backend worker process (see `IMMEDIATE_NEXT_ACTIONS.md` NA8).
 
 ## Current Cleanup Path

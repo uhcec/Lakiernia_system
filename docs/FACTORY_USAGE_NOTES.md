@@ -22,7 +22,7 @@ Use `docs/WORKFLOW_VALIDATION_CHECKLIST.md` as the active checklist before chang
 	- `Na produkcji`: all work orders currently on the factory floor.
 	- `Gotowe`: completed work orders, with the ability for office to mark whether the READY order has been issued/released.
 - Needs an additional external client/order number field separate from the internal system work-order number. Confirmed on 2026-06-01: this field is optional, not unique, may be empty, and duplicate values should be allowed.
-- Current first paint slice requires paint identity and planned paint quantity on the work order at intake. Shared stock-state selection and shortage detection against a global inventory remain future work.
+- Current first paint slice requires paint identity on the work order at intake, reads live stock from the app-owned inventory, and warns at intake when predicted paint demand exceeds current stock (update 2026-06-17 — the intake shortage warning is implemented). Shared/global-inventory reservation and demand-based stock accounting remain future work.
 - Should see whether surface-preparation counted quantity differs from the declared client quantity.
 - Office and manager should generally have the same broad access to process information.
 - Office generates the Excel-based production quality-control document before production once the factory template is provided.

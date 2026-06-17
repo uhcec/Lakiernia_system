@@ -18,12 +18,13 @@ The system should prioritize:
 
 When sources disagree, use this order, while remembering that repo artifacts can preserve old assumptions:
 
-1. `docs/WORKFLOW.md` for business workflow semantics.
-2. Current backend services, migrations, and tests for implemented behavior.
-3. `IMMEDIATE_NEXT_ACTIONS.md` for the current open, actionable work queue — read it at the start of every session.
-4. `HARDENING_BACKLOG.md` for *closed* risk-tracking evidence, only after checking whether an item is still current.
-5. `README.md` for setup commands, only after stale sections are cleaned.
-6. Chat discussion for intent, once captured in a repo document or issue-style note.
+1. `docs/FACTORY_DOMAIN_MODEL.md` for the physical factory reality (the "why" beneath the workflow).
+2. `docs/WORKFLOW.md` for business workflow semantics.
+3. Current backend services, migrations, and tests for implemented behavior.
+4. `IMMEDIATE_NEXT_ACTIONS.md` for the current open, actionable work queue — read it at the start of every session.
+5. `HARDENING_BACKLOG.md` for *closed* risk-tracking evidence, only after checking whether an item is still current.
+6. `README.md` for setup commands, only after stale sections are cleaned.
+7. Chat discussion for intent, once captured in a repo document or issue-style note.
 
 If business behavior is unclear, stop and clarify before implementation.
 

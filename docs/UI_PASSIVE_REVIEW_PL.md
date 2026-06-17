@@ -2,6 +2,11 @@
 
 Status: roboczy przeglad zrodel frontendu, bez zmiany zachowania aplikacji.
 
+> ⚠️ **MIGAWKA HISTORYCZNA (2026-05-31) — NIE JEST AKTUALNYM ZRODLEM PRAWDY.** Zachowana jako zapis stanu
+> z tamtego dnia. Od tego czasu wdrozono m.in. dokument QC, model stanowisk pakowania i wpis zuzycia farby
+> na automacie. Uwaga: wzmianka o "dokladnie 70 m2 w formule" jest nieaktualna — prog to **100 m²**
+> (`app/work_orders/schemas.py`, `docs/WORKFLOW.md`). Weryfikuj wzgledem `docs/DOC_COHERENCE_AUDIT.md`.
+
 Ten dokument nie jest specyfikacja workflow. To lista obserwacji z UI, ktore moga pomoc wybrac kolejne male, bezpieczne kroki albo przygotowac rozmowe z uzytkownikami hali. Dla znaczenia procesu nadal obowiazuja `docs/WORKFLOW.md`, `docs/WORKFLOW_VALIDATION_CHECKLIST.md` i decyzje fabryczne.
 
 ## Zakres przegladu
