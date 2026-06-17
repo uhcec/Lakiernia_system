@@ -52,3 +52,10 @@ is unclear, ask the owner rather than trusting a doc or the code.
 - Durable docs are written in **English**; live discussion/interviews may be in Polish (PL-suffixed
   capture docs are Polish by origin).
 - A topic should have **one owning doc**; other docs reference it rather than restating it.
+
+## Maintenance
+
+- **Weekly documentation-coherence audit:** run the repeatable command **`/doc-audit`**
+  (`.claude/commands/doc-audit.md`). It re-reconciles all docs against each other and the code and
+  refreshes `docs/DOC_COHERENCE_AUDIT.md`. Doc-scope only — code divergences become `NA*` items in
+  `IMMEDIATE_NEXT_ACTIONS.md`.

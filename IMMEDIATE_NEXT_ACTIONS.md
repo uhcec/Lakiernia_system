@@ -300,6 +300,10 @@ only. Five elements, top to bottom:
 - **Still open under NA24:** optional **C** single-owner refactor of duplicated topics (station columns
   / permission matrix / correction categories) — currently consistent, convert restatements to
   references when next touched. NA24 otherwise complete; proceed to NA25.
+- **Regularized (2026-06-17):** the audit is now a repeatable command — **`/doc-audit`**
+  (`.claude/commands/doc-audit.md`), intended cadence **weekly**. Run it to re-reconcile the docs and
+  refresh `docs/DOC_COHERENCE_AUDIT.md`. (Auto-running it on a schedule would need the billable
+  scheduled-agent path; not set up.)
 
 ### NA25. Conformance audit — documented "coherent whole" (NA24) vs. what is actually coded
 - Severity: MEDIUM. Depends on NA24 (audits against its result).
