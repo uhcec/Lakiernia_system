@@ -1,5 +1,6 @@
 import { DragEvent, FormEvent, useEffect, useRef, useState } from "react";
 
+import { usePolling, STATION_POLL_INTERVAL_MS } from "../hooks/usePolling";
 import {
   assignWorkOrderPlan,
   fetchCorrectionReasonReport,
@@ -268,10 +269,13 @@ export function ManagerPanelPage() {
     setQueueRevision(authoritativeQueue.queueRevision);
   }
 
-  async function loadManagerData(options?: { preserveErrorMessage?: boolean }): Promise<boolean> {
-    setIsLoading(true);
-    if (!options?.preserveErrorMessage) {
-      setErrorMessage(null);
+  async function loadManagerData(options?: { preserveErrorMessage?: boolean; background?: boolean }): Promise<boolean> {
+    const background = options?.background ?? false;
+    if (!background) {
+      setIsLoading(true);
+      if (!options?.preserveErrorMessage) {
+        setErrorMessage(null);
+      }
     }
 
     try {
@@ -297,8 +301,12 @@ export function ManagerPanelPage() {
       setCompletedPlannedWorkOrders(normalizedCompletedPlanned);
       setCorrectionReasonReport(nextCorrectionReasonReport);
       setQueueRevision(nextQueueRevision);
-      setPlanDrafts(createPlanDrafts(unplanned, normalizedActivePlanned.length + 1));
-      setHasPendingQueueChanges(false);
+      // In background mode keep the planning drafts the manager is typing and don't
+      // touch the pending-queue flag (polling only runs when nothing is being edited).
+      if (!background) {
+        setPlanDrafts(createPlanDrafts(unplanned, normalizedActivePlanned.length + 1));
+        setHasPendingQueueChanges(false);
+      }
       authoritativeQueueRef.current = {
         active: normalizedActivePlanned,
         completed: normalizedCompletedPlanned,
@@ -306,16 +314,35 @@ export function ManagerPanelPage() {
       };
       return true;
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "Nie udało się pobrać panelu kierownika");
+      if (!background) {
+        setErrorMessage(error instanceof Error ? error.message : "Nie udało się pobrać panelu kierownika");
+      }
       return false;
     } finally {
-      setIsLoading(false);
+      if (!background) {
+        setIsLoading(false);
+      }
     }
   }
 
   useEffect(() => {
     void loadManagerData();
   }, []);
+
+  // Auto-refresh so the planning queue reflects changes from other devices without a
+  // reload. Paused whenever the manager is mid-edit (planning, dragging, saving, or
+  // has unsaved queue changes) so a poll never overwrites local edits.
+  usePolling(
+    () => {
+      void loadManagerData({ background: true });
+    },
+    STATION_POLL_INTERVAL_MS,
+    !hasPendingQueueChanges &&
+      !isSavingQueueOrder &&
+      planningWorkOrderId === null &&
+      draggedWorkOrderId === null &&
+      changingProductionTypeId === null,
+  );
 
   useEffect(() => {
     logQueueDebug("visible filtered list", {

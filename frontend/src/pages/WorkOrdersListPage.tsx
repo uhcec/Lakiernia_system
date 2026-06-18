@@ -1,6 +1,7 @@
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 
+import { usePolling, STATION_POLL_INTERVAL_MS } from "../hooks/usePolling";
 import { fetchWorkOrders } from "../api/workOrdersApi";
 import { OfficeWorkOrdersTable } from "../components/OfficeWorkOrdersTable";
 import type { ProcessStatusValue, WorkOrder } from "../types/workOrders";
@@ -78,37 +79,46 @@ export function WorkOrdersListPage() {
 
   const visibleWorkOrders = workOrders.filter((workOrder) => getOfficeBucket(workOrder.process_status.value) === activeBucket);
 
-  useEffect(() => {
-    let isActive = true;
+  const latestFilterRef = useRef(appliedExternalOrderNumberFilter);
+  latestFilterRef.current = appliedExternalOrderNumberFilter;
 
-    async function loadWorkOrders() {
-      setIsLoading(true);
-      setErrorMessage(null);
+  const loadWorkOrders = useCallback(
+    async (options?: { background?: boolean }) => {
+      const background = options?.background ?? false;
+      const requestedFilter = appliedExternalOrderNumberFilter;
+      if (!background) {
+        setIsLoading(true);
+        setErrorMessage(null);
+      }
 
       try {
-        const response = await fetchWorkOrders({ externalOrderNumber: appliedExternalOrderNumberFilter });
-        if (!isActive) {
+        const response = await fetchWorkOrders({ externalOrderNumber: requestedFilter });
+        // Ignore a stale response if the filter changed while this request was in flight.
+        if (requestedFilter !== latestFilterRef.current) {
           return;
         }
         setWorkOrders(response.items);
       } catch (error) {
-        if (!isActive) {
-          return;
+        if (!background && requestedFilter === latestFilterRef.current) {
+          setErrorMessage(error instanceof Error ? error.message : "Nie udało się pobrać zleceń");
         }
-        setErrorMessage(error instanceof Error ? error.message : "Nie udało się pobrać zleceń");
       } finally {
-        if (isActive) {
+        if (!background && requestedFilter === latestFilterRef.current) {
           setIsLoading(false);
         }
       }
-    }
+    },
+    [appliedExternalOrderNumberFilter],
+  );
 
-    loadWorkOrders();
+  useEffect(() => {
+    void loadWorkOrders();
+  }, [loadWorkOrders]);
 
-    return () => {
-      isActive = false;
-    };
-  }, [appliedExternalOrderNumberFilter]);
+  // Auto-refresh so the office list reflects production changes without a manual reload.
+  usePolling(() => {
+    void loadWorkOrders({ background: true });
+  }, STATION_POLL_INTERVAL_MS);
 
   function applyExternalOrderNumberFilter(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();

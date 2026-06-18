@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 
+import { usePolling, STATION_POLL_INTERVAL_MS } from "../hooks/usePolling";
 import { getMutationErrorMessage } from "../utils/mutationError";
 import { buildWorkOrderDetailHref, getStationIdForLocation } from "../api/stationContext";
 import { StationPresenceWidget } from "./StationPresenceWidget";
@@ -151,38 +152,58 @@ export function DecoralWorkOrdersPage() {
   const activeWorkOrders = filteredWorkOrders.filter((w) => w.stage_status.status.value !== "DONE");
   const completedWorkOrders = filteredWorkOrders.filter((w) => w.stage_status.status.value === "DONE");
 
-  async function loadWorkOrders(options?: { preserveErrorMessage?: boolean }): Promise<boolean> {
-    setIsLoading(true);
-    if (!options?.preserveErrorMessage) setErrorMessage(null);
-    setWarningMessage(null);
+  async function loadWorkOrders(options?: { preserveErrorMessage?: boolean; background?: boolean }): Promise<boolean> {
+    const background = options?.background ?? false;
+    if (!background) {
+      setIsLoading(true);
+      if (!options?.preserveErrorMessage) setErrorMessage(null);
+      setWarningMessage(null);
+    }
     try {
       const items = await fetchStageWorkOrders("DECORAL_PRODUCTION");
       setWorkOrders(items);
       const correctionContexts = await loadCorrectionContexts(items);
       setCorrectionContextByOrderId(correctionContexts.contexts);
-      if (correctionContexts.failedCount > 0) {
+      if (correctionContexts.failedCount > 0 && !background) {
         setWarningMessage("Nie udało się pobrać pełnego kontekstu dla części poprawek. Lista pozostaje dostępna.");
       }
-      setDrafts(() => {
-        const nextDrafts: Record<number, DecoralDraft> = {};
+      // In background mode preserve drafts being edited; only seed newly appeared orders.
+      setDrafts((prev) => {
+        const nextDrafts: Record<number, DecoralDraft> = background ? { ...prev } : {};
         for (const item of items) {
           const draftKey = getDraftKey(item);
+          if (background && draftKey in nextDrafts) {
+            continue;
+          }
           nextDrafts[draftKey] = buildEmptyDecoralDraft(item.current_active_quantity);
         }
         return nextDrafts;
       });
       return true;
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "Nie udało się pobrać zleceń Decoral");
+      if (!background) {
+        setErrorMessage(error instanceof Error ? error.message : "Nie udało się pobrać zleceń Decoral");
+      }
       return false;
     } finally {
-      setIsLoading(false);
+      if (!background) {
+        setIsLoading(false);
+      }
     }
   }
 
   useEffect(() => {
     void loadWorkOrders();
   }, []);
+
+  // Auto-refresh so Decoral reflects changes made on other devices without a reload.
+  usePolling(
+    () => {
+      void loadWorkOrders({ background: true });
+    },
+    STATION_POLL_INTERVAL_MS,
+    activeWorkOrderId === null,
+  );
 
   function updateDraft(draftKey: number, fieldName: keyof DecoralDraft, value: string) {
     setDrafts((current) => ({

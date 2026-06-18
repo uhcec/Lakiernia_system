@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 
+import { usePolling, STATION_POLL_INTERVAL_MS } from "../hooks/usePolling";
 import { getMutationErrorMessage } from "../utils/mutationError";
 import { buildWorkOrderDetailHref, getStationIdForLocation } from "../api/stationContext";
 import { StationPresenceWidget } from "./StationPresenceWidget";
@@ -208,12 +209,15 @@ export function PackingWorkOrdersPage() {
   const activeWorkOrders = filteredWorkOrders.filter((workOrder) => workOrder.stage_status.status.value !== "DONE");
   const completedWorkOrders = filteredWorkOrders.filter((workOrder) => workOrder.stage_status.status.value === "DONE");
 
-  async function loadWorkOrders(options?: { preserveErrorMessage?: boolean }): Promise<boolean> {
-    setIsLoading(true);
-    if (!options?.preserveErrorMessage) {
-      setErrorMessage(null);
+  async function loadWorkOrders(options?: { preserveErrorMessage?: boolean; background?: boolean }): Promise<boolean> {
+    const background = options?.background ?? false;
+    if (!background) {
+      setIsLoading(true);
+      if (!options?.preserveErrorMessage) {
+        setErrorMessage(null);
+      }
+      setWarningMessage(null);
     }
-    setWarningMessage(null);
 
     try {
       const items = await fetchStageWorkOrders("PACKING");
@@ -221,14 +225,19 @@ export function PackingWorkOrdersPage() {
       const correctionContexts = await loadCorrectionContexts(items);
       setCorrectionContextByOrderId(correctionContexts.contexts);
 
-      if (correctionContexts.failedCount > 0) {
+      if (correctionContexts.failedCount > 0 && !background) {
         setWarningMessage("Nie udało się pobrać pełnego kontekstu dla części poprawek. Lista pozostaje dostępna.");
       }
 
-      setDrafts(() => {
-        const nextDrafts: Record<number, PackingDraft> = {};
+      // In background mode preserve drafts the operator is editing; only seed orders
+      // that just appeared so a poll never wipes an in-progress packing count.
+      setDrafts((prev) => {
+        const nextDrafts: Record<number, PackingDraft> = background ? { ...prev } : {};
         for (const item of items) {
           const draftKey = getDraftKey(item);
+          if (background && draftKey in nextDrafts) {
+            continue;
+          }
           nextDrafts[draftKey] = {
             countedQuantity: item.counted_quantity?.toString() ?? "",
             okQuantity: String(item.counted_quantity ?? item.current_active_quantity),
@@ -243,16 +252,29 @@ export function PackingWorkOrdersPage() {
       });
       return true;
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "Nie udało się pobrać zleceń do pakowania");
+      if (!background) {
+        setErrorMessage(error instanceof Error ? error.message : "Nie udało się pobrać zleceń do pakowania");
+      }
       return false;
     } finally {
-      setIsLoading(false);
+      if (!background) {
+        setIsLoading(false);
+      }
     }
   }
 
   useEffect(() => {
     void loadWorkOrders();
   }, []);
+
+  // Auto-refresh so packing reflects changes made on other devices without a reload.
+  usePolling(
+    () => {
+      void loadWorkOrders({ background: true });
+    },
+    STATION_POLL_INTERVAL_MS,
+    activeWorkOrderId === null,
+  );
 
   function updateDraft(workOrderId: number, fieldName: keyof PackingDraft, value: string) {
     setDrafts((current) => ({

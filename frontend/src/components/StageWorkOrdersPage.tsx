@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 
+import { usePolling, STATION_POLL_INTERVAL_MS } from "../hooks/usePolling";
 import { getMutationErrorMessage } from "../utils/mutationError";
 import { buildWorkOrderDetailHref, getStationIdForLocation } from "../api/stationContext";
 import { StationPresenceWidget } from "./StationPresenceWidget";
@@ -156,12 +157,15 @@ export function StageWorkOrdersPage({
   const activeWorkOrders = filteredWorkOrders.filter((workOrder) => workOrder.stage_status.status.value !== "DONE");
   const completedWorkOrders = filteredWorkOrders.filter((workOrder) => workOrder.stage_status.status.value === "DONE");
 
-  async function loadWorkOrders(options?: { preserveErrorMessage?: boolean }): Promise<boolean> {
-    setIsLoading(true);
-    if (!options?.preserveErrorMessage) {
-      setErrorMessage(null);
+  async function loadWorkOrders(options?: { preserveErrorMessage?: boolean; background?: boolean }): Promise<boolean> {
+    const background = options?.background ?? false;
+    if (!background) {
+      setIsLoading(true);
+      if (!options?.preserveErrorMessage) {
+        setErrorMessage(null);
+      }
+      setWarningMessage(null);
     }
-    setWarningMessage(null);
 
     try {
       const items = await fetchStageWorkOrders(stage, productionType);
@@ -169,40 +173,60 @@ export function StageWorkOrdersPage({
       const correctionContexts = await loadCorrectionContexts(items);
       setCorrectionContextByOrderId(correctionContexts.contexts);
 
-      if (correctionContexts.failedCount > 0) {
+      if (correctionContexts.failedCount > 0 && !background) {
         setWarningMessage("Nie udało się pobrać pełnego kontekstu dla części poprawek. Lista pozostaje dostępna.");
       }
 
       if (stage === "SURFACE_PREPARATION") {
-        setCountedQuantities(() => {
-          const next: Record<number, string> = {};
+        // In background mode preserve what the operator is typing; only seed orders
+        // that just appeared so a poll never wipes an in-progress count.
+        setCountedQuantities((prev) => {
+          const next: Record<number, string> = background ? { ...prev } : {};
           for (const item of items) {
-            next[item.id] = item.counted_quantity?.toString() ?? "";
+            if (!background || !(item.id in next)) {
+              next[item.id] = item.counted_quantity?.toString() ?? "";
+            }
           }
           return next;
         });
       }
       if (isAutomaticProductionView) {
-        setPaintConsumptionDrafts(() => {
-          const next: Record<number, AutomaticPaintConsumptionDraft> = {};
+        setPaintConsumptionDrafts((prev) => {
+          const next: Record<number, AutomaticPaintConsumptionDraft> = background ? { ...prev } : {};
           for (const item of items) {
-            next[item.id] = { ...EMPTY_AUTOMATIC_PAINT_DRAFT };
+            if (!background || !(item.id in next)) {
+              next[item.id] = { ...EMPTY_AUTOMATIC_PAINT_DRAFT };
+            }
           }
           return next;
         });
       }
       return true;
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "Nie udało się pobrać zleceń");
+      if (!background) {
+        setErrorMessage(error instanceof Error ? error.message : "Nie udało się pobrać zleceń");
+      }
       return false;
     } finally {
-      setIsLoading(false);
+      if (!background) {
+        setIsLoading(false);
+      }
     }
   }
 
   useEffect(() => {
     void loadWorkOrders();
   }, [stage, productionType]);
+
+  // Auto-refresh so changes made on other devices appear without a manual reload.
+  // Paused while an action is in flight to avoid clobbering optimistic state.
+  usePolling(
+    () => {
+      void loadWorkOrders({ background: true });
+    },
+    STATION_POLL_INTERVAL_MS,
+    activeWorkOrderId === null,
+  );
 
   function parseCountedQuantity(value: string): number | null {
     if (!value.trim()) {
