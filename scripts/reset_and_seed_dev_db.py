@@ -18,6 +18,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session
 
+from app.audit.models import AuditEvent, AuditEventActor
 from app.auth.models import User
 from app.auth.service import hash_password
 from app.clients.models import Client
@@ -28,12 +29,17 @@ from app.database.session import get_session_factory
 from app.manager.repository import ManagerRepository
 from app.manager.schemas import WorkOrderPlanAssignRequest
 from app.manager.service import ManagerService
-from app.process.enums import CoatingType, ProcessStage, ProductionType, StageStatus
-from app.process.models import WorkOrderQuantityBatch, WorkOrderStageState
+from app.process.enums import CoatingType, ProcessStage, ProductionType, QuantityBatchType, StageStatus
+from app.process.models import (
+    ProcessResourceLock,
+    StageTransitionEvent,
+    WorkOrderQuantityBatch,
+    WorkOrderStageState,
+)
 from app.process.repository import ProcessRepository
 from app.process.service import ProcessService
-from app.shared.enums import WorkOrderKind, WorkOrderStatus
-from app.work_orders.models import WorkOrder, WorkOrderAttachment
+from app.shared.enums import StationId, WorkOrderKind, WorkOrderStatus
+from app.work_orders.models import WorkOrder, WorkOrderAttachment, WorkOrderNumberCounter
 from app.work_orders.repository import WorkOrderRepository
 from app.work_orders.schemas import WorkOrderCreate
 from app.work_orders.service import WorkOrderService
@@ -78,6 +84,12 @@ class SeededScenario:
 
 
 def main() -> int:
+    # The seed report contains Polish characters; avoid a UnicodeEncodeError on legacy Windows consoles.
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):
+        pass
+
     repo_root = Path(__file__).resolve().parents[1]
     database_path = ensure_local_dev_sqlite(repo_root)
 
@@ -143,10 +155,18 @@ def reset_app_data(session: Session) -> None:
         shutil.rmtree(attachments_root)
     attachments_root.mkdir(parents=True, exist_ok=True)
 
+    # Child/log tables first. Crucially, clear stage_transition_events and audit rows: SQLite reuses
+    # primary keys after the work orders are deleted, so leftover events/audits from a previous seed
+    # would otherwise re-attach to freshly created orders and corrupt the statistics.
+    session.execute(delete(AuditEventActor))
+    session.execute(delete(AuditEvent))
+    session.execute(delete(StageTransitionEvent))
+    session.execute(delete(ProcessResourceLock))
     session.execute(delete(WorkOrderAttachment))
     session.execute(delete(WorkOrderStageState))
     session.execute(delete(WorkOrderQuantityBatch))
     session.execute(delete(WorkOrder))
+    session.execute(delete(WorkOrderNumberCounter))
     session.execute(delete(Client))
     session.execute(delete(User))
     session.execute(delete(StationPresence))
@@ -790,7 +810,289 @@ def seed_all_use_cases(session: Session) -> list[SeededScenario]:
         )
     )
 
+    # Statistics demo last: it sets production_type/queue_position directly (never calls assign_plan),
+    # so it does not trigger the manager's completed-order queue compaction over the scenario orders.
+    seed_statistics_demo(session, work_order_service, process_service, manager_service)
+
     return scenarios
+
+
+# --- Statistics demo data ------------------------------------------------------------------------
+# Drives a month of work orders through the real service flow (so state + stage-transition events are
+# valid), then rewrites the event timestamps so the Statystyki charts spread across days with a real
+# method × coating mix — making throughput, the cycle-time Suma/Średnia breakdown, the Decoral-pass
+# series, corrections, and live WIP-aging all visibly populated.
+
+# (method, coating, base_area_m2, quantity) archetypes, rotated to get a realistic mix.
+_STATS_ARCHETYPES: list[tuple[ProductionType, CoatingType, float, int]] = [
+    (ProductionType.MANUAL, CoatingType.RAL, 22.0, 20),
+    (ProductionType.AUTOMATIC, CoatingType.RAL, 35.0, 30),
+    (ProductionType.MANUAL, CoatingType.DECORAL, 14.0, 10),
+    (ProductionType.MANUAL, CoatingType.RAL, 48.0, 40),
+    (ProductionType.AUTOMATIC, CoatingType.RAL, 28.0, 24),
+    (ProductionType.AUTOMATIC, CoatingType.DECORAL, 18.0, 12),
+    (ProductionType.MANUAL, CoatingType.RAL, 30.0, 26),
+]
+
+_STATS_CUSTOMERS = [
+    "Profiltech Sp. z o.o.", "Aluminco", "Metal-Bud Zając", "Technoalum", "Stalmet",
+    "Okno-System", "Fasada Polska", "Balkon-Tech Sp. z o.o.",
+]
+_STATS_RAL_CODES = ["RAL 7016", "RAL 9005", "RAL 7035", "RAL 3020", "RAL 5010", "RAL 6018"]
+_STATS_DECORAL_CODES = ["D-200", "D-310"]
+_STATS_CORRECTION_REASONS = ["niedomalowanie", "wtrącenia", "zarysowania", "inne"]
+
+SP, HG, PR, PK, DC = (
+    ProcessStage.SURFACE_PREPARATION,
+    ProcessStage.HANGING,
+    ProcessStage.PRODUCTION,
+    ProcessStage.PACKING,
+    ProcessStage.DECORAL_PRODUCTION,
+)
+IP, DONE = StageStatus.IN_PROGRESS, StageStatus.DONE
+
+
+def _stage_offsets(method: ProductionType, coating: CoatingType) -> dict[tuple[ProcessStage, StageStatus], int]:
+    """Minutes-from-start for each (stage, status) event, so stages have realistic, differing durations.
+
+    Manual production runs longer than the automatic line; decoral adds a separate pass after packing.
+    The gaps between one stage's DONE and the next stage's IN_PROGRESS show up as queue-wait time.
+    """
+    extra = 8 if coating == CoatingType.DECORAL else 0
+    if method == ProductionType.MANUAL:
+        offsets = {
+            (SP, IP): 0, (SP, DONE): 12,
+            (PR, IP): 20, (PR, DONE): 64 + extra,
+            (PK, IP): 72 + extra, (PK, DONE): 86 + extra,
+        }
+    else:
+        # Automatic: hanging, then PRODUCTION + PACKING start implicitly at hanging finish.
+        offsets = {
+            (SP, IP): 0, (SP, DONE): 10,
+            (HG, IP): 16, (HG, DONE): 30,
+            (PR, IP): 30, (PR, DONE): 70 + extra,
+            (PK, IP): 30, (PK, DONE): 80 + extra,
+        }
+    if coating == CoatingType.DECORAL:
+        pack_done = offsets[(PK, DONE)]
+        offsets[(DC, IP)] = pack_done + 12
+        offsets[(DC, DONE)] = pack_done + 12 + 30
+    return offsets
+
+
+def _add_stage_event(
+    session: Session,
+    work_order_id: int,
+    stage: ProcessStage,
+    status: StageStatus,
+    occurred_at: datetime,
+) -> None:
+    session.add(
+        StageTransitionEvent(
+            work_order_id=work_order_id,
+            batch_id=None,
+            stage=stage,
+            status=status,
+            station_id=StationId.SYSTEM,
+            occurred_at=occurred_at,
+        )
+    )
+
+
+def _set_stage_state(
+    session: Session,
+    work_order_id: int,
+    stage: ProcessStage,
+    status: StageStatus,
+    updated_at: datetime,
+    counted_quantity: int | None = None,
+) -> None:
+    stage_state = session.scalar(
+        select(WorkOrderStageState).where(
+            WorkOrderStageState.work_order_id == work_order_id,
+            WorkOrderStageState.stage == stage,
+        )
+    )
+    if stage_state is not None:
+        stage_state.status = status
+        stage_state.updated_at = updated_at
+        if counted_quantity is not None:
+            stage_state.counted_quantity = counted_quantity
+
+
+def seed_statistics_demo(
+    session: Session,
+    work_order_service: WorkOrderService,
+    process_service: ProcessService,
+    manager_service: ManagerService,
+) -> None:
+    """Build a month of demo statistics by constructing state + stage-transition events directly.
+
+    Runs after the workflow scenarios. It deliberately does NOT use ManagerService.assign_plan (whose
+    completed-order queue compaction collides at this scale) nor the process-service stage transitions
+    (which hold the single HANGING lock / packing slots the scenarios leave occupied). Writing the
+    completed/in-progress state and the timestamped events by hand gives full control of the dates so
+    the Statystyki charts spread across the month with a real method × coating mix.
+    """
+    today = date.today()
+    month_start = today.replace(day=1)
+    queue_position = 1000  # high/trailing positions so demo history sits past the live queue
+    made: list[tuple[int, datetime, ProductionType, CoatingType]] = []
+
+    archetype_index = 0
+    day = month_start
+    while day <= today:
+        orders_today = 2 + (day.day % 3)  # 2..4 completed orders per day
+        for k in range(orders_today):
+            method, coating, base_area, quantity = _STATS_ARCHETYPES[archetype_index % len(_STATS_ARCHETYPES)]
+            archetype_index += 1
+            # Vary the area a little per day so the daily bars are uneven (more lifelike).
+            area = round(base_area * (0.8 + ((day.day * 7 + k) % 5) * 0.1), 1)
+            base_dt = datetime(day.year, day.month, day.day, 6 + k * 3, 0, tzinfo=UTC)
+            ral_code = (
+                _STATS_DECORAL_CODES[archetype_index % len(_STATS_DECORAL_CODES)]
+                if coating == CoatingType.DECORAL
+                else _STATS_RAL_CODES[archetype_index % len(_STATS_RAL_CODES)]
+            )
+
+            work_order = create_work_order(
+                work_order_service,
+                title=f"Statystyki {day.isoformat()} #{k + 1}",
+                coating_type=coating,
+                total_quantity=quantity,
+                customer_name=_STATS_CUSTOMERS[archetype_index % len(_STATS_CUSTOMERS)],
+                ral_code=ral_code,
+                profiles_quantity=quantity,
+                accessories_quantity=0,
+                notes="Dane demonstracyjne do statystyk.",
+            )
+
+            offsets = _stage_offsets(method, coating)
+            stage_sequence = ProcessService.get_stage_sequence_for_configuration(coating, method)
+            persisted = session.get(WorkOrder, work_order.id)
+            persisted.production_type = method
+            persisted.queue_position = queue_position
+            persisted.total_area_m2 = area
+            persisted.completed_quantity = quantity
+            queue_position += 1
+
+            # Mark every stage in this order's path DONE and emit the IN_PROGRESS/DONE events that the
+            # stats read, all dated within the order's day.
+            for stage in stage_sequence:
+                done_at = base_dt + timedelta(minutes=offsets[(stage, DONE)])
+                _set_stage_state(
+                    session, work_order.id, stage, StageStatus.DONE, done_at,
+                    counted_quantity=quantity if stage in (SP, PK) else None,
+                )
+                _add_stage_event(session, work_order.id, stage, IP, base_dt + timedelta(minutes=offsets[(stage, IP)]))
+                _add_stage_event(session, work_order.id, stage, DONE, done_at)
+
+            # The MAIN batch finishes on the last stage; no active batch remains (a completed order).
+            main_batch = session.scalar(
+                select(WorkOrderQuantityBatch).where(
+                    WorkOrderQuantityBatch.work_order_id == work_order.id,
+                    WorkOrderQuantityBatch.type == QuantityBatchType.MAIN,
+                )
+            )
+            if main_batch is not None:
+                main_batch.is_active = False
+                main_batch.current_stage = stage_sequence[-1]
+                main_batch.current_stage_status = StageStatus.DONE
+            persisted.current_active_batch_id = None
+            session.flush()
+
+            made.append((work_order.id, base_dt, method, coating))
+        day += timedelta(days=1)
+
+    # Spread a handful of corrections across the month (counted in the Poprawki chart + reason report)
+    # as historical, inactive CORRECTION batches — does not disturb the completed orders' state.
+    corrections = 0
+    for position, (order_id, base_dt, _method, coating) in enumerate(made):
+        if coating != CoatingType.RAL or position % 5 != 2:
+            continue
+        main_batch = session.scalar(
+            select(WorkOrderQuantityBatch).where(
+                WorkOrderQuantityBatch.work_order_id == order_id,
+                WorkOrderQuantityBatch.type == QuantityBatchType.MAIN,
+            )
+        )
+        session.add(
+            WorkOrderQuantityBatch(
+                work_order_id=order_id,
+                quantity=2 + position % 3,
+                type=QuantityBatchType.CORRECTION,
+                parent_batch_id=main_batch.id if main_batch else None,
+                is_active=False,
+                current_stage=None,
+                current_stage_status=None,
+                is_partial=True,
+                correction_reason_category=_STATS_CORRECTION_REASONS[position % len(_STATS_CORRECTION_REASONS)],
+                created_at=base_dt,
+            )
+        )
+        corrections += 1
+    session.commit()
+
+    # Live WIP-aging: a few orders left genuinely in progress at varied ages (some >24h => red),
+    # with a method × coating mix.
+    now = datetime.now(UTC)
+    wip_specs = [
+        (ProductionType.MANUAL, CoatingType.RAL, ProcessStage.PRODUCTION, 30),
+        (ProductionType.MANUAL, CoatingType.DECORAL, ProcessStage.PRODUCTION, 8),
+        (ProductionType.AUTOMATIC, CoatingType.RAL, ProcessStage.HANGING, 52),
+        (ProductionType.AUTOMATIC, CoatingType.DECORAL, ProcessStage.SURFACE_PREPARATION, 4),
+        (ProductionType.MANUAL, CoatingType.RAL, ProcessStage.SURFACE_PREPARATION, 2),
+        (ProductionType.MANUAL, CoatingType.RAL, ProcessStage.PRODUCTION, 26),
+    ]
+    for index, (method, coating, target_stage, hours_ago) in enumerate(wip_specs):
+        quantity = 16 + index * 2
+        ral_code = _STATS_DECORAL_CODES[index % 2] if coating == CoatingType.DECORAL else _STATS_RAL_CODES[index % len(_STATS_RAL_CODES)]
+        work_order = create_work_order(
+            work_order_service,
+            title=f"W toku #{index + 1}",
+            coating_type=coating,
+            total_quantity=quantity,
+            customer_name=_STATS_CUSTOMERS[index % len(_STATS_CUSTOMERS)],
+            ral_code=ral_code,
+            profiles_quantity=quantity,
+            accessories_quantity=0,
+            notes="W toku — demonstracja widoku „Zlecenia w toku”.",
+        )
+        persisted = session.get(WorkOrder, work_order.id)
+        persisted.production_type = method
+        persisted.queue_position = queue_position
+        persisted.total_area_m2 = float(quantity)
+        queue_position += 1
+
+        started_at = now - timedelta(hours=hours_ago)
+        stage_sequence = ProcessService.get_stage_sequence_for_configuration(coating, method)
+        # Stages before the target are done; the target is in progress; later stages untouched.
+        for stage in stage_sequence:
+            if stage == target_stage:
+                _set_stage_state(
+                    session, work_order.id, stage, StageStatus.IN_PROGRESS, started_at,
+                    counted_quantity=quantity if stage in (SP, PK) else None,
+                )
+                _add_stage_event(session, work_order.id, stage, IP, started_at)
+                break
+            _set_stage_state(
+                session, work_order.id, stage, StageStatus.DONE, started_at - timedelta(minutes=20),
+                counted_quantity=quantity if stage in (SP, PK) else None,
+            )
+
+        main_batch = session.scalar(
+            select(WorkOrderQuantityBatch).where(
+                WorkOrderQuantityBatch.work_order_id == work_order.id,
+                WorkOrderQuantityBatch.type == QuantityBatchType.MAIN,
+            )
+        )
+        if main_batch is not None:
+            main_batch.current_stage = target_stage
+            main_batch.current_stage_status = StageStatus.IN_PROGRESS
+        session.flush()
+    session.commit()
+
+    print(f"Seeded statistics demo: {len(made)} completed orders, {corrections} corrections, {len(wip_specs)} in-progress.")
 
 
 def create_work_order(
