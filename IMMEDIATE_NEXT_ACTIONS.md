@@ -111,6 +111,22 @@ they are not yet validated against live factory policy where noted.
 - Acceptance: Importing `app.work_orders.service` has no side effects; QC generation still works on
   Windows; missing Excel/pywin32 produces an immediate, clear error.
 
+### NA30. A completed order can be sent backwards by re-opening an earlier stage (no completion invariant)
+- Status: OPEN (discovered 2026-06-18).
+- Problem: An admin (who bypasses `ensure_station_allowed`) could call `start_stage`/`finish_stage` for
+  `HANGING` on an order whose terminal `PACKING` stage was already `DONE`, flipping `HANGING` back to
+  `IN_PROGRESS` and leaving a contradictory state (`HANG=IN_PROGRESS` while `PACK=DONE`), which then
+  misrendered the packing card. Reproduced live on seed order 0002 (audit events 20–22, OFFICE/admin):
+  `process.stage.started/finished HANGING` fired after the order was fully packed. `start_stage`
+  (`app/process/service.py:243`) has no guard that the order isn't already completed.
+- Required fix: Treat completion as a workflow invariant independent of station permission — reject a
+  start/finish transition on a stage when the order's terminal stage (`PACKING`, or `DECORAL_PRODUCTION`
+  for decoral) is already `DONE`, unless it goes through the proper correction/reopen flow. Decide and
+  document (per `docs/WORKFLOW.md`) whether a deliberate admin "reopen completed order" path should exist
+  at all, and if so what it resets.
+- Acceptance: A `start`/`finish` on an already-completed order returns a controlled error (not a silent
+  contradictory state); regression test covers it; `docs/WORKFLOW.md` states the completion invariant.
+
 ### NA6. JWT has no expiry
 - Status: DONE (2026-06-17) — see Done section.
 - Problem: `create_access_token` (`app/auth/service.py:17-23`) issues tokens with no `exp` claim;
@@ -390,6 +406,21 @@ only. Five elements, top to bottom:
   pieces total; covered by tests.
 
 ## Done
+
+- **Automatic packing card is now an ACTIVE packing row from hanging-start, not a read-only "waiting for hanging" row (2026-06-18)** —
+  follow-up to the NA22a change below; user-requested. Previously `_get_automatic_packing_display_stage`
+  returned `HANGING` (so the packing panel showed a read-only "Czeka na koniec zawieszania" row) until
+  hanging finished. Now it returns `PACKING` the moment hanging is `IN_PROGRESS`
+  (`app/process/service.py` ~1382), so the packing operator gets the live count form and works the order
+  in parallel with the line. Completion is still blocked until `HANGING` `DONE` **and** automatic paint
+  consumption is recorded (existing `complete_packing` guards); the gate is now surfaced to the UI via new
+  read-model fields `can_complete_packing` / `packing_blocked_reason` (`app/process/schemas.py`,
+  `_packing_completion_block_reason` helper), and the frontend disables "Zakończ pakowanie" with the Polish
+  reason (`frontend/src/components/PackingWorkOrdersPage.tsx`). Docs: `docs/WORKFLOW.md` (automatic
+  constraints + packing-slot read-model notes). Tests: updated
+  `test_automatic_active_hanging_is_visible_in_packing_before_finish` (now expects PACKING + blocked) and the
+  frontend "packs an automatic order in parallel with hanging…" test; full backend suite, `alembic check`
+  (no schema change), frontend tests (77) + build all green.
 
 - **Automatic orders now start packing at hanging-start, not just reserve a slot (2026-06-18)** —
   user-requested workflow change. Previously an AUTOMATIC order only took a packing-slot *reservation*

@@ -59,5 +59,7 @@ export interface StageWorkOrder {
   is_being_packed: boolean;
   holds_packing_slot: boolean;
   packing_slots_total: number;
+  can_complete_packing: boolean;
+  packing_blocked_reason: string | null;
   stage_status: ProcessStageStatus;
 }

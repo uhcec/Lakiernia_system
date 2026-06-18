@@ -56,6 +56,11 @@ class ProcessStageWorkOrderRead(BaseModel):
     is_being_packed: bool = False
     holds_packing_slot: bool = False
     packing_slots_total: int = 1
+    # Packing completion gate (automatic orders pack in parallel with the line, but cannot finish
+    # until HANGING is DONE and paint consumption is recorded). `packing_blocked_reason` is the
+    # operator-facing Polish message shown when `can_complete_packing` is False.
+    can_complete_packing: bool = True
+    packing_blocked_reason: str | None = None
     stage_status: ProcessStageStatusRead
 
 

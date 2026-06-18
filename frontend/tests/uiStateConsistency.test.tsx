@@ -214,6 +214,8 @@ function buildStageWorkOrder(
     is_being_packed: overrides.is_being_packed ?? false,
     holds_packing_slot: overrides.holds_packing_slot ?? overrides.is_being_packed ?? false,
     packing_slots_total: overrides.packing_slots_total ?? 2,
+    can_complete_packing: overrides.can_complete_packing ?? true,
+    packing_blocked_reason: overrides.packing_blocked_reason ?? null,
     stage_status: overrides.stage_status,
   };
 }
@@ -912,7 +914,7 @@ describe("frontend state consistency", () => {
     expect(screen.getByText("Aktualny stan farby: 17.5 kg")).toBeTruthy();
   });
 
-  it("shows automatic active hanging in packing without packing actions", async () => {
+  it("packs an automatic order in parallel with hanging but blocks completion until hanging finishes", async () => {
     fetchStageWorkOrdersMock.mockResolvedValueOnce([
       buildStageWorkOrder({
         id: 14,
@@ -923,7 +925,11 @@ describe("frontend state consistency", () => {
         paint_producer: "Tiger",
         ral_code: "RAL 7016",
         production_type: { value: "AUTOMATIC", label: "Automatyczna" },
-        stage_status: { stage: "HANGING", status: { value: "IN_PROGRESS", label: "W toku" } },
+        is_being_packed: true,
+        holds_packing_slot: true,
+        can_complete_packing: false,
+        packing_blocked_reason: "Nie można zakończyć pakowania, dopóki nie zakończy się zawieszanie.",
+        stage_status: { stage: "PACKING", status: { value: "IN_PROGRESS", label: "W trakcie" } },
       }),
     ]);
 
@@ -931,17 +937,15 @@ describe("frontend state consistency", () => {
 
     expect(await screen.findByText("WO-AUTO-PACK-PREVIEW :: ACME")).toBeTruthy();
     expect(fetchStageWorkOrdersMock).toHaveBeenCalledWith("PACKING");
-    expect(screen.getByText("Profile")).toBeTruthy();
-    expect(screen.getByText("Akcesoria")).toBeTruthy();
-    expect(screen.getByText("17 szt.")).toBeTruthy();
-    expect(screen.getByText("Do policzenia")).toBeTruthy();
     expect(screen.getByText("Tiger / RAL 7016")).toBeTruthy();
-    expect(screen.queryByText("Dane główne")).toBeNull();
-    expect(screen.getByText("W zawieszaniu - oczekuje na pakowanie")).toBeTruthy();
-    expect(screen.getByText("Czeka na koniec zawieszania")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Zakończ pakowanie" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Rozpocznij pakowanie" })).toBeNull();
-    expect(screen.queryAllByRole("spinbutton")).toHaveLength(0);
+    // The packing form is active (operator can count in parallel with the line)...
+    expect(screen.getByText("W pakowaniu")).toBeTruthy();
+    expect(screen.queryAllByRole("spinbutton").length).toBeGreaterThan(0);
+    // ...but "Zakończ pakowanie" is disabled with the operator-facing blocking reason.
+    expect(screen.getByText("Nie można zakończyć pakowania, dopóki nie zakończy się zawieszanie.")).toBeTruthy();
+    const finishButton = screen.getByRole("button", { name: "Zakończ pakowanie" });
+    expect(finishButton.hasAttribute("disabled")).toBe(true);
+    expect(screen.queryByText("Czeka na koniec zawieszania")).toBeNull();
   });
 
   it("reloads packing view and discards local draft after submit failure", async () => {

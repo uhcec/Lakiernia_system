@@ -720,9 +720,14 @@ export function PackingWorkOrdersPage() {
                       ) : null}
 
                       <div className="space-y-2">
+                        {workOrder.packing_blocked_reason ? (
+                          <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
+                            {workOrder.packing_blocked_reason}
+                          </p>
+                        ) : null}
                         <button
                           type="button"
-                          disabled={isSubmitting || !isDraftValid || !isPackingStage}
+                          disabled={isSubmitting || !isDraftValid || !isPackingStage || !workOrder.can_complete_packing}
                           onClick={() => void handlePackingSubmit(workOrder)}
                           className="inline-flex w-full items-center justify-center rounded-lg bg-accent px-4 py-3 text-sm font-semibold text-white transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:bg-teal-300"
                         >
@@ -803,7 +808,7 @@ export function PackingWorkOrdersPage() {
           <div>
             <h2 className="text-3xl font-semibold text-ink sm:text-4xl">Pakowanie</h2>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-steel sm:text-base">
-              Pakowanie, kontrola jakości i podgląd aktywnych automatów oczekujących na koniec zawieszania.
+              Pakowanie, kontrola jakości oraz automaty pakowane równolegle z linią (zakończenie po zawieszaniu i farbie).
             </p>
             <div className="mt-3 inline-flex rounded-full border border-line bg-mist p-1">
               <button
@@ -863,7 +868,7 @@ export function PackingWorkOrdersPage() {
             <div className="space-y-4">
               <div>
                 <h3 className="text-lg font-semibold text-ink">Do wykonania</h3>
-                <p className="mt-1 text-sm text-steel">Zlecenia do pakowania oraz automaty widoczne wcześniej jako oczekujące na koniec zawieszania.</p>
+                <p className="mt-1 text-sm text-steel">Zlecenia do pakowania oraz automaty pakowane równolegle z linią (zakończenie dostępne po zawieszaniu i rejestracji farby).</p>
               </div>
               {activeWorkOrders.length === 0 ? (
                 <div className="rounded-3xl border border-dashed border-line bg-mist px-6 py-12 text-center text-base text-steel">

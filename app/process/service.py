@@ -42,6 +42,10 @@ class ProcessService:
     AUTOMATIC_PAINT_CONSUMPTION_CONFIGURATION_ERROR = "Paint code must be configured before automatic paint consumption can be recorded."
     AUTOMATIC_PAINT_CONSUMPTION_STAGE_ERROR = "Automatic paint consumption can be recorded once HANGING has started."
     AUTOMATIC_PAINT_CONSUMPTION_ALREADY_RECORDED_ERROR = "Automatic paint consumption cannot be edited after it has been saved. Use a manual office stock adjustment if a correction is required."
+    # Operator-facing (Polish) reasons surfaced on the packing card when an automatic order is being
+    # packed in parallel with the line but cannot be *completed* yet (mirror the complete_packing guards).
+    PACKING_COMPLETION_BLOCKED_HANGING_PL = "Nie można zakończyć pakowania, dopóki nie zakończy się zawieszanie."
+    PACKING_COMPLETION_BLOCKED_PAINT_PL = "Nie można zakończyć pakowania, dopóki nie zostanie zarejestrowane zużycie farby."
     QUEUE_RESOURCE_BLOCK_REASONS = {
         "HANGING": "Zawieszanie zajęte",
         "AUTOMATIC_LINE": "Linia automatyczna zajęta",
@@ -1374,10 +1378,30 @@ class ProcessService:
         return hanging_state.status in {StageStatus.IN_PROGRESS, StageStatus.DONE}
 
     def _get_automatic_packing_display_stage(self, work_order: WorkOrder) -> ProcessStage:
+        # An automatic order is packable the moment HANGING *starts* (owner policy): the packing
+        # station works it in parallel with the line instead of waiting as a read-only row. Packing
+        # *completion* stays blocked until HANGING is DONE and paint consumption is recorded — that
+        # gate lives in complete_packing and is surfaced to the UI via _packing_completion_block_reason.
+        hanging_state = self._get_stage_state(work_order, ProcessStage.HANGING)
+        if hanging_state.status in {StageStatus.IN_PROGRESS, StageStatus.DONE}:
+            return ProcessStage.PACKING
+        return ProcessStage.HANGING
+
+    def _packing_completion_block_reason(self, work_order: WorkOrder) -> str | None:
+        """Polish reason why an automatic packing card cannot be *completed* yet, or None.
+
+        Mirrors the guards enforced in ``complete_packing`` (hanging must be DONE and automatic
+        paint consumption must be recorded) so the packing UI can disable "Zakończ pakowanie" with a
+        clear message instead of letting the operator submit and hit a server-side rejection.
+        """
+        if work_order.production_type != ProductionType.AUTOMATIC:
+            return None
         hanging_state = self._get_stage_state(work_order, ProcessStage.HANGING)
         if hanging_state.status != StageStatus.DONE:
-            return ProcessStage.HANGING
-        return ProcessStage.PACKING
+            return self.PACKING_COMPLETION_BLOCKED_HANGING_PL
+        if work_order.consumed_paint_quantity_kg <= 0:
+            return self.PACKING_COMPLETION_BLOCKED_PAINT_PL
+        return None
 
     def _get_batches_visible_in_stage(
         self,
@@ -2435,6 +2459,12 @@ class ProcessService:
         is_being_packed = holds_packing_slot and stage == ProcessStage.PACKING
         packing_slots_total = self._packing_slot_count()
 
+        # Whether "Zakończ pakowanie" is allowed for this card (automatic orders pack in parallel with
+        # the line but can only finish once HANGING is DONE and paint consumption is recorded).
+        packing_blocked_reason: str | None = None
+        if stage == ProcessStage.PACKING and stage_status.value != StageStatus.DONE:
+            packing_blocked_reason = self._packing_completion_block_reason(work_order)
+
         return ProcessStageWorkOrderRead(
             id=work_order.id,
             batch_id=batch_id,
@@ -2476,6 +2506,8 @@ class ProcessService:
             is_being_packed=is_being_packed,
             holds_packing_slot=holds_packing_slot,
             packing_slots_total=packing_slots_total,
+            can_complete_packing=packing_blocked_reason is None,
+            packing_blocked_reason=packing_blocked_reason,
             stage_status=ProcessStageStatusRead(
                 stage=stage,
                 status=stage_status,

@@ -345,10 +345,14 @@ def test_automatic_active_hanging_is_visible_in_packing_before_finish(test_clien
     assert before_finish_response.status_code == 200
     assert automatic["id"] in [item["id"] for item in before_finish_response.json()]
     before_finish_item = next(item for item in before_finish_response.json() if item["id"] == automatic["id"])
+    # While hanging is in progress the order is already an active packing row (packs in parallel with
+    # the line), but completion is blocked with an operator-facing reason until hanging is DONE.
     assert before_finish_item["stage_status"] == {
-        "stage": "HANGING",
+        "stage": "PACKING",
         "status": {"value": "IN_PROGRESS", "label": "W trakcie"},
     }
+    assert before_finish_item["can_complete_packing"] is False
+    assert before_finish_item["packing_blocked_reason"] == "Nie można zakończyć pakowania, dopóki nie zakończy się zawieszanie."
     assert packing_response.status_code == 200
     assert automatic["id"] in [item["id"] for item in packing_response.json()]
     packing_item = next(item for item in packing_response.json() if item["id"] == automatic["id"])
@@ -356,6 +360,10 @@ def test_automatic_active_hanging_is_visible_in_packing_before_finish(test_clien
         "stage": "PACKING",
         "status": {"value": "IN_PROGRESS", "label": "W trakcie"},
     }
+    # Hanging is DONE now, but paint consumption has not been recorded yet — still blocked, with the
+    # paint reason rather than the hanging reason.
+    assert packing_item["can_complete_packing"] is False
+    assert packing_item["packing_blocked_reason"] == "Nie można zakończyć pakowania, dopóki nie zostanie zarejestrowane zużycie farby."
     assert automatic["id"] in [item["id"] for item in production_response.json()]
 
 

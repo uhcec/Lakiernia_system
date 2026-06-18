@@ -61,7 +61,7 @@ Automatic constraints:
 - Automatic production is no longer display-only: it should allow paint-consumption entry as a separate audited paint-consumption action.
 - `HANGING` start transitions automatic flow forward
 - The automatic production panel must show upcoming and active automatic flow from the moment a work order is ready for `HANGING`, including `HANGING` not-started/in-progress rows, so the automatic operator sees the day's workflow before the line is occupied.
-- An automatic order **starts packing the moment `HANGING` starts** (its `PACKING` stage goes `IN_PROGRESS` immediately, not merely a slot reservation), so packing is active end-to-end as the line runs. The packing panel still shows it as a read-only `HANGING` row while `HANGING` is in progress, and packing **completion remains blocked until `HANGING` is `DONE`** — start now, finish after hanging.
+- An automatic order **starts packing the moment `HANGING` starts** (its `PACKING` stage goes `IN_PROGRESS` immediately, not merely a slot reservation), so packing is active end-to-end as the line runs. The packing panel shows it as an **active packing row (the count form), not a read-only "waiting for hanging" row**, so the packing operator can work it in parallel with the line. Packing **completion stays blocked until `HANGING` is `DONE` and automatic paint consumption is recorded** — "Zakończ pakowanie" is disabled with a Polish reason (`packing_blocked_reason`) until both hold. Start now, finish after hanging + paint.
 - Finish for automatic path is performed from `PACKING`
 - Physical resource exclusivity is enforced in the backend with persisted resource locks and controlled `409` responses.
 - Only one `HANGING` job may be active at a time.
@@ -240,7 +240,7 @@ Packing list columns:
 - paint
 - company/customer
 - queue position
-- active automatic `HANGING` rows as read-only waiting-for-packing visibility
+- active automatic orders as live packing rows from `HANGING` start (count form active, completion gated)
 
 Packing capacity / slots (`PACKING:1..N` resource locks — NA16 + NA22):
 - Packing has **N configurable slots** (`packing_max_concurrent_slots`, default 2), each a backend resource lock `PACKING:i` (same machinery as `HANGING`/`AUTOMATIC_LINE`), so occupancy survives across requests and is not frontend-inferred. The default behavior is single-station exclusivity; the extra slots are opened only by an explicit manual override.
@@ -248,7 +248,7 @@ Packing capacity / slots (`PACKING:1..N` resource locks — NA16 + NA22):
 - **Manual start is the exclusivity gate.** A manual **start packing** (`POST /process/work-orders/{id}/packing/start`) succeeds only when the station is completely free; if a slot is occupied/reserved it returns `409`, and the operator may retry with **`?override=true`** to open an additional slot up to N (NA22b). The override is audited and is the *only* way to run two packings at once (manual escape hatch). A manual completion is capacity-bound (it may finish into any free slot); automatic completion is single-station.
 - The override surfaces a warning **only when the operator chooses to open the second station** (a confirm on click, not a persistent banner), because an automatic reserves packing **before parts physically arrive** (at hanging start) — the area can look free but is not. The warning shows the reserving automatic order's piece count.
 - Completion (`/packing/complete`) takes/confirms a slot and releases it once packing leaves `IN_PROGRESS` (completed, or reset to planning by a correction). An operator who claimed the wrong order can free its slot without completing via **release** (`POST /process/work-orders/{id}/packing/release`); idempotent, cannot release another order's slot. Stale slots (owner no longer packing) are recovered on the next acquisition.
-- Read models expose `holds_packing_slot` (this order holds a slot, including an automatic reservation shown as a HANGING waiting row), `is_being_packed` (holds a slot and is at the packing stage), and `packing_slots_total` (N). The packing UI shows the entry form (+ "Zwolnij stanowisko") for an order that holds a slot, a "Rozpocznij pakowanie" button when the station is free, and an "Otwórz drugie stanowisko" override (with the warning) when occupied but capacity remains.
+- Read models expose `holds_packing_slot` (this order holds a slot, including an automatic order that reserved one at hanging start), `is_being_packed` (holds a slot and is at the packing stage), `packing_slots_total` (N), and `can_complete_packing` / `packing_blocked_reason` (whether "Zakończ pakowanie" is allowed and, if not, the Polish reason — used to gate automatic orders until `HANGING` is `DONE` and paint consumption is recorded). The packing UI shows the entry form (+ "Zwolnij stanowisko") for an order that holds a slot, a "Rozpocznij pakowanie" button when the station is free, and an "Otwórz drugie stanowisko" override (with the warning) when occupied but capacity remains.
 
 Decoral production list columns:
 - work-order number
