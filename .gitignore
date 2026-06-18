@@ -6,6 +6,8 @@ __pycache__/
 *.egg-info/
 local.db
 local.db-*
+*.db
+*.db-*
 *.sqlite
 *.sqlite3
 frontend/node_modules/
