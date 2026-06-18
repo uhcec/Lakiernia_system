@@ -948,6 +948,30 @@ describe("frontend state consistency", () => {
     expect(screen.queryByText("Czeka na koniec zawieszania")).toBeNull();
   });
 
+  it("never pre-fills the Policzono field even when the backend supplies a counted quantity", async () => {
+    fetchStageWorkOrdersMock.mockResolvedValue([
+      buildStageWorkOrder({
+        id: 33,
+        order_number: "WO-PACK-COUNT",
+        customer_name: "Liczenie",
+        counted_quantity: 7,
+        current_active_quantity: 7,
+        planned_quantity: 7,
+        is_being_packed: true,
+        stage_status: { stage: "PACKING", status: { value: "IN_PROGRESS", label: "W trakcie" } },
+      }),
+    ]);
+
+    render(<PackingWorkOrdersPage />);
+
+    await screen.findByText("WO-PACK-COUNT :: Liczenie");
+    const inputs = screen.getAllByRole("spinbutton") as HTMLInputElement[];
+    // Policzono (first input) stays empty so the operator must count; OK still defaults to the quantity.
+    expect(inputs[0].value).toBe("");
+    expect(inputs[0].getAttribute("placeholder")).toBe("Policz i wpisz");
+    expect(inputs[1].value).toBe("7");
+  });
+
   it("reloads packing view and discards local draft after submit failure", async () => {
     fetchStageWorkOrdersMock
       .mockResolvedValueOnce([
@@ -996,7 +1020,8 @@ describe("frontend state consistency", () => {
     await waitFor(() => expect(fetchStageWorkOrdersMock).toHaveBeenCalledTimes(2));
     await waitFor(() => {
       const reloadedInputs = screen.getAllByRole("spinbutton") as HTMLInputElement[];
-      expect(reloadedInputs.map((input) => input.value)).toEqual(["5", "5", "0"]);
+      // "Policzono" is never pre-filled — the operator must type the counted quantity at the station.
+      expect(reloadedInputs.map((input) => input.value)).toEqual(["", "5", "0"]);
     });
   });
 

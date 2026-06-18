@@ -239,7 +239,9 @@ export function PackingWorkOrdersPage() {
             continue;
           }
           nextDrafts[draftKey] = {
-            countedQuantity: item.counted_quantity?.toString() ?? "",
+            // "Policzono" must always be typed by the operator at the station (never pre-filled with
+            // the expected/surface-prep count), so people physically count instead of clicking through.
+            countedQuantity: "",
             okQuantity: String(item.counted_quantity ?? item.current_active_quantity),
             correctionQuantity: "0",
             correctionProfilesQuantity: "0",
@@ -622,6 +624,7 @@ export function PackingWorkOrdersPage() {
                             min="1"
                             step="1"
                             value={draft.countedQuantity}
+                            placeholder="Policz i wpisz"
                             onChange={(event) => updateDraft(draftKey, "countedQuantity", event.target.value)}
                             className="w-full rounded-lg border border-line bg-white px-3 py-2 text-base font-semibold text-ink outline-none transition focus:border-accent"
                           />
