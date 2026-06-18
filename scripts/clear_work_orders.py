@@ -2,15 +2,21 @@
 from __future__ import annotations
 
 import shutil
+import sys
 from pathlib import Path
 
 from sqlalchemy import delete
 
-from app.audit.models import AuditEvent
+from app.audit.models import AuditEvent, AuditEventActor
 from app.core.config import get_work_order_attachments_path
 from app.database import models as _models  # noqa: F401
 from app.database.session import get_session_factory
-from app.process.models import ProcessResourceLock, WorkOrderQuantityBatch, WorkOrderStageState
+from app.process.models import (
+    ProcessResourceLock,
+    StageTransitionEvent,
+    WorkOrderQuantityBatch,
+    WorkOrderStageState,
+)
 from app.work_orders.models import WorkOrder, WorkOrderAttachment, WorkOrderNumberCounter
 
 
@@ -18,7 +24,11 @@ def main() -> None:
     session_factory = get_session_factory()
 
     with session_factory() as session:
+        # FK enforcement (PRAGMA foreign_keys) is off for SQLite here, so ON DELETE
+        # CASCADE does not fire; delete child tables explicitly to avoid orphan rows.
+        session.execute(delete(AuditEventActor))
         session.execute(delete(AuditEvent))
+        session.execute(delete(StageTransitionEvent))
         session.execute(delete(WorkOrderQuantityBatch))
         session.execute(delete(WorkOrderStageState))
         session.execute(delete(ProcessResourceLock))
@@ -32,6 +42,7 @@ def main() -> None:
         shutil.rmtree(attachments_path)
         attachments_path.mkdir(parents=True, exist_ok=True)
 
+    sys.stdout.reconfigure(encoding="utf-8")
     print("Wszystkie zlecenia zostały usunięte.")
 
 
