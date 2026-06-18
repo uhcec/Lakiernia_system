@@ -391,6 +391,19 @@ only. Five elements, top to bottom:
 
 ## Done
 
+- **Seed bug — statistics demo created an impossible second HANGING-in-progress order (2026-06-18)** —
+  `seed_statistics_demo` writes WIP-aging rows as stage state **directly** (bypassing `ProcessService`),
+  and one spec parked a second AUTOMATIC order at `HANGING / IN_PROGRESS`. HANGING is a single-holder
+  resource lock at runtime, and scenario E2 already legitimately holds it, so the seed rendered an
+  impossible "two orders hanging at once" state — and that directly-written order reserved no packing
+  slot, which also read as "automatic hanging didn't lock packing." Fix: that stuck automatic order now
+  ages at `SURFACE_PREPARATION` (non-exclusive) instead (reset_and_seed_dev_db.py wip_specs, with a
+  comment warning future edits not to direct-write an exclusive-resource stage). Verified after reseed:
+  exactly one HANGING-in-progress order (E2/0023); the reservation-at-hanging is confirmed working
+  (scenario N/0018 holds `PACKING:1` purely from its hanging-start reservation, never having started
+  packing). `tests/test_packing_station_lock.py` green (13). Note: the NA22a/NA22b packing
+  reserve+override logic itself was **not** a bug — both reported symptoms were this one seed artifact.
+
 - **NA28 phase 2 — employee admin + per-operator stats + presence history (2026-06-18)** — Made the
   employee mechanism fully usable in-app (was seed-only). Backend (`app/employees/`): employee **CRUD**
   (`POST /employees`, `PATCH /employees/{id}`, `GET /employees?include_inactive=`) gated to

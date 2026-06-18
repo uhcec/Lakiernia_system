@@ -1133,11 +1133,18 @@ def seed_statistics_demo(
 
     # Live WIP-aging: a few orders left genuinely in progress at varied ages (some >24h => red),
     # with a method × coating mix.
+    #
+    # NOTE: these rows are written as stage state DIRECTLY (bypassing ProcessService), so they must not
+    # place an order on an exclusive resource that the real engine guards. In particular HANGING is a
+    # single-holder lock and the automatic walkthrough order (scenario E2) already sits there holding
+    # it (and its reserved packing slot); a second in-progress HANGING row here would render an
+    # impossible "two orders hanging at once" state and would not reserve packing. So the stuck
+    # automatic order below ages at SURFACE_PREPARATION (non-exclusive) instead.
     now = datetime.now(UTC)
     wip_specs = [
         (ProductionType.MANUAL, CoatingType.RAL, ProcessStage.PRODUCTION, 30),
         (ProductionType.MANUAL, CoatingType.DECORAL, ProcessStage.PRODUCTION, 8),
-        (ProductionType.AUTOMATIC, CoatingType.RAL, ProcessStage.HANGING, 52),
+        (ProductionType.AUTOMATIC, CoatingType.RAL, ProcessStage.SURFACE_PREPARATION, 52),
         (ProductionType.AUTOMATIC, CoatingType.DECORAL, ProcessStage.SURFACE_PREPARATION, 4),
         (ProductionType.MANUAL, CoatingType.RAL, ProcessStage.SURFACE_PREPARATION, 2),
         (ProductionType.MANUAL, CoatingType.RAL, ProcessStage.PRODUCTION, 26),
