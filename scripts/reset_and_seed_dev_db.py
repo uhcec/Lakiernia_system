@@ -891,6 +891,35 @@ SP, HG, PR, PK, DC = (
 )
 IP, DONE = StageStatus.IN_PROGRESS, StageStatus.DONE
 
+# Which employees "work" each station in the demo, so completion events get per-operator attribution
+# (mirrors the seeded station presence). SURFACE_PREPARATION has two operators to show set-attribution.
+_STATION_OPERATORS: dict[StationId, list[str]] = {
+    StationId.SURFACE_PREPARATION: ["Jan Kowalski", "Marek Kamiński"],
+    StationId.HANGING: ["Katarzyna Wójcik"],
+    StationId.MANUAL_PRODUCTION: ["Anna Nowak"],
+    StationId.AUTOMATIC_PRODUCTION: ["Marek Kamiński"],
+    StationId.PACKING: ["Piotr Wiśniewski"],
+    StationId.DECORAL_PRODUCTION: ["Marek Kamiński"],
+}
+
+
+def _stage_station(stage: ProcessStage, method: ProductionType) -> StationId:
+    return {
+        SP: StationId.SURFACE_PREPARATION,
+        HG: StationId.HANGING,
+        PR: StationId.MANUAL_PRODUCTION if method == ProductionType.MANUAL else StationId.AUTOMATIC_PRODUCTION,
+        PK: StationId.PACKING,
+        DC: StationId.DECORAL_PRODUCTION,
+    }[stage]
+
+
+def _completion_event_type(stage: ProcessStage) -> str:
+    if stage == PK:
+        return "process.packing.completed"
+    if stage == DC:
+        return "process.decoral_production.completed"
+    return "process.stage.finished"
+
 
 def _stage_offsets(method: ProductionType, coating: CoatingType) -> dict[tuple[ProcessStage, StageStatus], int]:
     """Minutes-from-start for each (stage, status) event, so stages have realistic, differing durations.
@@ -978,6 +1007,32 @@ def seed_statistics_demo(
     month_start = today.replace(day=1)
     queue_position = 1000  # high/trailing positions so demo history sits past the live queue
     made: list[tuple[int, datetime, ProductionType, CoatingType]] = []
+    employees_by_name = {employee.full_name: employee for employee in session.scalars(select(Employee)).all()}
+
+    def emit_completion_audit(
+        order_id: int, order_number: str, stage: ProcessStage, station_id: StationId, occurred_at: datetime
+    ) -> None:
+        # A completion audit event attributed to the station's operators — feeds per-operator stats.
+        event = AuditEvent(
+            event_type=_completion_event_type(stage),
+            station_id=station_id,
+            work_order_id=order_id,
+            target_type="process_stage",
+            summary=f"Finished {stage.value} for work order {order_number}.",
+            created_at=occurred_at,
+        )
+        session.add(event)
+        session.flush()
+        for operator_name in _STATION_OPERATORS.get(station_id, []):
+            operator = employees_by_name.get(operator_name)
+            if operator is not None:
+                session.add(
+                    AuditEventActor(
+                        audit_event_id=event.id,
+                        employee_id=operator.id,
+                        employee_name=operator.full_name,
+                    )
+                )
 
     archetype_index = 0
     day = month_start
@@ -1026,6 +1081,9 @@ def seed_statistics_demo(
                 )
                 _add_stage_event(session, work_order.id, stage, IP, base_dt + timedelta(minutes=offsets[(stage, IP)]))
                 _add_stage_event(session, work_order.id, stage, DONE, done_at)
+                emit_completion_audit(
+                    work_order.id, work_order.order_number, stage, _stage_station(stage, method), done_at
+                )
 
             # The MAIN batch finishes on the last stage; no active batch remains (a completed order).
             main_batch = session.scalar(

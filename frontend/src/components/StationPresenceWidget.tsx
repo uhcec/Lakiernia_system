@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-import { checkInEmployee, checkOutEmployee, fetchStationPresence } from "../api/employeesApi";
+import { checkInEmployee, checkOutAllAtStation, checkOutEmployee, fetchStationPresence } from "../api/employeesApi";
 import { getStationIdForLocation } from "../api/stationContext";
 import type { StationPresenceRoster } from "../types/employees";
 
@@ -22,6 +22,7 @@ export function StationPresenceWidget() {
 
   const [roster, setRoster] = useState<StationPresenceRoster | null>(null);
   const [busyId, setBusyId] = useState<number | null>(null);
+  const [checkingOutAll, setCheckingOutAll] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -58,13 +59,37 @@ export function StationPresenceWidget() {
     }
   }
 
+  async function checkOutEveryone() {
+    setCheckingOutAll(true);
+    setError(null);
+    try {
+      setRoster(await checkOutAllAtStation(stationId));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Nie udało się wymeldować obsady");
+    } finally {
+      setCheckingOutAll(false);
+    }
+  }
+
   return (
     <section className="rounded-3xl border border-line bg-white/80 p-5">
       <div className="mb-3 flex items-baseline justify-between gap-3">
         <h3 className="text-sm font-semibold uppercase tracking-[0.1em] text-steel">Obsada stanowiska</h3>
-        <span className="text-xs text-steel">
-          {presentIds.size > 0 ? `Na stanowisku: ${presentIds.size}` : "Nikt nie zaznaczony"}
-        </span>
+        <div className="flex items-center gap-3">
+          <span className="text-xs text-steel">
+            {presentIds.size > 0 ? `Na stanowisku: ${presentIds.size}` : "Nikt nie zaznaczony"}
+          </span>
+          {presentIds.size > 0 ? (
+            <button
+              type="button"
+              onClick={checkOutEveryone}
+              disabled={checkingOutAll}
+              className="rounded-full border border-line px-2.5 py-1 text-xs font-medium text-steel transition hover:border-rose-400 hover:text-rose-600 disabled:opacity-50"
+            >
+              Wymelduj wszystkich
+            </button>
+          ) : null}
+        </div>
       </div>
       <p className="mb-3 text-xs text-steel">
         Zaznacz, kto jest teraz na stanowisku — akcje będą przypisane obecnym osobom.

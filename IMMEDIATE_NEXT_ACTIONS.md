@@ -368,18 +368,11 @@ only. Five elements, top to bottom:
 - Acceptance: the doc matches the code; no behaviour change.
 
 ### NA28. Per-operator foundation — phase 2 (stats + employee admin UI)
-- Severity: MEDIUM (product), follows the slice-1 presence/attribution foundation (see Done).
-- Open work:
-  - **Per-operator statistics** — read the presence history (`station_presence`) + the stage-transition
-    log to report per-operator output / activity. Design decision needed: how to credit an action when
-    **several** employees were present at the station (split evenly, credit all, or require a single
-    "lead"?). Until decided, attribution is a *set* and stats must not assume one actor.
-  - **Employee admin UI** — add/deactivate/rename employees from an office/admin screen (seed-only today).
-  - Optional: a presence history view (who was at which station, when) and richer attribution in the
-    stage-transition log itself (currently `user_id` = the shared station account; attribution lives in
-    `audit_event_actors`).
-- Acceptance: agreed per-operator stat(s) shipped with tests; employees manageable in-app; multi-present
-  crediting rule documented in WORKFLOW.md.
+- Status: **DONE (2026-06-18)** — see Done section. Crediting rule chosen by owner: each present operator
+  gets full credit, order counted once per operator (documented in WORKFLOW.md).
+- Remaining/optional (not blocking): richer attribution directly in the stage-transition log
+  (`user_id` is still the shared station account; per-action attribution lives in `audit_event_actors`),
+  and auto-checkout at end of day (deliberately skipped as low-value).
 
 ### NA29. Pieces (szt.) cross-section breakdown across production stats — phase 2 of NA23
 - Severity: LOW (visibility — m² is the primary unit and already split; pieces is the secondary unit).
@@ -397,6 +390,23 @@ only. Five elements, top to bottom:
   pieces total; covered by tests.
 
 ## Done
+
+- **NA28 phase 2 — employee admin + per-operator stats + presence history (2026-06-18)** — Made the
+  employee mechanism fully usable in-app (was seed-only). Backend (`app/employees/`): employee **CRUD**
+  (`POST /employees`, `PATCH /employees/{id}`, `GET /employees?include_inactive=`) gated to
+  office/manager/admin (deactivating also checks the worker out everywhere); **per-operator stats**
+  (`GET /employees/stats`) — per employee hours_present, orders_count, pieces/m²_credited (from
+  `process.stage.finished`/`packing.completed`/`decoral_production.completed` audit events joined to the
+  order) and actions, with the owner's crediting rule (each present operator full credit, order counted
+  once per operator); **presence history** (`GET /employees/presence/history`); **check-out-all**
+  (`POST /stations/{id}/presence/check-out-all`). Frontend: new **"Pracownicy"** page (admin table +
+  operator-stats table + presence-history table, month picker) in the Biuro nav (office/manager/admin
+  only), plus "Wymelduj wszystkich" on the station presence widget. Seed now creates attributed
+  completion audit events per station operator so the stats are populated. Skipped as low-value:
+  simultaneous multi-station presence, auto-checkout scheduler. Tests: `tests/test_employee_admin.py`
+  (11 — gating, CRUD, deactivate-checks-out, credit-in-full, count-once-per-operator, history). Docs:
+  WORKFLOW.md "Station Presence & Per-Operator Attribution". Verified: backend `pytest` green, frontend
+  build + tests, `alembic check` clean (no schema change).
 
 - **NA23 phase 2 — cycle-time + WIP-aging production breakdown (2026-06-18)** — Closed the gap the
   owner flagged: "Czasy etapów" (and WIP-aging) showed only an aggregate, while NA23 required every

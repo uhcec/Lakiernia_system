@@ -315,11 +315,23 @@ foundation, slice 1 = attribution only):
   `SYSTEM`/`UNKNOWN` (internal/seed) actions get none. Because a roster can hold several people, an action
   is attributed to the **whole present set**, not a single person (a constraint future per-operator stats
   must handle).
-- API: `GET /employees`, `GET /stations/{id}/presence`, `POST .../presence/check-in|check-out`. Station
-  pages render a presence widget; the audit console and work-order audit history show the attributed
-  operators.
-- Deferred: per-operator **statistics** (the presence history + the stage-transition log enable it later)
-  and an **admin UI** for employees (seeded via `scripts/reset_and_seed_dev_db.py` for now).
+- **Employee administration** (office/manager/admin only): create, rename, and deactivate/reactivate
+  employees in-app (`POST /employees`, `PATCH /employees/{id}`, `GET /employees?include_inactive=true`).
+  Deactivating a worker also ends any open presence. The "Pracownicy" page hosts this.
+- **Check-out-all** (`POST /stations/{id}/presence/check-out-all`) ends a whole station's shift at once
+  (widget button "Wymelduj wszystkich").
+- **Per-operator statistics** (`GET /employees/stats`, office/manager/admin): for a period, per employee —
+  `hours_present` (clamped presence sessions), `orders_count` + `pieces_credited` + `m2_credited`
+  (from completion audit events — `process.stage.finished` / `process.packing.completed` /
+  `process.decoral_production.completed` — joined to the order), and `actions` (all attributed events).
+  **Crediting rule:** each present operator gets **full credit**, and an order is counted **once per
+  operator** (so cross-operator sums overlap and may exceed the factory total — by design, since
+  attribution is the whole present set, not a single person).
+- **Presence history** (`GET /employees/presence/history`, office/manager/admin): per session — employee,
+  station, check-in/out, and hours clamped to the window.
+- API also: `GET /employees`, `GET /stations/{id}/presence`, `POST .../presence/check-in|check-out`.
+  Station pages render a presence widget; the audit console and work-order audit history show the
+  attributed operators.
 
 ## Quantity Discrepancy Visibility
 
