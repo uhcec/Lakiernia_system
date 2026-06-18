@@ -20,7 +20,13 @@ export default defineConfig({
       "/clients": {
         target: "http://127.0.0.1:8000",
       },
+      "/employees": {
+        target: "http://127.0.0.1:8000",
+      },
       "/health": {
+        target: "http://127.0.0.1:8000",
+      },
+      "/stations": {
         target: "http://127.0.0.1:8000",
       },
       "/manager": {
