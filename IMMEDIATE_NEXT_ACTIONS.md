@@ -391,6 +391,22 @@ only. Five elements, top to bottom:
 
 ## Done
 
+- **Automatic orders now start packing at hanging-start, not just reserve a slot (2026-06-18)** —
+  user-requested workflow change. Previously an AUTOMATIC order only took a packing-slot *reservation*
+  when `HANGING` started; `PRODUCTION`/`PACKING` flipped to `IN_PROGRESS` only when hanging *finished*.
+  Now the implicit PRODUCTION+PACKING start fires when automatic `HANGING` goes `IN_PROGRESS`
+  (`app/process/service.py` transition_stage, ~line 172), so the order is in packing immediately
+  (office/list display shows "Pakowanie"; stage-transition log records the line start at hanging-start).
+  Packing **completion** still requires `HANGING` `DONE` (existing guard `complete_packing` line 547),
+  and the packing card stays a read-only "waiting for hanging" row until then
+  (`_get_automatic_packing_display_stage` gates `is_being_packed` on hanging done) — operator-confirmed
+  scope "start now, finish after hanging." The `HANGING`-`DONE` branch remains an idempotent fallback
+  for orders whose hanging started before this change. Docs updated (`docs/WORKFLOW.md` automatic
+  constraints, packing-slot NA22a, stage-transition-log notes). Tests: rewrote
+  `test_automatic_hanging_start_starts_production_and_packing` (was `..._finish_makes_production_visible`)
+  to assert both stages start at hanging-start, display=PACKING, and completion blocked until hanging
+  done; full backend suite + `alembic check` green.
+
 - **Seed bug — statistics demo created an impossible second HANGING-in-progress order (2026-06-18)** —
   `seed_statistics_demo` writes WIP-aging rows as stage state **directly** (bypassing `ProcessService`),
   and one spec parked a second AUTOMATIC order at `HANGING / IN_PROGRESS`. HANGING is a single-holder

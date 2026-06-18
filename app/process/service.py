@@ -169,13 +169,18 @@ class ProcessService:
                 # NA22a: automatic orders reserve a packing slot the moment hanging starts.
                 self._reserve_packing_for_automatic_hanging(work_order, stage, target_status)
 
-                # Finishing automatic HANGING implicitly moves PRODUCTION and PACKING into progress
-                # (the automatic line runs without manual start). Log these implicit transitions too,
-                # so cycle-time/throughput stats see when automatic production actually started.
+                # The automatic line runs without a manual start, so PRODUCTION and PACKING move into
+                # progress as soon as automatic HANGING *starts* (not only when it finishes): an
+                # automatic order begins packing immediately instead of merely holding a slot
+                # reservation. Packing *completion* still waits for HANGING to be DONE (see
+                # complete_packing) and the packing card stays a read-only "waiting for hanging" row
+                # until then (_get_automatic_packing_display_stage). The DONE branch remains an
+                # idempotent fallback for orders whose hanging started before this behavior existed.
+                # Log the implicit transitions so cycle-time/throughput stats see when the line started.
                 implicit_in_progress: list[ProcessStage] = []
                 if (
                     stage == ProcessStage.HANGING
-                    and target_status == StageStatus.DONE
+                    and target_status in {StageStatus.IN_PROGRESS, StageStatus.DONE}
                     and work_order.production_type == ProductionType.AUTOMATIC
                 ):
                     production_state = self._get_stage_state(work_order, ProcessStage.PRODUCTION)

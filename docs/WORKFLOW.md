@@ -61,7 +61,7 @@ Automatic constraints:
 - Automatic production is no longer display-only: it should allow paint-consumption entry as a separate audited paint-consumption action.
 - `HANGING` start transitions automatic flow forward
 - The automatic production panel must show upcoming and active automatic flow from the moment a work order is ready for `HANGING`, including `HANGING` not-started/in-progress rows, so the automatic operator sees the day's workflow before the line is occupied.
-- The packing panel must show active automatic work while `HANGING` is still in progress, but as a read-only `HANGING` row. Packing completion remains blocked until `HANGING` is `DONE`.
+- An automatic order **starts packing the moment `HANGING` starts** (its `PACKING` stage goes `IN_PROGRESS` immediately, not merely a slot reservation), so packing is active end-to-end as the line runs. The packing panel still shows it as a read-only `HANGING` row while `HANGING` is in progress, and packing **completion remains blocked until `HANGING` is `DONE`** — start now, finish after hanging.
 - Finish for automatic path is performed from `PACKING`
 - Physical resource exclusivity is enforced in the backend with persisted resource locks and controlled `409` responses.
 - Only one `HANGING` job may be active at a time.
@@ -244,7 +244,7 @@ Packing list columns:
 
 Packing capacity / slots (`PACKING:1..N` resource locks — NA16 + NA22):
 - Packing has **N configurable slots** (`packing_max_concurrent_slots`, default 2), each a backend resource lock `PACKING:i` (same machinery as `HANGING`/`AUTOMATIC_LINE`), so occupancy survives across requests and is not frontend-inferred. The default behavior is single-station exclusivity; the extra slots are opened only by an explicit manual override.
-- **Only manual orders may open a second slot.** An **automatic** order always uses the *single* station: it reserves the one free slot at HANGING start (NA22a) and holds it until its own packing completes; a **second automatic queues** — it never reserves or takes a 2nd slot, and waits for the station to free (also enforced upstream by the `AUTOMATIC_LINE` lock). The un-pausable automatic line must not be blocked by a manual order taking the slot.
+- **Only manual orders may open a second slot.** An **automatic** order always uses the *single* station: it claims the one free slot **and starts its packing (`PACKING`→`IN_PROGRESS`) at HANGING start** (NA22a), then holds the slot until its own packing completes; a **second automatic queues** — it never reserves or takes a 2nd slot, and waits for the station to free (also enforced upstream by the `AUTOMATIC_LINE` lock). The un-pausable automatic line must not be blocked by a manual order taking the slot. (Packing *completion* still waits for `HANGING` to be `DONE`.)
 - **Manual start is the exclusivity gate.** A manual **start packing** (`POST /process/work-orders/{id}/packing/start`) succeeds only when the station is completely free; if a slot is occupied/reserved it returns `409`, and the operator may retry with **`?override=true`** to open an additional slot up to N (NA22b). The override is audited and is the *only* way to run two packings at once (manual escape hatch). A manual completion is capacity-bound (it may finish into any free slot); automatic completion is single-station.
 - The override surfaces a warning **only when the operator chooses to open the second station** (a confirm on click, not a persistent banner), because an automatic reserves packing **before parts physically arrive** (at hanging start) — the area can look free but is not. The warning shows the reserving automatic order's piece count.
 - Completion (`/packing/complete`) takes/confirms a slot and releases it once packing leaves `IN_PROGRESS` (completed, or reset to planning by a correction). An operator who claimed the wrong order can free its slot without completing via **release** (`POST /process/work-orders/{id}/packing/release`); idempotent, cannot release another order's slot. Stale slots (owner no longer packing) are recovered on the next acquisition.
@@ -432,7 +432,7 @@ new status, `occurred_at`, work order, batch, counted quantity, station, and (nu
 exists because `work_order_stage_states` keeps only the latest `updated_at`, which is overwritten on
 every change and cannot reconstruct history. Rows are written wherever audit events are emitted for
 transitions (stage start/finish/reopen, packing completion, decoral-pass completion), plus the
-automatic implicit transitions (PRODUCTION/PACKING set to IN_PROGRESS when automatic HANGING finishes,
+automatic implicit transitions (PRODUCTION/PACKING set to IN_PROGRESS when automatic HANGING **starts**,
 and the automatic PRODUCTION→DONE at packing). Internal correction-reset/merge state changes (e.g.
 reopening the root Decoral pass when a correction child returns) are not individually logged; the
 following normal finish re-logs the DONE, so analytics stay correct. The log is the source for
@@ -456,7 +456,7 @@ first time-in-stage read off the log. Definitions:
   from the most recent stage that **finished before this stage started** to this stage's start. Keying off
   "the last stage that actually completed before the start" (rather than the workflow's nominal order)
   keeps it well-defined for automatic flows, where `PRODUCTION`/`PACKING` start implicitly at hanging
-  finish. The first stage has no wait (`null`). Averaged across the cohort orders that have a wait.
+  start. The first stage has no wait (`null`). Averaged across the cohort orders that have a wait.
 - **Overall lead time** (`overall_average_seconds`): per order, the earliest stage `IN_PROGRESS` to the
   packing `DONE`, averaged across the cohort.
 - **Production breakdown (NA23):** every per-stage average and the overall lead time also carry a

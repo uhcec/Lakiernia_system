@@ -1,5 +1,7 @@
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 import json
+import logging
 
 from sqlalchemy import create_engine, select
 from sqlalchemy.exc import IntegrityError
@@ -441,7 +443,7 @@ def test_automatic_path_is_visible_in_production_preview_when_ready_for_hanging(
     assert process_service.is_visible_in_stage(work_order, ProcessStage.PRODUCTION, ProductionType.AUTOMATIC) is True
 
 
-def test_automatic_hanging_finish_makes_production_visible(db_session: Session) -> None:
+def test_automatic_hanging_start_starts_production_and_packing(db_session: Session) -> None:
     work_order_service, process_service, manager_service, _, process_repository = build_services(db_session)
 
     automatic_order = create_ral_work_order(work_order_service, "Automatic auto start")
@@ -452,18 +454,35 @@ def test_automatic_hanging_finish_makes_production_visible(db_session: Session) 
     process_service.transition_stage(automatic_order.id, ProcessStage.SURFACE_PREPARATION, StageStatus.IN_PROGRESS)
     process_service.transition_stage(automatic_order.id, ProcessStage.SURFACE_PREPARATION, StageStatus.DONE)
     process_service.transition_stage(automatic_order.id, ProcessStage.HANGING, StageStatus.IN_PROGRESS)
+
+    # The automatic line runs without a manual start, so PRODUCTION and PACKING begin the moment
+    # HANGING starts — an automatic order starts packing immediately, not merely holding a reservation.
     before_finish = process_repository.get_work_order_with_stage_states(automatic_order.id)
     assert before_finish is not None
     assert process_service.is_visible_in_stage(before_finish, ProcessStage.PRODUCTION, ProductionType.AUTOMATIC) is True
-    production_state_before_finish = next(stage for stage in before_finish.stage_states if stage.stage == ProcessStage.PRODUCTION)
-    assert production_state_before_finish.status == StageStatus.NOT_STARTED
+    stages_before_finish = {stage.stage: stage.status for stage in before_finish.stage_states}
+    assert stages_before_finish[ProcessStage.PRODUCTION] == StageStatus.IN_PROGRESS
+    assert stages_before_finish[ProcessStage.PACKING] == StageStatus.IN_PROGRESS
+    # ...and the order already reports as being in packing for office/list views.
+    assert process_service.get_display_status(before_finish).value == "PACKING"
+
+    # But packing completion is still blocked until HANGING is DONE (start now, finish after hanging).
+    with pytest.raises(InvalidProcessStageTransitionError):
+        process_service.complete_packing(
+            automatic_order.id,
+            counted_quantity=before_finish.current_active_quantity,
+            ok_quantity=before_finish.current_active_quantity,
+            correction_quantity=0,
+            station_context=StationContext(station_id=StationId.PACKING),
+        )
 
     process_service.finish_stage(automatic_order.id, ProcessStage.HANGING)
     work_order = process_repository.get_work_order_with_stage_states(automatic_order.id)
 
     assert work_order is not None
-    production_state = next(stage for stage in work_order.stage_states if stage.stage == ProcessStage.PRODUCTION)
-    assert production_state.status == StageStatus.IN_PROGRESS
+    stages_after_finish = {stage.stage: stage.status for stage in work_order.stage_states}
+    assert stages_after_finish[ProcessStage.PRODUCTION] == StageStatus.IN_PROGRESS
+    assert stages_after_finish[ProcessStage.PACKING] == StageStatus.IN_PROGRESS
 
 
 def test_automatic_hanging_finish_marks_hanging_done(db_session: Session) -> None:
@@ -1473,6 +1492,115 @@ def test_completed_decoral_correction_child_merges_back_into_parent(db_session: 
     assert merged_parent.completed_quantity == 10
     assert process_service.get_display_status(merged_parent).value == "READY"
     assert completed_correction.parent_order_id == created.id
+
+
+@contextmanager
+def capture_logs(logger_name: str, level: int = logging.WARNING):
+    """Capture records from a specific logger via a directly-attached handler.
+
+    pytest's ``caplog`` relies on propagation to the root handler, which is unreliable once another
+    test in the suite toggles ``logging.disable`` / a logger's propagation (see
+    test_request_traceability.py). Attaching our own handler — mirroring that test's proven pattern —
+    captures regardless of global logging state.
+    """
+    captured: list[logging.LogRecord] = []
+
+    class _ListHandler(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            captured.append(record)
+
+    target = logging.getLogger(logger_name)
+    handler = _ListHandler()
+    handler.setLevel(level)
+    previous_level = target.level
+    previous_disabled = target.disabled
+    previous_global_disable = logging.root.manager.disable
+    target.addHandler(handler)
+    target.setLevel(level)
+    target.disabled = False
+    logging.disable(logging.NOTSET)
+    try:
+        yield captured
+    finally:
+        target.removeHandler(handler)
+        target.setLevel(previous_level)
+        target.disabled = previous_disabled
+        logging.disable(previous_global_disable)
+
+
+# NA19 — finalize must not silently mask a quantity-conservation leak.
+def test_finalize_does_not_warn_when_quantities_match(db_session: Session) -> None:
+    work_order_service, process_service, manager_service, _, process_repository = build_services(db_session)
+
+    created = work_order_service.create_work_order(
+        build_work_order_create(title="Clean finalize", coating_type=CoatingType.RAL, total_quantity=10)
+    )
+    manager_service.assign_plan(
+        created.id,
+        WorkOrderPlanAssignRequest(production_type=ProductionType.MANUAL, queue_position=1),
+    )
+    advance_to_packing(process_service, created.id)
+
+    with capture_logs("app.process.service") as records:
+        complete_packing(process_service, created.id, ok_quantity=10, correction_quantity=0)
+
+    final = process_repository.get_work_order_with_stage_states(created.id)
+    assert final is not None
+    assert final.completed_quantity == 10 == final.total_quantity
+    assert process_service.get_display_status(final).value == "READY"
+    # Normal case: quantities reconcile, so the safety-net warning must stay silent.
+    assert not any("quantity gap" in record.getMessage() for record in records)
+
+
+def test_finalize_warns_and_forces_total_when_quantity_gap(db_session: Session) -> None:
+    work_order_service, process_service, manager_service, work_order_repository, process_repository = build_services(db_session)
+
+    # Drive a DECORAL correction child fully back into its parent (finalize via the correction_orders
+    # branch), so we have a legitimately finalizable parent to probe.
+    created = work_order_service.create_work_order(
+        build_work_order_create(title="Leaky finalize", coating_type=CoatingType.DECORAL, total_quantity=10)
+    )
+    manager_service.assign_plan(
+        created.id,
+        WorkOrderPlanAssignRequest(production_type=ProductionType.MANUAL, queue_position=1),
+    )
+    advance_to_packing(process_service, created.id)
+    complete_packing(process_service, created.id, ok_quantity=7, correction_quantity=3)
+
+    correction_order = next(wo for wo in work_order_repository.list(limit=20, offset=0) if wo.is_correction)
+    manager_service.assign_plan(
+        correction_order.id,
+        WorkOrderPlanAssignRequest(production_type=ProductionType.MANUAL, queue_position=2),
+    )
+    decoral_batch = next(
+        item.batch_id
+        for item in process_service.list_stage_work_orders(ProcessStage.DECORAL_PRODUCTION)
+        if item.id == created.id
+    )
+    process_service.start_stage(created.id, ProcessStage.DECORAL_PRODUCTION, batch_id=decoral_batch)
+    process_service.finish_stage(created.id, ProcessStage.DECORAL_PRODUCTION, batch_id=decoral_batch)
+    advance_to_packing(process_service, correction_order.id)
+    complete_packing(process_service, correction_order.id, ok_quantity=3, correction_quantity=0)
+    finish_returned_correction_on_root(process_service, process_repository, created.id, quantity=3)
+
+    merged_parent = process_repository.get_work_order_with_stage_states(created.id)
+    assert merged_parent is not None
+    assert merged_parent.completed_quantity == 10
+
+    # Simulate a quantity-conservation leak that should never happen: completed drifts below total
+    # while the order is otherwise finalizable. The safety net must surface it, not hide it.
+    merged_parent.completed_quantity = 9
+    process_repository.commit()
+
+    with capture_logs("app.process.service") as records:
+        process_service._finalize_completion_chain_if_ready(merged_parent)
+
+    refreshed = process_repository.get_work_order_with_stage_states(created.id)
+    assert refreshed is not None
+    assert refreshed.completed_quantity == 10  # forced back to total
+    gap_warnings = [record for record in records if "quantity gap" in record.getMessage()]
+    assert len(gap_warnings) == 1
+    assert "completed=9" in gap_warnings[0].getMessage()
 
 
 def test_fully_packed_order_cannot_reopen_any_stage(db_session: Session) -> None:
