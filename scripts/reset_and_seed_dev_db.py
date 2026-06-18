@@ -193,6 +193,46 @@ def reset_app_data(session: Session) -> None:
     session.commit()
     print(f"Seeded {len(_SEED_EMPLOYEES)} employees.")
 
+    seed_station_presence(session)
+
+
+def seed_station_presence(session: Session) -> None:
+    """Check employees in at stations so the presence widgets show staff on the floor and actions are
+    attributed. Most are currently present (``checked_out_at IS NULL``); a couple are checked out to
+    populate presence history. SURFACE_PREPARATION has two present to demonstrate set-attribution."""
+    employees = {employee.full_name: employee for employee in session.scalars(select(Employee)).all()}
+    now = datetime.now(UTC)
+
+    # (employee, station, checked_in_offset_hours_ago, checked_out_offset_hours_ago | None=still present)
+    presence_plan: list[tuple[str, StationId, float, float | None]] = [
+        ("Jan Kowalski", StationId.SURFACE_PREPARATION, 3.0, None),
+        ("Marek Kamiński", StationId.SURFACE_PREPARATION, 2.0, None),
+        ("Anna Nowak", StationId.MANUAL_PRODUCTION, 3.0, None),
+        ("Katarzyna Wójcik", StationId.HANGING, 2.5, None),
+        ("Piotr Wiśniewski", StationId.PACKING, 1.5, None),
+        ("Marek Kamiński", StationId.DECORAL_PRODUCTION, 4.0, None),
+        # History: an earlier, already-finished shift yesterday.
+        ("Anna Nowak", StationId.PACKING, 28.0, 20.0),
+        ("Jan Kowalski", StationId.HANGING, 27.0, 19.0),
+    ]
+
+    created = 0
+    for full_name, station_id, checked_in_hours, checked_out_hours in presence_plan:
+        employee = employees.get(full_name)
+        if employee is None:
+            continue
+        session.add(
+            StationPresence(
+                station_id=station_id,
+                employee_id=employee.id,
+                checked_in_at=now - timedelta(hours=checked_in_hours),
+                checked_out_at=None if checked_out_hours is None else now - timedelta(hours=checked_out_hours),
+            )
+        )
+        created += 1
+    session.commit()
+    print(f"Seeded {created} station presence rows.")
+
 
 _SEED_EMPLOYEES = [
     "Jan Kowalski",
