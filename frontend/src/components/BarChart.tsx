@@ -2,6 +2,8 @@ export interface BarChartSegment {
   value: number;
   /** Tailwind background class for this segment, e.g. "bg-accent". */
   className: string;
+  /** Optional name shown in the hover tooltip, e.g. "Ręczna". */
+  label?: string;
 }
 
 export interface BarChartSubBar {
@@ -148,6 +150,20 @@ export function BarChart({
                             {point.subBars.map((sub, index) => (
                               <div key={index}>{sub.label}</div>
                             ))}
+                          </>
+                        ) : point.segments && point.segments.some((segment) => segment.label) ? (
+                          <>
+                            <div className="font-semibold">{point.label}</div>
+                            <div>
+                              Razem: {formatValue(point.value, decimals)} {unit}
+                            </div>
+                            {point.segments.map((segment, index) =>
+                              segment.label ? (
+                                <div key={index}>
+                                  {segment.label}: {formatValue(segment.value, decimals)} {unit}
+                                </div>
+                              ) : null,
+                            )}
                           </>
                         ) : (
                           <>

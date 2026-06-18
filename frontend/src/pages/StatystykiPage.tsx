@@ -113,6 +113,7 @@ function buildStackedPoints(
     segments: segmentDefs.map((def) => ({
       value: period ? (period[def.key] as number) : 0,
       className: def.className,
+      label: def.label,
     })),
   });
 
@@ -230,11 +231,12 @@ function buildCycleStagePoints(stats: CycleTimeStats, axis: CrossSection, metric
       return {
         key: stage.stage,
         tick: stage.stage_label,
-        label: `${stage.stage_label} — łącznie ${formatDuration(stage.total_seconds)} (${stage.orders_count} zleceń)`,
+        label: `${stage.stage_label} (${stage.orders_count} zleceń)`,
         value: cycleMinutes(stage.total_seconds),
         segments: defs.map((def) => ({
           value: cycleMinutes(cycleSegment(stage.breakdown, axis, def.key)?.total_seconds ?? 0),
           className: def.className,
+          label: def.label,
         })),
       };
     }
