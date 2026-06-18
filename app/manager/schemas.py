@@ -76,6 +76,9 @@ class CycleTimeSegment(BaseModel):
     key: str
     label: str
     average_seconds: float
+    # Total active seconds across this segment's orders — sums across the partition to the stage total,
+    # so a "suma czasu" view can stack the segments into the whole (cf. average, which is a weighted mean).
+    total_seconds: float = 0.0
     orders_count: int
 
 
@@ -94,6 +97,9 @@ class StageCycleTime(BaseModel):
     stage: ProcessStage
     stage_label: str
     average_seconds: float
+    # Sum of active time across all cohort orders at this stage — the headline of the "suma" chart;
+    # the breakdown segment totals sum to it.
+    total_seconds: float = 0.0
     orders_count: int
     average_wait_before_seconds: float | None = None
     wait_orders_count: int = 0

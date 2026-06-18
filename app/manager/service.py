@@ -545,7 +545,13 @@ class ManagerService:
         def _segment(total: float, count: int, key: str, label: str) -> CycleTimeSegment | None:
             if not count:
                 return None
-            return CycleTimeSegment(key=key, label=label, average_seconds=round(total / count, 1), orders_count=count)
+            return CycleTimeSegment(
+                key=key,
+                label=label,
+                average_seconds=round(total / count, 1),
+                total_seconds=round(total, 1),
+                orders_count=count,
+            )
 
         def _stage_breakdown(stage: ProcessStage) -> CycleTimeBreakdown:
             return CycleTimeBreakdown(
@@ -566,6 +572,7 @@ class ManagerService:
                 stage=stage,
                 stage_label=_STAGE_LABELS_PL[stage],
                 average_seconds=round(stage_total_seconds[stage] / stage_order_counts[stage], 1),
+                total_seconds=round(stage_total_seconds[stage], 1),
                 orders_count=stage_order_counts[stage],
                 average_wait_before_seconds=(
                     round(stage_wait_seconds[stage] / stage_wait_counts[stage], 1)

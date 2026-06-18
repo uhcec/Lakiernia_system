@@ -138,6 +138,10 @@ def test_cycle_time_breakdown_splits_each_stage_by_method_and_coating(db_session
     assert method["automatic"].average_seconds == 2400.0 and method["automatic"].orders_count == 1
     assert coating["ral_only"].average_seconds == 1200.0
     assert coating["decoral"].average_seconds == 2400.0
+    # Totals (unlike averages) sum across the partition to the stage total — the "suma czasu" view.
+    assert production.total_seconds == 3600.0
+    assert method["manual"].total_seconds + method["automatic"].total_seconds == production.total_seconds
+    assert coating["ral_only"].total_seconds + coating["decoral"].total_seconds == production.total_seconds
     # Both cross-sections partition the same cohort: counts sum to the stage total.
     assert sum(seg.orders_count for seg in production.breakdown.by_method) == production.orders_count
     assert sum(seg.orders_count for seg in production.breakdown.by_coating) == production.orders_count

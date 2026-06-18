@@ -182,13 +182,8 @@ function formatDuration(seconds: number): string {
   return remainder === 0 ? `${hours} godz` : `${hours} godz ${remainder} min`;
 }
 
-function buildCycleTimePoints(stats: CycleTimeStats): BarChartPoint[] {
-  return stats.stages.map((stage) => ({
-    key: stage.stage,
-    tick: stage.stage_label,
-    label: `${stage.stage_label} (${stage.orders_count} zleceń)`,
-    value: Math.round((stage.average_seconds / 60) * 10) / 10,
-  }));
+function cycleMinutes(seconds: number): number {
+  return Math.round((seconds / 60) * 10) / 10;
 }
 
 function productionTypeLabel(value: string | null): string {
@@ -204,22 +199,60 @@ function coatingTypeLabel(value: string | null): string {
 }
 
 type CrossSection = "method" | "coating";
+type CycleMetric = "total" | "average";
 
-// Stable segment keys/labels for the two cross-sections, shared by the cycle-time table columns.
-const CYCLE_AXIS_COLUMNS: Record<CrossSection, readonly { key: string; label: string }[]> = {
+// Stable segment keys/labels/colors for the two cross-sections, shared by the cycle-time chart,
+// legend, and table columns. Colors match the throughput composition segments.
+const CYCLE_AXIS_DEFS: Record<CrossSection, readonly { key: string; label: string; className: string }[]> = {
   method: [
-    { key: "manual", label: "Ręczna" },
-    { key: "automatic", label: "Automat" },
+    { key: "manual", label: "Ręczna", className: "bg-sky-500" },
+    { key: "automatic", label: "Automat", className: "bg-accent" },
   ],
   coating: [
-    { key: "ral_only", label: "Czysty RAL" },
-    { key: "decoral", label: "Decoral" },
+    { key: "ral_only", label: "Czysty RAL", className: "bg-emerald-500" },
+    { key: "decoral", label: "Decoral", className: "bg-fuchsia-500" },
   ],
 };
 
 function cycleSegment(breakdown: CycleTimeBreakdown, axis: CrossSection, key: string) {
   const list = axis === "method" ? breakdown.by_method : breakdown.by_coating;
   return list.find((segment) => segment.key === key) ?? null;
+}
+
+// Per-stage bars for the cycle-time chart, cut along `axis`:
+// - "total": the bar height is the SUM of active time, split into stacked segments that sum to it.
+// - "average": the bar is the per-order average, with each group's average shown as side-by-side
+//   sub-bars (they do NOT sum to the bar — the overall is their count-weighted mean).
+function buildCycleStagePoints(stats: CycleTimeStats, axis: CrossSection, metric: CycleMetric): BarChartPoint[] {
+  const defs = CYCLE_AXIS_DEFS[axis];
+  return stats.stages.map((stage) => {
+    if (metric === "total") {
+      return {
+        key: stage.stage,
+        tick: stage.stage_label,
+        label: `${stage.stage_label} — łącznie ${formatDuration(stage.total_seconds)} (${stage.orders_count} zleceń)`,
+        value: cycleMinutes(stage.total_seconds),
+        segments: defs.map((def) => ({
+          value: cycleMinutes(cycleSegment(stage.breakdown, axis, def.key)?.total_seconds ?? 0),
+          className: def.className,
+        })),
+      };
+    }
+    return {
+      key: stage.stage,
+      tick: stage.stage_label,
+      label: `${stage.stage_label} — śr. ${formatDuration(stage.average_seconds)}`,
+      value: cycleMinutes(stage.average_seconds),
+      subBars: defs.map((def) => {
+        const segment = cycleSegment(stage.breakdown, axis, def.key);
+        return {
+          value: segment ? cycleMinutes(segment.average_seconds) : 0,
+          className: def.className,
+          label: segment ? `${def.label}: ${formatDuration(segment.average_seconds)} (${segment.orders_count})` : `${def.label}: —`,
+        };
+      }),
+    };
+  });
 }
 
 function buildWaitTimePoints(stats: CycleTimeStats): BarChartPoint[] {
@@ -241,6 +274,7 @@ export function StatystykiPage() {
   const [loadedParams, setLoadedParams] = useState<LoadedParams | null>(null);
   const [breakdownAxis, setBreakdownAxis] = useState<CrossSection>("method");
   const [cycleAxis, setCycleAxis] = useState<CrossSection>("method");
+  const [cycleMetric, setCycleMetric] = useState<CycleMetric>("total");
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -650,35 +684,63 @@ export function StatystykiPage() {
             ) : (
               <div />
             )}
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-medium text-steel">Przekrój:</span>
-              <div className="inline-flex items-center gap-1 rounded-2xl border border-line bg-mist p-1">
-                <button
-                  type="button"
-                  onClick={() => setCycleAxis("method")}
-                  className={`rounded-xl px-3 py-1 text-xs font-medium transition ${cycleAxis === "method" ? "bg-white text-accent shadow-sm" : "text-steel hover:text-accent"}`}
-                >
-                  Metoda
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setCycleAxis("coating")}
-                  className={`rounded-xl px-3 py-1 text-xs font-medium transition ${cycleAxis === "coating" ? "bg-white text-accent shadow-sm" : "text-steel hover:text-accent"}`}
-                >
-                  Powłoka
-                </button>
+            <div className="flex flex-wrap items-center gap-4">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-medium text-steel">Widok:</span>
+                <div className="inline-flex items-center gap-1 rounded-2xl border border-line bg-mist p-1">
+                  <button
+                    type="button"
+                    onClick={() => setCycleMetric("total")}
+                    title="Łączny czas na etapie — słupek dzielony na części, które sumują się do całości"
+                    className={`rounded-xl px-3 py-1 text-xs font-medium transition ${cycleMetric === "total" ? "bg-white text-accent shadow-sm" : "text-steel hover:text-accent"}`}
+                  >
+                    Suma
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCycleMetric("average")}
+                    title="Średni czas na zlecenie — grupy obok siebie (nie sumują się; całość to ich średnia ważona)"
+                    className={`rounded-xl px-3 py-1 text-xs font-medium transition ${cycleMetric === "average" ? "bg-white text-accent shadow-sm" : "text-steel hover:text-accent"}`}
+                  >
+                    Średnia
+                  </button>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-medium text-steel">Przekrój:</span>
+                <div className="inline-flex items-center gap-1 rounded-2xl border border-line bg-mist p-1">
+                  <button
+                    type="button"
+                    onClick={() => setCycleAxis("method")}
+                    className={`rounded-xl px-3 py-1 text-xs font-medium transition ${cycleAxis === "method" ? "bg-white text-accent shadow-sm" : "text-steel hover:text-accent"}`}
+                  >
+                    Metoda
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCycleAxis("coating")}
+                    className={`rounded-xl px-3 py-1 text-xs font-medium transition ${cycleAxis === "coating" ? "bg-white text-accent shadow-sm" : "text-steel hover:text-accent"}`}
+                  >
+                    Powłoka
+                  </button>
+                </div>
               </div>
             </div>
           </div>
 
           <div className="flex flex-col gap-4">
             <BarChart
-              title="Średni czas pracy na etapie — minuty"
+              title={
+                cycleMetric === "total"
+                  ? "Łączny czas pracy na etapie — minuty (słupek dzielony, sumuje się)"
+                  : "Średni czas pracy na etapie — minuty (grupy obok siebie, nie sumują się)"
+              }
               unit="min"
               decimals={1}
-              barClassName="bg-teal-500"
               plotHeight={320}
-              data={buildCycleTimePoints(cycleTimeStats)}
+              hideTotal={cycleMetric === "average"}
+              legend={CYCLE_AXIS_DEFS[cycleAxis].map((def) => ({ label: def.label, className: def.className }))}
+              data={buildCycleStagePoints(cycleTimeStats, cycleAxis, cycleMetric)}
             />
             {buildWaitTimePoints(cycleTimeStats).length > 0 ? (
               <BarChart
@@ -700,12 +762,18 @@ export function StatystykiPage() {
                   <th className="px-4 py-3 text-right" title="Średni czas oczekiwania w kolejce przed rozpoczęciem etapu">
                     Oczekiwanie przed
                   </th>
-                  <th className="px-4 py-3 text-right font-bold">Średni czas pracy</th>
-                  {CYCLE_AXIS_COLUMNS[cycleAxis].map((col) => (
+                  <th className="px-4 py-3 text-right font-bold">
+                    {cycleMetric === "total" ? "Łączny czas" : "Średni czas pracy"}
+                  </th>
+                  {CYCLE_AXIS_DEFS[cycleAxis].map((col) => (
                     <th
                       key={col.key}
                       className="px-4 py-3 text-right"
-                      title={`Średni czas pracy — ${col.label} (część średniej całkowitej)`}
+                      title={
+                        cycleMetric === "total"
+                          ? `Łączny czas — ${col.label} (część sumy)`
+                          : `Średni czas — ${col.label} (część średniej ważonej)`
+                      }
                     >
                       {col.label}
                     </th>
@@ -720,14 +788,16 @@ export function StatystykiPage() {
                     <td className="px-4 py-3 text-right text-steel">
                       {stage.average_wait_before_seconds !== null ? formatDuration(stage.average_wait_before_seconds) : "—"}
                     </td>
-                    <td className="px-4 py-3 text-right font-semibold">{formatDuration(stage.average_seconds)}</td>
-                    {CYCLE_AXIS_COLUMNS[cycleAxis].map((col) => {
+                    <td className="px-4 py-3 text-right font-semibold">
+                      {formatDuration(cycleMetric === "total" ? stage.total_seconds : stage.average_seconds)}
+                    </td>
+                    {CYCLE_AXIS_DEFS[cycleAxis].map((col) => {
                       const segment = cycleSegment(stage.breakdown, cycleAxis, col.key);
                       return (
                         <td key={col.key} className="px-4 py-3 text-right text-steel">
                           {segment ? (
                             <>
-                              {formatDuration(segment.average_seconds)}{" "}
+                              {formatDuration(cycleMetric === "total" ? segment.total_seconds : segment.average_seconds)}{" "}
                               <span className="text-xs text-steel/70">({segment.orders_count})</span>
                             </>
                           ) : (
@@ -743,8 +813,9 @@ export function StatystykiPage() {
             </table>
           </div>
           <p className="mt-2 text-xs text-steel">
-            Kolumny przekroju ({cycleAxis === "method" ? "metoda" : "powłoka"}) pokazują średni czas pracy dla danej
-            grupy — średnia całkowita to ich średnia ważona liczbą zleceń (w nawiasie).
+            {cycleMetric === "total"
+              ? `Widok „Suma”: kolumny przekroju (${cycleAxis === "method" ? "metoda" : "powłoka"}) sumują się do kolumny „Łączny czas”.`
+              : `Widok „Średnia”: kolumny przekroju (${cycleAxis === "method" ? "metoda" : "powłoka"}) to średnie grup — całość to ich średnia ważona liczbą zleceń (w nawiasie), nie suma.`}
           </p>
         </section>
       ) : null}

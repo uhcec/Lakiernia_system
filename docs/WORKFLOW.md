@@ -449,15 +449,21 @@ first time-in-stage read off the log. Definitions:
   packing `DONE`, averaged across the cohort.
 - **Production breakdown (NA23):** every per-stage average and the overall lead time also carry a
   `breakdown` / `overall_breakdown` cutting the same cohort two independent ways — `by_method`
-  (Ręczna/Automat) and `by_coating` (Czysty RAL/Decoral). Unlike throughput (a sum), cycle time is an
-  average, so the parts do **not** sum to the headline; instead the headline is the **count-weighted
-  mean** of either partition, and each segment carries its own `orders_count` so the reconciliation is
-  auditable. Empty segments are omitted. An order contributes to exactly one method and one coating
-  segment (see `FACTORY_DOMAIN_MODEL` §4.1: the two axes are independent).
+  (Ręczna/Automat) and `by_coating` (Czysty RAL/Decoral). Each `StageCycleTime`/`CycleTimeSegment` also
+  carries `total_seconds` (sum of active time), so two views are possible:
+  - **Suma** (total time): the segment **totals sum** to the stage total — this is the one that can be
+    drawn as a single stacked bar splitting into parts that add up to the whole.
+  - **Średnia** (average per order): the parts do **not** sum to the headline; the headline is the
+    **count-weighted mean** of either partition, with each segment's `orders_count` making the
+    reconciliation auditable.
+  Empty segments are omitted. An order contributes to exactly one method and one coating segment (see
+  `FACTORY_DOMAIN_MODEL` §4.1: the two axes are independent — "manual + automatic + decoral" is **not** a
+  valid three-way split because a decoral order is already counted inside manual/automatic).
 - Stages are returned in canonical workflow order with Polish labels. The Statystyki page renders a
-  "Czasy etapów" section (average work-time-per-stage and wait-before-stage bar charts, a headline
-  lead-time figure, and a table with a **Metoda/Powłoka cross-section toggle** that adds per-segment
-  average columns). This is bottleneck visibility only; it never changes workflow or queue behavior.
+  "Czasy etapów" section with a **Suma/Średnia view toggle** × a **Metoda/Powłoka cross-section toggle**:
+  the stage chart is a stacked total-time bar (Suma) or side-by-side per-group average bars (Średnia),
+  plus a wait-before-stage chart, a headline lead-time figure, and a table whose per-segment columns
+  follow the chosen view. This is bottleneck visibility only; it never changes workflow or queue behavior.
 
 ### Live WIP-aging ("stuck orders")
 

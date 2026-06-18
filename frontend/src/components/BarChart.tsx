@@ -4,6 +4,13 @@ export interface BarChartSegment {
   className: string;
 }
 
+export interface BarChartSubBar {
+  value: number;
+  className: string;
+  /** Tooltip line for this sub-bar, e.g. "Ręczna: 20 min". */
+  label: string;
+}
+
 export interface BarChartPoint {
   /** Stable key (e.g. ISO date) used for React keys. */
   key: string;
@@ -14,6 +21,9 @@ export interface BarChartPoint {
   value: number;
   /** Optional stacked breakdown; segment values should sum to `value`. */
   segments?: BarChartSegment[];
+  /** Optional side-by-side bars within this category (for comparing values that do NOT sum, e.g.
+   * per-group averages). Mutually exclusive with `segments`. */
+  subBars?: BarChartSubBar[];
 }
 
 interface BarChartProps {
@@ -33,6 +43,8 @@ interface BarChartProps {
   plotHeight?: number;
   /** Optional legend swatches shown under the title (for stacked charts). */
   legend?: { label: string; className: string }[];
+  /** Hide the summed value in the header (meaningless when bars are averages / side-by-side). */
+  hideTotal?: boolean;
 }
 
 const DEFAULT_PLOT_HEIGHT_PX = 176; // h-44
@@ -54,10 +66,14 @@ export function BarChart({
   yTickStep,
   plotHeight = DEFAULT_PLOT_HEIGHT_PX,
   legend,
+  hideTotal = false,
 }: BarChartProps) {
-  const maxValue = data.reduce((max, point) => Math.max(max, point.value), 0);
+  const maxValue = data.reduce((max, point) => {
+    const subMax = point.subBars ? point.subBars.reduce((m, s) => Math.max(m, s.value), 0) : 0;
+    return Math.max(max, point.value, subMax);
+  }, 0);
   const total = data.reduce((sum, point) => sum + point.value, 0);
-  const hasData = total > 0;
+  const hasData = maxValue > 0;
 
   // Either use a caller-fixed axis (with gridlines) or auto-scale to the data.
   const axisMax = yMax && yMax > 0 ? yMax : maxValue;
@@ -73,9 +89,11 @@ export function BarChart({
     <div className="rounded-3xl border border-line bg-white p-5">
       <div className="mb-4 flex items-baseline justify-between gap-3">
         <h3 className="text-sm font-semibold uppercase tracking-[0.1em] text-steel">{title}</h3>
-        <span className="text-sm font-semibold text-ink">
-          {formatValue(total, decimals)} <span className="text-xs font-normal text-steel">{unit}</span>
-        </span>
+        {hideTotal ? null : (
+          <span className="text-sm font-semibold text-ink">
+            {formatValue(total, decimals)} <span className="text-xs font-normal text-steel">{unit}</span>
+          </span>
+        )}
       </div>
 
       {legend && legend.length > 0 ? (
@@ -124,9 +142,38 @@ export function BarChart({
                     <div key={point.key} className="group relative flex h-full min-w-0 flex-1 items-end justify-center">
                       {/* Tooltip */}
                       <div className="pointer-events-none absolute bottom-full z-10 mb-1 hidden -translate-y-0 whitespace-nowrap rounded-lg bg-ink px-2 py-1 text-[11px] font-medium text-white shadow-lg group-hover:block">
-                        {point.label}: {formatValue(point.value, decimals)} {unit}
+                        {point.subBars ? (
+                          <>
+                            <div className="font-semibold">{point.label}</div>
+                            {point.subBars.map((sub, index) => (
+                              <div key={index}>{sub.label}</div>
+                            ))}
+                          </>
+                        ) : (
+                          <>
+                            {point.label}: {formatValue(point.value, decimals)} {unit}
+                          </>
+                        )}
                       </div>
-                      {point.segments && point.value > 0 ? (
+                      {point.subBars ? (
+                        <div className="flex h-full w-full items-end justify-center gap-0.5">
+                          {point.subBars.map((sub, index) => (
+                            <div
+                              key={index}
+                              className={[
+                                "min-w-0 flex-1 rounded-t-sm transition group-hover:brightness-110",
+                                sub.value > 0 ? sub.className : "bg-line",
+                              ].join(" ")}
+                              style={{
+                                height:
+                                  sub.value > 0 && axisMax > 0
+                                    ? `max(${Math.min((sub.value / axisMax) * 100, 100)}%, 2px)`
+                                    : "2px",
+                              }}
+                            />
+                          ))}
+                        </div>
+                      ) : point.segments && point.value > 0 ? (
                         <div
                           className="w-full overflow-hidden rounded-t-sm transition group-hover:brightness-110"
                           style={{ height: `max(${heightPercent}%, 2px)` }}
