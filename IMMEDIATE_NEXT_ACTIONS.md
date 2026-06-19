@@ -20,6 +20,42 @@ work and keep it current.
 Source: extensive system review on 2026-06-16. Items are findings that were **open** at that time;
 they are not yet validated against live factory policy where noted.
 
+## Recommended execution order (proposed 2026-06-19)
+
+A suggested sequencing of the currently-open items, grouped by dependency rather than raw severity.
+This is a recommendation, not a hard rule — the "highest open severity" guidance above still applies if
+no one directs otherwise.
+
+**Phase 1 — quick wins & correctness bugs (small, isolated):**
+1. **NA35** — wheel-to-fractional number-field fix. Trivial, no open questions; shared `NumberInput`
+   with `step=1`. Good warm-up; immediate operator relief.
+2. **NA30** — completion invariant (a completed order can be sent backwards). Real correctness defect,
+   well-contained (guard in `start_stage`/`finish_stage` + regression test + `WORKFLOW.md`).
+3. **NA31** — manager panel offers a stale queue slot after a correction return. Frontend-only (backend
+   already correct); reconcile plan-draft state on the planned→unplanned transition.
+
+**Phase 2 — correction cluster (do together; they interact):**
+4. **NA32** — paint consumption doesn't roll up across correction rounds.
+5. **NA34** — distinguish "fixed on the spot" (stat-only) vs "to be re-planned" corrections.
+   Both touch the correction model (`process/service.py`, RAL/DECORAL paths) and correction stats, so
+   doing them separately would mean reworking the same code twice. **Resolve NA34's open owner questions
+   first** (stat-only for RAL+DECORAL or RAL only; is the reason required). **NA19** (force-finalize masks
+   a quantity gap) can ride along here — it also touches finalize/quantity.
+
+**Phase 3 — new features (independent; ordered by value/effort):**
+6. **NA38** — Decoral foil registry + one foil per order. Self-contained lookup table + intake field.
+7. **NA36** — technical drawings as a new attachment type. Extends `WorkOrderAttachment`; low risk.
+8. **NA37** — WZ document via the QC Excel→PDF mechanism. Reuses the existing pipeline; confirm its open
+   questions (template, numbering, trigger) first.
+9. **NA33** — auto work-scheduling + colour grouping + stats tidy. Largest of the batch; the stats
+   sub-part is **blocked** on the owner's colleague's wishlist. Sequence last, but the scheduler design
+   (configurable ordered rule list) is worth sketching earlier.
+
+**Parallel, non-code — NA21:** guided S01–S12 walkthrough with the factory (`docs/SCENARIO_WALKTHROUGH.md`
+is ready). Needs the owner/shop floor, not code — run it whenever the owner is available.
+
+Before starting Phase 3, resolve the open owner questions on NA34/NA36/NA37/NA38.
+
 ---
 
 ## HIGH
