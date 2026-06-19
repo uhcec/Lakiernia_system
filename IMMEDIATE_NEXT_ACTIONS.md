@@ -590,6 +590,106 @@ workflow meaning. Severities are first-pass estimates.
 - Acceptance: a foil registry exists and is manageable; office can select one foil per order at intake;
   the chosen foil is stored on the work order and shown where relevant; covered by tests.
 
+## Architecture & design audit findings (2026-06-19)
+
+Source: critical design review on 2026-06-19 (owner-requested — "things we built without sense or that
+are sub-optimal"), full report in **`docs/ARCHITECTURE_AUDIT.md`**. These are **debt/shape** items, not
+correctness defects. Severities reflect maintainability risk, not user-visible breakage.
+
+### NA39. `app/process/service.py` is a 2937-line god class
+- Severity: MEDIUM (maintainability). See `docs/ARCHITECTURE_AUDIT.md` §A1.
+- Problem: `ProcessService` (`app/process/service.py`, ~120 methods) mixes transition logic, resource-lock
+  + packing-slot management (`_PROCESS_MUTATION_LOCKS` at `:30-33`), correction creation/merge,
+  display-status derivation (`:997-1121`), read-model serialization (`_to_stage_work_order_read` `:2408`),
+  and audit/transition-log writing. Every workflow change lands in this one file.
+- Required fix: extract along existing seams — `ResourceLockManager`, `CorrectionService`,
+  `ProcessReadModel`/serializer, `AuditWriter`. Behavior-preserving, incremental, test suite as net.
+  Highest leverage first: read-model serialization and corrections (largest self-contained chunks).
+- Acceptance: `service.py` materially smaller; concerns in separate modules; full suite still green.
+
+### NA40. Abstract the correction subsystem BEFORE adding NA34's third correction kind
+- Severity: MEDIUM (debt that becomes risk). See `docs/ARCHITECTURE_AUDIT.md` §A2. **Blocks/precedes NA34.**
+- Problem: RAL (in-place batch reset, `_reset_to_correction_planning` `:1919`) and DECORAL (child order,
+  `_create_correction_work_order` `:1850`) corrections share no common abstraction. NA34 wants a third
+  ("od razu poprawiona" stat-only) path; bolting it onto two un-abstracted flows multiplies the
+  RAL/DECORAL × replan/stat-only × single/multi-round matrix.
+- Required fix: introduce one entry point `record_correction(work_order, qty, category, kind)` dispatching
+  to `{replan_in_place, spin_off_child, stat_only}`, with quantity-conservation + reason-capture shared.
+- Acceptance: a single correction seam exists; NA34 adds a strategy, not a parallel flow; scenario matrix
+  still green. Sequence: do this, then NA34/NA32 (avoids reworking the same code twice).
+
+### NA41. Collapse the duplicated "incomplete / status" truth
+- Severity: MEDIUM (truth drift — a CHECK constraint depends on the legacy field). See §A3.
+- Problem: "incomplete" lives in two places kept in sync by hand — `is_incomplete_on_arrival` (real) and
+  the legacy `WorkOrder.status == INCOMPLETE`, both checked in `_has_incomplete_marker`
+  (`app/process/service.py:2333`, mirrored `app/work_orders/service.py:469`). The legacy `status` is still
+  written (`work_orders/service.py:404`, `process/service.py:1883`) and load-bearing in CHECK
+  `incomplete_requires_unplanned` (`work_orders/models.py:64`).
+- Required fix: make `is_incomplete_on_arrival` the single source; migrate the CHECK off `status`; delete
+  or write-once-freeze `WorkOrder.status`; collapse `_has_incomplete_marker` to one field.
+- Acceptance: one source of truth for incomplete; CHECK constraint no longer references `status`; tests cover it.
+
+### NA42. Review the automatic PRODUCTION-as-preview stage (most special-cased, most-churned area)
+- Severity: LOW–MEDIUM (maintainability / churn risk). See §B1.
+- Problem: AUTOMATIC keeps `PRODUCTION` as a no-op "preview" stage and starts `PACKING` at hanging-start,
+  requiring a family of special cases (`_is_automatic_production_preview_stage`,
+  `_get_automatic_packing_display_stage`, `_packing_completion_block_reason`,
+  `can_complete_packing`/`packing_blocked_reason`). The Done log shows this area was reversed 3× + caused a
+  seed bug — it fights the stage-state abstraction.
+- Required fix: spike whether **omitting `PRODUCTION` from the automatic stage sequence** (like
+  PRZEMALOWANKA omits SURFACE_PREPARATION) is simpler than special-casing a phantom stage everywhere. Keep
+  the "live-but-uncompletable packing" state. Decide before more automatic-flow features land.
+- Acceptance: a written decision (remove phantom stage vs keep) with the special-case count it removes/keeps.
+
+### NA43. Consolidate the over-faceted quantity vocabulary
+- Severity: LOW–MEDIUM (clarity; root of NA26-class bugs). See §B3.
+- Problem: five quantity notions (ordered / counted / `current_active` / operational / per-stage planned)
+  with which-shows-where wrong almost everywhere (NA26), resolved via four scattered helpers
+  (`_get_stage_display_quantity`/`_get_stage_planned_quantity`/`_get_operational_quantity`/
+  `_get_stage_counted_quantity`, `app/process/service.py:2518-2906`).
+- Required fix: document the five quantities + the single display rule in `WORKFLOW.md`; collapse the four
+  helpers behind one `quantity_for(context)` resolver so the rule lives once.
+- Acceptance: one resolver owns quantity-for-display; WORKFLOW.md states the rule; tests cover each context.
+
+### NA44. Frontend: decompose monolithic pages + move business semantics off the renderer
+- Severity: LOW–MEDIUM. See §C1, §C2.
+- Problem (structure): `WorkOrderDetailPage.tsx` (1353), `ManagerPanelPage.tsx` (1053),
+  `PackingWorkOrdersPage.tsx` (908), `StageWorkOrdersPage.tsx` (876) are monoliths; known frontend defects
+  (NA13 stray `::`, NA31 stale plan-draft, NA14 dead table) are churn residue.
+- Problem (rule break): the renderer computes business meaning, contradicting "faithful renderer"
+  (`CLAUDE.md`) — "PO TERMINIE"/overdue is computed client-side from `new Date()`
+  (`frontend/src/utils/workOrderDisplay.ts:142,162`); Polish status labels are duplicated between the
+  frontend switch (`workOrderDisplay.ts:28-50`) and backend `ProcessDisplayStatus.polish_label`
+  (`process/service.py:1051`).
+- Required fix: decompose Detail + Manager into section components with a data hook (do it when next
+  touched); expose an `is_overdue` read-model boolean; render the backend `polish_label` (or make the
+  frontend the single label owner) — not both.
+- Acceptance: the two worst pages are split; overdue + labels have one owner; tests updated.
+
+### NA45. Archive frozen documentation snapshots; trim the living set
+- Severity: MEDIUM (every session is told to read the docs; sprawl hides the truth). See §D1, §D2, §D3.
+- Problem: ~5,150 lines across 20 docs; many are dated, frozen-as-history audit snapshots overlapping the
+  two living docs (`DOC_COHERENCE_AUDIT`, `CODE_CONFORMANCE_AUDIT`, `OPERATOR_USABILITY_AUDIT_PL`,
+  `UI_PASSIVE_REVIEW_PL`, `FACTORY_USAGE_NOTES`, `FACTORY_DECISION_IMPLEMENTATION_MAP_PL`,
+  `PAINT_SYSTEM_DEFINITION_DRAFT_PL`, `WORKFLOW_VALIDATION_CHECKLIST` 35 KB). Plus `IMMEDIATE_NEXT_ACTIONS`
+  Done section (~350 lines) duplicates HARDENING_BACKLOG + git; S01–S12 has 4 parallel representations.
+- Required fix: move frozen snapshots to `docs/archive/` (or delete fully-superseded ones); keep the
+  living set small (`WORKFLOW`, `FACTORY_DOMAIN_MODEL`, `WORKING_CONTRACT`, `DEVELOPMENT_RUNBOOK`,
+  `DOCUMENTATION_MAP`); shorten Done entries to one line + commit ref; let `test_scenario_matrix.py` +
+  the WORKFLOW matrix be the canonical scenario truth. Update `DOCUMENTATION_MAP.md` to match.
+- Acceptance: active docs/ contains only living docs; archive holds the snapshots; DOCUMENTATION_MAP is accurate.
+
+### NA46. Backend cleanup: derive `current_active_batch_id`; bound the in-process lock maps
+- Severity: LOW (robustness). See §A4, §A5, §A6.
+- Problem: `current_active_batch_id` is a stored pointer hand-synced at 8+ sites
+  (`_sync_legacy_current_active_batch`) with a heuristic fallback (`models.py:176-186`) — a forgotten sync
+  desyncs it. `_PROCESS_MUTATION_LOCKS`/`_RESOURCE_MUTATION_LOCKS` (`:30-33`) grow unbounded (one RLock per
+  id forever). Transitions double-write `audit_events` + `stage_transition_events` (coupling that can drift).
+- Required fix: drop the stored pointer and derive `active_batch` from `active_batches` (the partial-unique
+  index makes it unambiguous); cap/evict the lock maps for a long-lived process; add a single helper that
+  writes both logs so they cannot diverge.
+- Acceptance: no `_sync_legacy_current_active_batch` calls remain; lock maps bounded; one write path per transition.
+
 ## Done
 
 - **Automatic packing card is now an ACTIVE packing row from hanging-start, not a read-only "waiting for hanging" row (2026-06-18)** —
