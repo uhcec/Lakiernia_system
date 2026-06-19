@@ -690,6 +690,22 @@ correctness defects. Severities reflect maintainability risk, not user-visible b
   writes both logs so they cannot diverge.
 - Acceptance: no `_sync_legacy_current_active_batch` calls remain; lock maps bounded; one write path per transition.
 
+### NA47. Decide how much audit-process cadence to keep (audit-generating-audit overhead)
+- Severity: LOW (process, not code). See `docs/ARCHITECTURE_AUDIT.md` §D4.
+- Problem: the repo accumulates audits-of-itself — NA24 produced `docs/DOC_COHERENCE_AUDIT.md`, NA25
+  produced `docs/CODE_CONFORMANCE_AUDIT.md`, this review produced `docs/ARCHITECTURE_AUDIT.md`, and the
+  `/doc-audit` + `/code-audit` skills regenerate the first two on a weekly cadence. For a single-developer
+  factory tool that is a lot of meta-process whose outputs themselves go stale and then need reconciling
+  (this is the same sprawl NA45 cleans up — the two findings reinforce each other).
+- Required fix: make a conscious decision on the cadence rather than letting it run by default. Options to
+  weigh: (a) keep the skills but run them **on-demand only** (before a big change), not weekly; (b) fold the
+  durable signal each audit produces directly into `WORKFLOW.md` / `FACTORY_DOMAIN_MODEL.md` and treat the
+  audit docs as disposable scratch (delete after acting); (c) keep a single periodic audit instead of three
+  separate doc/code/architecture passes. Pick one, write the chosen cadence into `docs/DOCUMENTATION_MAP.md`
+  or `WORKING_CONTRACT.md`, and stop producing standing audit documents that outlive their usefulness.
+- Acceptance: a stated, written policy on which audits run, how often, and whether their output is durable
+  or disposable; the doc set reflects that choice (coordinate with NA45).
+
 ## Done
 
 - **Automatic packing card is now an ACTIVE packing row from hanging-start, not a read-only "waiting for hanging" row (2026-06-18)** —

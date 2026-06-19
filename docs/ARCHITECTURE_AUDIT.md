@@ -228,7 +228,7 @@ truth; the three prose copies drift independently.
 walkthrough into one operational checklist and retire the validation checklist once its unique content is
 merged.
 
-### D4 — Process observation: the audit-generating-audit loop (note, not an NA)
+### D4 — Process observation: the audit-generating-audit loop (NA47)
 NA24 produced `DOC_COHERENCE_AUDIT.md`; NA25 produced `CODE_CONFORMANCE_AUDIT.md`; this is a third audit;
 `/doc-audit` and `/code-audit` skills regenerate them weekly. For a single-developer factory tool this is
 a lot of meta-process whose outputs themselves become stale and need reconciling (D1). Worth a conscious
