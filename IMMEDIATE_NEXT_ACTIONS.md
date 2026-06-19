@@ -127,6 +127,29 @@ they are not yet validated against live factory policy where noted.
 - Acceptance: A `start`/`finish` on an already-completed order returns a controlled error (not a silent
   contradictory state); regression test covers it; `docs/WORKFLOW.md` states the completion invariant.
 
+### NA32. Order's recorded paint consumption under-counts across correction rounds (stock is correct)
+- Status: OPEN (discovered 2026-06-19 during the S06 walkthrough).
+- Problem: for an automatic order that goes through a correction round, `WorkOrder.consumed_paint_quantity_kg`
+  ends up showing only the **last** round's kg, not the cumulative total. `record_automatic_paint_consumption`
+  **sets** (not accumulates) the field (`app/process/service.py:747`), and `_reset_to_correction_planning`
+  zeroes it (`app/process/service.py:1967`) to force re-registration for the next round's packing gate. Paint
+  **stock is correct** — each registration deducts via its own `paint_stock_movement` — so e.g. 20 kg + 20 kg
+  correctly reduces stock by 40 kg, but the order detail (`/work-orders/{id}`) reports 20 kg. The field is
+  overloaded: it serves both the per-round "paint registered?" packing gate and the order's total-consumption
+  display, and those two needs conflict.
+- Two manifestations (both confirmed in the walkthrough):
+  - **RAL correction (same order) — data loss (S06):** the field is overwritten/zeroed, so the order shows
+    only the last round's kg (e.g. 20 of an actual 40).
+  - **Decoral correction (parent + child "P…") — no roll-up (S08):** each order shows its own consumption
+    correctly (parent ~20 kg, child ~6 kg — no data loss), but the parent/chain total does not aggregate the
+    correction child's kg, so the order chain's true total (≈26 kg) is shown nowhere.
+- Required fix: report the order's **cumulative** paint consumption across its whole correction chain (e.g. sum
+  of the chain's `paint_stock_movements`, or aggregate parent + children) while keeping a separate per-round
+  signal for the packing completion gate. Confirm with the owner that the displayed number should be the
+  cumulative total (per order and rolled up for the parent+children chain).
+- Acceptance: a corrected automatic order (RAL same-order rounds, and Decoral parent+child) shows total kg =
+  sum of all rounds/children; order detail and stock agree; regression tests cover both manifestations.
+
 ### NA6. JWT has no expiry
 - Status: DONE (2026-06-17) — see Done section.
 - Problem: `create_access_token` (`app/auth/service.py:17-23`) issues tokens with no `exp` claim;
@@ -137,6 +160,25 @@ they are not yet validated against live factory policy where noted.
 ---
 
 ## LOW
+
+### NA31. Manager panel suggests/blocks a wrong queue position after a correction returns to planning
+- Status: OPEN (discovered 2026-06-19 during the S05 walkthrough).
+- Problem: when a RAL order is sent back to planning by a packing correction, the manager panel
+  transiently offers a queue position > 1 and treats position 1 as taken, even when the queue is
+  otherwise empty — until the user refreshes (F5). **Backend is correct** (verified): `_reset_to_correction_planning`
+  (`app/process/service.py:1966`) sets `queue_position = None`, `get_planned_by_queue_position(1)` returns
+  `None`, and `assign_plan(..., queue_position=1)` is accepted. The stale state is frontend-only: after the
+  correction the panel keeps showing the order's old position-1 planned row (polling refreshes data but the
+  background path does not rebuild plan drafts — `frontend/src/pages/ManagerPanelPage.tsx:306-307`), so the
+  suggested default (`normalizedActivePlanned.length + 1`, line 307) and the local "taken" view are based on
+  the stale planned list.
+- Required fix: ensure the manager queue/plan-draft state reconciles immediately when an order moves from
+  planned → unplanned (correction return), so position 1 is offered/accepted without a manual refresh.
+- Acceptance: right after a packing correction, planning the returned order at position 1 works in the UI
+  with no F5; regression/UI test covers the planned→unplanned transition.
+- Observation (2026-06-19, S09 multi-round): **intermittent** — recurred at the 1st correction round but not
+  the 2nd (the panel had refreshed by then). Reinforces that this is a stale-view / refresh-coherence issue,
+  not a deterministic logic error in position freeing.
 
 ### NA7. Weekly throughput dates computed inconsistently
 - Status: DONE (2026-06-17) — see Done section.
@@ -404,6 +446,89 @@ only. Five elements, top to bottom:
   frontend `StatystykiPage.tsx`.
 - Acceptance: throughput can show pieces split by both cross-sections, each partition summing to the
   pieces total; covered by tests.
+
+## New owner requests (2026-06-19) — need scoping before implementation
+
+Source: owner chat 2026-06-19 (screenshot). These are raw feature requests, not yet fully specified.
+Each needs an owner-confirmation pass (and a `docs/WORKFLOW.md` update if it changes workflow meaning)
+before building. Severities are first-pass estimates.
+
+### NA33. Automatic work-scheduling logic + colour grouping + tidy statistics
+- Severity: MEDIUM (planning/throughput feature). Largest of this batch.
+- Request (verbatim): "Grupowanie kolorami, statystyki uporządkować, logika automatycznego układania
+  pracy (po kolorze, po terminie, minimalny przerób)."
+- Three parts:
+  - **Group the planning queue by colour** so same-colour orders cluster (fewer colour changes on the line).
+  - **Tidy up the statistics** (Statystyki page) — unspecified clean-up; needs the owner to point at what
+    is messy now (likely follow-on from NA23/NA29 work).
+  - **Automatic work-ordering logic** that proposes a queue order optimising for: same colour, then due
+    date (po terminie), then **minimal changeover/rework** (minimalny przerób). Likely a suggested
+    ordering on the manager planning queue (`app/manager/service.py` reorder/assign + `ManagerPanelPage`).
+- Open questions for owner: is auto-ordering a one-click *suggestion* the manager can accept/override, or
+  fully automatic? Priority weighting between colour vs deadline vs changeover? Does "minimalny przerób"
+  mean colour-changeover minimisation specifically, or something else?
+- Acceptance: TBD after scoping. At minimum: queue can be grouped/sorted by colour; an auto-arrange
+  action proposes an order by (colour, deadline, changeover); covered by tests.
+
+### NA34. Distinguish two correction kinds — "fixed on the spot" (stat-only) vs "to be re-planned"
+- Severity: MEDIUM (changes correction semantics — touches the correction model + stats; coordinate with
+  NA32 paint-consumption and the RAL/DECORAL correction paths).
+- Request (verbatim): "rozróżnienie poprawek na poprawki od razu poprawione i do zaplanowania. Poprawka
+  od razu poprawiona w logice jest tylko daną statystyczną, nie wraca nigdzie z powrotem. Poprawka do
+  zaplanowania jest poprawką która powoduje że musi zostać ten kolor jeszcze raz zaplanowany i pomalowany."
+- Two correction categories:
+  - **Fixed on the spot ("od razu poprawiona")** — recorded **only as a statistic**; it does NOT re-enter
+    the workflow (no return to planning, no child order, no re-paint). Today every correction returns
+    (RAL → planning batch reset; DECORAL → child order), so this is a genuinely new "stat-only" path.
+  - **To be re-planned ("do zaplanowania")** — the existing behaviour: the colour must be planned and
+    painted again (the current RAL/DECORAL correction flow).
+- Impact: the packing correction-capture UI needs to ask which kind; the stat-only kind must feed the
+  corrections reason report / throughput correction counters **without** creating a `CORRECTION` batch or
+  child work order; the re-plan kind keeps current behaviour.
+- Open questions for owner: does stat-only still record reason/category + quantity? Does it apply to both
+  RAL and DECORAL? Does a stat-only correction affect completed/total quantity at all, or is the order
+  considered fully done as-is?
+- Acceptance: at packing, an operator can mark a correction as "fixed on the spot" (stat-only, no
+  re-plan, no child/batch) or "to be re-planned" (current flow); statistics count both; covered by tests;
+  `docs/WORKFLOW.md` correction model updated.
+
+### NA35. Number-entry fields change value on mouse-wheel scroll (UX defect)
+- Severity: LOW (UX defect, but annoying/error-prone — easy fix).
+- Request (verbatim): "Gówno ze scrollem w polach z wpisywaniem liczby."
+- Problem: native `<input type="number">` fields change their value when the wheel scrolls over a focused
+  field, so operators accidentally alter counts while scrolling the page.
+- Required fix: disable wheel-to-change on numeric inputs (e.g. blur on wheel, `onWheel` preventDefault,
+  or a shared `NumberInput` component) across the quantity-entry surfaces (packing count, surface-prep
+  count, office quantities, paint kg, etc.).
+- Acceptance: scrolling the wheel over a number field no longer changes its value anywhere; keyboard entry
+  unaffected.
+
+### NA36. Technical drawings on a work order
+- Severity: MEDIUM (feature). Needs scoping.
+- Request (verbatim): "Rysunki techniczne."
+- Likely: attach/display technical drawings for an order (a kind of attachment beyond the existing QC
+  doc + `WorkOrderAttachment`?). Confirm with owner.
+- Open questions: who uploads (office at intake?), who views (which stations?), file types (PDF/image/CAD?),
+  is it per work order or per product/template? Is this distinct from the existing attachment mechanism?
+- Acceptance: TBD after scoping.
+
+### NA37. WZ document (Wydanie Zewnętrzne — goods-issue / delivery note)
+- Severity: MEDIUM (feature). Needs scoping.
+- Request (verbatim): "Wz."
+- Likely: generate a WZ goods-issue document when an order is released/shipped (analogous to the existing
+  QC Excel→PDF generation). Confirm with owner.
+- Open questions: what fields/template, when is it generated (at completion/release?), numbering scheme,
+  PDF like the QC doc, who can issue it?
+- Acceptance: TBD after scoping.
+
+### NA38. Enter Decoral foils when adding an order
+- Severity: MEDIUM (feature — office intake). Needs scoping.
+- Request (verbatim): "Folie decoral do wprowadzenia przy dodaniu zlecenia."
+- Likely: at office intake (create work order), capture the Decoral foil(s) used for a decoral order
+  (`app/work_orders/` create/update + intake form). Confirm with owner.
+- Open questions: is there a fixed list of foils to pick from (a registry, like paints/clients) or free
+  text? One foil per order or several? Does it feed the Decoral pass / consumption / stats?
+- Acceptance: TBD after scoping.
 
 ## Done
 
