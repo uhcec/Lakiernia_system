@@ -1174,7 +1174,7 @@ class ManagerService:
             paint_inventory_insufficient_for_prediction=paint_inventory_shortage_quantity_kg is not None,
             paint_inventory_shortage_quantity_kg=paint_inventory_shortage_quantity_kg,
             paint_stock_snapshot_quantity_kg=work_order.paint_stock_snapshot_quantity_kg,
-            consumed_paint_quantity_kg=work_order.consumed_paint_quantity_kg,
+            consumed_paint_quantity_kg=self.paint_service.get_consumed_paint_kg_for_work_orders(work_order.correction_chain_ids),
             status=WorkOrderService.build_status_view(self.process_service.get_display_status(work_order)),
             process_status=build_process_status_view(self.process_service.get_display_status(work_order)),
             queue_blocked_by_resource=(queue_resource_block[0] if queue_resource_block is not None else None),

@@ -796,7 +796,7 @@ class WorkOrderService:
             paint_inventory_insufficient_for_prediction=paint_inventory_shortage_quantity_kg is not None,
             paint_inventory_shortage_quantity_kg=paint_inventory_shortage_quantity_kg,
             paint_stock_snapshot_quantity_kg=work_order.paint_stock_snapshot_quantity_kg,
-            consumed_paint_quantity_kg=work_order.consumed_paint_quantity_kg,
+            consumed_paint_quantity_kg=self.paint_service.get_consumed_paint_kg_for_work_orders(work_order.correction_chain_ids),
             status=self.build_status_view(process_status),
             process_status=build_process_status_view(process_status),
             coating_type=build_coating_type_view(work_order.coating_type),

@@ -5,6 +5,7 @@ from sqlalchemy import Select, func, select, update
 from sqlalchemy.orm import Session
 
 from app.paints.models import Paint, PaintStockMovement
+from app.shared.enums import PaintStockMovementType
 
 
 class PaintRepository:
@@ -56,6 +57,20 @@ class PaintRepository:
             .limit(limit)
         )
         return self.session.scalars(statement).all()
+
+    def sum_automatic_consumption_kg(self, work_order_ids: Sequence[int]) -> float:
+        # Cumulative automatic paint consumption (positive kg) across the given work orders, read from
+        # the durable movement log so it survives correction-round resets that zero the per-round
+        # `consumed_paint_quantity_kg` gate field (NA32). Consumption movements store a negative delta.
+        if not work_order_ids:
+            return 0.0
+        total_delta = self.session.scalar(
+            select(func.coalesce(func.sum(PaintStockMovement.quantity_delta_kg), 0.0)).where(
+                PaintStockMovement.movement_type == PaintStockMovementType.AUTOMATIC_CONSUMPTION,
+                PaintStockMovement.work_order_id.in_(work_order_ids),
+            )
+        )
+        return float(-(total_delta or 0.0))
 
     def apply_quantity_delta(self, *, paint_id: int, quantity_delta_kg: float) -> Paint | None:
         now = datetime.now(UTC)

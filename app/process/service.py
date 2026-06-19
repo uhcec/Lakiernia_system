@@ -2482,7 +2482,7 @@ class ProcessService:
             paint_producer=work_order.paint_producer,
             current_paint_stock_quantity_kg=current_paint_stock_quantity_kg,
             paint_stock_snapshot_quantity_kg=work_order.paint_stock_snapshot_quantity_kg,
-            consumed_paint_quantity_kg=work_order.consumed_paint_quantity_kg,
+            consumed_paint_quantity_kg=self.paint_service.get_consumed_paint_kg_for_work_orders(work_order.correction_chain_ids),
             total_area_m2=work_order.total_area_m2,
             total_quantity=work_order.total_quantity,
             current_active_quantity=current_active_quantity,

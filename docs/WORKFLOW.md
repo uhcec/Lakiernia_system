@@ -546,6 +546,12 @@ Confirmed non-conflicting needs:
 - packing completion for automatic work should be blocked until required paint consumption has been entered, so departments remind each other to complete the required production data
 - automatic correction work follows the same consumption requirement as standard automatic work
 - recorded consumption stays audited and updates live stock balance when saved
+- the **displayed** consumed-paint total on read models is the **cumulative** kg across the whole
+  correction chain (the order plus its correction descendants), computed from the durable
+  `paint_stock_movements` log rather than the per-round `consumed_paint_quantity_kg` field (NA32). That
+  field remains the per-round "paint registered before packing?" gate and is reset between correction
+  rounds; only the displayed total is rolled up, so a corrected order shows the sum of all rounds (and a
+  parent shows parent + children) while stock stays correct
 - current stock must not be allowed to go below zero
 - work-order detail must preserve historical paint identity and intake snapshot even if the paint card changes later
 - the first inventory slice supports deliveries, automatic-production consumption, and manual office adjustments

@@ -992,6 +992,29 @@ def test_decoral_automatic_correction_returns_to_root_and_completes_S08(db_sessi
     assert process_service.get_display_status(final).value == "READY"
 
 
+def test_corrected_order_reports_cumulative_paint_across_chain_NA32(db_session: Session) -> None:
+    # NA32: a corrected automatic order must report the CUMULATIVE paint consumption of the whole
+    # correction chain, not just the last round. advance_to_packing records 1.0 kg per automatic pass,
+    # so the DECORAL parent (1.0 kg) plus its automatic correction child (1.0 kg) must roll up to 2.0 kg
+    # on the parent's read model, even though the per-round gate field is reset between rounds.
+    work_order_service, process_service, manager_service, work_order_repository, _ = build_services(db_session)
+
+    parent = work_order_service.create_work_order(
+        build_work_order_create(title="Decoral NA32 rollup", coating_type=CoatingType.DECORAL, total_quantity=10)
+    )
+    manager_service.assign_plan(parent.id, WorkOrderPlanAssignRequest(production_type=ProductionType.AUTOMATIC, queue_position=1))
+    advance_to_packing(process_service, parent.id)
+    complete_packing(process_service, parent.id, ok_quantity=8, correction_quantity=2)
+
+    child = next(wo for wo in work_order_repository.list(limit=50, offset=0) if wo.is_correction)
+    manager_service.assign_plan(child.id, WorkOrderPlanAssignRequest(production_type=ProductionType.AUTOMATIC, queue_position=2))
+    advance_to_packing(process_service, child.id)
+
+    # Parent paint (1.0) + child paint (1.0) roll up on the parent; the child reports only its own.
+    assert work_order_service.get_work_order(parent.id).consumed_paint_quantity_kg == 2.0
+    assert work_order_service.get_work_order(child.id).consumed_paint_quantity_kg == 1.0
+
+
 def test_nested_decoral_corrections_complete_to_ready_S11(db_session: Session) -> None:
     # S11: a correction-of-a-correction. Every child closes at packing and returns OK to the root's
     # single Decoral pass; the order is READY only once all flat descendants close and the root's

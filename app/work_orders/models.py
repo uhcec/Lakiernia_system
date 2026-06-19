@@ -189,6 +189,15 @@ class WorkOrder(Base):
     def current_active_quantity(self) -> int:
         return sum(batch.quantity for batch in self.active_batches)
 
+    @property
+    def correction_chain_ids(self) -> list[int]:
+        # This order plus all descendant correction orders (recursively). Used to roll up
+        # cumulative paint consumption across a correction chain (NA32).
+        ids = [self.id]
+        for child in self.correction_orders:
+            ids.extend(child.correction_chain_ids)
+        return ids
+
 
 class WorkOrderNumberCounter(Base):
     __tablename__ = "work_order_number_counters"
