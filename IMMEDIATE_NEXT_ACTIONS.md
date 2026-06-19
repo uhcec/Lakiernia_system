@@ -503,16 +503,18 @@ workflow meaning. Severities are first-pass estimates.
   re-plan, no child/batch, order completes as-is) or "do zaplanowania" (current flow); statistics count
   both; covered by tests; `docs/WORKFLOW.md` correction model updated.
 
-### NA35. Number-entry fields change value on mouse-wheel scroll (UX defect)
+### NA35. Number-entry fields change value on mouse-wheel scroll, in large jumps (UX defect)
 - Severity: LOW (UX defect, but annoying/error-prone — easy fix; no open questions).
 - Request (verbatim): "Gówno ze scrollem w polach z wpisywaniem liczby."
-- Problem: native `<input type="number">` fields change their value when the wheel scrolls over a focused
-  field, so operators accidentally alter counts while scrolling the page.
-- Required fix: disable wheel-to-change on numeric inputs (e.g. blur on wheel, `onWheel` preventDefault,
-  or a shared `NumberInput` component) across the quantity-entry surfaces (packing count, surface-prep
-  count, office quantities, paint kg, etc.).
-- Acceptance: scrolling the wheel over a number field no longer changes its value anywhere; keyboard entry
-  unaffected.
+- Problem (clarified 2026-06-19): native `<input type="number">` fields change their value when the wheel
+  scrolls over a focused field — and the increment lands in **large jumps (e.g. tens of kilograms)**, so a
+  stray scroll silently sets a wildly wrong value (the owner's concrete complaint: paint kg jumping by tens).
+- Required fix: disable wheel-to-change on numeric inputs entirely (e.g. blur on wheel, `onWheel`
+  preventDefault, or a shared `NumberInput` component) across the quantity-entry surfaces (packing count,
+  surface-prep count, office quantities, paint kg, etc.). The wheel should never alter a number field; the
+  value changes only via typing (or explicit +/- controls if any).
+- Acceptance: scrolling the wheel over a number field no longer changes its value anywhere (no small or
+  large jumps); keyboard entry unaffected.
 
 ### NA36. Technical drawings on a work order — new attachment type
 - Severity: MEDIUM (feature).
