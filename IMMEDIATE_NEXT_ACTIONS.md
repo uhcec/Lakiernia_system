@@ -447,28 +447,36 @@ only. Five elements, top to bottom:
 - Acceptance: throughput can show pieces split by both cross-sections, each partition summing to the
   pieces total; covered by tests.
 
-## New owner requests (2026-06-19) — need scoping before implementation
+## New owner requests (2026-06-19) — scoped from owner chat
 
-Source: owner chat 2026-06-19 (screenshot). These are raw feature requests, not yet fully specified.
-Each needs an owner-confirmation pass (and a `docs/WORKFLOW.md` update if it changes workflow meaning)
-before building. Severities are first-pass estimates.
+Source: owner chat 2026-06-19 (screenshot) + clarification Q&A same day. Core decisions captured below;
+remaining open questions are flagged per item. Each needs a `docs/WORKFLOW.md` update if it changes
+workflow meaning. Severities are first-pass estimates.
 
-### NA33. Automatic work-scheduling logic + colour grouping + tidy statistics
+### NA33. Configurable auto work-scheduling + colour grouping + (basic) statistics tidy
 - Severity: MEDIUM (planning/throughput feature). Largest of this batch.
 - Request (verbatim): "Grupowanie kolorami, statystyki uporządkować, logika automatycznego układania
   pracy (po kolorze, po terminie, minimalny przerób)."
 - Three parts:
   - **Group the planning queue by colour** so same-colour orders cluster (fewer colour changes on the line).
-  - **Tidy up the statistics** (Statystyki page) — unspecified clean-up; needs the owner to point at what
-    is messy now (likely follow-on from NA23/NA29 work).
-  - **Automatic work-ordering logic** that proposes a queue order optimising for: same colour, then due
-    date (po terminie), then **minimal changeover/rework** (minimalny przerób). Likely a suggested
-    ordering on the manager planning queue (`app/manager/service.py` reorder/assign + `ManagerPanelPage`).
-- Open questions for owner: is auto-ordering a one-click *suggestion* the manager can accept/override, or
-  fully automatic? Priority weighting between colour vs deadline vs changeover? Does "minimalny przerób"
-  mean colour-changeover minimisation specifically, or something else?
-- Acceptance: TBD after scoping. At minimum: queue can be grouped/sorted by colour; an auto-arrange
-  action proposes an order by (colour, deadline, changeover); covered by tests.
+  - **Auto work-ordering logic — a one-click *suggestion* the manager accepts or edits** (NOT fully
+    automatic; owner decision 2026-06-19). An "Ułóż automatycznie" action proposes a queue order; the
+    manager can apply it as-is or tweak before committing. Likely on the manager planning queue
+    (`app/manager/service.py` reorder/assign + `ManagerPanelPage`).
+  - **Configurable rule priority (key owner requirement):** the optimisation criteria are colour grouping,
+    due date (po terminie), and minimal changeover/rework (minimalny przerób), but the **priority order of
+    these rules must be settable, not hardcoded**. Default order = **colour → deadline → changeover**, yet
+    the manager must be able to reorder the rules (we are not locked into today's definition). Design the
+    scheduler around an ordered, configurable list of rules rather than a fixed comparator.
+  - **Statistics tidy — deferred / minimal for now:** the owner will ask his colleague what stats he
+    actually wants; until then ship only a *very basic* tidy and expand once requirements are defined. Do
+    NOT over-build this sub-part now (coordinate with NA23/NA29 when the wishlist arrives).
+- Open questions (still): exact set of configurable rules + how the priority UI works; what "minimalny
+  przerób" precisely measures (assume colour-changeover minimisation until told otherwise); the colleague's
+  statistics wishlist (blocks the stats sub-part).
+- Acceptance: queue can be grouped/sorted by colour; an "Ułóż automatycznie" action proposes an order the
+  manager can accept or edit; the rule priority is user-configurable (reorderable), defaulting to
+  colour → deadline → changeover; basic stats tidy only; covered by tests.
 
 ### NA34. Distinguish two correction kinds — "fixed on the spot" (stat-only) vs "to be re-planned"
 - Severity: MEDIUM (changes correction semantics — touches the correction model + stats; coordinate with
@@ -477,23 +485,26 @@ before building. Severities are first-pass estimates.
   od razu poprawiona w logice jest tylko daną statystyczną, nie wraca nigdzie z powrotem. Poprawka do
   zaplanowania jest poprawką która powoduje że musi zostać ten kolor jeszcze raz zaplanowany i pomalowany."
 - Two correction categories:
-  - **Fixed on the spot ("od razu poprawiona")** — recorded **only as a statistic**; it does NOT re-enter
-    the workflow (no return to planning, no child order, no re-paint). Today every correction returns
-    (RAL → planning batch reset; DECORAL → child order), so this is a genuinely new "stat-only" path.
+  - **Fixed on the spot ("od razu poprawiona") — stat-only.** Recorded **only as a statistic**; it does
+    NOT re-enter the workflow (no return to planning, no child order, no re-paint). **The order is
+    considered fully done as-is** (owner decision 2026-06-19): `completed_quantity` = counted, the order
+    closes normally, and the correction is logged purely as a number (quantity + reason) in the stats. Today
+    every correction returns (RAL → planning batch reset; DECORAL → child order), so this is a genuinely new
+    path — the correction is captured for reporting but the order is not sent back.
   - **To be re-planned ("do zaplanowania")** — the existing behaviour: the colour must be planned and
     painted again (the current RAL/DECORAL correction flow).
 - Impact: the packing correction-capture UI needs to ask which kind; the stat-only kind must feed the
   corrections reason report / throughput correction counters **without** creating a `CORRECTION` batch or
-  child work order; the re-plan kind keeps current behaviour.
-- Open questions for owner: does stat-only still record reason/category + quantity? Does it apply to both
-  RAL and DECORAL? Does a stat-only correction affect completed/total quantity at all, or is the order
-  considered fully done as-is?
-- Acceptance: at packing, an operator can mark a correction as "fixed on the spot" (stat-only, no
-  re-plan, no child/batch) or "to be re-planned" (current flow); statistics count both; covered by tests;
-  `docs/WORKFLOW.md` correction model updated.
+  child work order, and **without** sending the order back; the re-plan kind keeps current behaviour.
+- Open questions (owner left these open 2026-06-19, decide before building): does the stat-only kind apply
+  to **both RAL and DECORAL** or RAL only? Is the reason/category **required** for a stat-only correction or
+  optional? (Quantity-vs-completion is settled: order is done as-is.)
+- Acceptance: at packing, an operator can mark a correction as "od razu poprawiona" (stat-only — no
+  re-plan, no child/batch, order completes as-is) or "do zaplanowania" (current flow); statistics count
+  both; covered by tests; `docs/WORKFLOW.md` correction model updated.
 
 ### NA35. Number-entry fields change value on mouse-wheel scroll (UX defect)
-- Severity: LOW (UX defect, but annoying/error-prone — easy fix).
+- Severity: LOW (UX defect, but annoying/error-prone — easy fix; no open questions).
 - Request (verbatim): "Gówno ze scrollem w polach z wpisywaniem liczby."
 - Problem: native `<input type="number">` fields change their value when the wheel scrolls over a focused
   field, so operators accidentally alter counts while scrolling the page.
@@ -503,32 +514,42 @@ before building. Severities are first-pass estimates.
 - Acceptance: scrolling the wheel over a number field no longer changes its value anywhere; keyboard entry
   unaffected.
 
-### NA36. Technical drawings on a work order
-- Severity: MEDIUM (feature). Needs scoping.
+### NA36. Technical drawings on a work order — new attachment type
+- Severity: MEDIUM (feature).
 - Request (verbatim): "Rysunki techniczne."
-- Likely: attach/display technical drawings for an order (a kind of attachment beyond the existing QC
-  doc + `WorkOrderAttachment`?). Confirm with owner.
-- Open questions: who uploads (office at intake?), who views (which stations?), file types (PDF/image/CAD?),
-  is it per work order or per product/template? Is this distinct from the existing attachment mechanism?
-- Acceptance: TBD after scoping.
+- Decision (2026-06-19): implement as a **new attachment type extending the existing
+  `WorkOrderAttachment`** mechanism (not a separate subsystem). A technical drawing (PDF/image) is attached
+  to a work order in the office and is viewable on the stations. Reuse the existing attachment storage/API;
+  add a type/category discriminator so drawings are distinguishable from other attachments and the QC doc.
+- Open questions (minor, confirm before building): allowed file types (PDF + images assumed; CAD?); exactly
+  which stations should see drawings; per work order vs per product/template (assume per work order).
+- Acceptance: office can attach technical drawing(s) to a work order via the existing attachment mechanism
+  (typed as "drawing"); stations can view them; covered by tests.
 
 ### NA37. WZ document (Wydanie Zewnętrzne — goods-issue / delivery note)
-- Severity: MEDIUM (feature). Needs scoping.
+- Severity: MEDIUM (feature).
 - Request (verbatim): "Wz."
-- Likely: generate a WZ goods-issue document when an order is released/shipped (analogous to the existing
-  QC Excel→PDF generation). Confirm with owner.
-- Open questions: what fields/template, when is it generated (at completion/release?), numbering scheme,
-  PDF like the QC doc, who can issue it?
-- Acceptance: TBD after scoping.
+- Decision (2026-06-19): generate WZ as a **PDF at order release/completion, using the same mechanism as
+  the QC document** (Excel→PDF generation in `app/work_orders/`), with a WZ numbering scheme. Windows+Excel
+  constraint applies exactly like the QC doc (see NA5 gotcha).
+- Open questions (confirm before building): the WZ template/fields; numbering scheme (separate counter like
+  the work-order number allocator?); who may issue it (office/manager?); exact trigger (at completion vs an
+  explicit "release/ship" action).
+- Acceptance: a WZ PDF can be generated for a released/completed order via the QC-doc mechanism, with WZ
+  numbering; covered by tests (mechanism-level; Excel rendering is Windows-only like QC).
 
-### NA38. Enter Decoral foils when adding an order
-- Severity: MEDIUM (feature — office intake). Needs scoping.
+### NA38. Enter the Decoral foil when adding an order — foil registry, one per order
+- Severity: MEDIUM (feature — office intake).
 - Request (verbatim): "Folie decoral do wprowadzenia przy dodaniu zlecenia."
-- Likely: at office intake (create work order), capture the Decoral foil(s) used for a decoral order
-  (`app/work_orders/` create/update + intake form). Confirm with owner.
-- Open questions: is there a fixed list of foils to pick from (a registry, like paints/clients) or free
-  text? One foil per order or several? Does it feed the Decoral pass / consumption / stats?
-- Acceptance: TBD after scoping.
+- Decision (2026-06-19): add a **Decoral foil registry** (a lookup table like paints/clients) and let the
+  office pick **one foil per work order** at intake for a decoral order (`app/work_orders/` create/update +
+  intake form). One foil per order (owner decision) — model it as a nullable FK from the work order to the
+  foil registry.
+- Open questions (confirm before building): registry fields (name + code? supplier?); whether the chosen
+  foil should feed the Decoral pass / consumption / foil-usage stats (likely yes, later); who manages the
+  registry (office/manager/admin).
+- Acceptance: a foil registry exists and is manageable; office can select one foil per order at intake;
+  the chosen foil is stored on the work order and shown where relevant; covered by tests.
 
 ## Done
 
