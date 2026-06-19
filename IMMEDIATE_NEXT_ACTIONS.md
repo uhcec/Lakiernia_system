@@ -503,18 +503,19 @@ workflow meaning. Severities are first-pass estimates.
   re-plan, no child/batch, order completes as-is) or "do zaplanowania" (current flow); statistics count
   both; covered by tests; `docs/WORKFLOW.md` correction model updated.
 
-### NA35. Number-entry fields change value on mouse-wheel scroll, in large jumps (UX defect)
+### NA35. Number-entry fields change value on mouse-wheel scroll, in tiny fractional steps (UX defect)
 - Severity: LOW (UX defect, but annoying/error-prone — easy fix; no open questions).
 - Request (verbatim): "Gówno ze scrollem w polach z wpisywaniem liczby."
 - Problem (clarified 2026-06-19): native `<input type="number">` fields change their value when the wheel
-  scrolls over a focused field — and the increment lands in **large jumps (e.g. tens of kilograms)**, so a
-  stray scroll silently sets a wildly wrong value (the owner's concrete complaint: paint kg jumping by tens).
+  scrolls over a focused field — and the increment is **too small / fractional (e.g. tenths of a kilogram,
+  0.1 kg)**, so a stray scroll silently nudges the value onto an odd non-round number (the owner's concrete
+  complaint: paint kg landing on weird fractional values like 20.3 instead of 20).
 - Required fix: disable wheel-to-change on numeric inputs entirely (e.g. blur on wheel, `onWheel`
   preventDefault, or a shared `NumberInput` component) across the quantity-entry surfaces (packing count,
   surface-prep count, office quantities, paint kg, etc.). The wheel should never alter a number field; the
   value changes only via typing (or explicit +/- controls if any).
-- Acceptance: scrolling the wheel over a number field no longer changes its value anywhere (no small or
-  large jumps); keyboard entry unaffected.
+- Acceptance: scrolling the wheel over a number field no longer changes its value anywhere; keyboard entry
+  unaffected.
 
 ### NA36. Technical drawings on a work order — new attachment type
 - Severity: MEDIUM (feature).
