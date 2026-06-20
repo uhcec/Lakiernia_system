@@ -12,7 +12,7 @@ from app.audit.repository import AuditRepository
 from app.paints.repository import PaintRepository
 from app.paints.service import PaintService
 from app.process.enums import CoatingType, ProcessDisplayStatus, ProductionType
-from app.process.models import StageTransitionEvent, WorkOrderQuantityBatch, WorkOrderStageState
+from app.process.models import StageTransitionEvent, WorkOrderStageState
 from app.process.repository import ProcessRepository
 from app.process.service import ProcessService
 from app.manager.repository import ManagerRepository
@@ -263,11 +263,10 @@ class ManagerService:
             .order_by(period_expr)
         ).all()
 
-        # Corrections come from two disjoint sources in the hybrid model (mirrors
-        # ManagerRepository.list_correction_reason_report so the chart and the reason
-        # report agree): RAL packing / DECORAL decoral-stage corrections are CORRECTION
-        # quantity batches, while DECORAL packing corrections spin off child "P" work
-        # orders. Both are aggregated by their own created_at date.
+        # Corrections are read from the SINGLE shared correction-event source
+        # (ManagerRepository.correction_events_select) so the chart and the reason report can never
+        # drift (NA4). It already unions both origins (CORRECTION batches + child "P" orders); here we
+        # just aggregate it by period over the requested window.
         corrections_by_period: dict[str, list[int]] = {}
 
         def _add_corrections(period: str, pieces: int, events: int) -> None:
@@ -275,36 +274,21 @@ class ManagerService:
             bucket[0] += pieces
             bucket[1] += events
 
-        batch_correction_rows = session.execute(
+        correction_events = self.repository.correction_events_select()
+        correction_period_expr = func.strftime(date_fmt, correction_events.c.created_at)
+        correction_rows = session.execute(
             select(
-                func.strftime(date_fmt, WorkOrderQuantityBatch.created_at).label("period"),
-                func.coalesce(func.sum(WorkOrderQuantityBatch.quantity), 0).label("pieces"),
-                func.count(WorkOrderQuantityBatch.id).label("events"),
+                correction_period_expr.label("period"),
+                func.coalesce(func.sum(correction_events.c.quantity), 0).label("pieces"),
+                func.count().label("events"),
             )
             .where(
-                WorkOrderQuantityBatch.type == QuantityBatchType.CORRECTION,
-                func.date(WorkOrderQuantityBatch.created_at) >= date_from,
-                func.date(WorkOrderQuantityBatch.created_at) <= date_to,
+                func.date(correction_events.c.created_at) >= date_from,
+                func.date(correction_events.c.created_at) <= date_to,
             )
-            .group_by(func.strftime(date_fmt, WorkOrderQuantityBatch.created_at))
+            .group_by(correction_period_expr)
         ).all()
-        for row in batch_correction_rows:
-            _add_corrections(row.period, int(row.pieces or 0), int(row.events))
-
-        child_correction_rows = session.execute(
-            select(
-                func.strftime(date_fmt, WorkOrder.created_at).label("period"),
-                func.coalesce(func.sum(WorkOrder.total_quantity), 0).label("pieces"),
-                func.count(WorkOrder.id).label("events"),
-            )
-            .where(
-                WorkOrder.is_correction == True,  # noqa: E712
-                func.date(WorkOrder.created_at) >= date_from,
-                func.date(WorkOrder.created_at) <= date_to,
-            )
-            .group_by(func.strftime(date_fmt, WorkOrder.created_at))
-        ).all()
-        for row in child_correction_rows:
+        for row in correction_rows:
             _add_corrections(row.period, int(row.pieces or 0), int(row.events))
 
         without_m2_count = session.execute(
