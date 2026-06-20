@@ -53,12 +53,23 @@ that packing is folded into `DECORAL_PRODUCTION` completion (confirmed out of sc
 `docs/FACTORY_DOMAIN_MODEL.md` §1).
 
 Actionable stage sequence depends on production type:
-- `MANUAL`: all configured stages are actionable
-- `AUTOMATIC`: `PRODUCTION` does not use manual start/finish stage actions, but the automatic production station is allowed to record paint consumption through the current paint-allocation slice
+- `MANUAL`: route is `SURFACE_PREPARATION → PRODUCTION → PACKING [→ DECORAL_PRODUCTION]`; there is **no
+  `HANGING`** (manual parts are painted by hand, not hung).
+- `AUTOMATIC`: route is `SURFACE_PREPARATION → HANGING → PACKING [→ DECORAL_PRODUCTION]`; there is **no
+  `PRODUCTION` stage** — the line paints automatically, so there is no manual production step. The
+  automatic production *station* still has its panel (a view over the line + paint-consumption entry),
+  but it is not a `PRODUCTION` stage in the route.
+
+> **NA42 — no phantom stages.** Stage-state rows are created as a method-agnostic superset at intake
+> (the method isn't chosen until planning) and then **reconciled to the real route at planning**
+> (`reconcile_stage_states_to_route`): an AUTOMATIC order has no `PRODUCTION` row, a MANUAL order has no
+> `HANGING` row. The automatic-production panel/visibility and paint entry are unchanged for the operator;
+> they are keyed off `HANGING` + the line state, not a `PRODUCTION` row.
 
 Automatic constraints:
-- Cannot start/finish `PRODUCTION` directly for `AUTOMATIC`
-- Automatic production is no longer display-only: it should allow paint-consumption entry as a separate audited paint-consumption action.
+- There is no `PRODUCTION` stage to start/finish for `AUTOMATIC` (NA42).
+- The automatic production station is not display-only: it records paint consumption as a separate
+  audited paint-consumption action (gated off `HANGING`, not `PRODUCTION`).
 - `HANGING` start transitions automatic flow forward
 - The automatic production panel must show upcoming and active automatic flow from the moment a work order is ready for `HANGING`, including `HANGING` not-started/in-progress rows, so the automatic operator sees the day's workflow before the line is occupied.
 - An automatic order **starts packing the moment `HANGING` starts** (its `PACKING` stage goes `IN_PROGRESS` immediately, not merely a slot reservation), so packing is active end-to-end as the line runs. The packing panel shows it as an **active packing row (the count form), not a read-only "waiting for hanging" row**, so the packing operator can work it in parallel with the line. Packing **completion stays blocked until `HANGING` is `DONE` and automatic paint consumption is recorded** — "Zakończ pakowanie" is disabled with a Polish reason (`packing_blocked_reason`) until both hold. Start now, finish after hanging + paint.
@@ -621,9 +632,9 @@ Additional completion behavior:
 | Scenario | Coating | Production | Correction mode | Expected stage path | Final status | Final quantities | Parent/child behavior |
 |---|---|---|---|---|---|---|---|
 | S01 | RAL | MANUAL | none | SURFACE_PREPARATION -> PRODUCTION -> PACKING | READY | parent completed=Q, active=0 | no child |
-| S02 | RAL | AUTOMATIC | none | SURFACE_PREPARATION -> HANGING -> PACKING (PRODUCTION preview) | READY | parent completed=Q, active=0 | no child |
+| S02 | RAL | AUTOMATIC | none | SURFACE_PREPARATION -> HANGING -> PACKING (no PRODUCTION stage) | READY | parent completed=Q, active=0 | no child |
 | S03 | DECORAL | MANUAL | none | SURFACE_PREPARATION -> PRODUCTION -> PACKING -> DECORAL_PRODUCTION | READY | parent completed=Q, active=0 | no child |
-| S04 | DECORAL | AUTOMATIC | none | SURFACE_PREPARATION -> HANGING -> PACKING -> DECORAL_PRODUCTION (PRODUCTION preview) | READY | parent completed=Q, active=0 | no child |
+| S04 | DECORAL | AUTOMATIC | none | SURFACE_PREPARATION -> HANGING -> PACKING -> DECORAL_PRODUCTION (no PRODUCTION stage) | READY | parent completed=Q, active=0 | no child |
 | S05 | RAL | MANUAL | correction after packing | order: ... -> PACKING, then replanned: PRODUCTION -> PACKING | READY after correction round closes | order final completed=Q | same order reset to planning with a CORRECTION batch; no child order |
 | S06 | RAL | AUTOMATIC | correction after packing | order: ... -> PACKING, then replanned: HANGING -> PACKING | READY after correction round closes | order final completed=Q | same order reset to planning with a CORRECTION batch; automatic return via HANGING; no child order |
 | S07 | DECORAL | MANUAL | correction after packing | parent: ... -> PACKING -> DECORAL_PRODUCTION(ok); child: PRODUCTION -> PACKING (then OK returns to root's Decoral; child does NOT run its own Decoral) | READY after parent ok-part and all returned pieces finish the root's single Decoral pass | parent final completed=Q | one Decoral pass on the root; child closes at packing and its OK pieces rejoin the root's Decoral (merge if still open, else a fresh root Decoral batch) |

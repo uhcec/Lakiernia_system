@@ -409,6 +409,27 @@ def test_production_type_affects_visibility_logic(db_session: Session) -> None:
     assert [work_order.id for work_order in automatic_visible] == [automatic_order.id]
 
 
+def test_reconcile_stage_states_drops_phantom_rows_per_route_NA42(db_session: Session) -> None:
+    # NA42: once the production method is known at planning, the stage-state rows are trimmed to the
+    # real route — AUTOMATIC has no PRODUCTION row (the line paints automatically), MANUAL has no
+    # HANGING row. Switching the method later re-adds/removes the right rows.
+    work_order_service, process_service, manager_service, _, process_repository = build_services(db_session)
+    auto = create_ral_work_order(work_order_service, "Auto NA42")
+    manual = create_ral_work_order(work_order_service, "Manual NA42")
+    manager_service.assign_plan(auto.id, WorkOrderPlanAssignRequest(production_type=ProductionType.AUTOMATIC, queue_position=1))
+    manager_service.assign_plan(manual.id, WorkOrderPlanAssignRequest(production_type=ProductionType.MANUAL, queue_position=2))
+
+    auto_stages = {ss.stage for ss in process_repository.get_work_order_with_stage_states(auto.id).stage_states}
+    manual_stages = {ss.stage for ss in process_repository.get_work_order_with_stage_states(manual.id).stage_states}
+    assert ProcessStage.PRODUCTION not in auto_stages and ProcessStage.HANGING in auto_stages
+    assert ProcessStage.HANGING not in manual_stages and ProcessStage.PRODUCTION in manual_stages
+
+    # Switching AUTOMATIC -> MANUAL reconciles: PRODUCTION appears, HANGING goes away.
+    manager_service.update_production_type(auto.id, WorkOrderProductionTypeUpdateRequest(production_type=ProductionType.MANUAL))
+    switched_stages = {ss.stage for ss in process_repository.get_work_order_with_stage_states(auto.id).stage_states}
+    assert ProcessStage.PRODUCTION in switched_stages and ProcessStage.HANGING not in switched_stages
+
+
 def test_manual_path_skips_hanging_stage_visibility(db_session: Session) -> None:
     work_order_service, process_service, manager_service, _, process_repository = build_services(db_session)
 
@@ -455,13 +476,14 @@ def test_automatic_hanging_start_starts_production_and_packing(db_session: Sessi
     process_service.transition_stage(automatic_order.id, ProcessStage.SURFACE_PREPARATION, StageStatus.DONE)
     process_service.transition_stage(automatic_order.id, ProcessStage.HANGING, StageStatus.IN_PROGRESS)
 
-    # The automatic line runs without a manual start, so PRODUCTION and PACKING begin the moment
-    # HANGING starts — an automatic order starts packing immediately, not merely holding a reservation.
+    # The automatic line runs without a manual production step (NA42: AUTOMATIC has no PRODUCTION
+    # stage), so PACKING begins the moment HANGING starts — the order starts packing immediately, not
+    # merely holding a reservation. The automatic-production panel still shows it (preview view).
     before_finish = process_repository.get_work_order_with_stage_states(automatic_order.id)
     assert before_finish is not None
     assert process_service.is_visible_in_stage(before_finish, ProcessStage.PRODUCTION, ProductionType.AUTOMATIC) is True
     stages_before_finish = {stage.stage: stage.status for stage in before_finish.stage_states}
-    assert stages_before_finish[ProcessStage.PRODUCTION] == StageStatus.IN_PROGRESS
+    assert ProcessStage.PRODUCTION not in stages_before_finish  # NA42: automatic has no PRODUCTION row
     assert stages_before_finish[ProcessStage.PACKING] == StageStatus.IN_PROGRESS
     # ...and the order already reports as being in packing for office/list views.
     assert process_service.get_display_status(before_finish).value == "PACKING"
@@ -481,7 +503,7 @@ def test_automatic_hanging_start_starts_production_and_packing(db_session: Sessi
 
     assert work_order is not None
     stages_after_finish = {stage.stage: stage.status for stage in work_order.stage_states}
-    assert stages_after_finish[ProcessStage.PRODUCTION] == StageStatus.IN_PROGRESS
+    assert ProcessStage.PRODUCTION not in stages_after_finish  # NA42: automatic has no PRODUCTION row
     assert stages_after_finish[ProcessStage.PACKING] == StageStatus.IN_PROGRESS
 
 
@@ -1311,7 +1333,7 @@ def test_complete_packing_splits_ok_and_correction_quantities(db_session: Sessio
 
     stage_states = {stage_state.stage: stage_state.status for stage_state in work_order.stage_states}
     assert stage_states[ProcessStage.SURFACE_PREPARATION] == StageStatus.DONE
-    assert stage_states[ProcessStage.HANGING] == StageStatus.NOT_STARTED
+    assert ProcessStage.HANGING not in stage_states  # NA42: MANUAL has no HANGING row
     assert stage_states[ProcessStage.PRODUCTION] == StageStatus.NOT_STARTED
     assert stage_states[ProcessStage.PACKING] == StageStatus.NOT_STARTED
 

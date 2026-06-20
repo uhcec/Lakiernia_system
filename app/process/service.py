@@ -113,6 +113,26 @@ class ProcessService:
         ]
         self.repository.add_stage_states(stage_states)
 
+    def reconcile_stage_states_to_route(self, work_order: WorkOrder) -> None:
+        # NA42: stage-state rows are created as a method-agnostic superset at intake because the
+        # production method (MANUAL/AUTOMATIC) isn't chosen until manager planning. Once it IS known,
+        # trim the rows to the order's real route — AUTOMATIC has no PRODUCTION (the line paints
+        # automatically; there is no manual production step), MANUAL has no HANGING — and add any the
+        # route now needs if the method is later switched. This removes the "phantom" stage that used
+        # to be special-cased everywhere. Idempotent.
+        if work_order.production_type is None:
+            return  # route still unknown until planned; keep the superset
+        target_stages = set(self.get_actionable_stage_sequence_for_work_order(work_order))
+        existing_stages = {stage_state.stage for stage_state in work_order.stage_states}
+        for stage_state in list(work_order.stage_states):
+            if stage_state.stage not in target_stages:
+                work_order.stage_states.remove(stage_state)
+        for stage in target_stages:
+            if stage not in existing_stages:
+                work_order.stage_states.append(
+                    WorkOrderStageState(work_order_id=work_order.id, stage=stage, status=StageStatus.NOT_STARTED)
+                )
+
     def initialize_quantity_tracking(self, work_order: WorkOrder) -> None:
         main_batch = WorkOrderQuantityBatch(
             work_order_id=work_order.id,
@@ -173,25 +193,19 @@ class ProcessService:
                 # NA22a: automatic orders reserve a packing slot the moment hanging starts.
                 self._reserve_packing_for_automatic_hanging(work_order, stage, target_status)
 
-                # The automatic line runs without a manual start, so PRODUCTION and PACKING move into
-                # progress as soon as automatic HANGING *starts* (not only when it finishes): an
-                # automatic order begins packing immediately instead of merely holding a slot
-                # reservation. Packing *completion* still waits for HANGING to be DONE (see
-                # complete_packing) and the packing card stays a read-only "waiting for hanging" row
-                # until then (_get_automatic_packing_display_stage). The DONE branch remains an
-                # idempotent fallback for orders whose hanging started before this behavior existed.
-                # Log the implicit transitions so cycle-time/throughput stats see when the line started.
+                # The automatic line runs without a manual production step (NA42: AUTOMATIC has no
+                # PRODUCTION stage), so PACKING moves into progress as soon as automatic HANGING
+                # *starts* (not only when it finishes): an automatic order begins packing immediately
+                # instead of merely holding a slot reservation. Packing *completion* still waits for
+                # HANGING to be DONE (see complete_packing). The DONE branch remains an idempotent
+                # fallback for orders whose hanging started before this behavior existed. Log the
+                # implicit transition so cycle-time/throughput stats see when the line started.
                 implicit_in_progress: list[ProcessStage] = []
                 if (
                     stage == ProcessStage.HANGING
                     and target_status in {StageStatus.IN_PROGRESS, StageStatus.DONE}
                     and work_order.production_type == ProductionType.AUTOMATIC
                 ):
-                    production_state = self._get_stage_state(work_order, ProcessStage.PRODUCTION)
-                    if production_state.status == StageStatus.NOT_STARTED:
-                        production_state.status = StageStatus.IN_PROGRESS
-                        production_state.updated_at = stage_state.updated_at
-                        implicit_in_progress.append(ProcessStage.PRODUCTION)
                     packing_state = self._get_stage_state(work_order, ProcessStage.PACKING)
                     if packing_state.status == StageStatus.NOT_STARTED:
                         packing_state.status = StageStatus.IN_PROGRESS
@@ -429,7 +443,7 @@ class ProcessService:
                 return self._to_stage_work_order_read(refreshed_work_order, ProcessStage.PACKING, batch=refreshed_batch)
 
             packing_state = self._get_stage_state(work_order, ProcessStage.PACKING)
-            hanging_state = self._get_stage_state(work_order, ProcessStage.HANGING)
+            hanging_state = self._find_stage_state(work_order, ProcessStage.HANGING)  # None for MANUAL (NA42)
 
             if packing_state.status == StageStatus.DONE:
                 return self._to_idempotent_packing_response(work_order)
@@ -545,7 +559,7 @@ class ProcessService:
                 )
 
             packing_state = self._get_stage_state(work_order, ProcessStage.PACKING)
-            hanging_state = self._get_stage_state(work_order, ProcessStage.HANGING)
+            hanging_state = self._find_stage_state(work_order, ProcessStage.HANGING)  # None for MANUAL (NA42)
 
             if packing_state.status == StageStatus.DONE:
                 return self._to_idempotent_packing_response(work_order)
@@ -594,7 +608,8 @@ class ProcessService:
             packing_state.counted_quantity = counted_quantity
             packing_state.updated_at = datetime.now(UTC)
 
-            production_state = self._get_stage_state(work_order, ProcessStage.PRODUCTION)
+            # AUTOMATIC orders have no PRODUCTION stage (NA42); only MANUAL ones do.
+            production_state = self._find_stage_state(work_order, ProcessStage.PRODUCTION)
 
             if correction_quantity > 0:
                 if work_order.coating_type == CoatingType.DECORAL:
@@ -658,18 +673,8 @@ class ProcessService:
                     self._place_returned_pieces_on_root_decoral(root, ok_quantity)
                     self._close_returned_correction_child(work_order)
 
-            if work_order.production_type == ProductionType.AUTOMATIC:
-                production_state.status = StageStatus.DONE
-                production_state.updated_at = datetime.now(UTC)
-                # Automatic PRODUCTION has no manual finish; it completes implicitly at packing.
-                # Log it so the automatic production stage has a DONE event in the analytics log.
-                self._record_stage_transition(
-                    work_order=work_order,
-                    stage=ProcessStage.PRODUCTION,
-                    status=StageStatus.DONE,
-                    station_context=station_context,
-                    batch_id=active_batch.id,
-                )
+            # NA42: AUTOMATIC orders have no PRODUCTION stage, so there is nothing to implicitly
+            # finish here — the line's output is realized at PACKING completion above.
 
             if (
                 work_order.coating_type == CoatingType.DECORAL
@@ -964,13 +969,15 @@ class ProcessService:
         if stage not in stage_sequence:
             return False
 
+        # AUTOMATIC PRODUCTION is a preview panel with no stage row (NA42); decide it from the line
+        # state before touching a stage state that does not exist on this route.
+        if self._is_automatic_production_preview_stage(work_order, stage):
+            return self._is_visible_in_automatic_production_preview(work_order, production_type)
+
         stage_state = self._get_stage_state(work_order, stage)
         allowed_statuses = {StageStatus.NOT_STARTED, StageStatus.IN_PROGRESS}
         if include_done:
             allowed_statuses.add(StageStatus.DONE)
-
-        if self._is_automatic_production_preview_stage(work_order, stage):
-            return self._is_visible_in_automatic_production_preview(work_order, production_type)
 
         if self._is_visible_in_automatic_packing(work_order, stage, stage_state.status):
             return True
@@ -978,7 +985,10 @@ class ProcessService:
         if stage_state.status not in allowed_statuses:
             return False
 
-        previous_stage = self._get_previous_stage(stage_sequence, stage)
+        # Walk the ACTUAL route (actionable sequence) so the previous stage is well-defined when the
+        # phantom PRODUCTION/HANGING rows are absent — e.g. an automatic PACKING's predecessor is HANGING.
+        actionable_sequence = self.get_actionable_stage_sequence_for_work_order(work_order)
+        previous_stage = self._get_previous_stage(actionable_sequence, stage)
         if previous_stage is not None:
             previous_state = self._get_stage_state(work_order, previous_stage)
             if previous_state.status != StageStatus.DONE:
@@ -1020,7 +1030,7 @@ class ProcessService:
             if packing_state.status == StageStatus.IN_PROGRESS:
                 return ProcessDisplayStatus.PACKING
 
-        stage_sequence = self.get_stage_sequence_for_work_order(work_order)
+        stage_sequence = self.get_actionable_stage_sequence_for_work_order(work_order)
         for stage in stage_sequence:
             stage_state = self._get_stage_state(work_order, stage)
             if stage_state.status != StageStatus.DONE:
@@ -1295,11 +1305,8 @@ class ProcessService:
             stage_state = self._get_stage_state(work_order, stage)
             stage_state.status = StageStatus.DONE if index < return_stage_index else StageStatus.NOT_STARTED
             stage_state.updated_at = current_timestamp
-
-        if work_order.production_type == ProductionType.AUTOMATIC:
-            production_state = self._get_stage_state(work_order, ProcessStage.PRODUCTION)
-            production_state.status = StageStatus.NOT_STARTED
-            production_state.updated_at = current_timestamp
+        # NA42: AUTOMATIC has no PRODUCTION stage row to reset; the actionable sequence above already
+        # excludes it.
 
     def get_actionable_stage_sequence_for_work_order(self, work_order: WorkOrder) -> list[ProcessStage]:
         stage_sequence = self.get_stage_sequence_for_work_order(work_order)
@@ -1343,7 +1350,6 @@ class ProcessService:
 
         hanging_state = self._get_stage_state(work_order, ProcessStage.HANGING)
         packing_state = self._get_stage_state(work_order, ProcessStage.PACKING)
-        production_state = self._get_stage_state(work_order, ProcessStage.PRODUCTION)
 
         if packing_state.status == StageStatus.DONE:
             return False
@@ -1351,10 +1357,9 @@ class ProcessService:
         if hanging_state.status == StageStatus.NOT_STARTED:
             return self._is_stage_ready_for_next_action(work_order, ProcessStage.HANGING)
 
-        if hanging_state.status == StageStatus.IN_PROGRESS:
-            return True
-
-        return production_state.status == StageStatus.IN_PROGRESS
+        # Hanging in progress, or hanging done and the parts are on the line not yet packed (NA42: this
+        # last case used to be PRODUCTION==IN_PROGRESS). Packing-done already returned False above.
+        return True
 
     def _get_automatic_production_preview_display_stage(self, work_order: WorkOrder) -> ProcessStage:
         hanging_state = self._get_stage_state(work_order, ProcessStage.HANGING)
@@ -1710,7 +1715,7 @@ class ProcessService:
         work_order: WorkOrder,
         active_batch: WorkOrderQuantityBatch,
         packing_state: WorkOrderStageState,
-        production_state: WorkOrderStageState,
+        production_state: WorkOrderStageState | None,
         *,
         planned_quantity: int,
         ok_quantity: int,
@@ -1764,9 +1769,9 @@ class ProcessService:
             station_context=station_context,
         )
 
-        if work_order.production_type == ProductionType.AUTOMATIC:
-            production_state.status = StageStatus.DONE
-            production_state.updated_at = datetime.now(UTC)
+        # NA42: AUTOMATIC orders have no PRODUCTION stage to finish here. (production_state is set only
+        # for MANUAL DECORAL orders; it is intentionally unused now and kept for signature stability.)
+        _ = production_state
 
         self._sync_legacy_current_active_batch(work_order)
         return response_stage, response_batch
@@ -2405,6 +2410,12 @@ class ProcessService:
                 return stage_state
         raise InvalidProcessStageTransitionError(f"Stage {stage.value} is not configured for work order {work_order.id}.")
 
+    @staticmethod
+    def _find_stage_state(work_order: WorkOrder, stage: ProcessStage) -> WorkOrderStageState | None:
+        # Like _get_stage_state but returns None instead of raising when the stage is not part of the
+        # order's route (NA42: AUTOMATIC has no PRODUCTION row, MANUAL has no HANGING row).
+        return next((stage_state for stage_state in work_order.stage_states if stage_state.stage == stage), None)
+
     def _to_stage_work_order_read(
         self,
         work_order: WorkOrder,
@@ -2416,7 +2427,18 @@ class ProcessService:
         elif batch is None and stage == ProcessStage.PACKING and work_order.production_type == ProductionType.AUTOMATIC:
             stage = self._get_automatic_packing_display_stage(work_order)
 
-        stage_state = self._get_stage_state(work_order, stage)
+        stage_state = self._find_stage_state(work_order, stage)
+        if stage_state is None:
+            # NA42: an AUTOMATIC order has no PRODUCTION stage row, but the automatic-production panel
+            # still presents it as "in production" once it is on the line (display unchanged for the
+            # operator). Synthesize a transient stage state mirroring the old phantom: IN_PROGRESS
+            # while on the line (hanging done, not yet packed), else DONE.
+            synthetic_status = (
+                StageStatus.DONE
+                if self._get_stage_state(work_order, ProcessStage.PACKING).status == StageStatus.DONE
+                else StageStatus.IN_PROGRESS
+            )
+            stage_state = WorkOrderStageState(work_order_id=work_order.id, stage=stage, status=synthetic_status)
         if batch is None:
             current_active_quantity = work_order.current_active_quantity
             batch_quantity = self._get_stage_display_quantity(work_order, stage, stage_state, batch=None)
@@ -2816,10 +2838,12 @@ class ProcessService:
         if work_order.production_type != ProductionType.AUTOMATIC:
             return False
 
+        # On the automatic line = parts hung and entered the spray booth, not yet packed. NA42: this
+        # used to read PRODUCTION==IN_PROGRESS (which spanned exactly hanging-done→packing-done); with
+        # no PRODUCTION stage the equivalent window is simply hanging DONE and packing not DONE.
         hanging_state = self._get_stage_state(work_order, ProcessStage.HANGING)
-        production_state = self._get_stage_state(work_order, ProcessStage.PRODUCTION)
         packing_state = self._get_stage_state(work_order, ProcessStage.PACKING)
-        if hanging_state.status == StageStatus.DONE and production_state.status == StageStatus.IN_PROGRESS and packing_state.status != StageStatus.DONE:
+        if hanging_state.status == StageStatus.DONE and packing_state.status != StageStatus.DONE:
             return True
 
         return any(
@@ -2886,12 +2910,15 @@ class ProcessService:
         *,
         batch: WorkOrderQuantityBatch | None,
     ) -> int | None:
+        # Only SP and PACKING carry a counted quantity, and both rows always exist on every route.
+        # Other stages (incl. the now-absent AUTOMATIC PRODUCTION, NA42) have none — return early so we
+        # never fetch a stage row that the route does not have.
+        if stage not in (ProcessStage.SURFACE_PREPARATION, ProcessStage.PACKING):
+            return None
+
         stage_state = self._get_stage_state(work_order, stage)
         if stage == ProcessStage.SURFACE_PREPARATION:
             return stage_state.counted_quantity
-
-        if stage != ProcessStage.PACKING:
-            return None
 
         if stage_state.counted_quantity is not None:
             return stage_state.counted_quantity

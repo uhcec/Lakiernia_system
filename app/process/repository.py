@@ -55,11 +55,21 @@ class ProcessRepository:
                 selectinload(WorkOrder.parent_order),
                 selectinload(WorkOrder.correction_orders),
             )
-            .where(WorkOrderStageState.stage == stage)
             .where(WorkOrder.is_incomplete_on_arrival.is_(False))
             .where(WorkOrder.status != WorkOrderStatus.INCOMPLETE)
             .order_by(WorkOrder.queue_position.asc(), WorkOrder.id.asc())
         )
+
+        if stage == ProcessStage.PRODUCTION:
+            # NA42: AUTOMATIC orders have no PRODUCTION stage row (the line paints automatically) and are
+            # anchored on HANGING instead; MANUAL orders keep PRODUCTION. Match either so the production
+            # panel still finds automatic orders. The precise visibility decision is made by
+            # ProcessService.is_visible_in_stage; .unique() below dedupes the join.
+            statement = statement.where(
+                WorkOrderStageState.stage.in_([ProcessStage.PRODUCTION, ProcessStage.HANGING])
+            )
+        else:
+            statement = statement.where(WorkOrderStageState.stage == stage)
 
         if production_type is not None:
             statement = statement.where(WorkOrder.production_type == production_type)

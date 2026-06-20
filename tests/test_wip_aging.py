@@ -109,14 +109,14 @@ def test_wip_aging_lists_in_progress_orders_sorted_by_age(db_session: Session) -
 
 
 def test_wip_aging_picks_furthest_advanced_in_progress_stage(db_session: Session) -> None:
-    # Automatic orders have PRODUCTION + PACKING both IN_PROGRESS after hanging finishes; the report
-    # should surface the furthest-advanced stage (PACKING), not PRODUCTION.
+    # NA42: an automatic order at the line has HANGING and PACKING both IN_PROGRESS (no PRODUCTION
+    # stage); the report should surface the furthest-advanced stage (PACKING).
     work_order_service, manager_service = _services(db_session)
     order = _create(work_order_service, "Automatic at line")
     manager_service.assign_plan(
         order.id, WorkOrderPlanAssignRequest(production_type=ProductionType.AUTOMATIC, queue_position=1), station_context=MANAGER
     )
-    _set_stage_in_progress(db_session, order.id, ProcessStage.PRODUCTION)
+    _set_stage_in_progress(db_session, order.id, ProcessStage.HANGING)
     _set_stage_in_progress(db_session, order.id, ProcessStage.PACKING)
 
     stats = manager_service.get_work_in_progress_aging(station_context=MANAGER)
@@ -160,7 +160,7 @@ def test_wip_aging_breakdown_counts_by_method_and_coating(db_session: Session) -
         auto_decoral.id, WorkOrderPlanAssignRequest(production_type=ProductionType.AUTOMATIC, queue_position=2), station_context=MANAGER
     )
     _set_stage_in_progress(db_session, manual_ral.id, ProcessStage.PRODUCTION)
-    _set_stage_in_progress(db_session, auto_decoral.id, ProcessStage.PRODUCTION)
+    _set_stage_in_progress(db_session, auto_decoral.id, ProcessStage.PACKING)  # NA42: automatic has no PRODUCTION
 
     stats = manager_service.get_work_in_progress_aging(station_context=MANAGER)
 

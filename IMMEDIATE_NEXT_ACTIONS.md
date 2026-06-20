@@ -654,8 +654,21 @@ correctness defects. Severities reflect maintainability risk, not user-visible b
   endpoint. This is a purely **internal** re-homing of where the paint-consumption action and the
   "show automatic panel" read-model flag hang (they currently key off the PRODUCTION preview stage); the
   frontend stays 1:1. Any change that alters what the automatic operator sees is out of scope.
-- Status: **IN PROGRESS (2026-06-20)** — owner opted to do it (not defer). Spike + implementation on a
-  branch, tests as the net, frontend untouched.
+- Status: **DONE (2026-06-20)** — branch `experiment/automatic-no-phantom-production`. Spike verdict:
+  the phantom stems from creating stage-state rows as a method-agnostic superset at intake (the method
+  isn't known until planning). Fix (Option A): a new `ProcessService.reconcile_stage_states_to_route`
+  runs at planning (`assign_plan` / `update_production_type`, before correction replanning) and trims the
+  rows to the real route — AUTOMATIC loses `PRODUCTION`, MANUAL loses `HANGING`, re-adding on a method
+  switch. Removed the phantom implicit `PRODUCTION` transitions and the automatic-`PRODUCTION`-DONE block;
+  re-expressed `_occupies_automatic_line` (hanging DONE & packing not DONE, equivalent to the old
+  PRODUCTION-in-progress window); `is_visible_in_stage` decides the automatic preview before fetching a
+  stage row and walks the actionable route for the predecessor; the production-panel repo query anchors on
+  `PRODUCTION`∨`HANGING`; read models synthesize the "in production" presentation so the **operator view is
+  unchanged**. Real regressions found & fixed during the change: automatic production panel listing, and a
+  method-switch-on-correction-replan 409. Tests: new
+  `test_reconcile_stage_states_drops_phantom_rows_per_route_NA42`; phantom-asserting tests updated to the
+  new model (no PRODUCTION row for automatic / no HANGING row for manual). **433 backend + 78 frontend
+  tests pass, alembic clean, frontend build green.** `WORKFLOW.md` updated. Frontend untouched.
 
 ### NA43. Consolidate the over-faceted quantity vocabulary
 - Severity: LOW–MEDIUM (clarity; root of NA26-class bugs). See §B3.

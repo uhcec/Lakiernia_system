@@ -715,6 +715,9 @@ class ManagerService:
             work_order.production_type = payload.production_type
             work_order.queue_position = payload.queue_position
             work_order.updated_at = now
+            # Reconcile the stage-state rows to the (now-known) route FIRST, so correction replanning
+            # below resets statuses on the rows the route actually has (NA42).
+            self.process_service.reconcile_stage_states_to_route(work_order)
             self.process_service.prepare_correction_work_order_for_planning(work_order)
             self.repository.session.flush()
             self._trail_completed_work_orders(completed_work_orders_to_trail, now=now)
@@ -823,6 +826,9 @@ class ManagerService:
             now = datetime.now(UTC)
             work_order.production_type = payload.production_type
             work_order.updated_at = now
+            # Reconcile the stage-state rows to the (now-known) route FIRST, so correction replanning
+            # below resets statuses on the rows the route actually has (NA42).
+            self.process_service.reconcile_stage_states_to_route(work_order)
             self.process_service.prepare_correction_work_order_for_planning(work_order)
             self._record_audit_event(
                 event_type="manager.production_type_changed",
