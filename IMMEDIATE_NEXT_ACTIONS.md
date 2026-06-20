@@ -649,6 +649,13 @@ correctness defects. Severities reflect maintainability risk, not user-visible b
   PRZEMALOWANKA omits SURFACE_PREPARATION) is simpler than special-casing a phantom stage everywhere. Keep
   the "live-but-uncompletable packing" state. Decide before more automatic-flow features land.
 - Acceptance: a written decision (remove phantom stage vs keep) with the special-case count it removes/keeps.
+- **Scope guardrail (owner, 2026-06-20): the automatic-station operator's view must stay exactly as it is
+  today** — same screen, same paint-consumption (carton) entry, same upcoming/active line preview, same
+  endpoint. This is a purely **internal** re-homing of where the paint-consumption action and the
+  "show automatic panel" read-model flag hang (they currently key off the PRODUCTION preview stage); the
+  frontend stays 1:1. Any change that alters what the automatic operator sees is out of scope.
+- Status: **IN PROGRESS (2026-06-20)** — owner opted to do it (not defer). Spike + implementation on a
+  branch, tests as the net, frontend untouched.
 
 ### NA43. Consolidate the over-faceted quantity vocabulary
 - Severity: LOW–MEDIUM (clarity; root of NA26-class bugs). See §B3.
