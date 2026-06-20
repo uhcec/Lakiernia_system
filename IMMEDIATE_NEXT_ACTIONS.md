@@ -164,7 +164,16 @@ Before starting Phase 3, resolve the open owner questions on NA34/NA36/NA37/NA38
   contradictory state); regression test covers it; `docs/WORKFLOW.md` states the completion invariant.
 
 ### NA32. Order's recorded paint consumption under-counts across correction rounds (stock is correct)
-- Status: OPEN (discovered 2026-06-19 during the S06 walkthrough).
+- Status: **DONE (2026-06-20)** — commit `59241a1`. The displayed consumed-paint total is now computed
+  **cumulatively from the durable `paint_stock_movements` log** across the whole correction chain (order +
+  correction descendants, via `WorkOrder.correction_chain_ids` + `PaintRepository.sum_automatic_consumption_kg`),
+  wired into all three read models (process / work_orders / manager). The overloaded
+  `consumed_paint_quantity_kg` field stays the per-round "paint registered before packing?" gate (still
+  reset between rounds); only the display is rolled up, so RAL same-order rounds and DECORAL parent+child
+  both report the true total while stock stays correct. No schema change. Tests: updated automatic-correction
+  paint assertion to cumulative (13.75), new `test_corrected_order_reports_cumulative_paint_across_chain_NA32`;
+  `docs/WORKFLOW.md` paint section updated. 433 backend tests pass; `alembic check` clean.
+- Status (original): OPEN (discovered 2026-06-19 during the S06 walkthrough).
 - Problem: for an automatic order that goes through a correction round, `WorkOrder.consumed_paint_quantity_kg`
   ends up showing only the **last** round's kg, not the cumulative total. `record_automatic_paint_consumption`
   **sets** (not accumulates) the field (`app/process/service.py:747`), and `_reset_to_correction_planning`
