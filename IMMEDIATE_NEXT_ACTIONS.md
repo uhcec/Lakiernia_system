@@ -553,6 +553,9 @@ workflow meaning. Severities are first-pass estimates.
   colour → deadline → changeover; basic stats tidy only; covered by tests.
 
 ### NA34. Distinguish two correction kinds — "fixed on the spot" (stat-only) vs "to be re-planned"
+- Prereq DONE (2026-06-22): NA40 landed the single correction seam, so the stat-only kind is now a
+  `CorrectionKind.STAT_ONLY` value + one `_select_correction_kind` branch + one handler in
+  `_dispatch_packing_correction`. **Still blocked on owner answers** (below) before building.
 - Severity: MEDIUM (changes correction semantics — touches the correction model + stats; coordinate with
   NA32 paint-consumption and the RAL/DECORAL correction paths).
 - Request (verbatim): "rozróżnienie poprawek na poprawki od razu poprawione i do zaplanowania. Poprawka
@@ -658,6 +661,17 @@ correctness defects. Severities reflect maintainability risk, not user-visible b
 - Acceptance: `service.py` materially smaller; concerns in separate modules; full suite still green.
 
 ### NA40. Abstract the correction subsystem BEFORE adding NA34's third correction kind
+- Status: **DONE (2026-06-22).** Behaviour-preserving refactor. New `CorrectionKind` enum
+  (`app/process/enums.py`: `REPLAN_IN_PLACE`, `SPIN_OFF_CHILD`; STAT_ONLY reserved for NA34) plus a single
+  seam in `ProcessService`: `_select_correction_kind(work_order, *, tracked_batch)` classifies, and
+  `_dispatch_packing_correction(...)` runs the matching strategy (`_reset_to_correction_planning` /
+  `_complete_packing_with_correction_order`). Both `correction_quantity > 0` branches — the plain packing
+  path (`complete_packing`) and the tracked-batch path (`_complete_tracked_batch_packing`) — now route
+  through the one seam instead of inline RAL/DECORAL `if`s. Quantity-conservation + reason capture stay
+  shared in the caller (validated once before dispatch). **NA34 now adds STAT_ONLY as one enum value + one
+  classifier branch + one handler, not a parallel flow.** Tests: new `test_select_correction_kind_seam_NA40`
+  pins the classifier; full backend suite + scenario matrix S01–S12 green; `alembic check` clean (no schema
+  change). `docs/WORKFLOW.md` Corrections Behavior documents the seam.
 - Severity: MEDIUM (debt that becomes risk). See `docs/ARCHITECTURE_AUDIT.md` §A2. **Blocks/precedes NA34.**
 - Problem: RAL (in-place batch reset, `_reset_to_correction_planning` `:1919`) and DECORAL (child order,
   `_create_correction_work_order` `:1850`) corrections share no common abstraction. NA34 wants a third

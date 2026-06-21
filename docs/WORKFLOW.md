@@ -123,6 +123,12 @@ When packing has correction quantity (`correction_quantity > 0`), the representa
 type. Both paths conserve quantity, skip `SURFACE_PREPARATION`, and rejoin the global queue only after
 manager planning.
 
+The choice of representation (the *correction kind*) is selected and dispatched at a single seam in the
+backend — `ProcessService._select_correction_kind` / `_dispatch_packing_correction` (NA40) — rather than
+branched inline at each packing path. Today there are two kinds: `REPLAN_IN_PLACE` (RAL, and any
+tracked-batch packing) and `SPIN_OFF_CHILD` (a DECORAL root being packed). A future "fixed on the spot"
+stat-only kind (NA34) plugs in as one more branch at this seam, not a parallel flow.
+
 RAL (packing is the last stage):
 1. The OK quantity is added to `completed_quantity` and the active batch is closed.
 2. The same work order is reset to planning (`production_type = null`, `queue_position = null`) with a new

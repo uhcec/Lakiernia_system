@@ -14,7 +14,7 @@ from app.audit.models import AuditEvent
 from app.audit.repository import AuditRepository
 from app.paints.repository import PaintRepository
 from app.paints.service import PaintService
-from app.process.enums import CoatingType, ProcessDisplayStatus, ProcessStage, ProductionType, QuantityBatchType, StageStatus
+from app.process.enums import CoatingType, CorrectionKind, ProcessDisplayStatus, ProcessStage, ProductionType, QuantityBatchType, StageStatus
 from app.process.models import StageTransitionEvent, WorkOrderQuantityBatch, WorkOrderStageState
 from app.process.repository import ProcessRepository
 from app.process.schemas import ProcessStageStatusRead, ProcessStageWorkOrderRead, StageStatusView
@@ -612,37 +612,21 @@ class ProcessService:
             production_state = self._find_stage_state(work_order, ProcessStage.PRODUCTION)
 
             if correction_quantity > 0:
-                if work_order.coating_type == CoatingType.DECORAL:
-                    # DECORAL has a stage (DECORAL_PRODUCTION) AFTER packing, so the OK pieces must
-                    # still pass through Decoral. They continue on this order as a tracked batch,
-                    # while the correction becomes a separately-plannable child work order ("P").
-                    response_stage, response_batch = self._complete_packing_with_correction_order(
-                        work_order,
-                        active_batch,
-                        packing_state,
-                        production_state,
-                        planned_quantity=active_batch.quantity,
-                        ok_quantity=ok_quantity,
-                        correction_quantity=correction_quantity,
-                        correction_category_fields=correction_category_fields,
-                        correction_reason_category=normalized_correction_reason_category,
-                        correction_reason_note=normalized_correction_reason_note,
-                        station_context=station_context,
-                    )
-                else:
-                    # RAL packing is the last stage, so the unified batch-reset model applies:
-                    # ok goes to completed and the same order returns to planning for the correction.
-                    self._reset_to_correction_planning(
-                        work_order,
-                        active_batch,
-                        ok_quantity=ok_quantity,
-                        correction_quantity=correction_quantity,
-                        correction_reason_category=normalized_correction_reason_category,
-                        correction_reason_note=normalized_correction_reason_note,
-                        station_context=station_context,
-                    )
-                    response_stage = ProcessStage.PACKING
-                    response_batch = None
+                # Single correction seam (NA40): the kind (DECORAL spin-off child vs RAL in-place
+                # replan) is selected and dispatched in one place rather than branched inline here.
+                response_stage, response_batch = self._dispatch_packing_correction(
+                    work_order,
+                    active_batch,
+                    tracked_batch=False,
+                    ok_quantity=ok_quantity,
+                    correction_quantity=correction_quantity,
+                    correction_category_fields=correction_category_fields,
+                    correction_reason_category=normalized_correction_reason_category,
+                    correction_reason_note=normalized_correction_reason_note,
+                    packing_state=packing_state,
+                    production_state=production_state,
+                    station_context=station_context,
+                )
                 self._release_inactive_resource_locks(work_order)
                 self._record_packing_audit_event(
                     work_order=work_order,
@@ -1666,15 +1650,15 @@ class ProcessService:
         packing_state.updated_at = datetime.now(UTC)
 
         if correction_quantity > 0:
-            batch.is_active = False
-            batch.current_stage = ProcessStage.PACKING
-            batch.current_stage_status = StageStatus.DONE
-            batch.is_partial = False
-            self._reset_to_correction_planning(
+            # Single correction seam (NA40): a tracked-batch packing correction always replans in
+            # place today; dispatch keeps the kind selection in one place for NA34's STAT_ONLY.
+            self._dispatch_packing_correction(
                 work_order,
                 batch,
+                tracked_batch=True,
                 ok_quantity=ok_quantity,
                 correction_quantity=correction_quantity,
+                correction_category_fields=correction_category_fields,
                 correction_reason_category=correction_reason_category,
                 correction_reason_note=correction_reason_note,
                 station_context=station_context,
@@ -1723,6 +1707,75 @@ class ProcessService:
     def _is_in_correction_round(work_order: WorkOrder) -> bool:
         active_batch = work_order.active_batch
         return active_batch is not None and active_batch.parent_batch_id is not None
+
+    def _select_correction_kind(self, work_order: WorkOrder, *, tracked_batch: bool) -> CorrectionKind:
+        """The single decision point for how a packing correction re-enters the workflow (NA40).
+
+        Today: a DECORAL root being packed on the plain (non-tracked) path spins off a child "P" order
+        and keeps its OK pieces on the root's single Decoral pass; every other case (RAL, and any
+        tracked-batch packing such as returned Decoral pieces) returns the same order to planning with a
+        CORRECTION batch. NA34 will add ``STAT_ONLY`` here when the operator marks a correction "fixed on
+        the spot" (od razu poprawiona)."""
+        if not tracked_batch and work_order.coating_type == CoatingType.DECORAL:
+            return CorrectionKind.SPIN_OFF_CHILD
+        return CorrectionKind.REPLAN_IN_PLACE
+
+    def _dispatch_packing_correction(
+        self,
+        work_order: WorkOrder,
+        batch: WorkOrderQuantityBatch,
+        *,
+        tracked_batch: bool,
+        ok_quantity: int,
+        correction_quantity: int,
+        correction_category_fields: dict[str, int | bool | None],
+        correction_reason_category: str | None,
+        correction_reason_note: str | None,
+        packing_state: WorkOrderStageState | None = None,
+        production_state: WorkOrderStageState | None = None,
+        station_context: StationContext | None = None,
+    ) -> tuple[ProcessStage, WorkOrderQuantityBatch | None]:
+        """The single correction seam (NA40): classify the correction kind, then run its strategy.
+
+        Quantity conservation and reason capture are already validated by the caller; this owns only the
+        "which model re-enters the workflow" decision, so a new kind (NA34's STAT_ONLY) is one branch
+        here rather than a parallel flow scattered across the packing paths. Returns the
+        ``(stage, batch)`` the caller should render."""
+        kind = self._select_correction_kind(work_order, tracked_batch=tracked_batch)
+
+        if kind == CorrectionKind.SPIN_OFF_CHILD:
+            return self._complete_packing_with_correction_order(
+                work_order,
+                batch,
+                packing_state,
+                production_state,
+                planned_quantity=batch.quantity,
+                ok_quantity=ok_quantity,
+                correction_quantity=correction_quantity,
+                correction_category_fields=correction_category_fields,
+                correction_reason_category=correction_reason_category,
+                correction_reason_note=correction_reason_note,
+                station_context=station_context,
+            )
+
+        # REPLAN_IN_PLACE — the same order returns to planning with a CORRECTION batch. A tracked batch
+        # carried partial state, so close it first (the plain RAL path hands its active batch straight to
+        # the reset, which closes it there).
+        if tracked_batch:
+            batch.is_active = False
+            batch.current_stage = ProcessStage.PACKING
+            batch.current_stage_status = StageStatus.DONE
+            batch.is_partial = False
+        self._reset_to_correction_planning(
+            work_order,
+            batch,
+            ok_quantity=ok_quantity,
+            correction_quantity=correction_quantity,
+            correction_reason_category=correction_reason_category,
+            correction_reason_note=correction_reason_note,
+            station_context=station_context,
+        )
+        return ProcessStage.PACKING, None
 
     def _complete_packing_with_correction_order(
         self,

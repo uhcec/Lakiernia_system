@@ -14,7 +14,7 @@ from app.audit.models import AuditEvent
 from app.manager.repository import ManagerRepository
 from app.manager.schemas import WorkOrderPlanAssignRequest, WorkOrderProductionTypeUpdateRequest
 from app.manager.service import ManagerService
-from app.process.enums import CoatingType, ProcessStage, ProductionType, QuantityBatchType, StageStatus
+from app.process.enums import CoatingType, CorrectionKind, ProcessStage, ProductionType, QuantityBatchType, StageStatus
 from app.process.models import ProcessResourceLock
 from app.process.repository import ProcessRepository
 from app.process.service import ProcessService
@@ -2401,3 +2401,29 @@ def test_completed_order_cannot_be_sent_backwards_automatic_hanging_NA30(db_sess
     packing = next(s for s in after.stage_states if s.stage == ProcessStage.PACKING)
     assert hanging.status == StageStatus.DONE
     assert packing.status == StageStatus.DONE
+
+
+def test_select_correction_kind_seam_NA40(db_session: Session) -> None:
+    """NA40: the single correction seam classifies the kind by coating + packing path.
+
+    Pins the classifier so NA34's stat-only kind is added as one more branch here, not a parallel flow.
+    """
+    work_order_service, process_service, _, _, _ = build_services(db_session)
+    ral_created = work_order_service.create_work_order(
+        build_work_order_create(title="NA40 RAL kind", coating_type=CoatingType.RAL)
+    )
+    decoral_created = work_order_service.create_work_order(
+        build_work_order_create(title="NA40 DECORAL kind", coating_type=CoatingType.DECORAL)
+    )
+    # Classify against the ORM work orders (the seam runs on these in production).
+    ral = process_service.get_work_order_process(ral_created.id)
+    decoral = process_service.get_work_order_process(decoral_created.id)
+    assert ral.coating_type == CoatingType.RAL
+    assert decoral.coating_type == CoatingType.DECORAL
+
+    # Plain (non-tracked) packing path: DECORAL spins off a child "P" order; RAL replans in place.
+    assert process_service._select_correction_kind(ral, tracked_batch=False) == CorrectionKind.REPLAN_IN_PLACE
+    assert process_service._select_correction_kind(decoral, tracked_batch=False) == CorrectionKind.SPIN_OFF_CHILD
+    # Tracked-batch packing always replans in place, regardless of coating.
+    assert process_service._select_correction_kind(ral, tracked_batch=True) == CorrectionKind.REPLAN_IN_PLACE
+    assert process_service._select_correction_kind(decoral, tracked_batch=True) == CorrectionKind.REPLAN_IN_PLACE
