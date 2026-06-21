@@ -2342,3 +2342,62 @@ def test_s12_decoral_automatic_multi_round_correction_chain_merges(db_session: S
     assert completed_first_correction.current_active_quantity == 0
     assert completed_second_correction.completed_quantity == completed_second_correction.total_quantity
     assert completed_second_correction.current_active_quantity == 0
+
+
+def test_completed_order_cannot_be_sent_backwards_manual_NA30(db_session: Session) -> None:
+    """NA30: a completed (READY) order must reject re-opening an earlier stage.
+
+    Without the completion invariant a forward transition on a fully-packed order succeeded and left
+    a contradictory state (an earlier stage IN_PROGRESS while PACKING was DONE).
+    """
+    work_order_service, process_service, manager_service, _, process_repository = build_services(db_session)
+    created = create_ral_work_order(work_order_service, "NA30 manual completion invariant")
+    manager_service.assign_plan(
+        created.id, WorkOrderPlanAssignRequest(production_type=ProductionType.MANUAL, queue_position=1)
+    )
+    advance_to_packing(process_service, created.id)
+    complete_packing(process_service, created.id, ok_quantity=100, correction_quantity=0)
+
+    completed = process_repository.get_work_order_with_stage_states(created.id)
+    assert process_service.get_display_status(completed).value == "READY"
+
+    # Re-opening PRODUCTION on a completed order must raise, not silently flip it back.
+    with pytest.raises(InvalidProcessStageTransitionError) as exc_info:
+        process_service.transition_stage(created.id, ProcessStage.PRODUCTION, StageStatus.IN_PROGRESS)
+    assert "already" in str(exc_info.value).lower()
+
+    # The higher-level start_stage entry point is guarded too.
+    with pytest.raises(InvalidProcessStageTransitionError):
+        process_service.start_stage(created.id, ProcessStage.PRODUCTION)
+
+    # State is untouched: PRODUCTION and PACKING both remain DONE.
+    after = process_repository.get_work_order_with_stage_states(created.id)
+    production = next(s for s in after.stage_states if s.stage == ProcessStage.PRODUCTION)
+    packing = next(s for s in after.stage_states if s.stage == ProcessStage.PACKING)
+    assert production.status == StageStatus.DONE
+    assert packing.status == StageStatus.DONE
+    assert process_service.get_display_status(after).value == "READY"
+
+
+def test_completed_order_cannot_be_sent_backwards_automatic_hanging_NA30(db_session: Session) -> None:
+    """NA30 (original report): an AUTOMATIC order, once packed, must reject re-opening HANGING."""
+    work_order_service, process_service, manager_service, _, process_repository = build_services(db_session)
+    created = create_ral_work_order(work_order_service, "NA30 automatic completion invariant")
+    manager_service.assign_plan(
+        created.id, WorkOrderPlanAssignRequest(production_type=ProductionType.AUTOMATIC, queue_position=1)
+    )
+    advance_to_packing(process_service, created.id)
+    complete_packing(process_service, created.id, ok_quantity=100, correction_quantity=0)
+
+    completed = process_repository.get_work_order_with_stage_states(created.id)
+    assert process_service.get_display_status(completed).value == "READY"
+
+    with pytest.raises(InvalidProcessStageTransitionError) as exc_info:
+        process_service.transition_stage(created.id, ProcessStage.HANGING, StageStatus.IN_PROGRESS)
+    assert "already" in str(exc_info.value).lower()
+
+    after = process_repository.get_work_order_with_stage_states(created.id)
+    hanging = next(s for s in after.stage_states if s.stage == ProcessStage.HANGING)
+    packing = next(s for s in after.stage_states if s.stage == ProcessStage.PACKING)
+    assert hanging.status == StageStatus.DONE
+    assert packing.status == StageStatus.DONE

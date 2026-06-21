@@ -148,7 +148,18 @@ Before starting Phase 3, resolve the open owner questions on NA34/NA36/NA37/NA38
   Windows; missing Excel/pywin32 produces an immediate, clear error.
 
 ### NA30. A completed order can be sent backwards by re-opening an earlier stage (no completion invariant)
-- Status: OPEN (discovered 2026-06-18).
+- Status: **DONE (2026-06-22)**. Reproduced first (the bug was real): after a manual RAL order reached
+  READY (PACKING=DONE, 10/10, active=0), `transition_stage(PRODUCTION, IN_PROGRESS)` succeeded and left
+  `PRODUCTION=IN_PROGRESS` while `PACKING=DONE`. Fix: a completion invariant in `_validate_transition`
+  (`app/process/service.py` ~1150) — any transition to `IN_PROGRESS`/`DONE` on a `_is_complete_for_display`
+  order is rejected with a controlled `InvalidProcessStageTransitionError`, independent of station
+  permission. Safe because the *completing* transitions don't hit this path (`complete_packing` sets
+  PACKING `DONE` directly; DECORAL's `finish_stage` runs before completion is recorded). `reopen_stage`
+  was already blocked (active==0 guard); this closes the raw `start_stage`/`transition_stage` hole. Tests:
+  `test_completed_order_cannot_be_sent_backwards_manual_NA30` and `..._automatic_hanging_NA30` (the
+  original report scenario). `docs/WORKFLOW.md` READY Rules now states the invariant. Full backend suite
+  green; `alembic check` clean (no schema change).
+- Status (original): OPEN (discovered 2026-06-18).
 - Problem: An admin (who bypasses `ensure_station_allowed`) could call `start_stage`/`finish_stage` for
   `HANGING` on an order whose terminal `PACKING` stage was already `DONE`, flipping `HANGING` back to
   `IN_PROGRESS` and leaving a contradictory state (`HANG=IN_PROGRESS` while `PACK=DONE`), which then

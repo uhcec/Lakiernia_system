@@ -1148,6 +1148,20 @@ class ProcessService:
         if self._is_skipped_surface_preparation(work_order, stage_state.stage):
             raise InvalidProcessStageTransitionError(self._get_surface_preparation_skipped_message(work_order))
 
+        # Completion invariant (NA30): a work order that is already complete (READY — all quantity
+        # accounted for, no open corrections) must not be sent backwards by re-opening an earlier
+        # stage. Without this, a forward transition (e.g. HANGING/PRODUCTION -> IN_PROGRESS) on a
+        # fully-packed order would succeed and leave a contradictory state (an earlier stage
+        # IN_PROGRESS while the terminal stage is DONE). The legitimate way to re-touch a finished
+        # colour is the correction flow, not a raw stage transition. Only guards forward moves;
+        # the completing transition itself does not hit this path (complete_packing sets PACKING
+        # DONE directly, and DECORAL's finish runs before completion is recorded).
+        if target_status in {StageStatus.IN_PROGRESS, StageStatus.DONE} and self._is_complete_for_display(work_order):
+            raise InvalidProcessStageTransitionError(
+                f"Cannot transition stage {stage_state.stage.value}: work order {work_order.id} is already "
+                "completed. Re-opening a finished order requires the correction flow."
+            )
+
         allowed_transitions = {
             StageStatus.NOT_STARTED: {StageStatus.IN_PROGRESS},
             StageStatus.IN_PROGRESS: {StageStatus.DONE, StageStatus.NOT_STARTED},

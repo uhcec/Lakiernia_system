@@ -622,6 +622,18 @@ Tracked batch reopen rule:
 - Any reopen attempt for a finished tracked batch must fail with a controlled `409` error.
 - A rejected reopen attempt must not change quantities, READY state, parent/child state, or completed progress.
 
+Completion invariant (no backwards transitions) — NA30:
+- Once a work order is complete (READY by the rules above — all quantity accounted for and no open
+  corrections), it must not be sent backwards. A stage start/finish/transition that would move any
+  stage to `IN_PROGRESS` or `DONE` on a completed order is rejected with a controlled error, even for
+  an admin (the invariant is independent of station permission).
+- Without this guard a forward transition on a fully-packed order (e.g. re-opening `HANGING` or
+  `PRODUCTION`) succeeded and left a contradictory state — an earlier stage `IN_PROGRESS` while the
+  terminal stage was already `DONE`.
+- The legitimate way to re-touch a finished colour is the correction flow (RAL batch reset / DECORAL
+  child), not a raw stage transition. A rejected transition must not change any stage status,
+  quantity, or READY state.
+
 Additional completion behavior:
 - If correction descendants are completed and no active quantity remains, completion can finalize upward through parent chain.
 - Parent remains non-READY while any correction descendant is still open.
