@@ -75,6 +75,26 @@ function createPlanDrafts(workOrders: WorkOrder[], nextQueuePosition: number): R
   }, {});
 }
 
+// Background-poll reconcile: keep the draft the manager is actively typing for orders
+// that are still unplanned, drop drafts for orders that left the unplanned list, and
+// seed a fresh default for orders that just appeared (e.g. a RAL order returned to
+// planning by a packing correction). Without this, a planned -> unplanned transition
+// kept a stale suggested position derived from the old queue length, so the returned
+// order could not be planned at position 1 until a manual refresh (NA31).
+function reconcilePlanDrafts(
+  currentDrafts: Record<number, PlanDraft>,
+  unplannedWorkOrders: WorkOrder[],
+  nextQueuePosition: number,
+): Record<number, PlanDraft> {
+  return unplannedWorkOrders.reduce<Record<number, PlanDraft>>((drafts, workOrder, index) => {
+    drafts[workOrder.id] = currentDrafts[workOrder.id] ?? {
+      productionType: "MANUAL",
+      queuePosition: String(nextQueuePosition + index),
+    };
+    return drafts;
+  }, {});
+}
+
 function formatDate(value: string | null | undefined): string {
   if (!value) {
     return "-";
@@ -302,9 +322,16 @@ export function ManagerPanelPage() {
       setCompletedPlannedWorkOrders(normalizedCompletedPlanned);
       setCorrectionReasonReport(nextCorrectionReasonReport);
       setQueueRevision(nextQueueRevision);
-      // In background mode keep the planning drafts the manager is typing and don't
-      // touch the pending-queue flag (polling only runs when nothing is being edited).
-      if (!background) {
+      if (background) {
+        // Reconcile (don't rebuild) drafts: preserve what the manager is typing, drop
+        // drafts for orders that left the unplanned list, and seed a fresh default for
+        // orders that just reappeared so a returned correction can be planned at the
+        // freshly-correct position without a manual refresh. Leave the pending-queue
+        // flag alone (polling only runs when nothing is being edited).
+        setPlanDrafts((current) =>
+          reconcilePlanDrafts(current, unplanned, normalizedActivePlanned.length + 1),
+        );
+      } else {
         setPlanDrafts(createPlanDrafts(unplanned, normalizedActivePlanned.length + 1));
         setHasPendingQueueChanges(false);
       }
