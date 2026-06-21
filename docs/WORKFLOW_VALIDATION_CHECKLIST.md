@@ -10,8 +10,8 @@ Validate the business decisions that would affect station behavior, queueing, co
 
 Supporting planning notes while waiting for stakeholder answers:
 
-- `docs/OPERATOR_USABILITY_AUDIT_PL.md` summarizes current screens by role and likely usability risks.
-- `docs/FACTORY_DECISION_IMPLEMENTATION_MAP_PL.md` maps expected factory answers to implementation, migration, UI, and test work.
+- `docs/archive/OPERATOR_USABILITY_AUDIT_PL.md` summarizes current screens by role and likely usability risks (archived snapshot).
+- `docs/archive/FACTORY_DECISION_IMPLEMENTATION_MAP_PL.md` maps expected factory answers to implementation, migration, UI, and test work (archived snapshot).
 
 ## Decision Status Legend
 

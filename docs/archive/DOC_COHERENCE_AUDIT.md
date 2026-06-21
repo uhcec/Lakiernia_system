@@ -1,3 +1,5 @@
+> ARCHIVED — frozen historical snapshot as of 2026-06-17. Living truth lives in docs/WORKFLOW.md / docs/FACTORY_DOMAIN_MODEL.md.
+
 # Documentation Coherence Audit (NA24)
 
 Status: **DRAFT — findings pass complete 2026-06-17.** This is the written reconciliation deliverable

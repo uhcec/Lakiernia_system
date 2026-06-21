@@ -1,3 +1,5 @@
+> ARCHIVED — frozen historical snapshot as of 2026-06-01. Living truth lives in docs/WORKFLOW.md / docs/FACTORY_DOMAIN_MODEL.md.
+
 # Mapa decyzji na implementacje
 
 Status: robocza mapa po odpowiedziach fabryki z 2026-06-01. Sluzy do szybkiego przetlumaczenia potwierdzonych odpowiedzi na bezpieczne zadania techniczne.

@@ -1,3 +1,5 @@
+> ARCHIVED — frozen historical snapshot as of 2026-05-31. Living truth lives in docs/WORKFLOW.md / docs/FACTORY_DOMAIN_MODEL.md.
+
 # Audyt uzywalnosci operatorow
 
 Status: roboczy audyt systemu na 2026-05-31. Ten dokument nie jest zrodlem prawdy o polityce fabryki. Zrodlem semantyki pozostaje `docs/WORKFLOW.md`, a pytania otwarte sa sledzone w `docs/WORKFLOW_VALIDATION_CHECKLIST.md`.

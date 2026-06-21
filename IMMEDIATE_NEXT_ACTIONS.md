@@ -218,7 +218,18 @@ Before starting Phase 3, resolve the open owner questions on NA34/NA36/NA37/NA38
 ## LOW
 
 ### NA31. Manager panel suggests/blocks a wrong queue position after a correction returns to planning
-- Status: OPEN (discovered 2026-06-19 during the S05 walkthrough).
+- Status: **DONE (2026-06-22).** Frontend-only, as diagnosed. Root cause: `loadManagerData` skipped
+  `setPlanDrafts` entirely on the background-poll path (to avoid clobbering an actively-typed position),
+  but that's also where the suggested default position (`activeCount + 1`) is computed — so a
+  planned→unplanned correction return left a stale suggested position until F5. Fix: new
+  `reconcilePlanDrafts(current, unplanned, nextPos)` helper (`frontend/src/pages/ManagerPanelPage.tsx`)
+  that the background path now uses — it preserves drafts the manager is typing (keyed by id), drops
+  drafts for orders that left the unplanned list, and seeds a fresh default (derived from the
+  freshly-polled planned list → 1 when empty) for orders that just reappeared. Foreground path unchanged;
+  no correction/queue meaning invented client-side. New test `frontend/tests/managerPlanDraftReconcile.test.tsx`
+  (fails before / passes after): a background poll returning the order unplanned with an empty queue now
+  offers/accepts position 1 with no refresh. 83 frontend tests pass + build clean.
+- Status (original): OPEN (discovered 2026-06-19 during the S05 walkthrough).
 - Problem: when a RAL order is sent back to planning by a packing correction, the manager panel
   transiently offers a queue position > 1 and treats position 1 as taken, even when the queue is
   otherwise empty — until the user refreshes (F5). **Backend is correct** (verified): `_reset_to_correction_planning`
@@ -302,6 +313,13 @@ Before starting Phase 3, resolve the open owner questions on NA34/NA36/NA37/NA38
 ## Open (from the 2026-06-17 workflow audit)
 
 ### NA19. Finalize force-sets `completed_quantity = total_quantity` without surfacing a mismatch
+- Status: **DONE — verified already implemented (2026-06-22).** This was already fixed and committed but
+  the backlog never marked it. `_finalize_completion_chain_if_ready` (`app/process/service.py:2304-2313`)
+  logs a `logger.warning` with order number + completed + total when `completed_quantity != total_quantity`
+  before force-setting to total (it surfaces the gap, does not crash). Module logger at `service.py:28`.
+  Regression tests present: `test_finalize_does_not_warn_when_quantities_match` and
+  `test_finalize_warns_and_forces_total_when_quantity_gap` (`tests/test_process_service.py:1577,1600`).
+  Verified by an NA19 subagent (2026-06-22): 71 tests pass; no new code change needed.
 - Severity: LOW. `ProcessService._can_finalize_work_order` finalizes when correction children exist,
   no open corrections remain, and `current_active_quantity == 0` — then sets `completed = total` even
   if `completed < total`. Quantity conservation should make them equal, so this is a safety net, but it
@@ -389,9 +407,9 @@ only. Five elements, top to bottom:
   gaps he hasn't named yet to be found and raised).
 - Scope: at least `CLAUDE.md`, `README.md`, `docs/FACTORY_DOMAIN_MODEL.md`, `docs/WORKFLOW.md`,
   `docs/WORKFLOW_VALIDATION_CHECKLIST.md`, `docs/FACTORY_USAGE_NOTES.md`,
-  `docs/FACTORY_DECISION_IMPLEMENTATION_MAP_PL.md`, `docs/PAINT_SYSTEM_DEFINITION_DRAFT_PL.md`,
-  `docs/STATION_IDENTITY_AND_AUDIT.md`, `docs/OPERATOR_USABILITY_AUDIT_PL.md`,
-  `docs/UI_PASSIVE_REVIEW_PL.md`, `docs/AUTHZ_DESIGN_PROPOSAL.md`, `docs/WORKING_CONTRACT.md`,
+  `docs/archive/FACTORY_DECISION_IMPLEMENTATION_MAP_PL.md`, `docs/archive/PAINT_SYSTEM_DEFINITION_DRAFT_PL.md`,
+  `docs/STATION_IDENTITY_AND_AUDIT.md`, `docs/archive/OPERATOR_USABILITY_AUDIT_PL.md`,
+  `docs/archive/UI_PASSIVE_REVIEW_PL.md`, `docs/AUTHZ_DESIGN_PROPOSAL.md`, `docs/WORKING_CONTRACT.md`,
   `docs/DEVELOPMENT_RUNBOOK.md`, `HARDENING_BACKLOG.md`, this file. (Code is NOT in scope here — that
   is NA25.)
 - Method: build a topic map; for each topic check the docs agree with each other; record every
@@ -405,7 +423,7 @@ only. Five elements, top to bottom:
 - Acceptance: a single pass exists where the docs no longer contradict each other; each topic has one
   authoritative home; the list of "should be documented but isn't" is raised with the owner; no code
   changes made under this item.
-- Progress (2026-06-17): **findings pass DONE + safe edits APPLIED** → `docs/DOC_COHERENCE_AUDIT.md`.
+- Progress (2026-06-17): **findings pass DONE + safe edits APPLIED** → `docs/archive/DOC_COHERENCE_AUDIT.md`.
   Owner decisions: paint threshold = **100 m²** (code right); dated snapshots **frozen as history**
   (banners); safe edits applied now. Applied: historical banners on the 3 snapshot docs; A2 shortage-
   warning currency (paint draft / usage notes / checklist #11); A3–A5 README + runbook (auth/Excel/JWT);
@@ -423,7 +441,7 @@ only. Five elements, top to bottom:
   references when next touched. NA24 otherwise complete; proceed to NA25.
 - **Regularized (2026-06-17):** the audit is now a repeatable command — **`/doc-audit`**
   (`.claude/commands/doc-audit.md`), intended cadence **weekly**. Run it to re-reconcile the docs and
-  refresh `docs/DOC_COHERENCE_AUDIT.md`. (Auto-running it on a schedule would need the billable
+  refresh `docs/archive/DOC_COHERENCE_AUDIT.md`. (Auto-running it on a schedule would need the billable
   scheduled-agent path; not set up.)
 
 ### NA25. Conformance audit — documented "coherent whole" (NA24) vs. what is actually coded
@@ -439,7 +457,7 @@ only. Five elements, top to bottom:
   severity), feeding concrete follow-up items back into this file.
 - Acceptance: every major documented topic has an explicit conformance verdict with evidence;
   divergences are logged as actionable items; no silent fixes bundled into the audit.
-- **DONE (2026-06-17): full read-only pass → `docs/CODE_CONFORMANCE_AUDIT.md`.** Per-topic verdicts with
+- **DONE (2026-06-17): full read-only pass → `docs/archive/CODE_CONFORMANCE_AUDIT.md`.** Per-topic verdicts with
   `file:line` evidence. Result: code conforms to the reconciled docs across stage model, READY/finalize,
   reopen, corrections, resource locks/packing slots, auth (NA1), queue stale-revision, throughput,
   paint (demand 100 m² + shortage warning + packing block + no-negative-stock), work types, external
@@ -719,6 +737,17 @@ correctness defects. Severities reflect maintainability risk, not user-visible b
 - Acceptance: the two worst pages are split; overdue + labels have one owner; tests updated.
 
 ### NA45. Archive frozen documentation snapshots; trim the living set
+- Status: **DONE — first pass (2026-06-22).** Moved 6 frozen snapshots to `docs/archive/` (each banner-
+  flagged): `DOC_COHERENCE_AUDIT`, `CODE_CONFORMANCE_AUDIT`, `OPERATOR_USABILITY_AUDIT_PL`,
+  `UI_PASSIVE_REVIEW_PL`, `FACTORY_DECISION_IMPLEMENTATION_MAP_PL`, `PAINT_SYSTEM_DEFINITION_DRAFT_PL`.
+  `DOCUMENTATION_MAP.md` restructured into Living / Active-reference / Archive sections (precedence intact).
+  Conservatively KEPT (still referenced by docs/code/open items, would break links): `FACTORY_USAGE_NOTES`
+  (WORKING_CONTRACT), `WORKFLOW_VALIDATION_CHECKLIST` (HARDENING_BACKLOG), `STATION_IDENTITY_AND_AUDIT`,
+  `AUTHZ_DESIGN_PROPOSAL` (README), `ARCHITECTURE_AUDIT` (NA39–47), `SCENARIO_WALKTHROUGH` (NA21 + seed
+  script). Stale links repointed to `docs/archive/` in this file + `WORKFLOW_VALIDATION_CHECKLIST.md`.
+  **Still open (deferred):** shorten this file's Done section to one-line + commit refs; collapse the
+  S01–S12 four-way representation; repoint the `/doc-audit` + `/code-audit` skills' output paths/cadence
+  (tied to NA47 owner confirmation).
 - Severity: MEDIUM (every session is told to read the docs; sprawl hides the truth). See §D1, §D2, §D3.
 - Problem: ~5,150 lines across 20 docs; many are dated, frozen-as-history audit snapshots overlapping the
   two living docs (`DOC_COHERENCE_AUDIT`, `CODE_CONFORMANCE_AUDIT`, `OPERATOR_USABILITY_AUDIT_PL`,
@@ -743,9 +772,15 @@ correctness defects. Severities reflect maintainability risk, not user-visible b
 - Acceptance: no `_sync_legacy_current_active_batch` calls remain; lock maps bounded; one write path per transition.
 
 ### NA47. Decide how much audit-process cadence to keep (audit-generating-audit overhead)
+- Status: **PROPOSAL DRAFTED — pending owner confirmation (2026-06-22).** A recommended cadence policy is
+  written in `docs/DOCUMENTATION_MAP.md` ("Audit cadence policy (proposed)"): run `/doc-audit` + `/code-audit`
+  **on-demand only** (not weekly), treat their generated docs as disposable scratch folded into the living
+  docs then archived/deleted, and lean on the deterministic `tests/test_documented_invariants.py` fast loop
+  for routine drift. **Owner: confirm or amend.** If adopted, the "weekly" wording in
+  `.claude/commands/doc-audit.md` and the skills' root output paths should be updated (left untouched for now).
 - Severity: LOW (process, not code). See `docs/ARCHITECTURE_AUDIT.md` §D4.
-- Problem: the repo accumulates audits-of-itself — NA24 produced `docs/DOC_COHERENCE_AUDIT.md`, NA25
-  produced `docs/CODE_CONFORMANCE_AUDIT.md`, this review produced `docs/ARCHITECTURE_AUDIT.md`, and the
+- Problem: the repo accumulates audits-of-itself — NA24 produced `docs/archive/DOC_COHERENCE_AUDIT.md`, NA25
+  produced `docs/archive/CODE_CONFORMANCE_AUDIT.md`, this review produced `docs/ARCHITECTURE_AUDIT.md`, and the
   `/doc-audit` + `/code-audit` skills regenerate the first two on a weekly cadence. For a single-developer
   factory tool that is a lot of meta-process whose outputs themselves go stale and then need reconciling
   (this is the same sprawl NA45 cleans up — the two findings reinforce each other).

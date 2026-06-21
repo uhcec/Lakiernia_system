@@ -1,3 +1,5 @@
+> ARCHIVED — frozen historical snapshot as of 2026-06-02. Living truth lives in docs/WORKFLOW.md / docs/FACTORY_DOMAIN_MODEL.md.
+
 # Definicja Systemu Farby - Draft
 
 Status: `zalozenia potwierdzone 2026-06-02; pierwszy slice to magazyn farb + snapshot historyczny na zleceniu`
