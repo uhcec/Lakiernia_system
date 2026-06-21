@@ -772,12 +772,12 @@ correctness defects. Severities reflect maintainability risk, not user-visible b
 - Acceptance: no `_sync_legacy_current_active_batch` calls remain; lock maps bounded; one write path per transition.
 
 ### NA47. Decide how much audit-process cadence to keep (audit-generating-audit overhead)
-- Status: **PROPOSAL DRAFTED — pending owner confirmation (2026-06-22).** A recommended cadence policy is
-  written in `docs/DOCUMENTATION_MAP.md` ("Audit cadence policy (proposed)"): run `/doc-audit` + `/code-audit`
-  **on-demand only** (not weekly), treat their generated docs as disposable scratch folded into the living
-  docs then archived/deleted, and lean on the deterministic `tests/test_documented_invariants.py` fast loop
-  for routine drift. **Owner: confirm or amend.** If adopted, the "weekly" wording in
-  `.claude/commands/doc-audit.md` and the skills' root output paths should be updated (left untouched for now).
+- Status: **DONE — owner-confirmed & adopted (2026-06-22).** Cadence policy adopted in
+  `docs/DOCUMENTATION_MAP.md` ("Audit cadence policy"): `/doc-audit` + `/code-audit` run **on-demand only**
+  (not weekly), their generated docs are disposable scratch (durable findings folded into the living docs,
+  snapshot then archived/deleted), and the deterministic `tests/test_documented_invariants.py` fast loop
+  carries routine drift detection. Both skill files (`.claude/commands/doc-audit.md`, `code-audit.md`)
+  updated: on-demand cadence wording + snapshot output repointed to `docs/archive/`.
 - Severity: LOW (process, not code). See `docs/ARCHITECTURE_AUDIT.md` §D4.
 - Problem: the repo accumulates audits-of-itself — NA24 produced `docs/archive/DOC_COHERENCE_AUDIT.md`, NA25
   produced `docs/archive/CODE_CONFORMANCE_AUDIT.md`, this review produced `docs/ARCHITECTURE_AUDIT.md`, and the

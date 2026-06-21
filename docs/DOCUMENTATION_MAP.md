@@ -78,13 +78,13 @@ The repo polices its own truth on two loops:
   limit, JWT-secret guard). It fails the moment code and docs disagree on a pinned value — change the
   code, its owning doc, and that test together.
 
-## Audit cadence policy (proposed)
+## Audit cadence policy
 
-> Recommendation pending owner confirmation (NA47) — not yet adopted as a standing rule.
+> Adopted 2026-06-22 (NA47, owner-confirmed). The `/doc-audit` and `/code-audit` skills are wired to it.
 
 For a single-developer factory tool, running three separate self-audits (`/doc-audit`, `/code-audit`,
 plus the periodic architecture review) on a standing schedule produces audit documents that themselves
-go stale and then need reconciling — the same sprawl NA45 just cleaned up. The proposed policy:
+go stale and then need reconciling — the same sprawl NA45 just cleaned up. The policy:
 
 - **Run `/doc-audit` and `/code-audit` ON-DEMAND only** — before a significant change, when docs and
   code are suspected to have drifted — **not on a standing weekly schedule.**
@@ -95,5 +95,5 @@ go stale and then need reconciling — the same sprawl NA45 just cleaned up. The
 - The deterministic fast loop (`tests/test_documented_invariants.py`) stays — it is cheap and runs
   every CI build, so it carries the routine drift-detection load instead of a periodic LLM pass.
 
-The owner should confirm (or amend) this before it is treated as the operating cadence. If adopted,
-update the "weekly" wording in `.claude/commands/doc-audit.md` accordingly.
+(Adopted: the `/doc-audit` and `/code-audit` skills now state on-demand cadence and write their snapshots
+to `docs/archive/`.)
