@@ -549,6 +549,18 @@ workflow meaning. Severities are first-pass estimates.
   both; covered by tests; `docs/WORKFLOW.md` correction model updated.
 
 ### NA35. Mouse-wheel on number fields produces fractional amounts (UX defect)
+- Status: **DONE (2026-06-22)** — new shared `frontend/src/components/NumberInput.tsx` owns the rule:
+  keyboard entry is native (decimals still typable where `step` allows — m²/paint kg), but the mouse
+  wheel always moves the value by **whole units** (default `wheelStep=1`) and only while the field is
+  focused, so scrolling the page over it can't silently change it. React registers `onWheel` as a passive
+  root listener (so `preventDefault` is ignored there), so the component attaches its own non-passive
+  native `wheel` listener. Every `type="number"` input in the app (18 sites across `CreateWorkOrderPage`,
+  `WorkOrderDetailPage`, `PaintInventoryPage`, `StageWorkOrdersPage`, `PackingWorkOrdersPage`,
+  `DecoralWorkOrdersPage`, `ManagerPanelPage`) now routes through it — the fractional-step fields
+  (`total_area_m2` ×2, paint `quantity_kg`/`quantity_delta_kg`, automatic `finalCartonRemainingKg`) were
+  the actual offenders. Tests: new `frontend/tests/numberInput.test.tsx` (4 cases: whole-unit wheel on a
+  `0.01`-step field, no-change-when-unfocused, decimal typing still works, min clamp). **82 frontend tests
+  pass + build green.** Frontend-only; no backend/docs/workflow change.
 - Severity: LOW (UX defect, but annoying/error-prone — easy fix; no open questions).
 - Request (verbatim): "Gówno ze scrollem w polach z wpisywaniem liczby."
 - Problem (clarified 2026-06-19): the wheel itself is **fine and wanted** — the issue is that scrolling

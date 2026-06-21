@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
+import { NumberInput } from "../components/NumberInput";
 import { fetchClients } from "../api/clientsApi";
 import { lookupPaintStock } from "../api/paintsApi";
 import { createWorkOrder } from "../api/workOrdersApi";
@@ -584,12 +585,11 @@ export function CreateWorkOrderPage() {
 
             <label className="flex flex-col gap-2">
               <span className="text-sm font-medium text-ink">Ilość całkowita</span>
-              <input
-                type="number"
+              <NumberInput
                 min="1"
                 step="1"
                 value={formState.total_quantity}
-                onChange={(event) => updateField("total_quantity", event.target.value)}
+                onValueChange={(value) => updateField("total_quantity", value)}
                 className="rounded-2xl border border-line bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-accent"
                 placeholder="1"
               />
@@ -597,12 +597,11 @@ export function CreateWorkOrderPage() {
 
             <label className="flex flex-col gap-2">
               <span className="text-sm font-medium text-ink">Powierzchnia całkowita (m²)</span>
-              <input
-                type="number"
+              <NumberInput
                 min="0"
                 step="0.01"
                 value={formState.total_area_m2}
-                onChange={(event) => updateField("total_area_m2", event.target.value)}
+                onValueChange={(value) => updateField("total_area_m2", value)}
                 className="rounded-2xl border border-line bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-accent"
                 placeholder="np. 42.5"
               />
@@ -635,13 +634,12 @@ export function CreateWorkOrderPage() {
             <div className="space-y-3 rounded-3xl border border-line/80 bg-mist/40 p-4">
               <div className="flex flex-col gap-2">
                 <span className="text-sm font-medium text-ink">Profile</span>
-                <input
-                  type="number"
+                <NumberInput
                   min="0"
                   step="1"
                   disabled={formState.profiles_to_count}
                   value={formState.profiles_quantity}
-                  onChange={(event) => updateField("profiles_quantity", event.target.value)}
+                  onValueChange={(value) => updateField("profiles_quantity", value)}
                   className="rounded-2xl border border-line bg-white px-4 py-3 text-sm text-ink outline-none transition disabled:bg-slate-100 disabled:text-slate-400 focus:border-accent"
                   placeholder="Podaj ilość"
                 />
@@ -660,13 +658,12 @@ export function CreateWorkOrderPage() {
             <div className="space-y-3 rounded-3xl border border-line/80 bg-mist/40 p-4">
               <div className="flex flex-col gap-2">
                 <span className="text-sm font-medium text-ink">Akcesoria</span>
-                <input
-                  type="number"
+                <NumberInput
                   min="0"
                   step="1"
                   disabled={formState.accessories_to_count}
                   value={formState.accessories_quantity}
-                  onChange={(event) => updateField("accessories_quantity", event.target.value)}
+                  onValueChange={(value) => updateField("accessories_quantity", value)}
                   className="rounded-2xl border border-line bg-white px-4 py-3 text-sm text-ink outline-none transition disabled:bg-slate-100 disabled:text-slate-400 focus:border-accent"
                   placeholder="Podaj ilość"
                 />

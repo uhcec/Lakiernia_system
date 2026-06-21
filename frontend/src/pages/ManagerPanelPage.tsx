@@ -21,6 +21,7 @@ import {
   moveWorkOrderWithinQueueSlots,
 } from "../utils/queueReorder";
 import { buildWorkOrderDetailHref } from "../api/stationContext";
+import { NumberInput } from "../components/NumberInput";
 import { WorkOrderPrimaryInfoLine } from "../components/WorkOrderPrimaryInfoLine";
 import {
   getWorkOrderActiveCorrectionsText,
@@ -948,11 +949,11 @@ export function ManagerPanelPage() {
 
                         <label className="flex flex-col gap-2">
                           <span className="text-sm font-medium text-ink">Pozycja</span>
-                          <input
-                            type="number"
+                          <NumberInput
                             min={1}
+                            step={1}
                             value={draft.queuePosition}
-                            onChange={(event) => updatePlanDraft(workOrder.id, { queuePosition: event.target.value })}
+                            onValueChange={(value) => updatePlanDraft(workOrder.id, { queuePosition: value })}
                             className="rounded-2xl border border-line bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-accent"
                           />
                         </label>

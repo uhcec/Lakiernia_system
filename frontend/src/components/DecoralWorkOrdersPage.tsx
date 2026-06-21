@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { usePolling, STATION_POLL_INTERVAL_MS } from "../hooks/usePolling";
 import { getMutationErrorMessage } from "../utils/mutationError";
 import { buildWorkOrderDetailHref, getStationIdForLocation } from "../api/stationContext";
+import { NumberInput } from "./NumberInput";
 import { StationPresenceWidget } from "./StationPresenceWidget";
 import { completeDecoralProduction, fetchStageWorkOrders, transitionStage } from "../api/processApi";
 import type { StageWorkOrder, StageStatusValue } from "../types/process";
@@ -430,23 +431,21 @@ export function DecoralWorkOrdersPage() {
                       <div className="grid gap-3 sm:grid-cols-2">
                         <label className="space-y-1 text-sm font-medium text-steel">
                           <span>OK</span>
-                          <input
-                            type="number"
+                          <NumberInput
                             min="0"
                             step="1"
                             value={draft.okQuantity}
-                            onChange={(event) => updateDraft(draftKey, "okQuantity", event.target.value)}
+                            onValueChange={(value) => updateDraft(draftKey, "okQuantity", value)}
                             className="w-full rounded-lg border border-line bg-white px-3 py-2 text-base font-semibold text-ink outline-none transition focus:border-accent"
                           />
                         </label>
                         <label className="space-y-1 text-sm font-medium text-steel">
                           <span>Poprawki</span>
-                          <input
-                            type="number"
+                          <NumberInput
                             min="0"
                             step="1"
                             value={draft.correctionQuantity}
-                            onChange={(event) => updateDraft(draftKey, "correctionQuantity", event.target.value)}
+                            onValueChange={(value) => updateDraft(draftKey, "correctionQuantity", value)}
                             className="w-full rounded-lg border border-line bg-white px-3 py-2 text-base font-semibold text-ink outline-none transition focus:border-accent"
                           />
                         </label>
@@ -457,23 +456,21 @@ export function DecoralWorkOrdersPage() {
                           <div className="grid gap-3 sm:grid-cols-2">
                             <label className="space-y-1 text-sm font-medium text-steel">
                               <span>Profile do poprawki</span>
-                              <input
-                                type="number"
+                              <NumberInput
                                 min="0"
                                 step="1"
                                 value={draft.correctionProfilesQuantity}
-                                onChange={(event) => updateDraft(draftKey, "correctionProfilesQuantity", event.target.value)}
+                                onValueChange={(value) => updateDraft(draftKey, "correctionProfilesQuantity", value)}
                                 className="w-full rounded-lg border border-line bg-white px-3 py-2 text-base font-semibold text-ink outline-none transition focus:border-accent"
                               />
                             </label>
                             <label className="space-y-1 text-sm font-medium text-steel">
                               <span>Akcesoria do poprawki</span>
-                              <input
-                                type="number"
+                              <NumberInput
                                 min="0"
                                 step="1"
                                 value={draft.correctionAccessoriesQuantity}
-                                onChange={(event) => updateDraft(draftKey, "correctionAccessoriesQuantity", event.target.value)}
+                                onValueChange={(value) => updateDraft(draftKey, "correctionAccessoriesQuantity", value)}
                                 className="w-full rounded-lg border border-line bg-white px-3 py-2 text-base font-semibold text-ink outline-none transition focus:border-accent"
                               />
                             </label>

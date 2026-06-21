@@ -16,6 +16,7 @@ import {
 } from "../api/workOrdersApi";
 import type { AuditEvent, AuditStationId } from "../types/audit";
 import type { UpdateWorkOrderRequest, WorkOrder, WorkOrderAttachment } from "../types/workOrders";
+import { NumberInput } from "../components/NumberInput";
 import { WorkOrderPrimaryInfoLine } from "../components/WorkOrderPrimaryInfoLine";
 import {
   formatWorkOrderPrimaryInfo,
@@ -1240,13 +1241,12 @@ export function WorkOrderDetailPage() {
 
                 <div className="sm:col-span-2">
                   <label className="block text-sm font-medium text-steel">Metraż (m²) *</label>
-                  <input
-                    type="number"
+                  <NumberInput
                     step="0.01"
                     min="0.01"
                     required
                     value={editForm.total_area_m2}
-                    onChange={(e) => handleEditFormChange("total_area_m2", e.target.value)}
+                    onValueChange={(value) => handleEditFormChange("total_area_m2", value)}
                     className="mt-1 w-full rounded-2xl border border-line bg-mist/40 px-4 py-2.5 text-base text-ink focus:border-accent focus:outline-none"
                   />
                 </div>
@@ -1264,11 +1264,11 @@ export function WorkOrderDetailPage() {
                       Do policzenia na produkcji
                     </label>
                     {!editForm.profiles_to_count && (
-                      <input
-                        type="number"
+                      <NumberInput
                         min="0"
+                        step="1"
                         value={editForm.profiles_quantity}
-                        onChange={(e) => handleEditFormChange("profiles_quantity", e.target.value)}
+                        onValueChange={(value) => handleEditFormChange("profiles_quantity", value)}
                         placeholder="Ilość"
                         className="w-full rounded-2xl border border-line bg-mist/40 px-4 py-2.5 text-base text-ink focus:border-accent focus:outline-none"
                       />
@@ -1289,11 +1289,11 @@ export function WorkOrderDetailPage() {
                       Do policzenia na produkcji
                     </label>
                     {!editForm.accessories_to_count && (
-                      <input
-                        type="number"
+                      <NumberInput
                         min="0"
+                        step="1"
                         value={editForm.accessories_quantity}
-                        onChange={(e) => handleEditFormChange("accessories_quantity", e.target.value)}
+                        onValueChange={(value) => handleEditFormChange("accessories_quantity", value)}
                         placeholder="Ilość"
                         className="w-full rounded-2xl border border-line bg-mist/40 px-4 py-2.5 text-base text-ink focus:border-accent focus:outline-none"
                       />
