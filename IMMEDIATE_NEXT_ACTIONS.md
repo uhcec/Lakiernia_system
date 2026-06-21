@@ -553,9 +553,20 @@ workflow meaning. Severities are first-pass estimates.
   colour → deadline → changeover; basic stats tidy only; covered by tests.
 
 ### NA34. Distinguish two correction kinds — "fixed on the spot" (stat-only) vs "to be re-planned"
-- Prereq DONE (2026-06-22): NA40 landed the single correction seam, so the stat-only kind is now a
-  `CorrectionKind.STAT_ONLY` value + one `_select_correction_kind` branch + one handler in
-  `_dispatch_packing_correction`. **Still blocked on owner answers** (below) before building.
+- Status: **DONE (2026-06-22).** Owner answers: stat-only applies to **both RAL and DECORAL**; a reason
+  is **required**. Built on the NA40 seam: new `CorrectionKind.STAT_ONLY` + `_select_correction_kind`
+  branch (driven by the operator's `stat_only_correction` flag). A stat-only correction records a row in
+  the new **`stat_only_corrections`** table (quantity + required reason/category + profiles/accessories
+  split) and an audit event, then folds the corrected pieces into OK so the order completes **as-is** —
+  no replan, no child: RAL closes READY, DECORAL pieces continue the single Decoral pass (no `N` marker).
+  The shared `correction_events_select` unions the table in, so the reason report + throughput count it.
+  API: `stat_only_correction` on `PackingCompleteRequest` (both packing endpoints). Frontend: a "Rodzaj
+  poprawki" radio (Do zaplanowania / Od razu poprawiona) in the packing correction block. Schema +
+  migration `20260622_0033`; `alembic check` clean. Tests: 3 backend (RAL as-is + reported; DECORAL keeps
+  single Decoral, no child; schema rejects stat-only w/ 0 qty) + 1 frontend (toggle → `stat_only_correction=true`).
+  Full backend + frontend suites green. `docs/WORKFLOW.md` Corrections Behavior documents the third kind.
+  Follow-up (not built): stat-only at the **Decoral-pass** completion (`DecoralProductionCompleteRequest`)
+  if the owner wants it there too — currently only at packing.
 - Severity: MEDIUM (changes correction semantics — touches the correction model + stats; coordinate with
   NA32 paint-consumption and the RAL/DECORAL correction paths).
 - Request (verbatim): "rozróżnienie poprawek na poprawki od razu poprawione i do zaplanowania. Poprawka

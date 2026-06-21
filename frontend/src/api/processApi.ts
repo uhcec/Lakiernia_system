@@ -64,6 +64,7 @@ interface CompletePackingPayload {
   correction_accessories_quantity?: number;
   correction_reason_category?: string;
   correction_reason_note?: string;
+  stat_only_correction?: boolean;
 }
 
 interface AutomaticPaintConsumptionPayload {

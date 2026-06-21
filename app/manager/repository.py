@@ -4,7 +4,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.process.enums import QuantityBatchType
-from app.process.models import WorkOrderQuantityBatch
+from app.process.models import StatOnlyCorrection, WorkOrderQuantityBatch
 from app.shared.enums import WorkOrderStatus
 from app.work_orders.models import WorkOrder
 
@@ -99,10 +99,11 @@ class ManagerRepository:
     def correction_events_select(self):
         # THE single definition of a "correction event" in the hybrid correction model (NA4): every
         # consumer (reason report, throughput chart, future correction stats) builds on this one
-        # source so they can never drift. Two disjoint origins, normalized to (created_at, category,
+        # source so they can never drift. Three disjoint origins, normalized to (created_at, category,
         # quantity):
-        #   * CORRECTION quantity batches (RAL packing / DECORAL decoral batch-reset), and
-        #   * child correction work orders (DECORAL packing spins the correction off as a "P" order).
+        #   * CORRECTION quantity batches (RAL packing / DECORAL decoral batch-reset),
+        #   * child correction work orders (DECORAL packing spins the correction off as a "P" order), and
+        #   * stat-only corrections (NA34: fixed on the spot — logged but never re-entered the workflow).
         batch_events = select(
             WorkOrderQuantityBatch.created_at.label("created_at"),
             WorkOrderQuantityBatch.correction_reason_category.label("category"),
@@ -113,7 +114,12 @@ class ManagerRepository:
             WorkOrder.correction_reason_category.label("category"),
             WorkOrder.total_quantity.label("quantity"),
         ).where(WorkOrder.is_correction.is_(True))
-        return batch_events.union_all(child_events).subquery()
+        stat_only_events = select(
+            StatOnlyCorrection.created_at.label("created_at"),
+            StatOnlyCorrection.correction_reason_category.label("category"),
+            StatOnlyCorrection.correction_quantity.label("quantity"),
+        )
+        return batch_events.union_all(child_events, stat_only_events).subquery()
 
     def list_correction_reason_report(self) -> Sequence[tuple[str | None, int, int]]:
         # Aggregate the shared correction-event source by reason/category.

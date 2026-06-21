@@ -82,6 +82,10 @@ class ProcessRepository:
         self.session.add(batch)
         self.session.flush()
 
+    def add_stat_only_correction(self, stat_only_correction) -> None:
+        self.session.add(stat_only_correction)
+        self.session.flush()
+
     def add_work_order(self, work_order: WorkOrder) -> WorkOrder:
         self.session.add(work_order)
         self.session.flush()

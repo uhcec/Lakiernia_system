@@ -180,6 +180,7 @@ def complete_packing(
         correction_accessories_quantity=payload.correction_accessories_quantity,
         correction_reason_category=payload.correction_reason_category,
         correction_reason_note=payload.correction_reason_note,
+        stat_only_correction=payload.stat_only_correction,
         station_context=station_context,
     )
 
@@ -215,6 +216,7 @@ def complete_packing_for_batch(
         correction_accessories_quantity=payload.correction_accessories_quantity,
         correction_reason_category=payload.correction_reason_category,
         correction_reason_note=payload.correction_reason_note,
+        stat_only_correction=payload.stat_only_correction,
         batch_id=batch_id,
         station_context=station_context,
     )

@@ -125,6 +125,34 @@ class StageTransitionEvent(Base):
     occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False)
 
 
+class StatOnlyCorrection(Base):
+    """A "fixed on the spot" (od razu poprawiona) correction recorded at packing (NA34).
+
+    The defect was corrected immediately, so the pieces are good and the order completes as-is — this
+    row is *purely a statistic* (reason + quantity), not a `CORRECTION` batch or a child work order, so
+    it never re-enters the workflow and never participates in the quantity-partition model. The shared
+    correction-event source (`ManagerRepository.correction_events_select`) unions it in, so the reason
+    report and throughput correction counters count it alongside replan/child corrections.
+    """
+
+    __tablename__ = "stat_only_corrections"
+    __table_args__ = (
+        CheckConstraint("correction_quantity > 0", name="stat_only_correction_quantity_positive"),
+        Index("ix_stat_only_corrections_work_order_id", "work_order_id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    work_order_id: Mapped[int] = mapped_column(ForeignKey("work_orders.id", ondelete="CASCADE"), nullable=False)
+    correction_quantity: Mapped[int] = mapped_column(Integer(), nullable=False)
+    correction_reason_category: Mapped[str] = mapped_column(Text(), nullable=False)
+    correction_reason_note: Mapped[str | None] = mapped_column(Text(), nullable=True)
+    correction_profiles_quantity: Mapped[int | None] = mapped_column(Integer(), nullable=True)
+    correction_accessories_quantity: Mapped[int | None] = mapped_column(Integer(), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False)
+
+    work_order = relationship("WorkOrder")
+
+
 class ProcessResourceLock(Base):
     __tablename__ = "process_resource_locks"
 

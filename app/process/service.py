@@ -15,7 +15,7 @@ from app.audit.repository import AuditRepository
 from app.paints.repository import PaintRepository
 from app.paints.service import PaintService
 from app.process.enums import CoatingType, CorrectionKind, ProcessDisplayStatus, ProcessStage, ProductionType, QuantityBatchType, StageStatus
-from app.process.models import StageTransitionEvent, WorkOrderQuantityBatch, WorkOrderStageState
+from app.process.models import StatOnlyCorrection, StageTransitionEvent, WorkOrderQuantityBatch, WorkOrderStageState
 from app.process.repository import ProcessRepository
 from app.process.schemas import ProcessStageStatusRead, ProcessStageWorkOrderRead, StageStatusView
 from app.shared.enums import QueueNamespace, StationId, WorkOrderKind, WorkOrderStatus
@@ -528,6 +528,7 @@ class ProcessService:
         correction_accessories_quantity: int | None = None,
         correction_reason_category: str | None = None,
         correction_reason_note: str | None = None,
+        stat_only_correction: bool = False,
         batch_id: int | None = None,
         station_context: StationContext | None = None,
     ) -> ProcessStageWorkOrderRead:
@@ -555,6 +556,7 @@ class ProcessService:
                     correction_category_fields=correction_category_fields,
                     correction_reason_category=normalized_correction_reason_category,
                     correction_reason_note=normalized_correction_reason_note,
+                    stat_only_correction=stat_only_correction,
                     station_context=station_context,
                 )
 
@@ -610,6 +612,23 @@ class ProcessService:
 
             # AUTOMATIC orders have no PRODUCTION stage (NA42); only MANUAL ones do.
             production_state = self._find_stage_state(work_order, ProcessStage.PRODUCTION)
+
+            # Stat-only correction (NA34): the pieces were fixed on the spot, so the order completes
+            # as-is — record the statistic, then fold the corrected pieces into OK and fall through the
+            # normal no-correction completion below (RAL closes READY; DECORAL pieces continue Decoral).
+            if correction_quantity > 0 and self._select_correction_kind(
+                work_order, tracked_batch=False, stat_only=stat_only_correction
+            ) == CorrectionKind.STAT_ONLY:
+                self._record_stat_only_correction(
+                    work_order,
+                    correction_quantity=correction_quantity,
+                    correction_category_fields=correction_category_fields,
+                    correction_reason_category=normalized_correction_reason_category,
+                    correction_reason_note=normalized_correction_reason_note,
+                    station_context=station_context,
+                )
+                ok_quantity = counted_quantity
+                correction_quantity = 0
 
             if correction_quantity > 0:
                 # Single correction seam (NA40): the kind (DECORAL spin-off child vs RAL in-place
@@ -1624,6 +1643,7 @@ class ProcessService:
         correction_category_fields: dict[str, int | bool | None],
         correction_reason_category: str | None,
         correction_reason_note: str | None,
+        stat_only_correction: bool = False,
         station_context: StationContext | None = None,
     ) -> ProcessStageWorkOrderRead:
         if batch.current_stage == ProcessStage.PACKING and batch.current_stage_status == StageStatus.DONE:
@@ -1648,6 +1668,22 @@ class ProcessService:
         packing_state = self._get_stage_state(work_order, ProcessStage.PACKING)
         packing_state.counted_quantity = counted_quantity
         packing_state.updated_at = datetime.now(UTC)
+
+        # Stat-only correction (NA34): fixed on the spot — record the statistic and fold the corrected
+        # pieces into OK so the batch completes normally (DECORAL continues Decoral; RAL closes).
+        if correction_quantity > 0 and self._select_correction_kind(
+            work_order, tracked_batch=True, stat_only=stat_only_correction
+        ) == CorrectionKind.STAT_ONLY:
+            self._record_stat_only_correction(
+                work_order,
+                correction_quantity=correction_quantity,
+                correction_category_fields=correction_category_fields,
+                correction_reason_category=correction_reason_category,
+                correction_reason_note=correction_reason_note,
+                station_context=station_context,
+            )
+            ok_quantity = counted_quantity
+            correction_quantity = 0
 
         if correction_quantity > 0:
             # Single correction seam (NA40): a tracked-batch packing correction always replans in
@@ -1708,17 +1744,70 @@ class ProcessService:
         active_batch = work_order.active_batch
         return active_batch is not None and active_batch.parent_batch_id is not None
 
-    def _select_correction_kind(self, work_order: WorkOrder, *, tracked_batch: bool) -> CorrectionKind:
-        """The single decision point for how a packing correction re-enters the workflow (NA40).
+    def _select_correction_kind(
+        self, work_order: WorkOrder, *, tracked_batch: bool, stat_only: bool = False
+    ) -> CorrectionKind:
+        """The single decision point for how a packing correction re-enters the workflow (NA40/NA34).
 
-        Today: a DECORAL root being packed on the plain (non-tracked) path spins off a child "P" order
-        and keeps its OK pieces on the root's single Decoral pass; every other case (RAL, and any
-        tracked-batch packing such as returned Decoral pieces) returns the same order to planning with a
-        CORRECTION batch. NA34 will add ``STAT_ONLY`` here when the operator marks a correction "fixed on
-        the spot" (od razu poprawiona)."""
+        When the operator marks the correction "fixed on the spot" (od razu poprawiona) it is
+        ``STAT_ONLY`` for any order (RAL or DECORAL): logged as a statistic, the order completes as-is,
+        nothing returns. Otherwise a DECORAL root being packed on the plain (non-tracked) path spins off
+        a child "P" order and keeps its OK pieces on the root's single Decoral pass; every other case
+        (RAL, and any tracked-batch packing such as returned Decoral pieces) returns the same order to
+        planning with a CORRECTION batch."""
+        if stat_only:
+            return CorrectionKind.STAT_ONLY
         if not tracked_batch and work_order.coating_type == CoatingType.DECORAL:
             return CorrectionKind.SPIN_OFF_CHILD
         return CorrectionKind.REPLAN_IN_PLACE
+
+    def _record_stat_only_correction(
+        self,
+        work_order: WorkOrder,
+        *,
+        correction_quantity: int,
+        correction_category_fields: dict[str, int | bool | None],
+        correction_reason_category: str | None,
+        correction_reason_note: str | None,
+        station_context: StationContext | None = None,
+    ) -> None:
+        """Record a "fixed on the spot" correction as a pure statistic (NA34).
+
+        No CORRECTION batch and no child order: the corrected pieces are good and the order completes
+        as-is. Only this stat row (+ an audit event) captures the reason/quantity so the corrections
+        report and throughput counters can count it via the shared correction-event source."""
+        profiles_quantity = correction_category_fields.get("profiles_quantity") if correction_category_fields else None
+        accessories_quantity = (
+            correction_category_fields.get("accessories_quantity") if correction_category_fields else None
+        )
+        self.repository.add_stat_only_correction(
+            StatOnlyCorrection(
+                work_order_id=work_order.id,
+                correction_quantity=correction_quantity,
+                correction_reason_category=correction_reason_category,
+                correction_reason_note=correction_reason_note,
+                correction_profiles_quantity=profiles_quantity,
+                correction_accessories_quantity=accessories_quantity,
+            )
+        )
+        self._record_audit_event(
+            event_type="work_order.stat_only_correction",
+            station_context=station_context,
+            work_order=work_order,
+            target_type="work_order",
+            target_id=work_order.id,
+            summary=(
+                f"Recorded fixed-on-the-spot correction on {work_order.order_number} "
+                f"({correction_quantity} pcs, {correction_reason_category})."
+            ),
+            details={
+                "correction_quantity": correction_quantity,
+                "correction_reason_category": correction_reason_category,
+                "correction_reason_note": correction_reason_note,
+                "correction_profiles_quantity": profiles_quantity,
+                "correction_accessories_quantity": accessories_quantity,
+            },
+        )
 
     def _dispatch_packing_correction(
         self,

@@ -1068,8 +1068,50 @@ describe("frontend state consistency", () => {
           correction_profiles_quantity: 1,
           correction_accessories_quantity: 0,
           correction_reason_category: "inne",
+          stat_only_correction: false,
           correction_reason_note: "ryska przy profilu",
         },
+        undefined,
+      );
+    });
+  });
+
+  it("sends stat_only_correction=true when the operator marks a correction fixed on the spot (NA34)", async () => {
+    fetchStageWorkOrdersMock.mockResolvedValue([
+      buildStageWorkOrder({
+        id: 41,
+        order_number: "WO-PACK-STATONLY",
+        current_active_quantity: 4,
+        planned_quantity: 4,
+        is_being_packed: true,
+        stage_status: { stage: "PACKING", status: { value: "IN_PROGRESS", label: "W toku" } },
+      }),
+    ]);
+    completePackingMock.mockResolvedValue({} as never);
+
+    render(<PackingWorkOrdersPage />);
+    await screen.findByText("WO-PACK-STATONLY :: Klient");
+
+    const inputs = screen.getAllByRole("spinbutton");
+    fireEvent.change(inputs[0], { target: { value: "4" } });
+    fireEvent.change(inputs[1], { target: { value: "3" } });
+    fireEvent.change(inputs[2], { target: { value: "1" } });
+    const correctionInputs = screen.getAllByRole("spinbutton");
+    fireEvent.change(correctionInputs[3], { target: { value: "1" } });
+    fireEvent.change(correctionInputs[4], { target: { value: "0" } });
+    fireEvent.change(screen.getByRole("combobox"), { target: { value: "niedomalowanie" } });
+
+    // Default is "do zaplanowania"; switch to "od razu poprawiona".
+    fireEvent.click(screen.getByText("Od razu poprawiona"));
+
+    const submitButton = screen.getByRole("button", { name: "Zakończ pakowanie" }) as HTMLButtonElement;
+    await waitFor(() => expect(submitButton.disabled).toBe(false));
+    fireEvent.click(submitButton);
+
+    await waitFor(() => {
+      expect(completePackingMock).toHaveBeenCalledWith(
+        41,
+        expect.objectContaining({ correction_quantity: 1, stat_only_correction: true }),
         undefined,
       );
     });

@@ -78,6 +78,9 @@ class PackingCompleteRequest(BaseModel):
     correction_accessories_quantity: int | None = Field(default=None, ge=0)
     correction_reason_category: str | None = Field(default=None, min_length=1, max_length=64)
     correction_reason_note: str | None = Field(default=None, max_length=500)
+    # NA34: "fixed on the spot" (od razu poprawiona) — the correction is logged as a statistic only and
+    # the order completes as-is (no replan, no child). Otherwise the correction is re-planned.
+    stat_only_correction: bool = False
 
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
@@ -85,6 +88,8 @@ class PackingCompleteRequest(BaseModel):
     def validate_correction_reason(self) -> "PackingCompleteRequest":
         has_reason = self.correction_reason_category is not None
         has_note = self.correction_reason_note is not None
+        if self.stat_only_correction and self.correction_quantity == 0:
+            raise ValueError("A stat-only correction requires a correction quantity greater than zero.")
         if self.correction_quantity > 0 and not has_reason:
             raise ValueError("Correction reason is required when correction quantity is greater than zero.")
         if self.correction_quantity == 0 and (has_reason or has_note):

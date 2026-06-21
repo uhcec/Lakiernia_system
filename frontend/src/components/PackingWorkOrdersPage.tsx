@@ -26,6 +26,7 @@ interface PackingDraft {
   correctionAccessoriesQuantity: string;
   correctionReasonCategory: string;
   correctionReasonNote: string;
+  statOnlyCorrection: boolean;
 }
 
 const correctionReasonOptions = [
@@ -63,6 +64,7 @@ function buildEmptyPackingDraft(): PackingDraft {
     correctionAccessoriesQuantity: "0",
     correctionReasonCategory: "",
     correctionReasonNote: "",
+    statOnlyCorrection: false,
   };
 }
 
@@ -249,6 +251,7 @@ export function PackingWorkOrdersPage() {
             correctionAccessoriesQuantity: "0",
             correctionReasonCategory: "",
             correctionReasonNote: "",
+            statOnlyCorrection: false,
           };
         }
         return nextDrafts;
@@ -279,7 +282,7 @@ export function PackingWorkOrdersPage() {
     activeWorkOrderId === null,
   );
 
-  function updateDraft(workOrderId: number, fieldName: keyof PackingDraft, value: string) {
+  function updateDraft(workOrderId: number, fieldName: keyof PackingDraft, value: string | boolean) {
     setDrafts((current) => ({
       ...current,
       [workOrderId]: {
@@ -441,6 +444,7 @@ export function PackingWorkOrdersPage() {
             correction_profiles_quantity: correctionProfilesQuantity,
             correction_accessories_quantity: correctionAccessoriesQuantity,
             correction_reason_category: correctionReasonCategory,
+            stat_only_correction: draft.statOnlyCorrection,
             ...(correctionReasonNote ? { correction_reason_note: correctionReasonNote } : {}),
           }
         : {}),
@@ -715,6 +719,38 @@ export function PackingWorkOrdersPage() {
                             </label>
                             ) : null}
                           </div>
+
+                          <fieldset className="space-y-2">
+                            <span className="text-sm font-medium text-steel">Rodzaj poprawki</span>
+                            <div className="grid gap-2 sm:grid-cols-2">
+                              <label className={["flex cursor-pointer items-start gap-2 rounded-lg border px-3 py-2 text-sm transition", draft.statOnlyCorrection ? "border-line bg-white" : "border-accent bg-accent/5"].join(" ")}>
+                                <input
+                                  type="radio"
+                                  name={`correction-disposition-${draftKey}`}
+                                  checked={!draft.statOnlyCorrection}
+                                  onChange={() => updateDraft(draftKey, "statOnlyCorrection", false)}
+                                  className="mt-0.5"
+                                />
+                                <span>
+                                  <span className="font-semibold text-ink">Do zaplanowania</span>
+                                  <span className="block text-xs text-steel">Kolor trzeba zaplanować i pomalować ponownie.</span>
+                                </span>
+                              </label>
+                              <label className={["flex cursor-pointer items-start gap-2 rounded-lg border px-3 py-2 text-sm transition", draft.statOnlyCorrection ? "border-accent bg-accent/5" : "border-line bg-white"].join(" ")}>
+                                <input
+                                  type="radio"
+                                  name={`correction-disposition-${draftKey}`}
+                                  checked={draft.statOnlyCorrection}
+                                  onChange={() => updateDraft(draftKey, "statOnlyCorrection", true)}
+                                  className="mt-0.5"
+                                />
+                                <span>
+                                  <span className="font-semibold text-ink">Od razu poprawiona</span>
+                                  <span className="block text-xs text-steel">Poprawione na miejscu — tylko statystyka, zlecenie kończy się normalnie.</span>
+                                </span>
+                              </label>
+                            </div>
+                          </fieldset>
                         </div>
                       ) : null}
 

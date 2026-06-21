@@ -120,6 +120,7 @@ class CorrectionKind(StrEnum):
 
     REPLAN_IN_PLACE = "REPLAN_IN_PLACE"  # RAL: same order returns to planning with a CORRECTION batch.
     SPIN_OFF_CHILD = "SPIN_OFF_CHILD"  # DECORAL: a child "P" order; OK stays on the root's single Decoral pass.
+    STAT_ONLY = "STAT_ONLY"  # NA34: fixed on the spot — logged as a statistic only; order completes as-is.
 
 
 def get_coating_type_label(coating_type: CoatingType) -> str:

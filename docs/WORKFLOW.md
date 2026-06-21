@@ -125,9 +125,20 @@ manager planning.
 
 The choice of representation (the *correction kind*) is selected and dispatched at a single seam in the
 backend — `ProcessService._select_correction_kind` / `_dispatch_packing_correction` (NA40) — rather than
-branched inline at each packing path. Today there are two kinds: `REPLAN_IN_PLACE` (RAL, and any
-tracked-batch packing) and `SPIN_OFF_CHILD` (a DECORAL root being packed). A future "fixed on the spot"
-stat-only kind (NA34) plugs in as one more branch at this seam, not a parallel flow.
+branched inline at each packing path. There are three kinds: `REPLAN_IN_PLACE` (RAL, and any
+tracked-batch packing), `SPIN_OFF_CHILD` (a DECORAL root being packed), and `STAT_ONLY` (NA34, below).
+
+Stat-only correction — "fixed on the spot" (od razu poprawiona, NA34):
+- When the packing operator marks a correction as fixed-on-the-spot (`stat_only_correction = true`), the
+  defect was corrected immediately, so the pieces are good and **the order completes as-is**: the
+  corrected pieces fold into OK (`completed_quantity` counts the full counted quantity), and the order
+  does **not** return to planning and does **not** spin off a child. Applies to both RAL (closes to
+  READY) and DECORAL (the pieces continue the single Decoral pass; no `N` marker).
+- The correction is recorded **only as a statistic** in `stat_only_corrections` (quantity + required
+  reason/category + profiles/accessories split) — never as a `CORRECTION` batch or child order — and the
+  shared correction-event source unions it in, so the reason report and throughput count it like the
+  other kinds. A reason/category is required (same as a re-planned correction).
+- "To be re-planned" (do zaplanowania) is the default: the existing RAL/DECORAL flows above.
 
 RAL (packing is the last stage):
 1. The OK quantity is added to `completed_quantity` and the active batch is closed.

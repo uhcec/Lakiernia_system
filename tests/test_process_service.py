@@ -15,7 +15,7 @@ from app.manager.repository import ManagerRepository
 from app.manager.schemas import WorkOrderPlanAssignRequest, WorkOrderProductionTypeUpdateRequest
 from app.manager.service import ManagerService
 from app.process.enums import CoatingType, CorrectionKind, ProcessStage, ProductionType, QuantityBatchType, StageStatus
-from app.process.models import ProcessResourceLock
+from app.process.models import ProcessResourceLock, StatOnlyCorrection
 from app.process.repository import ProcessRepository
 from app.process.service import ProcessService
 from app.paints.schemas import PaintDeliveryCreate
@@ -2427,3 +2427,94 @@ def test_select_correction_kind_seam_NA40(db_session: Session) -> None:
     # Tracked-batch packing always replans in place, regardless of coating.
     assert process_service._select_correction_kind(ral, tracked_batch=True) == CorrectionKind.REPLAN_IN_PLACE
     assert process_service._select_correction_kind(decoral, tracked_batch=True) == CorrectionKind.REPLAN_IN_PLACE
+
+
+def test_stat_only_correction_ral_completes_as_is_NA34(db_session: Session) -> None:
+    """NA34: a RAL "fixed on the spot" correction logs a statistic and completes the order as-is.
+
+    No CORRECTION batch, no child, no return to planning: completed == total (the corrected pieces are
+    good), the order is READY, and the corrections reason report counts the stat-only correction.
+    """
+    work_order_service, process_service, manager_service, _, process_repository = build_services(db_session)
+    created = create_ral_work_order(work_order_service, "NA34 RAL stat-only")
+    manager_service.assign_plan(
+        created.id, WorkOrderPlanAssignRequest(production_type=ProductionType.MANUAL, queue_position=1)
+    )
+    advance_to_packing(process_service, created.id)
+
+    process_service.complete_packing(
+        created.id,
+        counted_quantity=100,
+        ok_quantity=90,
+        correction_quantity=10,
+        correction_profiles_quantity=10,
+        correction_accessories_quantity=0,
+        correction_reason_category="niedomalowanie",
+        stat_only_correction=True,
+    )
+
+    work_order = process_repository.get_work_order_with_stage_states(created.id)
+    assert process_service.get_display_status(work_order).value == "READY"
+    assert work_order.completed_quantity == work_order.total_quantity == 100
+    assert work_order.current_active_quantity == 0
+    # No replan and no child: not sent back to planning, no CORRECTION batch, no correction orders.
+    assert work_order.production_type is not None  # still planned (was not reset to planning)
+    assert not any(b.type == QuantityBatchType.CORRECTION for b in work_order.quantity_batches)
+    assert work_order.correction_orders == []
+
+    # The stat-only correction is recorded once and shows up in the corrections reason report.
+    stat_rows = db_session.query(StatOnlyCorrection).filter_by(work_order_id=created.id).all()
+    assert len(stat_rows) == 1
+    assert stat_rows[0].correction_quantity == 10
+    assert stat_rows[0].correction_reason_category == "niedomalowanie"
+    report = {row[0]: (row[1], row[2]) for row in manager_service.repository.list_correction_reason_report()}
+    assert report.get("niedomalowanie") == (1, 10)
+
+
+def test_stat_only_correction_requires_quantity_at_schema(db_session: Session) -> None:
+    """NA34: stat-only with zero correction quantity is rejected at the request schema."""
+    from pydantic import ValidationError
+
+    from app.process.schemas import PackingCompleteRequest
+
+    with pytest.raises(ValidationError):
+        PackingCompleteRequest(counted_quantity=10, ok_quantity=10, correction_quantity=0, stat_only_correction=True)
+
+
+def test_stat_only_correction_decoral_keeps_single_decoral_no_child_NA34(db_session: Session) -> None:
+    """NA34: a DECORAL stat-only correction logs the stat and keeps the pieces on the single Decoral
+    pass — no child "P" order, no decoral-incomplete marker."""
+    work_order_service, process_service, manager_service, _, process_repository = build_services(db_session)
+    created = work_order_service.create_work_order(
+        build_work_order_create(title="NA34 DECORAL stat-only", coating_type=CoatingType.DECORAL, total_quantity=100)
+    )
+    manager_service.assign_plan(
+        created.id, WorkOrderPlanAssignRequest(production_type=ProductionType.MANUAL, queue_position=1)
+    )
+    advance_to_packing(process_service, created.id)
+
+    process_service.complete_packing(
+        created.id,
+        counted_quantity=100,
+        ok_quantity=92,
+        correction_quantity=8,
+        correction_profiles_quantity=8,
+        correction_accessories_quantity=0,
+        correction_reason_category="za grubo",
+        stat_only_correction=True,
+    )
+
+    work_order = process_repository.get_work_order_with_stage_states(created.id)
+    # No child order spun off and no decoral-incomplete ("N") marker.
+    assert work_order.correction_orders == []
+    assert not process_service.is_decoral_incomplete(work_order)
+    # The whole counted quantity continues on the single Decoral pass: the order is now at the Decoral
+    # stage (not READY, not replanned) with all 100 pieces on one active batch (nothing spun off).
+    assert process_service.get_display_status(work_order).value == "DECORAL_PRODUCTION"
+    active_batches = [b for b in work_order.quantity_batches if b.is_active]
+    assert len(active_batches) == 1
+    assert active_batches[0].quantity == 100
+    # Stat recorded once, counted in the report.
+    assert db_session.query(StatOnlyCorrection).filter_by(work_order_id=created.id).count() == 1
+    report = {row[0]: (row[1], row[2]) for row in manager_service.repository.list_correction_reason_report()}
+    assert report.get("za grubo") == (1, 8)
