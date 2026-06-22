@@ -1096,7 +1096,6 @@ def seed_statistics_demo(
                 main_batch.is_active = False
                 main_batch.current_stage = stage_sequence[-1]
                 main_batch.current_stage_status = StageStatus.DONE
-            persisted.current_active_batch_id = None
             session.flush()
 
             made.append((work_order.id, base_dt, method, coating))

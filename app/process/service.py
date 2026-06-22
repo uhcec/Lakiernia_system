@@ -157,7 +157,6 @@ class ProcessService:
             is_partial=False,
         )
         self.repository.add_quantity_batch(main_batch)
-        work_order.current_active_batch_id = main_batch.id
 
     def list_stage_states(self, work_order_id: int) -> Sequence[WorkOrderStageState]:
         return self.repository.list_stage_states(work_order_id)
@@ -358,7 +357,6 @@ class ProcessService:
                     active_batch = work_order.active_batch
                     if active_batch is not None:
                         active_batch.is_active = False
-                    work_order.current_active_batch_id = None
                     try:
                         self.repository.commit()
                     except Exception:
@@ -679,7 +677,6 @@ class ProcessService:
                 packing_state.updated_at = datetime.now(UTC)
                 if work_order.coating_type == CoatingType.RAL:
                     work_order.completed_quantity += ok_quantity
-                    work_order.current_active_batch_id = None
                     active_batch.is_active = False
                 elif work_order.is_correction:
                     # Fully-fixed correction child of a DECORAL root: its OK pieces return to the
@@ -871,7 +868,6 @@ class ProcessService:
                 work_order.completed_quantity += ok_quantity
                 if active_batch is not None:
                     active_batch.is_active = False
-                work_order.current_active_batch_id = None
                 self.resource_locks.release_inactive_resource_locks(work_order)
                 self.audit.record_decoral_audit_event(
                     work_order=work_order,
@@ -926,7 +922,6 @@ class ProcessService:
             batch.is_active = False
             work_order.completed_quantity += ok_quantity
 
-        self._sync_legacy_current_active_batch(work_order)
         self.resource_locks.release_inactive_resource_locks(work_order)
         self.audit.record_decoral_audit_event(
             work_order=work_order,
@@ -1520,7 +1515,6 @@ class ProcessService:
         self._store_stage_start_data(work_order, stage, counted_quantity)
         self.resource_locks.acquire_stage_resource_locks(work_order, stage, StageStatus.IN_PROGRESS)
         batch.current_stage_status = StageStatus.IN_PROGRESS
-        self._sync_legacy_current_active_batch(work_order)
         self.audit.record_stage_audit_event(
             work_order=work_order,
             stage=stage,
@@ -1583,7 +1577,6 @@ class ProcessService:
             batch.current_stage_status = StageStatus.DONE
             batch.is_active = False
             work_order.completed_quantity += batch.quantity
-            self._sync_legacy_current_active_batch(work_order)
             self.audit.record_stage_audit_event(
                 work_order=work_order,
                 stage=stage,
@@ -1599,7 +1592,6 @@ class ProcessService:
             refreshed_batch = self._get_batch(refreshed_work_order, batch.id)
             return self._to_stage_work_order_read(refreshed_work_order, stage, batch=refreshed_batch)
 
-        self._sync_legacy_current_active_batch(work_order)
         self.resource_locks.release_inactive_resource_locks(work_order)
         self.audit.record_stage_audit_event(
             work_order=work_order,
@@ -1630,7 +1622,6 @@ class ProcessService:
 
         batch.current_stage_status = StageStatus.NOT_STARTED
         batch.is_active = True
-        self._sync_legacy_current_active_batch(work_order)
         self.resource_locks.release_inactive_resource_locks(work_order)
         self.audit.record_stage_audit_event(
             work_order=work_order,
@@ -1722,7 +1713,6 @@ class ProcessService:
             batch.is_partial = False
             work_order.completed_quantity += ok_quantity
 
-        self._sync_legacy_current_active_batch(work_order)
         self.resource_locks.release_inactive_resource_locks(work_order)
         self.audit.record_packing_audit_event(
             work_order=work_order,
@@ -1941,7 +1931,6 @@ class ProcessService:
         # for MANUAL DECORAL orders; it is intentionally unused now and kept for signature stability.)
         _ = production_state
 
-        self._sync_legacy_current_active_batch(work_order)
         return response_stage, response_batch
 
     def _resolve_root_order(self, work_order: WorkOrder) -> WorkOrder:
@@ -1985,7 +1974,6 @@ class ProcessService:
             if decoral_state.status == StageStatus.DONE:
                 decoral_state.status = StageStatus.IN_PROGRESS
                 decoral_state.updated_at = datetime.now(UTC)
-        self._sync_legacy_current_active_batch(root)
 
     def _close_returned_correction_child(self, child: WorkOrder) -> None:
         for batch in list(child.active_batches):
@@ -1993,7 +1981,6 @@ class ProcessService:
             batch.current_stage_status = StageStatus.DONE
             batch.is_active = False
         child.completed_quantity = child.total_quantity
-        child.current_active_batch_id = None
         self._mark_all_stage_states_done(child)
 
     def _allocate_correction_order_number(self, parent_work_order: WorkOrder) -> str:
@@ -2037,7 +2024,6 @@ class ProcessService:
             title=parent_work_order.title,
             total_quantity=correction_quantity,
             completed_quantity=0,
-            current_active_batch_id=None,
             parent_order_id=parent_work_order.id,
             is_correction=True,
             correction_reason_category=correction_reason_category,
@@ -2118,7 +2104,6 @@ class ProcessService:
             correction_reason_note=correction_reason_note,
         )
         self.repository.add_quantity_batch(correction_batch)
-        work_order.current_active_batch_id = correction_batch.id
 
         work_order.correction_reason_category = correction_reason_category
         work_order.correction_reason_note = correction_reason_note
@@ -2217,11 +2202,6 @@ class ProcessService:
     def _get_ordered_batches(work_order: WorkOrder) -> list[WorkOrderQuantityBatch]:
         return sorted(work_order.quantity_batches, key=lambda batch: (batch.created_at, batch.id))
 
-    @staticmethod
-    def _sync_legacy_current_active_batch(work_order: WorkOrder) -> None:
-        active_batches = sorted(work_order.active_batches, key=lambda batch: (batch.created_at, batch.id))
-        work_order.current_active_batch_id = active_batches[0].id if active_batches else None
-
     def _commit_process_changes(self) -> None:
         try:
             self.repository.commit()
@@ -2251,7 +2231,6 @@ class ProcessService:
                     current_work_order.total_quantity,
                 )
             current_work_order.completed_quantity = current_work_order.total_quantity
-            current_work_order.current_active_batch_id = None
             self._mark_all_stage_states_done(current_work_order)
             finalized_work_order = current_work_order
 

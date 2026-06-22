@@ -90,7 +90,6 @@ class WorkOrder(Base):
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     total_quantity: Mapped[int] = mapped_column(Integer(), nullable=False, default=1)
     completed_quantity: Mapped[int] = mapped_column(Integer(), nullable=False, default=0)
-    current_active_batch_id: Mapped[int | None] = mapped_column(Integer(), nullable=True)
     parent_order_id: Mapped[int | None] = mapped_column(ForeignKey("work_orders.id", ondelete="SET NULL"), nullable=True)
     is_correction: Mapped[bool] = mapped_column(Boolean(), nullable=False, default=False)
     correction_reason_category: Mapped[str | None] = mapped_column(String(64), nullable=True)
@@ -167,15 +166,13 @@ class WorkOrder(Base):
 
     @property
     def active_batch(self):
-        for batch in self.active_batches:
-            if batch.id == self.current_active_batch_id:
-                return batch
-        for batch in self.quantity_batches:
-            if batch.id == self.current_active_batch_id:
-                return batch
-        if len(self.active_batches) == 1:
-            return self.active_batches[0]
-        return None
+        # Derived from active_batches (NA46 §A4): the DB partial-unique index
+        # (uq_work_order_quantity_batches_one_active_per_work_order, WHERE is_active=1) guarantees at
+        # most one active batch per work order, so the single active batch IS the active batch — no
+        # stored pointer to hand-sync. Returns None when there is none (or, defensively, if an
+        # in-memory pre-flush window ever held more than one, which the index would reject on flush).
+        active_batches = self.active_batches
+        return active_batches[0] if len(active_batches) == 1 else None
 
     @property
     def current_active_quantity(self) -> int:

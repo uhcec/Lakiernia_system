@@ -867,11 +867,22 @@ correctness defects. Severities reflect maintainability risk, not user-visible b
 - Acceptance: active docs/ contains only living docs; archive holds the snapshots; DOCUMENTATION_MAP is accurate.
 
 ### NA46. Backend cleanup: derive `current_active_batch_id`; bound the in-process lock maps
-- Status: **PARTIAL.** §A6 (single write path for the `audit_events` + `stage_transition_events` double-write)
-  **DONE (2026-06-22)** as a side effect of NA39 cut 1 — both writes now live in `ProcessAuditWriter`
-  (`app/process/audit_writer.py`), so they cannot diverge. **Still open:** §A4 (derive `current_active_batch_id`
-  from `active_batches` instead of the hand-synced stored pointer) and §A5 (bound/evict the in-process lock
-  maps — design eviction carefully; only evict provably-unheld `RLock`s).
+- Status: **PARTIAL — §A6 + §A4 DONE; §A5 open.**
+  - **§A6 DONE (2026-06-22)** (side effect of NA39 cut 1): both the `audit_events` + `stage_transition_events`
+    writes live in `ProcessAuditWriter` (`app/process/audit_writer.py`), so they cannot diverge.
+  - **§A4 DONE (2026-06-22):** dropped the stored `current_active_batch_id` pointer. `WorkOrder.active_batch`
+    now derives purely from `active_batches` (the partial-unique index
+    `uq_work_order_quantity_batches_one_active_per_work_order` guarantees ≤1 active batch, so the single
+    active batch *is* the active batch). Removed `_sync_legacy_current_active_batch` + its 8 call sites and
+    all 8 direct pointer writes; `audit_writer` derives the paint-consumption `target_id` from `active_batch`.
+    Migration `20260622_0035` drops the column (batch table-rebuild; `alembic check` clean). The derivation is
+    safe because every flow deactivates the prior batch before/while activating the next (verified in
+    `_reset_to_correction_planning` & co.), so no in-memory pre-flush window holds two active batches. Tests:
+    rewrote the raw-SQL INSERTs in `test_db_constraints_phase1/2` (dropped the column), removed the now-dead
+    pointer writes in `test_process_service` + the seed; migration tests pinned to old revisions keep the
+    historical column. **440 backend tests pass; alembic check clean.**
+  - **Still open: §A5** (bound/evict the in-process lock maps — design eviction carefully; only evict
+    provably-unheld `RLock`s).
 - Severity: LOW (robustness). See §A4, §A5, §A6.
 - Problem: `current_active_batch_id` is a stored pointer hand-synced at 8+ sites
   (`_sync_legacy_current_active_batch`) with a heuristic fallback (`models.py:176-186`) — a forgotten sync

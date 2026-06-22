@@ -2035,7 +2035,6 @@ def test_incomplete_quantity_never_displays_as_ready(db_session: Session) -> Non
     assert work_order is not None
 
     work_order.completed_quantity = 96
-    work_order.current_active_batch_id = None
     for batch in work_order.quantity_batches:
         batch.is_active = False
 

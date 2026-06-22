@@ -182,7 +182,7 @@ class ProcessAuditWriter:
             station_context=station_context,
             work_order=work_order,
             target_type="process_stage",
-            target_id=work_order.current_active_batch_id,
+            target_id=work_order.active_batch.id if work_order.active_batch is not None else None,
             summary=f"Recorded automatic paint consumption for work order {work_order.order_number}.",
             details={
                 "stage": ProcessStage.PRODUCTION.value,
