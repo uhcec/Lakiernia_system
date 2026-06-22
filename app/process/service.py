@@ -1,5 +1,6 @@
 from collections.abc import Sequence
 from contextlib import contextmanager
+from dataclasses import dataclass
 from datetime import UTC, datetime
 import logging
 from threading import RLock
@@ -27,6 +28,26 @@ logger = logging.getLogger(__name__)
 
 _PROCESS_MUTATION_LOCKS: dict[int, RLock] = {}
 _PROCESS_MUTATION_LOCKS_GUARD = RLock()
+
+
+@dataclass(frozen=True)
+class StageQuantities:
+    """The quantities a station card shows for one (work order, stage, batch), resolved in one
+    place (NA43). See ``docs/WORKFLOW.md`` → "Quantity model" for what each means and when it
+    applies. These are **display-only**: validation/READY use ``total_quantity`` / counted directly.
+
+    - ``display`` — ``batch_quantity``: the headline count on the card.
+    - ``planned`` — ``planned_quantity``: the expected count for the stage (the ordered total, or a
+      tracked/correction batch's own size).
+    - ``counted`` — ``counted_quantity``: actually counted at SURFACE_PREPARATION / PACKING; ``None``
+      at every other stage.
+    - ``operational`` — ``operational_quantity``: pieces the operator physically handles (NA26).
+    """
+
+    display: int | None
+    planned: int
+    counted: int | None
+    operational: int
 
 
 class ProcessService:
@@ -2374,28 +2395,27 @@ class ProcessService:
             stage_state = WorkOrderStageState(work_order_id=work_order.id, stage=stage, status=synthetic_status)
         if batch is None:
             current_active_quantity = work_order.current_active_quantity
-            batch_quantity = self._get_stage_display_quantity(work_order, stage, stage_state, batch=None)
             batch_type = None
             batch_is_partial = False
             batch_id = None
-            planned_quantity = self._get_stage_planned_quantity(work_order, stage, stage_state, batch=None)
             stage_status = self.build_stage_status_view(stage_state.status)
         else:
             batch_status = self._get_tracked_batch_stage_status(work_order, batch, stage)
             if batch_status is None:
                 batch_status = batch.current_stage_status or StageStatus.NOT_STARTED
             current_active_quantity = batch.quantity
-            batch_quantity = self._get_stage_display_quantity(work_order, stage, stage_state, batch=batch)
             batch_type = batch.type
             batch_is_partial = batch.is_partial
             batch_id = batch.id
-            planned_quantity = self._get_stage_planned_quantity(work_order, stage, stage_state, batch=batch)
             stage_status = self.build_stage_status_view(batch_status)
 
-        counted_quantity = self._get_stage_counted_quantity(work_order, stage, batch=batch)
+        quantities = self._resolve_stage_quantities(work_order, stage, stage_state, batch=batch)
+        batch_quantity = quantities.display
+        planned_quantity = quantities.planned
+        counted_quantity = quantities.counted
+        operational_quantity = quantities.operational
         quantity_difference = counted_quantity - planned_quantity if counted_quantity is not None else None
 
-        operational_quantity = self._get_operational_quantity(work_order, batch)
         category_fields = self._derive_category_fields_for_operational_quantity(
             work_order,
             operational_quantity,
@@ -2469,40 +2489,71 @@ class ProcessService:
             ),
         )
 
-    @staticmethod
-    def _get_stage_display_quantity(
+    def _resolve_stage_quantities(
+        self,
         work_order: WorkOrder,
         stage: ProcessStage,
         stage_state: WorkOrderStageState,
         *,
         batch: WorkOrderQuantityBatch | None,
-    ) -> int | None:
-        if batch is not None:
-            return batch.quantity
+    ) -> StageQuantities:
+        """Single source of the per-stage display quantities (NA43).
 
-        if stage_state.status == StageStatus.DONE:
-            return work_order.total_quantity
-
-        return work_order.current_active_quantity
-
-    @staticmethod
-    def _get_stage_planned_quantity(
-        work_order: WorkOrder,
-        stage: ProcessStage,
-        stage_state: WorkOrderStageState,
-        *,
-        batch: WorkOrderQuantityBatch | None,
-    ) -> int:
-        _ = stage
-        _ = stage_state
-        if batch is not None:
-            return batch.quantity
-
+        Folds the four former helpers (display / planned / counted / operational) into one place so
+        the "which quantity shows where" rule lives once. **Display-only** — validation, READY, and
+        quantity conservation use ``total_quantity`` / counted directly, never these. See
+        ``docs/WORKFLOW.md`` → "Quantity model".
+        """
         active_batch = work_order.active_batch
-        if active_batch is not None and active_batch.parent_batch_id is not None:
-            return active_batch.quantity
+        # Surface-prep actual received (NA26) feeds both `operational` and the PACKING `counted`
+        # fallback; computed once here (it is a pure function of the work order).
+        surface_prep_actual = self._get_surface_preparation_actual_quantity(work_order)
 
-        return work_order.total_quantity
+        # display: a tracked batch shows its own size; a finished stage shows the full order;
+        # otherwise the live active quantity.
+        if batch is not None:
+            display: int | None = batch.quantity
+        elif stage_state.status == StageStatus.DONE:
+            display = work_order.total_quantity
+        else:
+            display = work_order.current_active_quantity
+
+        # planned (expected for the stage): a tracked batch — or a correction batch (an active batch
+        # with a parent) — shows that batch's size; otherwise the ordered total.
+        if batch is not None:
+            planned = batch.quantity
+        elif active_batch is not None and active_batch.parent_batch_id is not None:
+            planned = active_batch.quantity
+        else:
+            planned = work_order.total_quantity
+
+        # operational (NA26): pieces the operator physically handles — a tracked batch's own quantity,
+        # else the surface-prep actual received once counted, else the ordered total before counting.
+        if batch is not None:
+            operational = batch.quantity
+        elif surface_prep_actual is not None:
+            operational = surface_prep_actual
+        else:
+            operational = work_order.current_active_quantity
+
+        # counted: only SURFACE_PREPARATION and PACKING carry a counted quantity (both rows exist on
+        # every route, incl. the now-absent AUTOMATIC PRODUCTION — NA42). PACKING falls back to the
+        # surface-prep actual only on the plain (non-batch, non-correction) path.
+        counted: int | None
+        if stage not in (ProcessStage.SURFACE_PREPARATION, ProcessStage.PACKING):
+            counted = None
+        elif stage == ProcessStage.SURFACE_PREPARATION:
+            counted = self._get_stage_state(work_order, ProcessStage.SURFACE_PREPARATION).counted_quantity
+        else:
+            packing_counted = self._get_stage_state(work_order, ProcessStage.PACKING).counted_quantity
+            if packing_counted is not None:
+                counted = packing_counted
+            elif batch is None and not self._is_in_correction_round(work_order):
+                counted = surface_prep_actual
+            else:
+                counted = None
+
+        return StageQuantities(display=display, planned=planned, counted=counted, operational=operational)
 
     @staticmethod
     def _get_process_mutation_lock(work_order_id: int) -> RLock:
@@ -2520,47 +2571,6 @@ class ProcessService:
         surface_preparation_state = self._get_stage_state(work_order, ProcessStage.SURFACE_PREPARATION)
         return surface_preparation_state.counted_quantity
 
-    def _get_operational_quantity(
-        self,
-        work_order: WorkOrder,
-        batch: WorkOrderQuantityBatch | None,
-    ) -> int:
-        # The count operators physically handle (NA26): a tracked batch's own quantity, otherwise the
-        # surface-preparation actual received quantity once counted, else the ordered total before
-        # counting. Does not affect validation/READY (those keep using total_quantity / counted).
-        if batch is not None:
-            return batch.quantity
-        actual_received = self._get_surface_preparation_actual_quantity(work_order)
-        if actual_received is not None:
-            return actual_received
-        return work_order.current_active_quantity
-
-    def _get_stage_counted_quantity(
-        self,
-        work_order: WorkOrder,
-        stage: ProcessStage,
-        *,
-        batch: WorkOrderQuantityBatch | None,
-    ) -> int | None:
-        # Only SP and PACKING carry a counted quantity, and both rows always exist on every route.
-        # Other stages (incl. the now-absent AUTOMATIC PRODUCTION, NA42) have none — return early so we
-        # never fetch a stage row that the route does not have.
-        if stage not in (ProcessStage.SURFACE_PREPARATION, ProcessStage.PACKING):
-            return None
-
-        stage_state = self._get_stage_state(work_order, stage)
-        if stage == ProcessStage.SURFACE_PREPARATION:
-            return stage_state.counted_quantity
-
-        if stage_state.counted_quantity is not None:
-            return stage_state.counted_quantity
-
-        if batch is None:
-            if self._is_in_correction_round(work_order):
-                return None
-            return self._get_surface_preparation_actual_quantity(work_order)
-
-        return None
 
     @contextmanager
     def _serialize_process_mutation(self, work_order_id: int):

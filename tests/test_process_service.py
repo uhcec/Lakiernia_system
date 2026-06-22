@@ -260,6 +260,43 @@ def test_operational_quantity_reflects_actual_received_after_surface_preparation
     assert row.planned_quantity == 100
 
 
+def test_resolve_stage_quantities_covers_each_context_NA43(db_session: Session) -> None:
+    # NA43: the four display quantities (display / planned / counted / operational) come from one
+    # resolver. Pin each context so the consolidated rule cannot silently drift.
+    work_order_service, process_service, manager_service, _, _ = build_services(db_session)
+    created = create_ral_work_order(work_order_service, "Quantity contexts NA43")  # total 100
+    manager_service.assign_plan(
+        created.id,
+        WorkOrderPlanAssignRequest(production_type=ProductionType.MANUAL, queue_position=1),
+    )
+
+    # Before surface prep counts: a non-DONE stage with no tracked batch.
+    wo = process_service.get_work_order_process(created.id)
+    prod_state = next(s for s in wo.stage_states if s.stage == ProcessStage.PRODUCTION)
+    before = process_service._resolve_stage_quantities(wo, ProcessStage.PRODUCTION, prod_state, batch=None)
+    assert before.display == wo.current_active_quantity == 100  # non-DONE → live active quantity
+    assert before.planned == 100  # ordered total
+    assert before.operational == 100  # no actual-received yet → ordered total
+    assert before.counted is None  # PRODUCTION carries no counted quantity
+
+    # After surface prep counts 95 (NA26 actual received).
+    process_service.start_stage(created.id, ProcessStage.SURFACE_PREPARATION)
+    process_service.finish_stage(created.id, ProcessStage.SURFACE_PREPARATION, counted_quantity=95)
+    wo = process_service.get_work_order_process(created.id)
+
+    sp_state = next(s for s in wo.stage_states if s.stage == ProcessStage.SURFACE_PREPARATION)
+    at_sp = process_service._resolve_stage_quantities(wo, ProcessStage.SURFACE_PREPARATION, sp_state, batch=None)
+    assert at_sp.display == 100  # SP is DONE → full order
+    assert at_sp.planned == 100  # ordered total is unchanged by counting
+    assert at_sp.counted == 95  # SP's counted quantity
+    assert at_sp.operational == 95  # actual received
+
+    packing_state = next(s for s in wo.stage_states if s.stage == ProcessStage.PACKING)
+    at_packing = process_service._resolve_stage_quantities(wo, ProcessStage.PACKING, packing_state, batch=None)
+    assert at_packing.counted == 95  # PACKING with no count yet → falls back to SP actual received
+    assert at_packing.operational == 95
+
+
 def test_office_and_manager_read_models_expose_surface_preparation_discrepancy(db_session: Session) -> None:
     work_order_service, process_service, manager_service, _, _ = build_services(db_session)
     created = create_ral_work_order(work_order_service, "Office manager discrepancy")

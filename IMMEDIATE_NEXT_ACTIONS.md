@@ -676,17 +676,27 @@ correctness defects. Severities reflect maintainability risk, not user-visible b
     (separate concern). Behavior-preserving: 438 backend tests pass, `alembic check` clean; `service.py`
     2906 → 2596 lines (3119 → 2596 across both NA39 cuts so far). **NA46 §A5 deliberately left out** — see below.
     Commit `cc33845`.
-  - **Remaining cuts (each is a deliberate pass — do NOT rush; the entanglement below is the reason):**
+  - **FINDING (2026-06-22): the last two suggested seams do NOT factor cleanly — stop the class-extraction
+    approach here (owner-confirmed pivot to NA43).** On inspection, a `CorrectionService` would have to call
+    **back into 8+ `ProcessService` methods** mid-transaction (`get_correction_return_stage`,
+    `_reset_stage_states_for_active_batch`, `_get_stage_state`, `_sync_legacy_current_active_batch`,
+    `_mark_all_stage_states_done`, `get_work_order_process`, `initialize_stage_states`,
+    `initialize_quantity_tracking`) while the packing-completion flow on `ProcessService` calls **into**
+    corrections — i.e. **bidirectional coupling**. The serializer (`_to_stage_work_order_read`) has the same
+    problem (~15 display-status/quantity/correction-state callbacks). Forcing either extraction would relocate
+    ~400 lines but trade a big-file smell for a circular-dependency smell in the most data-integrity-sensitive
+    code (quantity conservation, the RAL/DECORAL/stat-only model). Verdict: **the two clean seams (audit,
+    resource-locks) are done; what remains in `ProcessService` is the genuinely-coupled workflow core, partly
+    inherent to the domain.** Instead of forcing the bad cuts, pivoted to **NA43** (in-file quantity-resolver
+    consolidation — DONE). Net NA39 result: `service.py` 3119 → 2606 lines across the two clean extractions +
+    NA43.
+  - **Still genuinely available (clean, narrow-dependency, opportunistic):** move the leaf
+    `_allocate_correction_order_number` into `WorkOrderNumberAllocator` (its natural home; deps are only
+    `repository.session` + the WorkOrder model). Small; do when next touching correction numbering.
     - **NA46 §A5 (bound the in-process lock maps)** still open and risky — evicting an in-use `RLock` could
       hand two threads different locks for one id; design eviction carefully (only evict provably-unheld
-      locks). Now lives logically next to `ResourceLockManager` (`_RESOURCE_MUTATION_LOCKS`) + the
-      `_PROCESS_MUTATION_LOCKS` map still on `ProcessService`.
-    - **Correction subsystem** → `CorrectionService` (already half-seamed by NA40's `_select_correction_kind`
-      / `_dispatch_packing_correction`): entangled with stage-state reset, batch creation, number allocation,
-      finalize, and the audit writer. Largest self-contained chunk per the audit.
-    - **Read-model serializer** (`_to_stage_work_order_read` + quantity/category helpers): widest dependency
-      surface (display-status, quantity, packing-slot, paint, correction-state). **Couple with NA43** (single
-      `quantity_for(context)` resolver) so the quantity rule lands once. Do last.
+      locks). `_RESOURCE_MUTATION_LOCKS` now lives in `ResourceLockManager`; `_PROCESS_MUTATION_LOCKS` stays
+      on `ProcessService`.
 - Severity: MEDIUM (maintainability). See `docs/ARCHITECTURE_AUDIT.md` §A1.
 - Problem: `ProcessService` (`app/process/service.py`, ~120 methods) mixes transition logic, resource-lock
   + packing-slot management (`_PROCESS_MUTATION_LOCKS` at `:30-33`), correction creation/merge,
@@ -777,13 +787,23 @@ correctness defects. Severities reflect maintainability risk, not user-visible b
   tests pass, alembic clean, frontend build green.** `WORKFLOW.md` updated. Frontend untouched.
 
 ### NA43. Consolidate the over-faceted quantity vocabulary
+- Status: **DONE (2026-06-22).** Collapsed the four scattered display helpers
+  (`_get_stage_display_quantity` / `_get_stage_planned_quantity` / `_get_operational_quantity` /
+  `_get_stage_counted_quantity`) into one resolver `ProcessService._resolve_stage_quantities` returning a
+  frozen `StageQuantities(display, planned, counted, operational)` value object — the read-model serializer
+  now makes one call instead of four, so the "which quantity shows where" rule lives once (and the
+  surface-prep-actual fetch is deduped). Behaviour-preserving (the four computations are transcribed exactly;
+  the read-model fields are byte-identical, so the frontend is untouched). `_get_surface_preparation_actual_quantity`
+  stays shared (also used by the packing path). Documented the **five quantities + the single display rule**
+  in `docs/WORKFLOW.md` → "Quantity model". Test: `test_resolve_stage_quantities_covers_each_context_NA43`
+  pins each context (display DONE vs live, planned, operational pre/post SP count, counted at SP / off-stage /
+  PACKING fallback). **439 backend tests pass; alembic check clean; no schema/frontend change.** Done as the
+  pivot from NA39's coupled-core finding (see NA39) — an in-file consolidation, not a class extraction.
 - Severity: LOW–MEDIUM (clarity; root of NA26-class bugs). See §B3.
 - Problem: five quantity notions (ordered / counted / `current_active` / operational / per-stage planned)
-  with which-shows-where wrong almost everywhere (NA26), resolved via four scattered helpers
-  (`_get_stage_display_quantity`/`_get_stage_planned_quantity`/`_get_operational_quantity`/
-  `_get_stage_counted_quantity`, `app/process/service.py:2518-2906`).
+  with which-shows-where wrong almost everywhere (NA26), resolved via four scattered helpers.
 - Required fix: document the five quantities + the single display rule in `WORKFLOW.md`; collapse the four
-  helpers behind one `quantity_for(context)` resolver so the rule lives once.
+  helpers behind one resolver so the rule lives once.
 - Acceptance: one resolver owns quantity-for-display; WORKFLOW.md states the rule; tests cover each context.
 
 ### NA44. Frontend: decompose monolithic pages + move business semantics off the renderer

@@ -372,6 +372,30 @@ Rules:
 - Starting `SURFACE_PREPARATION` does not require counted quantity.
 - Finishing `SURFACE_PREPARATION` requires counted quantity.
 
+### Quantity model — the five quantities and the single display rule (NA43)
+
+A work order carries several distinct quantity notions. Confusing them is the root of NA26-class
+bugs, so they have one documented meaning and **one resolver** owns the display rule.
+
+The five notions:
+1. **ordered** (`total_quantity`) — the fixed client-ordered count. Never changes.
+2. **counted** — the actual received count from `SURFACE_PREPARATION` (and the count recorded at
+   `PACKING`). The source of truth for validation/READY once counted.
+3. **current active** (`current_active_quantity`) — the sum of the order's active batches (the live
+   work-in-progress count; one active batch per order).
+4. **operational** — the count an operator physically handles at a station (NA26): a tracked batch's
+   own size, else the surface-prep actual received once counted, else the ordered total.
+5. **per-stage planned** — the expected count for a stage (the ordered total, or a tracked/correction
+   batch's own size).
+
+**Single display rule:** the four *display* quantities a station card shows for a given
+`(work order, stage, batch)` — `batch_quantity` (display), `planned_quantity`, `counted_quantity`,
+`operational_quantity` — are computed in exactly one place, `ProcessService._resolve_stage_quantities`
+(returning a `StageQuantities` value object). These are **display-only**: validation, READY, and
+quantity conservation use `total_quantity` / counted directly and never the resolver. `counted_quantity`
+is non-`None` only at `SURFACE_PREPARATION` / `PACKING`; `planned_quantity` stays the original expected
+quantity for audit/office-manager visibility (principle 6).
+
 ## Profile And Accessory Quantity Semantics
 
 Rules:
