@@ -12,7 +12,6 @@ def _insert_work_order(
     order_number: str,
     is_correction: int = 0,
     parent_order_id: int | None = None,
-    status: str = "ENTERED",
     is_incomplete_on_arrival: int = 0,
     production_type: str | None = None,
     queue_position: int | None = None,
@@ -22,13 +21,13 @@ def _insert_work_order(
             """
             INSERT INTO work_orders (
                 order_number, title, total_quantity, completed_quantity, current_active_batch_id, parent_order_id,
-                is_correction, description, customer_name, ral_code, paint_producer, status, coating_type,
+                is_correction, description, customer_name, ral_code, paint_producer, coating_type,
                 work_order_kind, is_ocynk, production_type, queue_namespace, queue_position, received_date, planned_pickup_date, total_area_m2,
                 is_incomplete_on_arrival, profiles_quantity, profiles_to_count, accessories_quantity, accessories_to_count,
                 notes, consumed_paint_quantity_kg, created_at, updated_at
             ) VALUES (
                 :order_number, :order_number, 10, 0, NULL, :parent_order_id,
-                :is_correction, NULL, 'Customer', 'RAL 9005', 'Producer', :status, 'RAL',
+                :is_correction, NULL, 'Customer', 'RAL 9005', 'Producer', 'RAL',
                 'STANDARD', 0, :production_type, :queue_namespace, :queue_position, '2026-05-25', NULL, NULL,
                 :is_incomplete_on_arrival, NULL, 1, NULL, 1,
                 NULL, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
@@ -40,7 +39,6 @@ def _insert_work_order(
             "is_correction": is_correction,
             "parent_order_id": parent_order_id,
             "queue_namespace": "CORRECTIONS" if is_correction else "MAIN",
-            "status": status,
             "is_incomplete_on_arrival": is_incomplete_on_arrival,
             "production_type": production_type,
             "queue_position": queue_position,
@@ -162,19 +160,6 @@ def test_incomplete_arrival_work_order_cannot_be_queued_by_direct_db_write(db_se
             is_incomplete_on_arrival=1,
             production_type="MANUAL",
             queue_position=3,
-        )
-        db_session.commit()
-    db_session.rollback()
-
-
-def test_legacy_incomplete_status_work_order_cannot_be_queued_by_direct_db_write(db_session: Session) -> None:
-    with pytest.raises(IntegrityError):
-        _insert_work_order(
-            db_session,
-            order_number="WO-2026-9706",
-            status="INCOMPLETE",
-            production_type="MANUAL",
-            queue_position=4,
         )
         db_session.commit()
     db_session.rollback()

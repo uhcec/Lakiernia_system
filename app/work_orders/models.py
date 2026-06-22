@@ -5,15 +5,8 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database.base import Base
 from app.process.enums import CoatingType, ProductionType
-from app.shared.enums import QueueNamespace, WorkOrderKind, WorkOrderStatus
+from app.shared.enums import QueueNamespace, WorkOrderKind
 
-
-work_order_status_enum = Enum(
-    WorkOrderStatus,
-    name="work_order_status",
-    native_enum=False,
-    values_callable=lambda statuses: [status.value for status in statuses],
-)
 
 coating_type_enum = Enum(
     CoatingType,
@@ -61,7 +54,7 @@ class WorkOrder(Base):
             name="planned_requires_production_type_and_queue_position",
         ),
         CheckConstraint(
-            "queue_position IS NULL OR (is_incomplete_on_arrival = 0 AND status != 'INCOMPLETE')",
+            "queue_position IS NULL OR is_incomplete_on_arrival = 0",
             name="incomplete_requires_unplanned",
         ),
         CheckConstraint(
@@ -109,7 +102,6 @@ class WorkOrder(Base):
     paint_producer: Mapped[str] = mapped_column(String(255), nullable=False)
     paint_stock_snapshot_quantity_kg: Mapped[float | None] = mapped_column(Float(), nullable=True)
     consumed_paint_quantity_kg: Mapped[float] = mapped_column(Float(), nullable=False, default=0)
-    status: Mapped[WorkOrderStatus] = mapped_column(work_order_status_enum, default=WorkOrderStatus.ENTERED, nullable=False)
     coating_type: Mapped[CoatingType] = mapped_column(coating_type_enum, default=CoatingType.RAL, nullable=False)
     work_order_kind: Mapped[WorkOrderKind] = mapped_column(
         work_order_kind_enum,

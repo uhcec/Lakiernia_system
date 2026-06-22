@@ -32,7 +32,6 @@ from app.work_orders.schemas import (
     WorkOrderRead,
     WorkOrderReleaseUpdate,
     WorkOrderStageStateRead,
-    WorkOrderStatusOption,
     WorkOrderStatusView,
     WorkOrderUpdate,
     calculate_paint_shortage_quantity_kg,
@@ -154,13 +153,6 @@ class WorkOrderService:
         self.audit_repository = AuditRepository(repository.session)
 
     @staticmethod
-    def get_status_options() -> list[WorkOrderStatusOption]:
-        return [
-            WorkOrderStatusOption(value=status, label=get_work_order_status_label(status))
-            for status in WorkOrderStatus
-        ]
-
-    @staticmethod
     def derive_status(process_status: ProcessDisplayStatus) -> WorkOrderStatus:
         if process_status == ProcessDisplayStatus.INCOMPLETE:
             return WorkOrderStatus.INCOMPLETE
@@ -186,7 +178,6 @@ class WorkOrderService:
 
     def create_work_order(self, payload: WorkOrderCreate, station_context: StationContext | None = None) -> WorkOrderRead:
         self._ensure_office_station_action(station_context, "office work-order actions")
-        initial_status = WorkOrderStatus.INCOMPLETE if payload.is_incomplete_on_arrival else WorkOrderStatus.ENTERED
         order_number = self.number_allocator.allocate()
         paint, paint_stock_snapshot_quantity_kg = self.paint_service.capture_work_order_snapshot(
             ral_code=payload.ral_code,
@@ -207,7 +198,6 @@ class WorkOrderService:
             paint_producer=payload.paint_producer,
             paint_stock_snapshot_quantity_kg=paint_stock_snapshot_quantity_kg,
             consumed_paint_quantity_kg=0,
-            status=initial_status,
             coating_type=payload.coating_type,
             work_order_kind=payload.work_order_kind,
             is_ocynk=payload.is_ocynk,
@@ -401,7 +391,6 @@ class WorkOrderService:
         self._validate_work_order_state(work_order, {"is_incomplete_on_arrival": False})
 
         work_order.is_incomplete_on_arrival = False
-        work_order.status = WorkOrderStatus.ENTERED
         work_order.updated_at = datetime.now(UTC)
         self._record_audit_event(
             event_type="work_order.arrival_completed",
@@ -412,7 +401,6 @@ class WorkOrderService:
             summary=f"Marked work order {work_order.order_number} as complete on arrival.",
             details={
                 "is_incomplete_on_arrival": False,
-                "status": WorkOrderStatus.ENTERED.value,
             },
         )
 
@@ -466,7 +454,7 @@ class WorkOrderService:
 
     @staticmethod
     def _has_incomplete_marker(work_order: WorkOrder) -> bool:
-        return work_order.is_incomplete_on_arrival or work_order.status == WorkOrderStatus.INCOMPLETE
+        return work_order.is_incomplete_on_arrival
 
     async def upload_attachment(
         self,

@@ -16,10 +16,11 @@ from app.clients.schemas import (
 )
 from app.process.repository import ProcessRepository
 from app.process.service import ProcessService
-from app.shared.enums import StationId, get_work_order_status_label
+from app.shared.enums import StationId
 from app.shared.exceptions import AppException, ResourceNotFoundError
 from app.work_orders.models import WorkOrder
-from app.work_orders.schemas import WorkOrderStatusView, build_process_status_view, build_production_type_view
+from app.work_orders.schemas import build_process_status_view, build_production_type_view
+from app.work_orders.service import WorkOrderService
 
 
 class ClientAlreadyExistsError(AppException):
@@ -188,7 +189,7 @@ class ClientService:
             ral_code=order.ral_code,
             received_date=order.received_date,
             planned_pickup_date=order.planned_pickup_date,
-            status=WorkOrderStatusView(value=order.status, label=get_work_order_status_label(order.status)),
+            status=WorkOrderService.build_status_view(process_display_status),
             production_type=build_production_type_view(order.production_type) if order.production_type is not None else None,
             process_status=build_process_status_view(process_display_status),
         )

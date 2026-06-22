@@ -106,7 +106,6 @@ def test_mark_complete_arrival_rejects_invalid_profiles_state(db_session: Sessio
 
     db_session.refresh(work_order)
     assert work_order.is_incomplete_on_arrival is True
-    assert work_order.status == WorkOrderStatus.INCOMPLETE
     assert work_order.profiles_quantity is None
     assert work_order.profiles_to_count is False
 
@@ -127,7 +126,6 @@ def test_mark_complete_arrival_rejects_invalid_accessories_state(db_session: Ses
 
     db_session.refresh(work_order)
     assert work_order.is_incomplete_on_arrival is True
-    assert work_order.status == WorkOrderStatus.INCOMPLETE
     assert work_order.accessories_quantity is None
     assert work_order.accessories_to_count is False
 
@@ -145,7 +143,6 @@ def test_mark_complete_arrival_rejects_blank_customer_name_when_persisted_state_
 
     db_session.refresh(work_order)
     assert work_order.is_incomplete_on_arrival is True
-    assert work_order.status == WorkOrderStatus.INCOMPLETE
     assert work_order.customer_name == "   "
 
 
@@ -160,7 +157,6 @@ def test_valid_incomplete_order_can_still_be_marked_complete_arrival(db_session:
     assert completed.status.value == WorkOrderStatus.ENTERED
     assert persisted is not None
     assert persisted.is_incomplete_on_arrival is False
-    assert persisted.status == WorkOrderStatus.ENTERED
 
 
 def test_mark_complete_arrival_records_station_audit_event(db_session: Session) -> None:
@@ -181,7 +177,6 @@ def test_mark_complete_arrival_records_station_audit_event(db_session: Session) 
     assert event.target_id == created.id
     assert json.loads(event.details_json or "{}") == {
         "is_incomplete_on_arrival": False,
-        "status": "ENTERED",
     }
 
 
@@ -208,7 +203,6 @@ def test_rejected_mark_complete_arrival_leaves_order_state_unchanged(db_session:
 
     db_session.refresh(work_order)
     assert work_order.is_incomplete_on_arrival is True
-    assert work_order.status == WorkOrderStatus.INCOMPLETE
     assert work_order.customer_name == "   "
     assert work_order.profiles_quantity == 100
     assert work_order.profiles_to_count is False

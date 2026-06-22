@@ -5,7 +5,6 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.process.enums import QuantityBatchType
 from app.process.models import StatOnlyCorrection, WorkOrderQuantityBatch
-from app.shared.enums import WorkOrderStatus
 from app.work_orders.models import WorkOrder
 
 
@@ -52,7 +51,6 @@ class ManagerRepository:
             WorkOrder.production_type.is_not(None),
             WorkOrder.queue_position == queue_position,
             WorkOrder.is_incomplete_on_arrival.is_(False),
-            WorkOrder.status != WorkOrderStatus.INCOMPLETE,
         )
         if exclude_work_order_id is not None:
             statement = statement.where(WorkOrder.id != exclude_work_order_id)
@@ -71,7 +69,6 @@ class ManagerRepository:
                 WorkOrder.production_type.is_(None),
                 WorkOrder.queue_position.is_(None),
                 WorkOrder.is_incomplete_on_arrival.is_(False),
-                WorkOrder.status != WorkOrderStatus.INCOMPLETE,
             )
             .order_by(WorkOrder.id.asc())
         )
@@ -90,7 +87,6 @@ class ManagerRepository:
                 WorkOrder.production_type.is_not(None),
                 WorkOrder.queue_position.is_not(None),
                 WorkOrder.is_incomplete_on_arrival.is_(False),
-                WorkOrder.status != WorkOrderStatus.INCOMPLETE,
             )
             .order_by(WorkOrder.queue_position.asc(), WorkOrder.id.asc())
         )
@@ -143,7 +139,6 @@ class ManagerRepository:
             WorkOrder.production_type.is_not(None),
             WorkOrder.queue_position.is_not(None),
             WorkOrder.is_incomplete_on_arrival.is_(False),
-            WorkOrder.status != WorkOrderStatus.INCOMPLETE,
         )
         return self.session.scalar(statement)
 

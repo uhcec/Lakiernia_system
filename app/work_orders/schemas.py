@@ -21,11 +21,6 @@ from app.shared.enums import WorkOrderStatus
 from app.shared.enums import QueueNamespace, WorkOrderKind, get_queue_namespace_label, get_work_order_kind_label
 
 
-class WorkOrderStatusOption(BaseModel):
-    value: WorkOrderStatus
-    label: str
-
-
 class WorkOrderStatusView(BaseModel):
     """Legacy/internal work-order status kept for API compatibility."""
 
@@ -184,13 +179,6 @@ class WorkOrderCreate(BaseModel):
         _validate_category_quantity("Akcesoria", self.accessories_quantity, self.accessories_to_count, self.total_quantity)
         _validate_category_quantity_sum(self.profiles_quantity, self.accessories_quantity, self.total_quantity)
         return self
-
-
-class WorkOrderStatusTransitionRequest(BaseModel):
-    target_status: WorkOrderStatus
-    comment: str | None = None
-
-    model_config = ConfigDict(extra="forbid")
 
 
 class WorkOrderUpdate(BaseModel):

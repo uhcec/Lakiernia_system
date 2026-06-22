@@ -6,7 +6,6 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.process.enums import ProcessStage, ProductionType
 from app.shared.enums import QueueNamespace
-from app.shared.enums import WorkOrderStatus
 from app.process.models import ProcessResourceLock, WorkOrderStageState
 from app.work_orders.models import WorkOrder
 
@@ -56,7 +55,6 @@ class ProcessRepository:
                 selectinload(WorkOrder.correction_orders),
             )
             .where(WorkOrder.is_incomplete_on_arrival.is_(False))
-            .where(WorkOrder.status != WorkOrderStatus.INCOMPLETE)
             .order_by(WorkOrder.queue_position.asc(), WorkOrder.id.asc())
         )
 

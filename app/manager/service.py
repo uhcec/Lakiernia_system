@@ -35,7 +35,7 @@ from app.manager.schemas import (
     WorkOrderQueueReorderRequest,
 )
 from app.process.enums import ProcessStage, QuantityBatchType, StageStatus
-from app.shared.enums import StationId, WorkOrderStatus
+from app.shared.enums import StationId
 from app.shared.exceptions import InvalidManagerPlanningError, ResourceNotFoundError
 from app.work_orders.models import WorkOrder
 from app.work_orders.schemas import WorkOrderRead
@@ -1089,7 +1089,7 @@ class ManagerService:
 
     @staticmethod
     def _has_incomplete_marker(work_order: WorkOrder) -> bool:
-        return work_order.is_incomplete_on_arrival or work_order.status == WorkOrderStatus.INCOMPLETE
+        return work_order.is_incomplete_on_arrival
 
     def _record_audit_event(
         self,

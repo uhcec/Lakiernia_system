@@ -66,8 +66,11 @@ backend state and must not infer correction/READY/queue/quantity meaning locally
   `current_active_quantity` = sum of **active** batches. Quantity is conserved across parent/child
   correction chains. One active batch per work order (DB-enforced partial unique index).
 - **`process_status` (`ProcessDisplayStatus`) is DERIVED at read time** in
-  `ProcessService.get_display_status` — it is never a stored column. `WorkOrder.status` is a legacy
-  compatibility field; do not drive workflow from it.
+  `ProcessService.get_display_status` — it is never a stored column. The read models still expose a
+  legacy `status` (`WorkOrderStatusView`) field, but it too is **derived** from `process_status`
+  (`WorkOrderService.build_status_view`) — the old stored `WorkOrder.status` column was removed (NA41).
+  `is_incomplete_on_arrival` is the single source of truth for "incomplete on arrival" (the
+  `incomplete_requires_unplanned` CHECK references only it).
 - Stage sequence depends on coating + production type:
   `SURFACE_PREPARATION → [HANGING if AUTOMATIC] → PRODUCTION → PACKING → [DECORAL_PRODUCTION if DECORAL]`.
   For AUTOMATIC, `PRODUCTION` has no manual start/finish (it's a preview); the line finishes from

@@ -694,6 +694,21 @@ correctness defects. Severities reflect maintainability risk, not user-visible b
   still green. Sequence: do this, then NA34/NA32 (avoids reworking the same code twice).
 
 ### NA41. Collapse the duplicated "incomplete / status" truth
+- Status: **DONE (2026-06-22).** Full deletion (owner chose delete over freeze). `is_incomplete_on_arrival`
+  is now the single source of truth: the `incomplete_requires_unplanned` CHECK references only it, all three
+  `_has_incomplete_marker` copies (process/work_orders/manager) collapse to the boolean, and the 5 planning-queue
+  filters (`manager/repository.py` ×4 incl. `get_planned_queue_revision`, `process/repository.py` ×1) drop the
+  redundant `status` clause. The stored `WorkOrder.status` column + `work_order_status_enum` were removed
+  (migration `20260622_0034`, batch table-rebuild; `alembic check` clean). The read-model `status` field stays
+  but is now **always derived** from `process_status` (`WorkOrderService.build_status_view`) — including the
+  client-history view (`clients/service.py`), which previously read the stored column and was the lone
+  inconsistency. Removed dead code surfaced en route: `app/work_orders/workflow.py` (uncalled transition map),
+  `get_status_options`/`WorkOrderStatusOption`, `WorkOrderStatusTransitionRequest`. Status writes removed from
+  `create_work_order`, `mark_complete_arrival` (+ its audit detail), and correction-child creation. Tests:
+  updated `test_work_orders_service`, `test_process_service` (deleted the stored-status-drift test; rewrote the
+  two legacy-only-marker tests to the boolean), `test_db_constraints_phase1/2` (raw inserts; deleted the
+  legacy-status-blocks-queue test); migration tests pinned to old revisions keep the historical column.
+  **Full backend suite green; `alembic check` clean; frontend untouched.** CLAUDE.md note updated.
 - Severity: MEDIUM (truth drift — a CHECK constraint depends on the legacy field). See §A3.
 - Problem: "incomplete" lives in two places kept in sync by hand — `is_incomplete_on_arrival` (real) and
   the legacy `WorkOrder.status == INCOMPLETE`, both checked in `_has_incomplete_marker`

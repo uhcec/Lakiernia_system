@@ -19,7 +19,7 @@ from app.process.models import ProcessResourceLock, StatOnlyCorrection
 from app.process.repository import ProcessRepository
 from app.process.service import ProcessService
 from app.paints.schemas import PaintDeliveryCreate
-from app.shared.enums import QueueNamespace, StationId, WorkOrderStatus
+from app.shared.enums import QueueNamespace, StationId
 from app.shared.exceptions import InvalidManagerPlanningError, InvalidProcessStageTransitionError
 from app.work_orders.repository import WorkOrderRepository
 from app.work_orders.schemas import WorkOrderCreate
@@ -2010,23 +2010,6 @@ def test_incomplete_quantity_never_displays_as_ready(db_session: Session) -> Non
     assert process_service.get_display_status(refreshed).value != "READY"
 
 
-def test_read_model_status_is_derived_even_if_stored_status_drifts(db_session: Session) -> None:
-    work_order_service, _, _, work_order_repository, _ = build_services(db_session)
-
-    created = create_ral_work_order(work_order_service, "Status drift ignored")
-    stored = work_order_repository.get_by_id(created.id)
-
-    assert stored is not None
-
-    stored.status = WorkOrderStatus.FINISHED
-    work_order_repository.commit()
-
-    refreshed = work_order_service.get_work_order(created.id)
-
-    assert refreshed.process_status.value == "TO_BE_PLANNED"
-    assert refreshed.status.value == WorkOrderStatus.ENTERED
-
-
 def test_incomplete_marker_cannot_be_forced_into_manager_or_stage_views(db_session: Session) -> None:
     work_order_service, process_service, manager_service, work_order_repository, _ = build_services(db_session)
 
@@ -2059,18 +2042,17 @@ def test_incomplete_marker_cannot_be_forced_into_manager_or_stage_views(db_sessi
     assert hidden_order.id not in stage_ids
 
 
-def test_inconsistent_incomplete_row_cannot_be_planned(db_session: Session) -> None:
+def test_incomplete_order_cannot_be_planned(db_session: Session) -> None:
     work_order_service, _, manager_service, work_order_repository, _ = build_services(db_session)
 
     created = work_order_service.create_work_order(
-        build_work_order_create(title="Inconsistent incomplete planning")
+        build_work_order_create(title="Incomplete planning")
     )
     stored = work_order_repository.get_by_id(created.id)
 
     assert stored is not None
 
-    stored.status = WorkOrderStatus.INCOMPLETE
-    stored.is_incomplete_on_arrival = False
+    stored.is_incomplete_on_arrival = True
     work_order_repository.commit()
 
     with pytest.raises(InvalidManagerPlanningError) as exc_info:
@@ -2094,8 +2076,7 @@ def test_planned_row_cannot_be_marked_incomplete_by_direct_update(db_session: Se
 
     assert stored is not None
 
-    stored.status = WorkOrderStatus.INCOMPLETE
-    stored.is_incomplete_on_arrival = False
+    stored.is_incomplete_on_arrival = True
 
     with pytest.raises(IntegrityError):
         work_order_repository.commit()

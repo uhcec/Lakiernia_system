@@ -18,7 +18,7 @@ from app.process.enums import CoatingType, CorrectionKind, ProcessDisplayStatus,
 from app.process.models import StatOnlyCorrection, StageTransitionEvent, WorkOrderQuantityBatch, WorkOrderStageState
 from app.process.repository import ProcessRepository
 from app.process.schemas import ProcessStageStatusRead, ProcessStageWorkOrderRead, StageStatusView
-from app.shared.enums import QueueNamespace, StationId, WorkOrderKind, WorkOrderStatus
+from app.shared.enums import QueueNamespace, StationId, WorkOrderKind
 from app.shared.exceptions import InvalidPaintInventoryError, InvalidProcessStageTransitionError, ResourceNotFoundError
 from app.work_orders.number_allocator import WorkOrderNumberAllocator
 from app.work_orders.models import WorkOrder
@@ -2041,7 +2041,6 @@ class ProcessService:
                 paint_code=parent_work_order.paint_code,
             ).current_quantity_kg,
             consumed_paint_quantity_kg=0,
-            status=WorkOrderStatus.ENTERED,
             coating_type=parent_work_order.coating_type,
             work_order_kind=WorkOrderKind.STANDARD,
             is_ocynk=parent_work_order.is_ocynk,
@@ -2491,7 +2490,7 @@ class ProcessService:
 
     @staticmethod
     def _has_incomplete_marker(work_order: WorkOrder) -> bool:
-        return work_order.is_incomplete_on_arrival or work_order.status == WorkOrderStatus.INCOMPLETE
+        return work_order.is_incomplete_on_arrival
 
     def _is_complete_for_display(self, work_order: WorkOrder) -> bool:
         return (

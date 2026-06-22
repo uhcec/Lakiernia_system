@@ -38,7 +38,7 @@ from app.process.models import (
 )
 from app.process.repository import ProcessRepository
 from app.process.service import ProcessService
-from app.shared.enums import StationId, WorkOrderKind, WorkOrderStatus
+from app.shared.enums import StationId, WorkOrderKind
 from app.work_orders.models import WorkOrder, WorkOrderAttachment, WorkOrderNumberCounter
 from app.work_orders.repository import WorkOrderRepository
 from app.work_orders.schemas import WorkOrderCreate
