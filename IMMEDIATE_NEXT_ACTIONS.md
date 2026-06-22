@@ -661,14 +661,32 @@ are sub-optimal"), full report in **`docs/ARCHITECTURE_AUDIT.md`**. These are **
 correctness defects. Severities reflect maintainability risk, not user-visible breakage.
 
 ### NA39. `app/process/service.py` is a 2937-line god class
+- Status: **IN PROGRESS.** Cut 1 (audit/transition-log writing) **DONE (2026-06-22)** — extracted the seven
+  audit + stage-transition writers into `ProcessAuditWriter` (`app/process/audit_writer.py`), instantiated as
+  `self.audit` on `ProcessService`. Cleanest seam (deps were only session + `AuditRepository`); also closes
+  **NA46 §A6** (the dual write to `audit_events` + `stage_transition_events` now lives in one place and cannot
+  diverge). Behavior-preserving: 438 backend tests pass, `alembic check` clean; `service.py` 3119 → 2906 lines.
+  Commit `921c577`.
+  - **Remaining cuts (each is a deliberate pass — do NOT rush; the entanglement below is the reason):**
+    - **Resource-lock + packing-slot manager** (`_acquire_packing_slot` & co., ~`service.py:2516-2824`):
+      the lock orchestration reaches `self.repository` **and** the occupancy predicates
+      (`_occupies_packing` / `_has_active_hanging_work` / `_occupies_automatic_line`), which read stage state
+      via `_get_stage_state`. Decide whether those domain predicates move with it or stay. **NA46 §A5 (bound
+      the lock maps) is the risky sub-part** — evicting an in-use `RLock` could hand two threads different
+      locks for one id; design eviction carefully (only evict provably-unheld locks) before touching it.
+    - **Correction subsystem** → `CorrectionService` (already half-seamed by NA40's `_select_correction_kind`
+      / `_dispatch_packing_correction`): entangled with stage-state reset, batch creation, number allocation,
+      finalize, and the audit writer. Largest self-contained chunk per the audit.
+    - **Read-model serializer** (`_to_stage_work_order_read` + quantity/category helpers): widest dependency
+      surface (display-status, quantity, packing-slot, paint, correction-state). **Couple with NA43** (single
+      `quantity_for(context)` resolver) so the quantity rule lands once. Do last.
 - Severity: MEDIUM (maintainability). See `docs/ARCHITECTURE_AUDIT.md` §A1.
 - Problem: `ProcessService` (`app/process/service.py`, ~120 methods) mixes transition logic, resource-lock
   + packing-slot management (`_PROCESS_MUTATION_LOCKS` at `:30-33`), correction creation/merge,
-  display-status derivation (`:997-1121`), read-model serialization (`_to_stage_work_order_read` `:2408`),
-  and audit/transition-log writing. Every workflow change lands in this one file.
-- Required fix: extract along existing seams — `ResourceLockManager`, `CorrectionService`,
-  `ProcessReadModel`/serializer, `AuditWriter`. Behavior-preserving, incremental, test suite as net.
-  Highest leverage first: read-model serialization and corrections (largest self-contained chunks).
+  display-status derivation, read-model serialization, and audit/transition-log writing (now extracted).
+  Every workflow change lands in this one file.
+- Required fix: extract along existing seams — `ProcessAuditWriter` (done), `ResourceLockManager`,
+  `CorrectionService`, `ProcessReadModel`/serializer. Behavior-preserving, incremental, test suite as net.
 - Acceptance: `service.py` materially smaller; concerns in separate modules; full suite still green.
 
 ### NA40. Abstract the correction subsystem BEFORE adding NA34's third correction kind
@@ -801,6 +819,11 @@ correctness defects. Severities reflect maintainability risk, not user-visible b
 - Acceptance: active docs/ contains only living docs; archive holds the snapshots; DOCUMENTATION_MAP is accurate.
 
 ### NA46. Backend cleanup: derive `current_active_batch_id`; bound the in-process lock maps
+- Status: **PARTIAL.** §A6 (single write path for the `audit_events` + `stage_transition_events` double-write)
+  **DONE (2026-06-22)** as a side effect of NA39 cut 1 — both writes now live in `ProcessAuditWriter`
+  (`app/process/audit_writer.py`), so they cannot diverge. **Still open:** §A4 (derive `current_active_batch_id`
+  from `active_batches` instead of the hand-synced stored pointer) and §A5 (bound/evict the in-process lock
+  maps — design eviction carefully; only evict provably-unheld `RLock`s).
 - Severity: LOW (robustness). See §A4, §A5, §A6.
 - Problem: `current_active_batch_id` is a stored pointer hand-synced at 8+ sites
   (`_sync_legacy_current_active_batch`) with a heuristic fallback (`models.py:176-186`) — a forgotten sync
