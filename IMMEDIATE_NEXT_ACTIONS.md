@@ -675,7 +675,7 @@ correctness defects. Severities reflect maintainability risk, not user-visible b
     copy as its one cross-dependency). The per-work-order *process*-mutation lock stays on `ProcessService`
     (separate concern). Behavior-preserving: 438 backend tests pass, `alembic check` clean; `service.py`
     2906 → 2596 lines (3119 → 2596 across both NA39 cuts so far). **NA46 §A5 deliberately left out** — see below.
-    Commit `<pending>`.
+    Commit `cc33845`.
   - **Remaining cuts (each is a deliberate pass — do NOT rush; the entanglement below is the reason):**
     - **NA46 §A5 (bound the in-process lock maps)** still open and risky — evicting an in-use `RLock` could
       hand two threads different locks for one id; design eviction carefully (only evict provably-unheld
