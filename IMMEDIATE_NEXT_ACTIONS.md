@@ -667,13 +667,20 @@ correctness defects. Severities reflect maintainability risk, not user-visible b
   **NA46 §A6** (the dual write to `audit_events` + `stage_transition_events` now lives in one place and cannot
   diverge). Behavior-preserving: 438 backend tests pass, `alembic check` clean; `service.py` 3119 → 2906 lines.
   Commit `921c577`.
+  - Cut 2 (resource-lock + packing-slot manager) **DONE (2026-06-22)** — extracted `ResourceLockManager`
+    (`app/process/resource_locks.py`, instantiated as `self.resource_locks`): the HANGING/AUTOMATIC_LINE
+    single-holder locks, the N-slot PACKING capacity model (NA22), the in-process resource-mutation `RLock`s,
+    and the three occupancy predicates (which turned out to be **cluster-local** — used only to decide
+    acquisition/reservation/stale-recovery, so they moved cleanly; the manager keeps a private `_stage_state`
+    copy as its one cross-dependency). The per-work-order *process*-mutation lock stays on `ProcessService`
+    (separate concern). Behavior-preserving: 438 backend tests pass, `alembic check` clean; `service.py`
+    2906 → 2596 lines (3119 → 2596 across both NA39 cuts so far). **NA46 §A5 deliberately left out** — see below.
+    Commit `<pending>`.
   - **Remaining cuts (each is a deliberate pass — do NOT rush; the entanglement below is the reason):**
-    - **Resource-lock + packing-slot manager** (`_acquire_packing_slot` & co., ~`service.py:2516-2824`):
-      the lock orchestration reaches `self.repository` **and** the occupancy predicates
-      (`_occupies_packing` / `_has_active_hanging_work` / `_occupies_automatic_line`), which read stage state
-      via `_get_stage_state`. Decide whether those domain predicates move with it or stay. **NA46 §A5 (bound
-      the lock maps) is the risky sub-part** — evicting an in-use `RLock` could hand two threads different
-      locks for one id; design eviction carefully (only evict provably-unheld locks) before touching it.
+    - **NA46 §A5 (bound the in-process lock maps)** still open and risky — evicting an in-use `RLock` could
+      hand two threads different locks for one id; design eviction carefully (only evict provably-unheld
+      locks). Now lives logically next to `ResourceLockManager` (`_RESOURCE_MUTATION_LOCKS`) + the
+      `_PROCESS_MUTATION_LOCKS` map still on `ProcessService`.
     - **Correction subsystem** → `CorrectionService` (already half-seamed by NA40's `_select_correction_kind`
       / `_dispatch_packing_correction`): entangled with stage-state reset, batch creation, number allocation,
       finalize, and the audit writer. Largest self-contained chunk per the audit.

@@ -98,7 +98,7 @@ def test_packing_slot_capacity_is_configurable(db_session: Session, monkeypatch:
     b = _plan_and_advance_manual_to_packing(work_order_service, process_service, manager_service, "Cap B", 2)
 
     # Cap of 1 → even an override cannot open a second slot.
-    monkeypatch.setattr(process_service, "_packing_slot_count", lambda: 1)
+    monkeypatch.setattr(process_service.resource_locks, "packing_slot_count", lambda: 1)
     process_service.start_packing(a.id)
     with pytest.raises(InvalidProcessStageTransitionError):
         process_service.start_packing(b.id, override=True)
@@ -124,7 +124,7 @@ def test_complete_packing_blocked_while_other_order_holds_the_only_slot(db_sessi
     first = _plan_and_advance_manual_to_packing(work_order_service, process_service, manager_service, "Guard A", 1)
     second = _plan_and_advance_manual_to_packing(work_order_service, process_service, manager_service, "Guard B", 2)
 
-    monkeypatch.setattr(process_service, "_packing_slot_count", lambda: 1)  # single station
+    monkeypatch.setattr(process_service.resource_locks, "packing_slot_count", lambda: 1)  # single station
     process_service.start_packing(first.id)
 
     with pytest.raises(InvalidProcessStageTransitionError):
@@ -160,7 +160,7 @@ def test_start_packing_recovers_stale_slot_from_finished_owner(db_session: Sessi
     finished = _plan_and_advance_manual_to_packing(work_order_service, process_service, manager_service, "Stale", 1)
     waiting = _plan_and_advance_manual_to_packing(work_order_service, process_service, manager_service, "Fresh", 2)
 
-    monkeypatch.setattr(process_service, "_packing_slot_count", lambda: 1)
+    monkeypatch.setattr(process_service.resource_locks, "packing_slot_count", lambda: 1)
     complete_packing(process_service, finished.id, ok_quantity=100, correction_quantity=0)
     # Forge a stale slot owned by the now-finished order.
     db_session.add(ProcessResourceLock(resource_key="PACKING:1", work_order_id=finished.id))
@@ -217,7 +217,7 @@ def test_second_automatic_cannot_reserve_or_take_a_second_slot(db_session: Sessi
     # The slot logic refuses to hand a second automatic a second slot (it waits for the single station).
     second_wo = process_service.get_work_order_process(second.id)
     with pytest.raises(InvalidProcessStageTransitionError):
-        process_service._acquire_packing_slot(second_wo, for_completion=True)
+        process_service.resource_locks.acquire_packing_slot(second_wo, for_completion=True)
 
 
 def test_automatic_releases_packing_slot_after_completion(db_session: Session) -> None:
