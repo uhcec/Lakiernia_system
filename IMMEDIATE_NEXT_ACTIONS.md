@@ -807,6 +807,27 @@ correctness defects. Severities reflect maintainability risk, not user-visible b
 - Acceptance: one resolver owns quantity-for-display; WORKFLOW.md states the rule; tests cover each context.
 
 ### NA44. Frontend: decompose monolithic pages + move business semantics off the renderer
+- Status: **§C2 (business semantics off the renderer) DONE (2026-06-22); §C1 (page decomposition) still open.**
+  - **Overdue is now backend-owned (`is_overdue`).** Added `is_overdue` to `WorkOrderRead`
+    (`app/work_orders/schemas.py` + computed in `WorkOrderService._to_read_model`: planned pickup day
+    passed and not READY; date-only, server-local, strictly before today). Removed **both** client-side
+    `new Date()` computations — `workOrderDisplay.ts` `getWorkOrderAttentionBadges` and
+    `WorkOrdersListPage.tsx` `delayedCount`. (Minor behaviour refinement: an order due *today* is no longer
+    flagged "PO TERMINIE"; no test pinned the old edge.)
+  - **Status label has one owner (the backend).** Owner chose "backend label everywhere": deleted the
+    frontend `getWorkOrderStatusSummary` switch (`workOrderDisplay.ts`) and render `process_status.label`
+    in `ManagerPanelPage` (×2) and `WorkOrderDetailPage` (×2); removed the redundant stacked summary line
+    in the detail "Status procesu" section (the chip already shows the label). Operators now see the precise
+    backend wording (e.g. "Produkcja ręczna" / "Produkcja automat", "Pakowanie"), distinguishing
+    manual/automatic, instead of the collapsed "W produkcji".
+  - Tests: backend `test_read_model_is_overdue_is_backend_owned_NA44`; frontend overdue-from-`is_overdue`
+    case in `workOrderDisplay.test.ts` + `is_overdue` added to the three `buildWorkOrder` mock helpers and the
+    stale `getWorkOrderStatusSummary` stub dropped from two module mocks. **440 backend + 85 frontend tests
+    pass; both builds clean; alembic clean (read-model-only, no schema change).**
+  - **Still open — §C1 (structure):** decompose the monolith pages (`WorkOrderDetailPage` 1353,
+    `ManagerPanelPage` 1053, `PackingWorkOrdersPage` 908, `StageWorkOrdersPage` 876) into section components
+    with a data hook. Bulky churn; the backlog's own guidance is "do it when next touched", so it is left for
+    when those pages are next edited rather than a standalone churn pass.
 - Severity: LOW–MEDIUM. See §C1, §C2.
 - Problem (structure): `WorkOrderDetailPage.tsx` (1353), `ManagerPanelPage.tsx` (1053),
   `PackingWorkOrdersPage.tsx` (908), `StageWorkOrdersPage.tsx` (876) are monoliths; known frontend defects

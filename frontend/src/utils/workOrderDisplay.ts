@@ -25,30 +25,6 @@ export function formatWorkOrderPrimaryInfo(workOrder: DisplayableWorkOrder | Dis
   ].join(" · ");
 }
 
-export function getWorkOrderStatusSummary(workOrder: WorkOrder): string {
-  switch (workOrder.process_status.value) {
-    case "TO_BE_PLANNED":
-      return "Do zaplanowania";
-    case "INCOMPLETE":
-      return "Niekompletne";
-    case "SURFACE_PREPARATION":
-      return "W przygotowaniu";
-    case "HANGING":
-      return "W zawieszaniu";
-    case "PRODUCTION_MANUAL":
-    case "PRODUCTION_AUTOMATIC":
-      return "W produkcji";
-    case "DECORAL_PRODUCTION":
-      return "W Decoralu";
-    case "PACKING":
-      return "W pakowaniu";
-    case "WAITING_FOR_CORRECTIONS":
-      return "Czeka na poprawki";
-    case "READY":
-      return "Gotowe";
-  }
-}
-
 export function getWorkOrderProgressText(workOrder: WorkOrder): string {
   return `${workOrder.total_progress_quantity} / ${workOrder.total_quantity} szt.`;
 }
@@ -139,7 +115,6 @@ export function getWorkOrderBadgeStack(workOrder: WorkOrder): DisplayBadge[] {
 
 export function getWorkOrderAttentionBadges(workOrder: WorkOrder): DisplayBadge[] {
   const badges: DisplayBadge[] = [];
-  const today = new Date();
 
   if (workOrder.process_status.value === "INCOMPLETE") {
     badges.push({ label: "NIEKOMPLETNE", tone: "danger" });
@@ -157,11 +132,8 @@ export function getWorkOrderAttentionBadges(workOrder: WorkOrder): DisplayBadge[
     badges.push({ label: `RÓŻNICA: ${formatQuantityDifference(workOrder.surface_preparation_quantity_difference)} SZT.`, tone: "warning" });
   }
 
-  if (workOrder.planned_pickup_date && workOrder.process_status.value !== "READY") {
-    const pickupDate = new Date(workOrder.planned_pickup_date);
-    if (pickupDate < today) {
-      badges.push({ label: "PO TERMINIE", tone: "danger" });
-    }
+  if (workOrder.is_overdue) {
+    badges.push({ label: "PO TERMINIE", tone: "danger" });
   }
 
   return badges;

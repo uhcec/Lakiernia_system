@@ -250,6 +250,7 @@ class WorkOrderRead(BaseModel):
     batches: list[WorkOrderQuantityBatchRead]
     received_date: date
     planned_pickup_date: date | None
+    is_overdue: bool = False
     is_released_to_client: bool = False
     released_to_client_at: datetime | None = None
     total_area_m2: float | None

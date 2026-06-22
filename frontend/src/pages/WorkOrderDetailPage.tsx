@@ -27,7 +27,6 @@ import {
   getWorkOrderDiscrepancyText,
   getHistoricalWorkOrderResultText,
   getWorkOrderProgressText,
-  getWorkOrderStatusSummary,
   type DisplayBadge,
 } from "../utils/workOrderDisplay";
 
@@ -568,7 +567,7 @@ export function WorkOrderDetailPage() {
                       </span>
                     ))}
                   </div>
-                  <p className="text-lg font-semibold text-ink">{getWorkOrderStatusSummary(workOrder)}</p>
+                  <p className="text-lg font-semibold text-ink">{workOrder.process_status.label}</p>
                   {isHistoricalWorkOrder(workOrder) ? (
                     <p className="text-sm font-semibold text-emerald-700">{getHistoricalWorkOrderResultText(workOrder)}</p>
                   ) : (
@@ -716,7 +715,7 @@ export function WorkOrderDetailPage() {
                 ) : null}
                 <div>
                   <dt className="text-sm font-medium text-steel">Podsumowanie stanu</dt>
-                  <dd className="mt-1 text-base font-semibold text-ink">{getWorkOrderStatusSummary(workOrder)}</dd>
+                  <dd className="mt-1 text-base font-semibold text-ink">{workOrder.process_status.label}</dd>
                 </div>
                 <div>
                   <dt className="text-sm font-medium text-steel">
@@ -814,7 +813,6 @@ export function WorkOrderDetailPage() {
                 <div className={["mt-6 inline-flex rounded-full px-4 py-2 text-sm font-semibold", processStatusClasses(workOrder.process_status.value)].join(" ")}>
                   {workOrder.process_status.label}
                 </div>
-                <p className="mt-4 text-lg font-semibold text-ink">{getWorkOrderStatusSummary(workOrder)}</p>
                 {getWorkOrderActiveCorrectionsText(workOrder) ? (
                   <p className="mt-2 text-sm text-rose-700">{getWorkOrderActiveCorrectionsText(workOrder)}</p>
                 ) : null}

@@ -740,6 +740,15 @@ class WorkOrderService:
         total_progress_quantity = self.process_service.get_total_progress_quantity(work_order)
         process_status = self.process_service.get_display_status(work_order)
 
+        # Overdue is business meaning, so it is owned by the backend (NA44), not computed on the
+        # renderer: the planned pickup day has passed and the order is not yet READY. Date-only,
+        # server-local — strictly before today (the pickup day itself is not yet "past the deadline").
+        is_overdue = (
+            work_order.planned_pickup_date is not None
+            and process_status != ProcessDisplayStatus.READY
+            and work_order.planned_pickup_date < date.today()
+        )
+
         predicted_paint_quantity_kg = calculate_predicted_paint_quantity_kg(work_order.total_area_m2)
         current_paint_stock_quantity_kg = self._get_current_paint_stock_quantity_kg(work_order)
         paint_inventory_shortage_quantity_kg = calculate_paint_shortage_quantity_kg(
@@ -823,6 +832,7 @@ class WorkOrderService:
             ],
             received_date=work_order.received_date,
             planned_pickup_date=work_order.planned_pickup_date,
+            is_overdue=is_overdue,
             is_released_to_client=work_order.released_to_client_at is not None,
             released_to_client_at=work_order.released_to_client_at,
             total_area_m2=work_order.total_area_m2,

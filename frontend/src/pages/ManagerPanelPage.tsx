@@ -30,7 +30,6 @@ import {
   getWorkOrderDiscrepancyText,
   getHistoricalWorkOrderResultText,
   getWorkOrderProgressText,
-  getWorkOrderStatusSummary,
   type DisplayBadge,
 } from "../utils/workOrderDisplay";
 
@@ -613,7 +612,7 @@ export function ManagerPanelPage() {
                       </span>
                     ))}
                   </div>
-                  <p className="text-sm font-semibold text-ink">{getWorkOrderStatusSummary(workOrder)}</p>
+                  <p className="text-sm font-semibold text-ink">{workOrder.process_status.label}</p>
                   <p className="text-sm text-steel">Postęp: {getWorkOrderProgressText(workOrder)}</p>
                   {getWorkOrderDiscrepancyText(workOrder) ? (
                     <p className="text-sm font-medium text-amber-700">{getWorkOrderDiscrepancyText(workOrder)}</p>
@@ -924,7 +923,7 @@ export function ManagerPanelPage() {
                             </span>
                           ))}
                         </div>
-                        <p className="mt-2 text-sm font-semibold text-ink">{getWorkOrderStatusSummary(workOrder)}</p>
+                        <p className="mt-2 text-sm font-semibold text-ink">{workOrder.process_status.label}</p>
                         <p className="text-sm text-steel">Postęp: {getWorkOrderProgressText(workOrder)}</p>
                         {workOrder.is_correction ? (
                           <div className="mt-2 space-y-1 text-sm">

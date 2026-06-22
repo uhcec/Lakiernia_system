@@ -1,5 +1,5 @@
 import json
-from datetime import date
+from datetime import date, timedelta
 
 import pytest
 from sqlalchemy import select
@@ -62,6 +62,32 @@ def test_create_work_order_records_station_audit_event(db_session: Session) -> N
         "is_ocynk": False,
         "is_incomplete_on_arrival": False,
     }
+
+
+def test_read_model_is_overdue_is_backend_owned_NA44(db_session: Session) -> None:
+    # NA44: "overdue" is a backend-owned read-model boolean (the planned pickup day has passed and the
+    # order is not READY), not a client-clock computation. Date-only, strictly before today.
+    service, _ = build_work_order_service(db_session)
+
+    overdue = service.create_work_order(
+        build_incomplete_work_order_payload(is_incomplete_on_arrival=False, planned_pickup_date=date.today() - timedelta(days=1))
+    )
+    assert overdue.is_overdue is True
+
+    future = service.create_work_order(
+        build_incomplete_work_order_payload(is_incomplete_on_arrival=False, planned_pickup_date=date.today() + timedelta(days=1))
+    )
+    assert future.is_overdue is False
+
+    due_today = service.create_work_order(
+        build_incomplete_work_order_payload(is_incomplete_on_arrival=False, planned_pickup_date=date.today())
+    )
+    assert due_today.is_overdue is False  # the pickup day itself is not yet past the deadline
+
+    no_date = service.create_work_order(
+        build_incomplete_work_order_payload(is_incomplete_on_arrival=False, planned_pickup_date=None)
+    )
+    assert no_date.is_overdue is False
 
 
 def test_update_work_order_records_station_audit_event(db_session: Session) -> None:

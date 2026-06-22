@@ -82,7 +82,6 @@ vi.mock("../src/utils/workOrderDisplay", () => ({
       ? `Przygotowanie: zadeklarowano ${workOrder.total_quantity}, policzono ${workOrder.surface_preparation_counted_quantity} (${workOrder.surface_preparation_quantity_difference} szt.)`
       : null,
   getWorkOrderProgressText: (workOrder: { total_quantity: number }) => `${workOrder.total_quantity} / ${workOrder.total_quantity} szt.`,
-  getWorkOrderStatusSummary: () => "Status testowy",
 }));
 
 const managerApi = await import("../src/api/managerApi");
@@ -158,6 +157,7 @@ function buildWorkOrder(id: number, orderNumber: string, queuePosition: number, 
     batches: [],
     received_date: "2026-05-27",
     planned_pickup_date: null,
+    is_overdue: false,
     is_released_to_client: false,
     released_to_client_at: null,
     total_area_m2: null,

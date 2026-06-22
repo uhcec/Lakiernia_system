@@ -23,7 +23,6 @@ vi.mock("../src/utils/workOrderDisplay", () => ({
   getWorkOrderDiscrepancyText: () => null,
   getHistoricalWorkOrderResultText: () => "",
   getWorkOrderProgressText: () => "0 / 0 szt.",
-  getWorkOrderStatusSummary: () => "Status testowy",
 }));
 
 const managerApi = await import("../src/api/managerApi");
@@ -77,6 +76,7 @@ function buildWorkOrder(id: number, orderNumber: string, queuePosition: number |
     batches: [],
     received_date: "2026-05-27",
     planned_pickup_date: null,
+    is_overdue: false,
     is_released_to_client: false,
     released_to_client_at: null,
     total_area_m2: null,
