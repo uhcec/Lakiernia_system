@@ -69,6 +69,10 @@ class WorkOrder(Base):
             "profiles_quantity IS NULL OR accessories_quantity IS NULL OR profiles_quantity + accessories_quantity = total_quantity",
             name="profile_accessory_quantities_sum_total_if_known",
         ),
+        CheckConstraint(
+            "decoral_foil_id IS NULL OR coating_type = 'DECORAL'",
+            name="decoral_foil_requires_decoral_coating",
+        ),
         CheckConstraint("parent_order_id IS NULL OR parent_order_id != id", name="parent_order_cannot_reference_self"),
         CheckConstraint("is_correction = 0 OR parent_order_id IS NOT NULL", name="correction_requires_parent"),
         CheckConstraint(
@@ -85,6 +89,7 @@ class WorkOrder(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     paint_id: Mapped[int | None] = mapped_column(ForeignKey("paints.id", ondelete="SET NULL"), nullable=True, index=True)
+    decoral_foil_id: Mapped[int | None] = mapped_column(ForeignKey("foils.id", ondelete="SET NULL"), nullable=True, index=True)
     order_number: Mapped[str] = mapped_column(String(32), unique=True, nullable=False)
     external_order_number: Mapped[str | None] = mapped_column(String(128), nullable=True)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -159,6 +164,7 @@ class WorkOrder(Base):
         order_by="WorkOrderAttachment.uploaded_at.desc()",
     )
     paint = relationship("Paint", back_populates="work_orders")
+    decoral_foil = relationship("Foil", back_populates="work_orders")
 
     @property
     def active_batches(self):

@@ -56,6 +56,13 @@ vi.mock("../src/api/workOrdersApi", () => ({
   uploadWorkOrderAttachment: vi.fn(),
 }));
 
+vi.mock("../src/api/foilsApi", () => ({
+  fetchFoils: vi.fn(),
+  createFoil: vi.fn(),
+  updateFoil: vi.fn(),
+  deleteFoil: vi.fn(),
+}));
+
 vi.mock("../src/utils/workOrderDisplay", () => ({
   formatWorkOrderPrimaryInfo: (workOrder: { order_number: string; customer_name?: string | null }) =>
     `${workOrder.order_number} :: ${workOrder.customer_name ?? "Brak firmy"}`,
@@ -89,6 +96,7 @@ const auditApi = await import("../src/api/auditApi");
 const paintsApi = await import("../src/api/paintsApi");
 const processApi = await import("../src/api/processApi");
 const workOrdersApi = await import("../src/api/workOrdersApi");
+const foilsApi = await import("../src/api/foilsApi");
 
 const fetchWorkOrderAuditEventsMock = vi.mocked(auditApi.fetchWorkOrderAuditEvents);
 const fetchCorrectionReasonReportMock = vi.mocked(managerApi.fetchCorrectionReasonReport);
@@ -108,6 +116,7 @@ const completePackingMock = vi.mocked(processApi.completePacking);
 const startPackingMock = vi.mocked(processApi.startPacking);
 const releasePackingMock = vi.mocked(processApi.releasePacking);
 const createWorkOrderMock = vi.mocked(workOrdersApi.createWorkOrder);
+const fetchFoilsMock = vi.mocked(foilsApi.fetchFoils);
 const fetchWorkOrdersMock = vi.mocked(workOrdersApi.fetchWorkOrders);
 const fetchWorkOrderMock = vi.mocked(workOrdersApi.fetchWorkOrder);
 const fetchWorkOrderAttachmentsMock = vi.mocked(workOrdersApi.fetchWorkOrderAttachments);
@@ -263,6 +272,8 @@ beforeEach(() => {
   startPackingMock.mockReset();
   releasePackingMock.mockReset();
   createWorkOrderMock.mockReset();
+  fetchFoilsMock.mockReset();
+  fetchFoilsMock.mockResolvedValue({ items: [], total: 0, limit: 100, offset: 0 });
   fetchWorkOrdersMock.mockReset();
   fetchPaintsMock.mockReset();
   fetchPaintMovementsMock.mockReset();
@@ -334,6 +345,59 @@ describe("frontend state consistency", () => {
           is_ocynk: true,
           paint_code: "P-7016",
           total_area_m2: 84,
+        }),
+      );
+    });
+  });
+
+  it("offers the Decoral foil picker only for Decoral orders and submits the chosen foil (NA38)", async () => {
+    createWorkOrderMock.mockResolvedValue({ ...buildWorkOrder(94, "WO-CREATE-FOIL", 1) });
+    fetchFoilsMock.mockResolvedValue({
+      items: [
+        { id: 7, name: "Złoty dąb", code: "FOIL-ZD", supplier: null, notes: null, usage_count: 0, created_at: "", updated_at: "" },
+      ],
+      total: 1,
+      limit: 100,
+      offset: 0,
+    });
+    lookupPaintStockMock.mockResolvedValue({
+      paint_id: 1,
+      ral_code: "D-200",
+      paint_producer: "AkzoNobel",
+      paint_code: "P-D200",
+      current_quantity_kg: 30,
+      exists_in_inventory: true,
+    });
+
+    render(
+      <MemoryRouter>
+        <CreateWorkOrderPage />
+      </MemoryRouter>,
+    );
+
+    // No foil picker until Decoral is chosen.
+    expect(screen.queryByLabelText("Folia Decoral")).toBeNull();
+
+    fireEvent.change(screen.getByLabelText("Klient"), { target: { value: "Fasada Polska" } });
+    fireEvent.change(screen.getByLabelText("Technologia"), { target: { value: "DECORAL" } });
+
+    const foilSelect = await screen.findByLabelText("Folia Decoral");
+    fireEvent.change(foilSelect, { target: { value: "7" } });
+
+    fireEvent.change(screen.getByLabelText("Kod RAL"), { target: { value: "D-200" } });
+    fireEvent.change(screen.getByLabelText("Producent farby"), { target: { value: "AkzoNobel" } });
+    fireEvent.change(screen.getByLabelText("Kod farby"), { target: { value: "P-D200" } });
+    await screen.findByText(/aktualny stan 30 kg/i);
+    fireEvent.change(screen.getByLabelText("Data przyjęcia"), { target: { value: "2026-05-30" } });
+    fireEvent.change(screen.getByLabelText(/Powierzchnia całkowita/i), { target: { value: "12" } });
+    screen.getAllByLabelText("Do policzenia na produkcji").forEach((checkbox) => fireEvent.click(checkbox));
+    fireEvent.click(screen.getByRole("button", { name: "Zapisz" }));
+
+    await waitFor(() => {
+      expect(createWorkOrderMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          coating_type: "DECORAL",
+          decoral_foil_id: 7,
         }),
       );
     });

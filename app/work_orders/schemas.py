@@ -17,6 +17,7 @@ from app.process.enums import (
     get_quantity_batch_type_label,
     get_stage_status_label,
 )
+from app.foils.schemas import FoilSummaryRead
 from app.shared.enums import WorkOrderStatus
 from app.shared.enums import QueueNamespace, WorkOrderKind, get_queue_namespace_label, get_work_order_kind_label
 
@@ -159,6 +160,7 @@ class WorkOrderCreate(BaseModel):
     paint_code: str = Field(min_length=1, max_length=64)
     paint_producer: str = Field(min_length=1, max_length=255)
     coating_type: CoatingType
+    decoral_foil_id: int | None = Field(default=None, ge=1)
     work_order_kind: WorkOrderKind = WorkOrderKind.STANDARD
     is_ocynk: bool = False
     received_date: date
@@ -189,6 +191,7 @@ class WorkOrderUpdate(BaseModel):
     ral_code: str | None = Field(default=None, min_length=1, max_length=64)
     paint_code: str | None = Field(default=None, min_length=1, max_length=64)
     paint_producer: str | None = Field(default=None, min_length=1, max_length=255)
+    decoral_foil_id: int | None = Field(default=None, ge=1)
     received_date: date | None = None
     planned_pickup_date: date | None = None
     total_area_m2: float | None = Field(default=None, gt=0)
@@ -243,6 +246,7 @@ class WorkOrderRead(BaseModel):
     queue_blocked_by_resource: str | None = None
     queue_blocked_reason: str | None = None
     coating_type: CoatingTypeView
+    decoral_foil: FoilSummaryRead | None = None
     production_type: ProductionTypeView | None
     queue_namespace: QueueNamespaceView
     queue_position: int | None

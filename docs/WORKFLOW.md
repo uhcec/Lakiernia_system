@@ -33,6 +33,7 @@ Confirmed needs:
 - `external_order_number` is optional, not unique, and duplicate values should be allowed without warning or blocking
 - paint identity and a paint stock snapshot or stock reference should be captured at intake before planning/production
 - the office-entered paint quantity currently means only the stock snapshot seen at intake, not work-order demand and not a live warehouse balance
+- a **Decoral foil** may be selected at intake from the foil registry (`foils` lookup table), at most one per order (`WorkOrder.decoral_foil_id`); it is allowed only on `DECORAL`-coating orders (DB CHECK `decoral_foil_requires_decoral_coating`) and is optional. Today the foil is stored and displayed only (work-order detail + Decoral station); it does not yet feed Decoral-pass consumption or foil-usage stats (deferred, NA38)
 
 Open implementation design:
 - whether the work-order stock snapshot later links to a shared inventory batch/item model if this app ever grows into real warehouse tracking

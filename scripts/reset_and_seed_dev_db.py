@@ -24,6 +24,7 @@ from app.auth.service import hash_password
 from app.clients.models import Client
 from app.core.config import get_settings, get_work_order_attachments_path
 from app.employees.models import Employee, StationPresence
+from app.foils.models import Foil
 from app.database import models as _models  # noqa: F401
 from app.database.session import get_session_factory
 from app.manager.repository import ManagerRepository
@@ -167,6 +168,7 @@ def reset_app_data(session: Session) -> None:
     session.execute(delete(WorkOrderQuantityBatch))
     session.execute(delete(WorkOrder))
     session.execute(delete(WorkOrderNumberCounter))
+    session.execute(delete(Foil))
     session.execute(delete(Client))
     session.execute(delete(User))
     session.execute(delete(StationPresence))
@@ -187,6 +189,11 @@ def reset_app_data(session: Session) -> None:
         session.add(Client(company_name=company_name, contact_phone=contact_phone, nip=nip))
     session.commit()
     print(f"Seeded {len(_SEED_CLIENTS)} clients.")
+
+    for name, code, supplier, notes in _SEED_FOILS:
+        session.add(Foil(name=name, code=code, supplier=supplier, notes=notes))
+    session.commit()
+    print(f"Seeded {len(_SEED_FOILS)} foils.")
 
     for full_name in _SEED_EMPLOYEES:
         session.add(Employee(full_name=full_name))
@@ -247,6 +254,13 @@ _SEED_CLIENTS = [
     ("Profiltech Sp. z o.o.", "+48 22 123 45 67", "5261040828"),
     ("Aluminco", "+48 71 345 67 89", "8991234567"),
     ("Metal-Bud Zając", "+48 12 456 78 90", "6761234567"),
+]
+
+# (name, code, supplier, notes)
+_SEED_FOILS = [
+    ("Złoty dąb", "FOIL-ZD", "Decoral S.p.A.", "Drobny słój, ciepły odcień."),
+    ("Orzech", "FOIL-OR", "Decoral S.p.A.", None),
+    ("Antracyt struktura", "FOIL-AS", "Proszki Sp. z o.o.", "Matowa struktura."),
 ]
 
 
@@ -373,6 +387,7 @@ def seed_all_use_cases(session: Session) -> list[SeededScenario]:
         )
     )
 
+    seeded_foil = session.scalars(select(Foil).order_by(Foil.id.asc())).first()
     decoral_manual = create_work_order(
         work_order_service,
         title="Decoral manual - gotowe do decoral",
@@ -380,6 +395,7 @@ def seed_all_use_cases(session: Session) -> list[SeededScenario]:
         total_quantity=9,
         customer_name="Fasada Polska",
         ral_code="D-200",
+        decoral_foil_id=seeded_foil.id if seeded_foil is not None else None,
         profiles_quantity=8,
         accessories_quantity=1,
         notes="F. Manualny Decoral po pakowaniu, gotowy do etapu Decoral.",
@@ -1207,6 +1223,7 @@ def create_work_order(
     total_quantity: int,
     customer_name: str,
     ral_code: str,
+    decoral_foil_id: int | None = None,
     is_incomplete_on_arrival: bool = False,
     profiles_quantity: int | None = None,
     profiles_to_count: bool = False,
@@ -1224,6 +1241,7 @@ def create_work_order(
         paint_code=paint_code,
         paint_producer=paint_producer,
         coating_type=coating_type,
+        decoral_foil_id=decoral_foil_id,
         received_date=date.today(),
         planned_pickup_date=date.today() + timedelta(days=7),
         total_area_m2=float(total_quantity),

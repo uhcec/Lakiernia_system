@@ -1,3 +1,5 @@
+import type { FoilSummary } from "./foils";
+
 export type WorkOrderStatusValue = "ENTERED" | "INCOMPLETE" | "ASSIGNED" | "IN_PROGRESS" | "FINISHED";
 export type ProductionTypeValue = "MANUAL" | "AUTOMATIC";
 export type CoatingTypeValue = "RAL" | "DECORAL";
@@ -134,6 +136,7 @@ export interface WorkOrder {
   queue_blocked_by_resource: string | null;
   queue_blocked_reason: string | null;
   coating_type: WorkOrderOption<CoatingTypeValue>;
+  decoral_foil?: FoilSummary | null;
   work_order_kind: WorkOrderOption<WorkOrderKindValue>;
   is_ocynk: boolean;
   production_type: WorkOrderOption<ProductionTypeValue> | null;
@@ -174,6 +177,7 @@ export interface UpdateWorkOrderRequest {
   ral_code?: string;
   paint_code?: string | null;
   paint_producer?: string;
+  decoral_foil_id?: number | null;
   received_date?: string;
   planned_pickup_date?: string | null;
   total_area_m2?: number;
@@ -188,6 +192,7 @@ export interface CreateWorkOrderRequest {
   title?: string;
   external_order_number?: string;
   coating_type: CoatingTypeValue;
+  decoral_foil_id?: number | null;
   work_order_kind?: WorkOrderKindValue;
   is_ocynk?: boolean;
   total_quantity?: number;

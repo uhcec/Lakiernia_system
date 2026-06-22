@@ -642,6 +642,24 @@ workflow meaning. Severities are first-pass estimates.
   numbering; covered by tests (mechanism-level; Excel rendering is Windows-only like QC).
 
 ### NA38. Enter the Decoral foil when adding an order — foil registry, one per order
+- Status: **DONE (2026-06-22).** Owner decisions: foil fields = name + code (unique) + supplier + notes;
+  registry managed by the **same actors as the paint/RAL registry** (`StationId.OFFICE`, admin bypass);
+  scope = **store + display only** (foil-usage stats/consumption deferred). Built a new `app/foils/`
+  module (model/schema/repository/service/router) mirroring `clients/` — full CRUD with OFFICE-gated
+  writes + audit events (`foil.created/updated/deleted`) and a `usage_count` rollup. `WorkOrder` gains a
+  nullable `decoral_foil_id` FK (`ON DELETE SET NULL`, like `paint_id`) plus a CHECK
+  `decoral_foil_requires_decoral_coating` (a foil can only sit on a DECORAL order). Office intake accepts
+  `decoral_foil_id` on create/update (validated: foil must exist and the order must be Decoral — else
+  422); the chosen foil is surfaced as a compact `FoilSummaryRead` on `WorkOrderRead` **and** the
+  decoral-station read model (`ProcessStageWorkOrderRead`). Frontend: a `/folie` registry page (mirrors
+  Klienci, with topbar "Dodaj folię"), a foil `<select>` in the create form shown **only** when
+  technology = Decoral, and foil display on the work-order detail + the Decoral station card. Migration
+  `20260622_0036` (foils table + FK + CHECK via work_orders batch rebuild); `alembic check` clean. Seed
+  script seeds 3 foils and assigns one to the decoral-manual order. Tests: `tests/test_foils_api.py`
+  (registry CRUD, dup-code 409, wrong-station 403, search by name/code, decoral order stores+shows foil +
+  usage rollup, foil-on-RAL 422, unknown-foil 422) + a frontend intake test (picker only for Decoral,
+  submits `decoral_foil_id`). Full backend + frontend suites green; both builds clean. Follow-up (not
+  built, deferred per owner): feed the chosen foil into Decoral-pass consumption / foil-usage stats.
 - Severity: MEDIUM (feature — office intake).
 - Request (verbatim): "Folie decoral do wprowadzenia przy dodaniu zlecenia."
 - Decision (2026-06-19): add a **Decoral foil registry** (a lookup table like paints/clients) and let the

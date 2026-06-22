@@ -1,4 +1,5 @@
 import type { QueueNamespaceValue, WorkOrderKindValue, WorkOrderOption, ProductionTypeValue } from "./workOrders";
+import type { FoilSummary } from "./foils";
 
 export type ProcessStageValue =
   | "SURFACE_PREPARATION"
@@ -54,6 +55,7 @@ export interface StageWorkOrder {
   queue_namespace: WorkOrderOption<QueueNamespaceValue>;
   production_type: WorkOrderOption<ProductionTypeValue> | null;
   coating_type: WorkOrderOption<"RAL" | "DECORAL">;
+  decoral_foil?: FoilSummary | null;
   batch_type: "MAIN" | "CORRECTION" | null;
   batch_is_partial: boolean;
   is_being_packed: boolean;

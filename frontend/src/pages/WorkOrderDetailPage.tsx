@@ -655,6 +655,14 @@ export function WorkOrderDetailPage() {
                   <dt className="text-sm font-medium text-steel">Technologia</dt>
                   <dd className="mt-1 text-base text-ink">{workOrder.coating_type.label}</dd>
                 </div>
+                {workOrder.coating_type.value === "DECORAL" && (
+                  <div>
+                    <dt className="text-sm font-medium text-steel">Folia Decoral</dt>
+                    <dd className="mt-1 text-base text-ink">
+                      {workOrder.decoral_foil ? `${workOrder.decoral_foil.name} (${workOrder.decoral_foil.code})` : "—"}
+                    </dd>
+                  </div>
+                )}
                 <div>
                   <dt className="text-sm font-medium text-steel">Kod RAL</dt>
                   <dd className="mt-1 text-base text-ink">{workOrder.ral_code}</dd>

@@ -8,6 +8,7 @@ import { ClientsPage } from "./pages/ClientsPage";
 import { CreateWorkOrderPage } from "./pages/CreateWorkOrderPage";
 import { DecoralProductionPage } from "./pages/DecoralProductionPage";
 import { EmployeesPage } from "./pages/EmployeesPage";
+import { FoilsPage } from "./pages/FoilsPage";
 import { HangingPage } from "./pages/HangingPage";
 import { LoginPage } from "./pages/LoginPage";
 import { ManualProductionPage } from "./pages/ManualProductionPage";
@@ -34,6 +35,7 @@ export default function App() {
         <Route path="/audyt" element={<AuditEventsPage />} />
         <Route path="/farby" element={<PaintInventoryPage />} />
         <Route path="/klienci" element={<ClientsPage />} />
+        <Route path="/folie" element={<FoilsPage />} />
         <Route path="/pracownicy" element={<EmployeesPage />} />
         <Route path="/statystyki" element={<StatystykiPage />} />
         <Route path="/kierownik" element={<ManagerPanelPage />} />

@@ -1,5 +1,6 @@
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from app.foils.schemas import FoilSummaryRead
 from app.process.enums import ProcessStage, QuantityBatchType, StageStatus
 from app.work_orders.schemas import CoatingTypeView, ProductionTypeView, QueueNamespaceView, WorkOrderKindView
 
@@ -51,6 +52,7 @@ class ProcessStageWorkOrderRead(BaseModel):
     queue_namespace: QueueNamespaceView
     production_type: ProductionTypeView | None
     coating_type: CoatingTypeView
+    decoral_foil: FoilSummaryRead | None = None
     batch_type: QuantityBatchType | None = None
     batch_is_partial: bool = False
     is_being_packed: bool = False

@@ -400,6 +400,12 @@ export function DecoralWorkOrdersPage() {
                       <dd className="mt-1 font-semibold text-ink">{`${workOrder.paint_producer} / ${workOrder.ral_code}`}</dd>
                     </div>
                     <div>
+                      <dt className="font-medium text-steel">Folia</dt>
+                      <dd className="mt-1 font-semibold text-ink">
+                        {workOrder.decoral_foil ? `${workOrder.decoral_foil.name} (${workOrder.decoral_foil.code})` : "—"}
+                      </dd>
+                    </div>
+                    <div>
                       <dt className="font-medium text-steel">Sztuki</dt>
                       <dd className="mt-1 font-semibold text-ink">{workOrder.operational_quantity} szt.</dd>
                     </div>

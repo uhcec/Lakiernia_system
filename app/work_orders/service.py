@@ -13,9 +13,10 @@ from app.audit.context import StationContext, ensure_station_allowed
 from app.audit.models import AuditEvent
 from app.audit.repository import AuditRepository
 from app.core.config import get_settings, get_work_order_attachments_path
+from app.foils.repository import FoilRepository
 from app.paints.repository import PaintRepository
 from app.paints.service import PaintService
-from app.process.enums import ProcessDisplayStatus
+from app.process.enums import CoatingType, ProcessDisplayStatus
 from app.process.repository import ProcessRepository
 from app.process.service import ProcessService
 from app.shared.enums import StationId, WorkOrderStatus, get_work_order_status_label
@@ -23,6 +24,7 @@ from app.shared.exceptions import InvalidAttachmentError, InvalidStatusTransitio
 from app.work_orders.models import WorkOrder, WorkOrderAttachment
 from app.work_orders.number_allocator import WorkOrderNumberAllocator
 from app.work_orders.repository import WorkOrderRepository
+from app.foils.schemas import FoilSummaryRead
 from app.work_orders.schemas import (
     WorkOrderAttachmentRead,
     WorkOrderCreate,
@@ -149,6 +151,7 @@ class WorkOrderService:
         self.repository = repository
         self.process_service = ProcessService(ProcessRepository(repository.session))
         self.paint_service = PaintService(PaintRepository(repository.session))
+        self.foil_repository = FoilRepository(repository.session)
         self.number_allocator = WorkOrderNumberAllocator(repository.session)
         self.audit_repository = AuditRepository(repository.session)
 
@@ -176,8 +179,17 @@ class WorkOrderService:
             paint_code=work_order.paint_code,
         ).current_quantity_kg
 
+    def _validate_decoral_foil(self, coating_type, decoral_foil_id: int | None) -> None:
+        if decoral_foil_id is None:
+            return
+        if coating_type != CoatingType.DECORAL:
+            raise InvalidWorkOrderDataError("Folię można wybrać tylko dla zlecenia w technologii Decoral.")
+        if self.foil_repository.get_by_id(decoral_foil_id) is None:
+            raise InvalidWorkOrderDataError(f"Wybrana folia (id={decoral_foil_id}) nie istnieje.")
+
     def create_work_order(self, payload: WorkOrderCreate, station_context: StationContext | None = None) -> WorkOrderRead:
         self._ensure_office_station_action(station_context, "office work-order actions")
+        self._validate_decoral_foil(payload.coating_type, payload.decoral_foil_id)
         order_number = self.number_allocator.allocate()
         paint, paint_stock_snapshot_quantity_kg = self.paint_service.capture_work_order_snapshot(
             ral_code=payload.ral_code,
@@ -199,6 +211,7 @@ class WorkOrderService:
             paint_stock_snapshot_quantity_kg=paint_stock_snapshot_quantity_kg,
             consumed_paint_quantity_kg=0,
             coating_type=payload.coating_type,
+            decoral_foil_id=payload.decoral_foil_id,
             work_order_kind=payload.work_order_kind,
             is_ocynk=payload.is_ocynk,
             received_date=payload.received_date,
@@ -242,6 +255,8 @@ class WorkOrderService:
         work_order = self._get_existing_work_order(work_order_id)
         updates = payload.model_dump(exclude_unset=True)
         validated_payload = self._validate_work_order_state(work_order, updates)
+        if "decoral_foil_id" in updates:
+            self._validate_decoral_foil(work_order.coating_type, validated_payload.decoral_foil_id)
         paint_identity_changed = any(field_name in updates for field_name in {"ral_code", "paint_code", "paint_producer"})
         resolved_paint = None
         resolved_snapshot = None
@@ -308,6 +323,7 @@ class WorkOrderService:
             "paint_code": work_order.paint_code,
             "paint_producer": work_order.paint_producer,
             "coating_type": work_order.coating_type,
+            "decoral_foil_id": work_order.decoral_foil_id,
             "work_order_kind": work_order.work_order_kind,
             "is_ocynk": work_order.is_ocynk,
             "received_date": work_order.received_date,
@@ -797,6 +813,11 @@ class WorkOrderService:
             status=self.build_status_view(process_status),
             process_status=build_process_status_view(process_status),
             coating_type=build_coating_type_view(work_order.coating_type),
+            decoral_foil=(
+                FoilSummaryRead(id=work_order.decoral_foil.id, name=work_order.decoral_foil.name, code=work_order.decoral_foil.code)
+                if work_order.decoral_foil is not None
+                else None
+            ),
             production_type=(
                 build_production_type_view(work_order.production_type)
                 if work_order.production_type is not None

@@ -16,6 +16,7 @@ from app.paints.service import PaintService
 from app.process.enums import CoatingType, CorrectionKind, ProcessDisplayStatus, ProcessStage, ProductionType, QuantityBatchType, StageStatus
 from app.process.models import StatOnlyCorrection, WorkOrderQuantityBatch, WorkOrderStageState
 from app.process.repository import ProcessRepository
+from app.foils.schemas import FoilSummaryRead
 from app.process.schemas import ProcessStageStatusRead, ProcessStageWorkOrderRead, StageStatusView
 from app.shared.enums import QueueNamespace, StationId, WorkOrderKind
 from app.shared.exceptions import InvalidPaintInventoryError, InvalidProcessStageTransitionError, ResourceNotFoundError
@@ -2455,6 +2456,11 @@ class ProcessService:
                 else None
             ),
             coating_type=build_coating_type_view(work_order.coating_type),
+            decoral_foil=(
+                FoilSummaryRead(id=work_order.decoral_foil.id, name=work_order.decoral_foil.name, code=work_order.decoral_foil.code)
+                if work_order.decoral_foil is not None
+                else None
+            ),
             batch_type=batch_type,
             batch_is_partial=batch_is_partial,
             is_being_packed=is_being_packed,
