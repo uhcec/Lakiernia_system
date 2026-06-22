@@ -1,7 +1,6 @@
 from collections.abc import Sequence
 from contextlib import ExitStack, contextmanager
 from datetime import UTC, datetime
-import json
 import logging
 from threading import RLock
 
@@ -10,12 +9,12 @@ from sqlalchemy.exc import IntegrityError
 
 from app.audit.context import StationContext, ensure_station_allowed
 from app.core.config import get_settings
-from app.audit.models import AuditEvent
 from app.audit.repository import AuditRepository
+from app.process.audit_writer import ProcessAuditWriter
 from app.paints.repository import PaintRepository
 from app.paints.service import PaintService
 from app.process.enums import CoatingType, CorrectionKind, ProcessDisplayStatus, ProcessStage, ProductionType, QuantityBatchType, StageStatus
-from app.process.models import StatOnlyCorrection, StageTransitionEvent, WorkOrderQuantityBatch, WorkOrderStageState
+from app.process.models import StatOnlyCorrection, WorkOrderQuantityBatch, WorkOrderStageState
 from app.process.repository import ProcessRepository
 from app.process.schemas import ProcessStageStatusRead, ProcessStageWorkOrderRead, StageStatusView
 from app.shared.enums import QueueNamespace, StationId, WorkOrderKind
@@ -63,6 +62,7 @@ class ProcessService:
         self.paint_service = PaintService(PaintRepository(repository.session))
         self.number_allocator = WorkOrderNumberAllocator(repository.session)
         self.audit_repository = AuditRepository(repository.session)
+        self.audit = ProcessAuditWriter(repository.session, self.audit_repository)
 
     @staticmethod
     def get_stage_sequence_for_configuration(
@@ -215,7 +215,7 @@ class ProcessService:
                 if target_status != StageStatus.IN_PROGRESS:
                     self._release_inactive_resource_locks(work_order)
 
-                self._record_stage_audit_event(
+                self.audit.record_stage_audit_event(
                     work_order=work_order,
                     stage=stage,
                     target_status=target_status,
@@ -223,7 +223,7 @@ class ProcessService:
                     batch_id=None,
                 )
                 for implicit_stage in implicit_in_progress:
-                    self._record_stage_transition(
+                    self.audit.record_stage_transition(
                         work_order=work_order,
                         stage=implicit_stage,
                         status=StageStatus.IN_PROGRESS,
@@ -427,10 +427,10 @@ class ProcessService:
                     raise InvalidProcessStageTransitionError("Batch is not ready for packing.")
                 self._acquire_packing_slot(work_order, override=override)
                 if override and not already_held:
-                    self._record_packing_override_audit_event(work_order, station_context, batch_id=target_batch.id)
+                    self.audit.record_packing_override_audit_event(work_order, station_context, batch_id=target_batch.id)
                 if target_batch.current_stage_status == StageStatus.NOT_STARTED:
                     target_batch.current_stage_status = StageStatus.IN_PROGRESS
-                    self._record_stage_audit_event(
+                    self.audit.record_stage_audit_event(
                         work_order=work_order,
                         stage=ProcessStage.PACKING,
                         target_status=StageStatus.IN_PROGRESS,
@@ -457,12 +457,12 @@ class ProcessService:
 
             self._acquire_packing_slot(work_order, override=override)
             if override and not already_held:
-                self._record_packing_override_audit_event(work_order, station_context, batch_id=None)
+                self.audit.record_packing_override_audit_event(work_order, station_context, batch_id=None)
 
             if packing_state.status == StageStatus.NOT_STARTED:
                 packing_state.status = StageStatus.IN_PROGRESS
                 packing_state.updated_at = datetime.now(UTC)
-                self._record_stage_audit_event(
+                self.audit.record_stage_audit_event(
                     work_order=work_order,
                     stage=ProcessStage.PACKING,
                     target_status=StageStatus.IN_PROGRESS,
@@ -499,7 +499,7 @@ class ProcessService:
             with self._serialize_resource_mutation(self.PACKING_SLOT_PREFIX):
                 self._release_packing_slot(work_order)
             if held_claim:
-                self._record_audit_event(
+                self.audit.record_audit_event(
                     event_type="process.packing.claim_released",
                     station_context=station_context,
                     work_order=work_order,
@@ -647,7 +647,7 @@ class ProcessService:
                     station_context=station_context,
                 )
                 self._release_inactive_resource_locks(work_order)
-                self._record_packing_audit_event(
+                self.audit.record_packing_audit_event(
                     work_order=work_order,
                     station_context=station_context,
                     batch_id=active_batch.id,
@@ -687,7 +687,7 @@ class ProcessService:
                 active_batch.is_active = True
 
             self._release_inactive_resource_locks(work_order)
-            self._record_packing_audit_event(
+            self.audit.record_packing_audit_event(
                 work_order=work_order,
                 station_context=station_context,
                 batch_id=active_batch.id,
@@ -754,7 +754,7 @@ class ProcessService:
             work_order.paint_id = paint.id
             work_order.consumed_paint_quantity_kg = consumed_paint_quantity_kg
             work_order.updated_at = datetime.now(UTC)
-            self._record_automatic_paint_consumption_audit_event(
+            self.audit.record_automatic_paint_consumption_audit_event(
                 work_order=work_order,
                 station_context=station_context,
                 previous_value=previous_value,
@@ -842,7 +842,7 @@ class ProcessService:
                     completed_stage=ProcessStage.DECORAL_PRODUCTION,
                 )
                 self._release_inactive_resource_locks(work_order)
-                self._record_decoral_audit_event(
+                self.audit.record_decoral_audit_event(
                     work_order=work_order,
                     station_context=station_context,
                     batch_id=None,
@@ -861,7 +861,7 @@ class ProcessService:
                     active_batch.is_active = False
                 work_order.current_active_batch_id = None
                 self._release_inactive_resource_locks(work_order)
-                self._record_decoral_audit_event(
+                self.audit.record_decoral_audit_event(
                     work_order=work_order,
                     station_context=station_context,
                     batch_id=None,
@@ -916,7 +916,7 @@ class ProcessService:
 
         self._sync_legacy_current_active_batch(work_order)
         self._release_inactive_resource_locks(work_order)
-        self._record_decoral_audit_event(
+        self.audit.record_decoral_audit_event(
             work_order=work_order,
             station_context=station_context,
             batch_id=batch.id,
@@ -1509,7 +1509,7 @@ class ProcessService:
         self._acquire_stage_resource_locks(work_order, stage, StageStatus.IN_PROGRESS)
         batch.current_stage_status = StageStatus.IN_PROGRESS
         self._sync_legacy_current_active_batch(work_order)
-        self._record_stage_audit_event(
+        self.audit.record_stage_audit_event(
             work_order=work_order,
             stage=stage,
             target_status=StageStatus.IN_PROGRESS,
@@ -1572,7 +1572,7 @@ class ProcessService:
             batch.is_active = False
             work_order.completed_quantity += batch.quantity
             self._sync_legacy_current_active_batch(work_order)
-            self._record_stage_audit_event(
+            self.audit.record_stage_audit_event(
                 work_order=work_order,
                 stage=stage,
                 target_status=StageStatus.DONE,
@@ -1589,7 +1589,7 @@ class ProcessService:
 
         self._sync_legacy_current_active_batch(work_order)
         self._release_inactive_resource_locks(work_order)
-        self._record_stage_audit_event(
+        self.audit.record_stage_audit_event(
             work_order=work_order,
             stage=stage,
             target_status=StageStatus.DONE,
@@ -1620,7 +1620,7 @@ class ProcessService:
         batch.is_active = True
         self._sync_legacy_current_active_batch(work_order)
         self._release_inactive_resource_locks(work_order)
-        self._record_stage_audit_event(
+        self.audit.record_stage_audit_event(
             work_order=work_order,
             stage=stage,
             target_status=StageStatus.NOT_STARTED,
@@ -1712,7 +1712,7 @@ class ProcessService:
 
         self._sync_legacy_current_active_batch(work_order)
         self._release_inactive_resource_locks(work_order)
-        self._record_packing_audit_event(
+        self.audit.record_packing_audit_event(
             work_order=work_order,
             station_context=station_context,
             batch_id=batch.id,
@@ -1790,7 +1790,7 @@ class ProcessService:
                 correction_accessories_quantity=accessories_quantity,
             )
         )
-        self._record_audit_event(
+        self.audit.record_audit_event(
             event_type="work_order.stat_only_correction",
             station_context=station_context,
             work_order=work_order,
@@ -2057,7 +2057,7 @@ class ProcessService:
         persisted_correction_order = self.repository.add_work_order(correction_order)
         self.initialize_quantity_tracking(persisted_correction_order)
         self.initialize_stage_states(persisted_correction_order)
-        self._record_audit_event(
+        self.audit.record_audit_event(
             event_type="work_order.correction_created",
             station_context=station_context,
             work_order=persisted_correction_order,
@@ -2126,7 +2126,7 @@ class ProcessService:
         work_order.queue_position = None
         work_order.consumed_paint_quantity_kg = 0
 
-        self._record_audit_event(
+        self.audit.record_audit_event(
             event_type="work_order.returned_to_correction_planning",
             station_context=station_context,
             work_order=work_order,
@@ -2140,219 +2140,6 @@ class ProcessService:
                 "total_quantity": work_order.total_quantity,
                 "correction_reason_category": correction_reason_category,
             },
-        )
-
-    def _record_stage_audit_event(
-        self,
-        *,
-        work_order: WorkOrder,
-        stage: ProcessStage,
-        target_status: StageStatus,
-        station_context: StationContext | None,
-        batch_id: int | None,
-    ) -> None:
-        action_by_status = {
-            StageStatus.IN_PROGRESS: ("process.stage.started", "Started"),
-            StageStatus.DONE: ("process.stage.finished", "Finished"),
-            StageStatus.NOT_STARTED: ("process.stage.reopened", "Reopened"),
-        }
-        event_type, action_label = action_by_status[target_status]
-        self._record_audit_event(
-            event_type=event_type,
-            station_context=station_context,
-            work_order=work_order,
-            target_type="process_stage",
-            target_id=batch_id,
-            summary=f"{action_label} {stage.value} for work order {work_order.order_number}.",
-            details={
-                "stage": stage.value,
-                "target_status": target_status.value,
-                "batch_id": batch_id,
-            },
-        )
-        self._record_stage_transition(
-            work_order=work_order,
-            stage=stage,
-            status=target_status,
-            station_context=station_context,
-            batch_id=batch_id,
-        )
-
-    def _record_packing_override_audit_event(
-        self,
-        work_order: WorkOrder,
-        station_context: StationContext | None,
-        *,
-        batch_id: int | None,
-    ) -> None:
-        # NA22b: a manual operator opened an additional packing slot. Audited for traceability.
-        self._record_audit_event(
-            event_type="process.packing.slot_override_opened",
-            station_context=station_context,
-            work_order=work_order,
-            target_type="process_stage",
-            target_id=batch_id,
-            summary=f"Opened an additional packing slot (override) for work order {work_order.order_number}.",
-            details={"stage": ProcessStage.PACKING.value, "batch_id": batch_id},
-        )
-
-    def _record_packing_audit_event(
-        self,
-        *,
-        work_order: WorkOrder,
-        station_context: StationContext | None,
-        batch_id: int | None,
-        counted_quantity: int,
-        ok_quantity: int,
-        correction_quantity: int,
-        correction_category_fields: dict[str, int | bool | None],
-    ) -> None:
-        details = {
-            "stage": ProcessStage.PACKING.value,
-            "batch_id": batch_id,
-            "counted_quantity": counted_quantity,
-            "ok_quantity": ok_quantity,
-            "correction_quantity": correction_quantity,
-        }
-        if correction_quantity > 0:
-            details.update(
-                {
-                    "correction_profiles_quantity": correction_category_fields["profiles_quantity"],
-                    "correction_accessories_quantity": correction_category_fields["accessories_quantity"],
-                }
-            )
-        self._record_audit_event(
-            event_type="process.packing.completed",
-            station_context=station_context,
-            work_order=work_order,
-            target_type="process_stage",
-            target_id=batch_id,
-            summary=f"Completed packing for work order {work_order.order_number}.",
-            details=details,
-        )
-        self._record_stage_transition(
-            work_order=work_order,
-            stage=ProcessStage.PACKING,
-            status=StageStatus.DONE,
-            station_context=station_context,
-            batch_id=batch_id,
-            counted_quantity=counted_quantity,
-        )
-
-    def _record_decoral_audit_event(
-        self,
-        *,
-        work_order: WorkOrder,
-        station_context: StationContext | None,
-        batch_id: int | None,
-        ok_quantity: int,
-        correction_quantity: int,
-        correction_category_fields: dict[str, int | bool | None],
-    ) -> None:
-        details: dict[str, object] = {
-            "stage": ProcessStage.DECORAL_PRODUCTION.value,
-            "batch_id": batch_id,
-            "ok_quantity": ok_quantity,
-            "correction_quantity": correction_quantity,
-        }
-        if correction_quantity > 0:
-            details.update(
-                {
-                    "correction_profiles_quantity": correction_category_fields["profiles_quantity"],
-                    "correction_accessories_quantity": correction_category_fields["accessories_quantity"],
-                }
-            )
-        self._record_audit_event(
-            event_type="process.decoral_production.completed",
-            station_context=station_context,
-            work_order=work_order,
-            target_type="process_stage",
-            target_id=batch_id,
-            summary=f"Completed decoral production for work order {work_order.order_number}.",
-            details=details,
-        )
-        self._record_stage_transition(
-            work_order=work_order,
-            stage=ProcessStage.DECORAL_PRODUCTION,
-            status=StageStatus.DONE,
-            station_context=station_context,
-            batch_id=batch_id,
-            counted_quantity=ok_quantity,
-        )
-
-    def _record_automatic_paint_consumption_audit_event(
-        self,
-        *,
-        work_order: WorkOrder,
-        station_context: StationContext | None,
-        previous_value: float,
-        consumed_paint_quantity_kg: float,
-    ) -> None:
-        self._record_audit_event(
-            event_type="process.automatic_paint_consumption.recorded",
-            station_context=station_context,
-            work_order=work_order,
-            target_type="process_stage",
-            target_id=work_order.current_active_batch_id,
-            summary=f"Recorded automatic paint consumption for work order {work_order.order_number}.",
-            details={
-                "stage": ProcessStage.PRODUCTION.value,
-                "paint_code": work_order.paint_code,
-                "paint_stock_snapshot_quantity_kg": work_order.paint_stock_snapshot_quantity_kg,
-                "previous_consumed_paint_quantity_kg": previous_value,
-                "consumed_paint_quantity_kg": consumed_paint_quantity_kg,
-            },
-        )
-
-    def _record_stage_transition(
-        self,
-        *,
-        work_order: WorkOrder,
-        stage: ProcessStage,
-        status: StageStatus,
-        station_context: StationContext | None,
-        batch_id: int | None,
-        counted_quantity: int | None = None,
-    ) -> None:
-        """Append a row to the analytics stage-transition log (see ``StageTransitionEvent``).
-
-        Mirrors the audit choke points so coverage matches the audit log. ``occurred_at`` defaults
-        to now and is never updated, giving a durable timestamp for cycle-time/throughput stats.
-        """
-        self.repository.session.add(
-            StageTransitionEvent(
-                work_order_id=work_order.id,
-                batch_id=batch_id,
-                stage=stage,
-                status=status,
-                counted_quantity=counted_quantity,
-                station_id=station_context.station_id if station_context is not None else StationId.SYSTEM,
-                user_id=station_context.user_id if station_context is not None else None,
-            )
-        )
-
-    def _record_audit_event(
-        self,
-        *,
-        event_type: str,
-        station_context: StationContext | None,
-        work_order: WorkOrder,
-        target_type: str,
-        target_id: int | None,
-        summary: str,
-        details: dict[str, object],
-    ) -> None:
-        station_id = station_context.station_id if station_context is not None else StationId.SYSTEM
-        self.audit_repository.add(
-            AuditEvent(
-                event_type=event_type,
-                station_id=station_id,
-                work_order_id=work_order.id,
-                target_type=target_type,
-                target_id=target_id,
-                summary=summary,
-                details_json=json.dumps(details, separators=(",", ":")),
-            )
         )
 
     @staticmethod
