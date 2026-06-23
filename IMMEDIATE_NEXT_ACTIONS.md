@@ -520,12 +520,91 @@ only. Five elements, top to bottom:
 
 ## System-wide ordering / scheduling model (owner design session 2026-06-23)
 
-### NA49. Shared-stage ordering is undefined under the per-line queue — adopt "schedule the painting bottleneck, derive the rest"
-- Status: **PARTIAL (2026-06-23)** — the **painting-plan auto-scheduler sub-part (NA33) is DONE** (AUTOMATIC
-  line: configurable rule priority, propose + suggestion banner, apply via reorder — see NA33). **Still OPEN:**
-  the shared-stage ordering defect below (surface-prep + packing still show ambiguous merged "Poz."), which is
-  the *derive-the-rest* half of this model. Target model agreed with owner 2026-06-23.
-- Severity: **MEDIUM** (operator-facing truth at shared stages + planning feature).
+### NA49. Multi-day capacity planner ("schedule the painting bottleneck, derive the rest")
+- Status: **OPEN — refined & re-scoped 2026-06-23** in a clean-slate process session with the owner +
+  a process-knowledgeable colleague. The **NA33 painting auto-scheduler is DONE** (the within-day
+  ordering core). What is open is the **bulk of the real planner** below: the session re-grounded the
+  system's core job as *hit the daily m² floor + keep the automatic booth fed + offload the manager* — a
+  **multi-day capacity planner**, not a queue-orderer. Authoritative model now in `docs/WORKFLOW.md`
+  ("Target planning model") + `docs/FACTORY_DOMAIN_MODEL.md` §7. The original 2026-06-23 framing, the
+  confirmed shared-stage defect, and sub-items A–M remain **below as detail/history** (several are now
+  superseded or dropped — see the closing notes).
+- Severity: **MEDIUM–HIGH** (this is the core value of the system, not a side feature).
+
+#### Refined build plan (dependency-ordered — supersedes the framing further below)
+
+**Foundation (do first):**
+- **N49-1 — Make `planned_pickup_date` a hard, required deadline.** It IS the hard "Termin odbioru"
+  (always set at intake — owner confirmed), but the schema allows NULL and the scheduler treats it as a
+  soft sort key. Require it at intake; treat it as a **hard feasibility constraint** in the planner. (No
+  new column needed; legacy `due_date` was dropped in migration `20260529_0014`.) Acceptance: intake
+  requires a pickup date; the planner can rely on every active order having one.
+- **N49-2 — Measurement engine ("learn the numbers").** Derive real automatic **m²/h** and a
+  **statistical colour-changeover cost** from `StageTransitionEvent` (HANGING-start → PACKING-done
+  brackets the automatic pass — **no booth tap**, owner: "na kabinie nie tapnie"). Seed ~55–60 m²/h.
+  Manual line stays unmeasured (overflow valve). Acceptance: per-line rate + changeover estimate computed
+  from the log and refining over time.
+
+**Core planner (the heart — depends on the foundation):**
+- **N49-3 — Day capacity model: floor + ceiling.** Each working day is a bucket with a **floor** (800
+  long / 500 short m²) and a **ceiling** (measured booth capacity); a colour change **consumes
+  capacity**. Advise shift length from available ready work. Acceptance: a day shows fill vs floor/ceiling;
+  below-floor and over-ceiling (spill) are flagged.
+- **N49-4 — Deadline-feasible multi-day placement.** Place orders across day-buckets in deadline order so
+  no hard pickup date is missed; surface a "won't make it" warning. Objective hierarchy: **deadline >
+  floor > grouping.** Acceptance: orders land on days respecting deadlines; infeasible deadlines warn.
+- **N49-5 — Light→dark colour ordering** (replaces the crude "largest run first"). Group identical
+  colours (zero changeover), then order remaining changes **light → dark** using RAL-code lightness;
+  dark → light is the expensive reset to minimise. **Supersedes NA49.H** and the exact-identity-only
+  COLOUR rule. Acceptance: within-day automatic order is a light→dark sweep; estimated changeover drops.
+- **N49-6 — 100 m² changeover-cost model.** Cost a colour change by the next order's size vs the 100 m²
+  odzysk threshold (< 100 → ≤ 15 min "bez odzysku"; > 100 → up to 30 min "z odzysku") and by colour
+  direction. Feeds the capacity-consumed-by-changeover number. Acceptance: changeover cost reflects size
+  + direction, not a flat count.
+- **N49-7 — Paint-stock HARD block** (was NA49.C, **upgraded to core** — out-of-stock paint is a leading
+  cause of a missed norm). A colour series whose paint is not in stock **cannot be planned** (hard block,
+  not just a warning); show a forward "paint suffices / runs out at order X" view. Acceptance: the planner
+  refuses an out-of-stock colour series; forward paint view available.
+- **N49-8 — Line-assignment lever.** The planner assigns/suggests a line per order: small m² +
+  colour-orphan → **manual**; otherwise **automatic** (join a colour run / balance idle). Interacts with
+  grouping. Acceptance: planner proposes a line per order by the rule; manager can override.
+
+**UI:**
+- **N49-9 — Multi-day capacity board.** Rolling ~week board; each day a column filling toward
+  floor/ceiling, segments coloured light→dark, below-floor + at-risk-deadline flags, drag between days,
+  **pin/urgent** (delivers the deferred **NA49.K**). Becomes the manager's planning surface. Acceptance:
+  board shows days with floor/ceiling + the derived shared-stage order, and supports drag + pin.
+
+**Shared-stage derivation (the original NA49 defect):**
+- **N49-10 — Derive shared-stage order; kill duplicate "Poz."** Surface-prep order derived from the
+  painting plan (one line-labelled list + "NASTĘPNE"); packing order derived from physical readiness +
+  the slot model. Shared stages stop using the per-line `queue_position` as a global rank. Fixes
+  `app/process/repository.py:58`, `frontend/src/components/StageWorkOrdersPage.tsx`,
+  `frontend/src/components/PackingWorkOrdersPage.tsx`. Acceptance: no ambiguous duplicate "Poz."; shared
+  stages show a line label + a meaningful derived order.
+
+**Rollout:** ship behind the **3-phase trust model** (observer → suggester → trusted); NA33 is the
+reusable within-day ordering core.
+
+**Dropped / simplified after the session (do NOT build):**
+- **NA49.B (decoral as a second bottleneck) — DROPPED.** Decoral coat is aesthetic, foil change costs no
+  time, no clogging (owner + colleague). Decoral is a trailing appended stage; the scheduler ignores it.
+- **NA49.D / NA49.M (prep buffer balancing) — SIMPLIFIED OUT.** Prep usually keeps up and buffer size is
+  unimportant; prep is a plain plan-driven feeder (N49-10), not a buffer optimiser.
+- **NA49.F / NA49.G (shared packing under load / manual auto-scheduler) — keep LOW/deferred.** Packing is
+  "git" as-is; manual stays a fuzzy overflow valve.
+
+**Open questions for the colleague (gate full optimisation, not the foundation):**
+- **Deadline horizon (top)** — how far ahead are pickup dates (tight "for tomorrow" vs comfortable)?
+  Decides how much freedom grouping has under hard deadlines.
+- **Exact changeover magnitude/frequency** beyond the 15/30-min bands (the system will also learn this).
+- **Colour-similarity confirmation** — is RAL-lightness light→dark the right model, or do colour
+  "families" exist?
+
+---
+
+_Original 2026-06-23 design + confirmed defect + sub-items A–M (history/detail; read in light of the
+refined plan above):_
 
 **Confirmed defect (verified live 2026-06-23 by two sub-agents driving a seeded app):**
 The per-line queue split (`queue_position` unique only within `production_type`) is correct for planning

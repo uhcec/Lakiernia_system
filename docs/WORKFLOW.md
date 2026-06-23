@@ -343,17 +343,53 @@ normal queue-reorder flow, so operators can always trust the posted order.
 - The optimisation core is a pure function (`app/manager/scheduler.py`); the metric behind the banner is
   the count of colour changes between consecutive orders.
 
-> **Known limitation + planned evolution (NA49, agreed with owner 2026-06-23).** The per-line split is
-> correct for *planning* the two parallel painting lines, but the two **shared** stages —
-> `SURFACE_PREPARATION` (entry) and `PACKING` (drain) — still list both lines merged and ordered by
-> `queue_position` (which is no longer globally unique), so they show duplicate "Poz. N" labels and an
-> arbitrary cross-line interleave (verified live 2026-06-23). The agreed target model is **"schedule the
-> painting bottleneck, derive the rest"**: the manager schedules only the two painting sequences
-> (auto-arranged, manually overridable); surface-preparation order is *derived from the plan*
-> (plan-driven feeder), and packing order is *derived from physical readiness* plus the existing
-> packing-slot reservation model. Shared stages stop using the per-line position as a global rank. Full
-> design + acceptance criteria: **NA49** in `IMMEDIATE_NEXT_ACTIONS.md`; physical grounding in
-> `docs/FACTORY_DOMAIN_MODEL.md` §1. Not yet implemented — this section still documents current behavior.
+### Target planning model (agreed 2026-06-23, refined in the clean-slate process session) — NOT yet built
+
+Everything **above** this subsection is *current behavior*. The following is the **agreed target** the
+scheduling work is building toward. It re-frames the planner from a per-line **queue-orderer** into a
+**multi-day capacity planner** — because the factory's real job is to clear a daily throughput floor and
+keep the automatic booth fed, not just to put orders in a row. Build plan + acceptance criteria live in
+**NA49** (`IMMEDIATE_NEXT_ACTIONS.md`); physical grounding in `docs/FACTORY_DOMAIN_MODEL.md` §1–§2, §7.
+
+**Principle — schedule the painting bottleneck, derive the rest.** The only thing the manager schedules
+is **painting** (two sequences, one per physical line: Automat / Ręczna). Every other stage's order is
+*derived*, so the shared stages stop showing ambiguous duplicate "Poz." labels:
+- **Surface preparation** order is *derived from the painting plan* — one prep station feeds both booths
+  in the order they will consume parts; shown as **one line-labelled list** with a "NASTĘPNE" marker.
+- **Packing** order is *derived from physical readiness* plus the existing packing-slot reservation; no
+  manual position numbering.
+
+**The planner is a multi-day capacity planner, not a single-list sorter.** Because deadlines are hard and
+one large order can fill a whole day:
+- The manager sees a **rolling multi-day board** (about a week; only days whose parts are physically
+  present are firmly planned — the rest is forecast that re-flows as parts arrive).
+- Each day is a **capacity bucket with two lines**: a **floor** (the daily norm — 800 long / 500 short
+  m² — below which the day is unprofitable → warn) and a **ceiling** (physical booth capacity → overflow
+  spills to the next day). A **colour change consumes day capacity** (a ~30-min wash ≈ ~30 m² of lost
+  day), so good grouping visibly lets *more product* fit in a day. See `FACTORY_DOMAIN_MODEL.md` §7.
+- **Shift length is advised from available work** (enough for ≥ 800 → long day; only ~500 → short day).
+
+**Objective hierarchy: hard deadline > daily floor > colour grouping.** The auto-arrange (1) places
+orders **deadline-feasibly** across days (no missed pickup date — surface a "won't make it" warning),
+then (2) within each day **assigns the line** (small + colour-orphan → manual; otherwise automatic) and
+orders the automatic booth as a **light → dark colour sweep** (identical colours grouped first; lightness
+from the RAL code; dark → light is the expensive reset to avoid), then (3) **pulls work forward** to
+level load and join colour runs. **Paint stock is a hard block** — a colour series whose paint is not in
+stock cannot be planned (out-of-stock paint discovered late is a leading cause of a missed norm).
+
+**Corrections re-enter normally.** A returning correction (RAL reset to planning) is just an order with
+its hard deadline and colour: a tight deadline floats it forward, otherwise it joins its colour run. **No
+special priority** and no special-case code.
+
+**Measurement & trust.** The system **learns the numbers** (real m²/h, colour-changeover cost) from the
+existing `StageTransitionEvent` signals — HANGING start → PACKING completion bracket the automatic pass,
+so **no booth tap is needed** — and applies **explicit, inspectable rules**, not a black box that
+imitates the manager. Trust is earned in three phases: (1) **observer** — manager plans manually, the
+system only shows day-fill vs floor/ceiling and the changeover count; (2) **suggester** — the system
+proposes the arrangement, the manager edits; (3) **trusted** — the system arrangement is the default and
+the manager overrides exceptions. The current NA33 lexicographic scheduler (above) is the reusable
+**within-day ordering core** of this model. *Not yet implemented — the sections above still document
+current behavior.*
 
 ## Station Permissions
 

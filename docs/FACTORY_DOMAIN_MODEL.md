@@ -300,3 +300,85 @@ home.
 | **Ilość policzona / actual received** | Real pieces counted at surface preparation — the **operational truth** downstream (§3). |
 | **READY** | The order is fully complete (exact rule: `WORKFLOW.md` "READY Rules"). |
 | **`process_status`** | Backend-derived display status; never a stored column (see `WORKFLOW.md` / `CLAUDE.md`). |
+
+---
+
+## 7. Planning ground truth — daily norm, capacity, changeover & line choice
+
+> Confirmed by the owner + a process-knowledgeable colleague in a clean-slate process interview
+> (2026-06-23). This is the physical grounding for the planning model in `docs/WORKFLOW.md`
+> ("Target planning model") and the build plan in `IMMEDIATE_NEXT_ACTIONS.md` (NA49). Items still
+> awaiting the colleague are flagged.
+
+### The daily norm is a FLOOR, not a ceiling
+
+The factory is profitable only **above a minimum daily throughput** (electricity, wages, materials pay
+off). The norm is that minimum, not a target to stop at:
+
+- **≥ 800 m²** on a long day (shift 07:00–21:00, ~14 h).
+- **≥ 500 m²** on a short day (shift 07:00–15:00, ~8 h).
+
+These are **floors to clear**, not capacity. The physical **ceiling** is higher: the automatic booth
+runs at **~60–100 m²/h**, so a long day can physically reach ~1000–1400 m². A day is *bad* when it falls
+**below** the floor (too little product), not when it is busy. The optimisation target = clear the floor
+every working day and pack **toward the ceiling** (more product = more profit), in deadline order, with
+minimal changeover loss. **Shift length follows the available work**: enough ready work to clear ≥ 800 →
+run a long day; only ~500 worth → run a short day (a long day would idle below 800 = unprofitable).
+
+### The automatic booth is the constraint; manual is unmeasured overflow
+
+- Automatic carries the large majority of throughput; **~60–100 m²/h**, measurable.
+- **Manual-line throughput and manual paint consumption are not measurable** in practice — manual is a
+  fuzzy **overflow valve**, not precisely planned or metered.
+- Surface preparation is *slightly* slower than painting but **usually keeps up**, so the booth rarely
+  waits on it (a buffer of cleaned parts exists; its size is **not important**). Prep is a plan-driven
+  feeder, **not a bottleneck** — do not over-model it. The main exception is the paint-surprise case
+  below.
+
+### Colour-changeover economics (the main optimisation dial)
+
+A colour change on the automatic booth costs time, scaled by the **100 m² threshold** (the same number
+as the paint-demand threshold):
+
+- next order **< 100 m²** → "bez odzysku" (no powder recovery) → change **≤ 15 min**.
+- next order **> 100 m²** → "z odzysku" (powder recovered, fuller clean) → change **up to 30 min**.
+
+Cost also depends on **colour direction/similarity**: going from a **lighter** colour to a **darker** one
+is cheap (residue of the lighter colour is invisible in the darker one — owner's example: white → grey),
+while **dark → light** needs a full clean (residue would show). So the cheap day shape is a single
+**light → dark sweep**; a dark → light reset is the expensive event to minimise. Grouping identical
+colours into runs (zero changeover) is the first lever; ordering the remaining changes light → dark is
+the second. **Colour lightness is derivable from the RAL code**, so the system can compute this.
+The exact minutes/frequency are not tracked by people — the system should **learn them from production
+data** (see §4) — but the grouping reward is large. ⚠️ *Colleague to confirm the RAL-lightness model and
+whether colour "families" exist.*
+
+### Line choice (manual vs automatic) is a real planning lever
+
+Every order *can* run on either line; the part does not force it. Rule of thumb (owner): an order goes to
+**manual** when it is **small in m² AND its colour repeats nowhere else** on the order list (no group to
+join); otherwise it goes to **automatic** so it can join a colour run. Line choice therefore interacts
+with colour grouping and with load-balancing idle stations.
+
+### Decoral is not a second bottleneck
+
+The decoral second coat is purely **aesthetic** ("to make it look nicer"); **changing the foil costs no
+time**, and the decoral station does not clog the line. Decoral is ~1/4 of orders. It is a trailing
+appended stage, **not** something the scheduler must separately optimise.
+
+### Deadlines are HARD
+
+Each order's **planned pickup date ("Termin odbioru", `planned_pickup_date`) is a hard deadline** — it is
+**always agreed and entered at order creation**, and the order must ship by it. Hardness hierarchy for
+planning: **hard deadline > daily floor (strong economic target) > colour grouping (optimisation).** A
+small day carrying a hard deadline runs even below the floor (must ship), as an explicit exception.
+⚠️ *Colleague to confirm the typical deadline horizon (tight vs comfortable) — it sets how much freedom
+grouping has.*
+
+### Measurement signals available (no booth tap)
+
+Operators do **not** tap the booth itself. The automatic line emits, per order, a **HANGING start**
+(tapped — hanging claims the line resource) and a **PACKING completion**, both in the append-only
+`StageTransitionEvent` log. These **bracket the whole automatic pass** (hang + booth + oven + packing).
+So aggregate throughput (m²/h) and — statistically, over many orders — colour-changeover cost are
+**learnable from existing signals**; pure booth time is not isolated, and that is accepted.
