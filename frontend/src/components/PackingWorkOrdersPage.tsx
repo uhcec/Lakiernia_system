@@ -3,7 +3,9 @@ import { useEffect, useState } from "react";
 import { usePolling, STATION_POLL_INTERVAL_MS } from "../hooks/usePolling";
 import { getMutationErrorMessage } from "../utils/mutationError";
 import { buildWorkOrderDetailHref, getStationIdForLocation } from "../api/stationContext";
+import { NumberInput } from "./NumberInput";
 import { StationPresenceWidget } from "./StationPresenceWidget";
+import { TechnicalDrawingLinks } from "./TechnicalDrawingLinks";
 import { completePacking, fetchStageWorkOrders, releasePacking, startPacking, transitionStage } from "../api/processApi";
 import type { StageWorkOrder, StageStatusValue } from "../types/process";
 import { loadCorrectionContexts, type CorrectionContext } from "../utils/correctionContext";
@@ -25,6 +27,7 @@ interface PackingDraft {
   correctionAccessoriesQuantity: string;
   correctionReasonCategory: string;
   correctionReasonNote: string;
+  statOnlyCorrection: boolean;
 }
 
 const correctionReasonOptions = [
@@ -62,6 +65,7 @@ function buildEmptyPackingDraft(): PackingDraft {
     correctionAccessoriesQuantity: "0",
     correctionReasonCategory: "",
     correctionReasonNote: "",
+    statOnlyCorrection: false,
   };
 }
 
@@ -248,6 +252,7 @@ export function PackingWorkOrdersPage() {
             correctionAccessoriesQuantity: "0",
             correctionReasonCategory: "",
             correctionReasonNote: "",
+            statOnlyCorrection: false,
           };
         }
         return nextDrafts;
@@ -278,7 +283,7 @@ export function PackingWorkOrdersPage() {
     activeWorkOrderId === null,
   );
 
-  function updateDraft(workOrderId: number, fieldName: keyof PackingDraft, value: string) {
+  function updateDraft(workOrderId: number, fieldName: keyof PackingDraft, value: string | boolean) {
     setDrafts((current) => ({
       ...current,
       [workOrderId]: {
@@ -440,6 +445,7 @@ export function PackingWorkOrdersPage() {
             correction_profiles_quantity: correctionProfilesQuantity,
             correction_accessories_quantity: correctionAccessoriesQuantity,
             correction_reason_category: correctionReasonCategory,
+            stat_only_correction: draft.statOnlyCorrection,
             ...(correctionReasonNote ? { correction_reason_note: correctionReasonNote } : {}),
           }
         : {}),
@@ -586,6 +592,8 @@ export function PackingWorkOrdersPage() {
                     </div>
                   </dl>
 
+                  <TechnicalDrawingLinks workOrderId={workOrder.id} drawings={workOrder.technical_drawings} />
+
                   <div className="space-y-1 text-sm">
                     <p className="font-semibold text-ink">{getPackingRowSummary(workOrder)}</p>
                     {showBatchProgress ? (
@@ -619,35 +627,32 @@ export function PackingWorkOrdersPage() {
                       <div className="grid gap-3 sm:grid-cols-3">
                         <label className="space-y-1 text-sm font-medium text-steel">
                           <span>Policzono</span>
-                          <input
-                            type="number"
+                          <NumberInput
                             min="1"
                             step="1"
                             value={draft.countedQuantity}
                             placeholder="Policz i wpisz"
-                            onChange={(event) => updateDraft(draftKey, "countedQuantity", event.target.value)}
+                            onValueChange={(value) => updateDraft(draftKey, "countedQuantity", value)}
                             className="w-full rounded-lg border border-line bg-white px-3 py-2 text-base font-semibold text-ink outline-none transition focus:border-accent"
                           />
                         </label>
                         <label className="space-y-1 text-sm font-medium text-steel">
                           <span>OK</span>
-                          <input
-                            type="number"
+                          <NumberInput
                             min="0"
                             step="1"
                             value={draft.okQuantity}
-                            onChange={(event) => updateDraft(draftKey, "okQuantity", event.target.value)}
+                            onValueChange={(value) => updateDraft(draftKey, "okQuantity", value)}
                             className="w-full rounded-lg border border-line bg-white px-3 py-2 text-base font-semibold text-ink outline-none transition focus:border-accent"
                           />
                         </label>
                         <label className="space-y-1 text-sm font-medium text-steel">
                           <span>Poprawki</span>
-                          <input
-                            type="number"
+                          <NumberInput
                             min="0"
                             step="1"
                             value={draft.correctionQuantity}
-                            onChange={(event) => updateDraft(draftKey, "correctionQuantity", event.target.value)}
+                            onValueChange={(value) => updateDraft(draftKey, "correctionQuantity", value)}
                             className="w-full rounded-lg border border-line bg-white px-3 py-2 text-base font-semibold text-ink outline-none transition focus:border-accent"
                           />
                         </label>
@@ -663,23 +668,21 @@ export function PackingWorkOrdersPage() {
                           <div className="grid gap-3 sm:grid-cols-2">
                             <label className="space-y-1 text-sm font-medium text-steel">
                               <span>Profile do poprawki</span>
-                              <input
-                                type="number"
+                              <NumberInput
                                 min="0"
                                 step="1"
                                 value={draft.correctionProfilesQuantity}
-                                onChange={(event) => updateDraft(draftKey, "correctionProfilesQuantity", event.target.value)}
+                                onValueChange={(value) => updateDraft(draftKey, "correctionProfilesQuantity", value)}
                                 className="w-full rounded-lg border border-line bg-white px-3 py-2 text-base font-semibold text-ink outline-none transition focus:border-accent"
                               />
                             </label>
                             <label className="space-y-1 text-sm font-medium text-steel">
                               <span>Akcesoria do poprawki</span>
-                              <input
-                                type="number"
+                              <NumberInput
                                 min="0"
                                 step="1"
                                 value={draft.correctionAccessoriesQuantity}
-                                onChange={(event) => updateDraft(draftKey, "correctionAccessoriesQuantity", event.target.value)}
+                                onValueChange={(value) => updateDraft(draftKey, "correctionAccessoriesQuantity", value)}
                                 className="w-full rounded-lg border border-line bg-white px-3 py-2 text-base font-semibold text-ink outline-none transition focus:border-accent"
                               />
                             </label>
@@ -719,6 +722,38 @@ export function PackingWorkOrdersPage() {
                             </label>
                             ) : null}
                           </div>
+
+                          <fieldset className="space-y-2">
+                            <span className="text-sm font-medium text-steel">Rodzaj poprawki</span>
+                            <div className="grid gap-2 sm:grid-cols-2">
+                              <label className={["flex cursor-pointer items-start gap-2 rounded-lg border px-3 py-2 text-sm transition", draft.statOnlyCorrection ? "border-line bg-white" : "border-accent bg-accent/5"].join(" ")}>
+                                <input
+                                  type="radio"
+                                  name={`correction-disposition-${draftKey}`}
+                                  checked={!draft.statOnlyCorrection}
+                                  onChange={() => updateDraft(draftKey, "statOnlyCorrection", false)}
+                                  className="mt-0.5"
+                                />
+                                <span>
+                                  <span className="font-semibold text-ink">Do zaplanowania</span>
+                                  <span className="block text-xs text-steel">Kolor trzeba zaplanować i pomalować ponownie.</span>
+                                </span>
+                              </label>
+                              <label className={["flex cursor-pointer items-start gap-2 rounded-lg border px-3 py-2 text-sm transition", draft.statOnlyCorrection ? "border-accent bg-accent/5" : "border-line bg-white"].join(" ")}>
+                                <input
+                                  type="radio"
+                                  name={`correction-disposition-${draftKey}`}
+                                  checked={draft.statOnlyCorrection}
+                                  onChange={() => updateDraft(draftKey, "statOnlyCorrection", true)}
+                                  className="mt-0.5"
+                                />
+                                <span>
+                                  <span className="font-semibold text-ink">Od razu poprawiona</span>
+                                  <span className="block text-xs text-steel">Poprawione na miejscu — tylko statystyka, zlecenie kończy się normalnie.</span>
+                                </span>
+                              </label>
+                            </div>
+                          </fieldset>
                         </div>
                       ) : null}
 

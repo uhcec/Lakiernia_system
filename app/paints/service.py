@@ -152,6 +152,12 @@ class PaintService:
             station_context=station_context,
         )
 
+    def get_consumed_paint_kg_for_work_orders(self, work_order_ids) -> float:
+        # Cumulative automatic paint consumption (kg) across the given work orders, computed from the
+        # durable movement log (NA32). Used by read models so a corrected order reports the total kg of
+        # all rounds/children rather than only the last round's per-round gate value.
+        return self.repository.sum_automatic_consumption_kg(list(work_order_ids))
+
     def list_movements(self, paint_id: int, *, limit: int, offset: int) -> PaintStockMovementListResponse:
         paint = self.repository.get_by_id(paint_id)
         if paint is None:

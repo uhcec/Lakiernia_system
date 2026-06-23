@@ -69,13 +69,7 @@ export function WorkOrdersListPage() {
     bucketCounts[getOfficeBucket(workOrder.process_status.value)] += 1;
   }
 
-  const delayedCount = workOrders.filter((workOrder) => {
-    if (!workOrder.planned_pickup_date) {
-      return false;
-    }
-
-    return new Date(workOrder.planned_pickup_date).getTime() < Date.now() && workOrder.process_status.value !== "READY";
-  }).length;
+  const delayedCount = workOrders.filter((workOrder) => workOrder.is_overdue).length;
 
   const visibleWorkOrders = workOrders.filter((workOrder) => getOfficeBucket(workOrder.process_status.value) === activeBucket);
 

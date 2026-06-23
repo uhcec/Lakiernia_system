@@ -148,7 +148,18 @@ Before starting Phase 3, resolve the open owner questions on NA34/NA36/NA37/NA38
   Windows; missing Excel/pywin32 produces an immediate, clear error.
 
 ### NA30. A completed order can be sent backwards by re-opening an earlier stage (no completion invariant)
-- Status: OPEN (discovered 2026-06-18).
+- Status: **DONE (2026-06-22)**. Reproduced first (the bug was real): after a manual RAL order reached
+  READY (PACKING=DONE, 10/10, active=0), `transition_stage(PRODUCTION, IN_PROGRESS)` succeeded and left
+  `PRODUCTION=IN_PROGRESS` while `PACKING=DONE`. Fix: a completion invariant in `_validate_transition`
+  (`app/process/service.py` ~1150) — any transition to `IN_PROGRESS`/`DONE` on a `_is_complete_for_display`
+  order is rejected with a controlled `InvalidProcessStageTransitionError`, independent of station
+  permission. Safe because the *completing* transitions don't hit this path (`complete_packing` sets
+  PACKING `DONE` directly; DECORAL's `finish_stage` runs before completion is recorded). `reopen_stage`
+  was already blocked (active==0 guard); this closes the raw `start_stage`/`transition_stage` hole. Tests:
+  `test_completed_order_cannot_be_sent_backwards_manual_NA30` and `..._automatic_hanging_NA30` (the
+  original report scenario). `docs/WORKFLOW.md` READY Rules now states the invariant. Full backend suite
+  green; `alembic check` clean (no schema change).
+- Status (original): OPEN (discovered 2026-06-18).
 - Problem: An admin (who bypasses `ensure_station_allowed`) could call `start_stage`/`finish_stage` for
   `HANGING` on an order whose terminal `PACKING` stage was already `DONE`, flipping `HANGING` back to
   `IN_PROGRESS` and leaving a contradictory state (`HANG=IN_PROGRESS` while `PACK=DONE`), which then
@@ -164,7 +175,16 @@ Before starting Phase 3, resolve the open owner questions on NA34/NA36/NA37/NA38
   contradictory state); regression test covers it; `docs/WORKFLOW.md` states the completion invariant.
 
 ### NA32. Order's recorded paint consumption under-counts across correction rounds (stock is correct)
-- Status: OPEN (discovered 2026-06-19 during the S06 walkthrough).
+- Status: **DONE (2026-06-20)** — commit `59241a1`. The displayed consumed-paint total is now computed
+  **cumulatively from the durable `paint_stock_movements` log** across the whole correction chain (order +
+  correction descendants, via `WorkOrder.correction_chain_ids` + `PaintRepository.sum_automatic_consumption_kg`),
+  wired into all three read models (process / work_orders / manager). The overloaded
+  `consumed_paint_quantity_kg` field stays the per-round "paint registered before packing?" gate (still
+  reset between rounds); only the display is rolled up, so RAL same-order rounds and DECORAL parent+child
+  both report the true total while stock stays correct. No schema change. Tests: updated automatic-correction
+  paint assertion to cumulative (13.75), new `test_corrected_order_reports_cumulative_paint_across_chain_NA32`;
+  `docs/WORKFLOW.md` paint section updated. 433 backend tests pass; `alembic check` clean.
+- Status (original): OPEN (discovered 2026-06-19 during the S06 walkthrough).
 - Problem: for an automatic order that goes through a correction round, `WorkOrder.consumed_paint_quantity_kg`
   ends up showing only the **last** round's kg, not the cumulative total. `record_automatic_paint_consumption`
   **sets** (not accumulates) the field (`app/process/service.py:747`), and `_reset_to_correction_planning`
@@ -198,11 +218,14 @@ Before starting Phase 3, resolve the open owner questions on NA34/NA36/NA37/NA38
 ## LOW
 
 ### NA31. Manager panel suggests/blocks a wrong queue position after a correction returns to planning
-- Status: **LIKELY RESOLVED (2026-06-20)** by the per-line queue rebuild — the manager no longer picks or
-  is shown a queue position when planning. Planning is a single "Zaplanuj" button that appends to the end of
-  the selected line (server-computed position), and the stale `planDrafts` / `normalizedActivePlanned.length + 1`
-  suggestion logic was removed entirely from `ManagerPanelPage.tsx`. The specific symptom (a wrong suggested
-  position / position 1 shown as "taken" until F5) can no longer occur. Confirm in a walkthrough, then close.
+- Status: **RESOLVED (2026-06-23) by the per-line queue rebuild — supersedes the earlier reconcile fix.**
+  The colleague's 2026-06-22 fix added a `reconcilePlanDrafts` helper so the background poll re-seeded the
+  suggested queue position. The per-line rebuild then removed queue-position picking from planning entirely:
+  planning is now a single "Zaplanuj" button that appends to the end of the selected line (server-computed
+  position), so `planDrafts` / the `activeCount + 1` suggestion logic — and with it the bug — no longer exist
+  in `ManagerPanelPage.tsx`. Consequence of the merge: the reconcile helper and its test
+  `frontend/tests/managerPlanDraftReconcile.test.tsx` cover behavior the per-line UI no longer has; the test
+  was removed during the merge (see Done note). Confirm in a walkthrough, then close.
 - Status (original): OPEN (discovered 2026-06-19 during the S05 walkthrough).
 - Problem: when a RAL order is sent back to planning by a packing correction, the manager panel
   transiently offers a queue position > 1 and treats position 1 as taken, even when the queue is
@@ -287,6 +310,13 @@ Before starting Phase 3, resolve the open owner questions on NA34/NA36/NA37/NA38
 ## Open (from the 2026-06-17 workflow audit)
 
 ### NA19. Finalize force-sets `completed_quantity = total_quantity` without surfacing a mismatch
+- Status: **DONE — verified already implemented (2026-06-22).** This was already fixed and committed but
+  the backlog never marked it. `_finalize_completion_chain_if_ready` (`app/process/service.py:2304-2313`)
+  logs a `logger.warning` with order number + completed + total when `completed_quantity != total_quantity`
+  before force-setting to total (it surfaces the gap, does not crash). Module logger at `service.py:28`.
+  Regression tests present: `test_finalize_does_not_warn_when_quantities_match` and
+  `test_finalize_warns_and_forces_total_when_quantity_gap` (`tests/test_process_service.py:1577,1600`).
+  Verified by an NA19 subagent (2026-06-22): 71 tests pass; no new code change needed.
 - Severity: LOW. `ProcessService._can_finalize_work_order` finalizes when correction children exist,
   no open corrections remain, and `current_active_quantity == 0` — then sets `completed = total` even
   if `completed < total`. Quantity conservation should make them equal, so this is a safety net, but it
@@ -374,9 +404,9 @@ only. Five elements, top to bottom:
   gaps he hasn't named yet to be found and raised).
 - Scope: at least `CLAUDE.md`, `README.md`, `docs/FACTORY_DOMAIN_MODEL.md`, `docs/WORKFLOW.md`,
   `docs/WORKFLOW_VALIDATION_CHECKLIST.md`, `docs/FACTORY_USAGE_NOTES.md`,
-  `docs/FACTORY_DECISION_IMPLEMENTATION_MAP_PL.md`, `docs/PAINT_SYSTEM_DEFINITION_DRAFT_PL.md`,
-  `docs/STATION_IDENTITY_AND_AUDIT.md`, `docs/OPERATOR_USABILITY_AUDIT_PL.md`,
-  `docs/UI_PASSIVE_REVIEW_PL.md`, `docs/AUTHZ_DESIGN_PROPOSAL.md`, `docs/WORKING_CONTRACT.md`,
+  `docs/archive/FACTORY_DECISION_IMPLEMENTATION_MAP_PL.md`, `docs/archive/PAINT_SYSTEM_DEFINITION_DRAFT_PL.md`,
+  `docs/STATION_IDENTITY_AND_AUDIT.md`, `docs/archive/OPERATOR_USABILITY_AUDIT_PL.md`,
+  `docs/archive/UI_PASSIVE_REVIEW_PL.md`, `docs/AUTHZ_DESIGN_PROPOSAL.md`, `docs/WORKING_CONTRACT.md`,
   `docs/DEVELOPMENT_RUNBOOK.md`, `HARDENING_BACKLOG.md`, this file. (Code is NOT in scope here — that
   is NA25.)
 - Method: build a topic map; for each topic check the docs agree with each other; record every
@@ -390,7 +420,7 @@ only. Five elements, top to bottom:
 - Acceptance: a single pass exists where the docs no longer contradict each other; each topic has one
   authoritative home; the list of "should be documented but isn't" is raised with the owner; no code
   changes made under this item.
-- Progress (2026-06-17): **findings pass DONE + safe edits APPLIED** → `docs/DOC_COHERENCE_AUDIT.md`.
+- Progress (2026-06-17): **findings pass DONE + safe edits APPLIED** → `docs/archive/DOC_COHERENCE_AUDIT.md`.
   Owner decisions: paint threshold = **100 m²** (code right); dated snapshots **frozen as history**
   (banners); safe edits applied now. Applied: historical banners on the 3 snapshot docs; A2 shortage-
   warning currency (paint draft / usage notes / checklist #11); A3–A5 README + runbook (auth/Excel/JWT);
@@ -408,7 +438,7 @@ only. Five elements, top to bottom:
   references when next touched. NA24 otherwise complete; proceed to NA25.
 - **Regularized (2026-06-17):** the audit is now a repeatable command — **`/doc-audit`**
   (`.claude/commands/doc-audit.md`), intended cadence **weekly**. Run it to re-reconcile the docs and
-  refresh `docs/DOC_COHERENCE_AUDIT.md`. (Auto-running it on a schedule would need the billable
+  refresh `docs/archive/DOC_COHERENCE_AUDIT.md`. (Auto-running it on a schedule would need the billable
   scheduled-agent path; not set up.)
 
 ### NA25. Conformance audit — documented "coherent whole" (NA24) vs. what is actually coded
@@ -424,7 +454,7 @@ only. Five elements, top to bottom:
   severity), feeding concrete follow-up items back into this file.
 - Acceptance: every major documented topic has an explicit conformance verdict with evidence;
   divergences are logged as actionable items; no silent fixes bundled into the audit.
-- **DONE (2026-06-17): full read-only pass → `docs/CODE_CONFORMANCE_AUDIT.md`.** Per-topic verdicts with
+- **DONE (2026-06-17): full read-only pass → `docs/archive/CODE_CONFORMANCE_AUDIT.md`.** Per-topic verdicts with
   `file:line` evidence. Result: code conforms to the reconciled docs across stage model, READY/finalize,
   reopen, corrections, resource locks/packing slots, auth (NA1), queue stale-revision, throughput,
   paint (demand 100 m² + shortage warning + packing block + no-negative-stock), work types, external
@@ -520,6 +550,20 @@ workflow meaning. Severities are first-pass estimates.
   colour → deadline → changeover; basic stats tidy only; covered by tests.
 
 ### NA34. Distinguish two correction kinds — "fixed on the spot" (stat-only) vs "to be re-planned"
+- Status: **DONE (2026-06-22).** Owner answers: stat-only applies to **both RAL and DECORAL**; a reason
+  is **required**. Built on the NA40 seam: new `CorrectionKind.STAT_ONLY` + `_select_correction_kind`
+  branch (driven by the operator's `stat_only_correction` flag). A stat-only correction records a row in
+  the new **`stat_only_corrections`** table (quantity + required reason/category + profiles/accessories
+  split) and an audit event, then folds the corrected pieces into OK so the order completes **as-is** —
+  no replan, no child: RAL closes READY, DECORAL pieces continue the single Decoral pass (no `N` marker).
+  The shared `correction_events_select` unions the table in, so the reason report + throughput count it.
+  API: `stat_only_correction` on `PackingCompleteRequest` (both packing endpoints). Frontend: a "Rodzaj
+  poprawki" radio (Do zaplanowania / Od razu poprawiona) in the packing correction block. Schema +
+  migration `20260622_0033`; `alembic check` clean. Tests: 3 backend (RAL as-is + reported; DECORAL keeps
+  single Decoral, no child; schema rejects stat-only w/ 0 qty) + 1 frontend (toggle → `stat_only_correction=true`).
+  Full backend + frontend suites green. `docs/WORKFLOW.md` Corrections Behavior documents the third kind.
+  Follow-up (not built): stat-only at the **Decoral-pass** completion (`DecoralProductionCompleteRequest`)
+  if the owner wants it there too — currently only at packing.
 - Severity: MEDIUM (changes correction semantics — touches the correction model + stats; coordinate with
   NA32 paint-consumption and the RAL/DECORAL correction paths).
 - Request (verbatim): "rozróżnienie poprawek na poprawki od razu poprawione i do zaplanowania. Poprawka
@@ -545,6 +589,18 @@ workflow meaning. Severities are first-pass estimates.
   both; covered by tests; `docs/WORKFLOW.md` correction model updated.
 
 ### NA35. Mouse-wheel on number fields produces fractional amounts (UX defect)
+- Status: **DONE (2026-06-22)** — new shared `frontend/src/components/NumberInput.tsx` owns the rule:
+  keyboard entry is native (decimals still typable where `step` allows — m²/paint kg), but the mouse
+  wheel always moves the value by **whole units** (default `wheelStep=1`) and only while the field is
+  focused, so scrolling the page over it can't silently change it. React registers `onWheel` as a passive
+  root listener (so `preventDefault` is ignored there), so the component attaches its own non-passive
+  native `wheel` listener. Every `type="number"` input in the app (18 sites across `CreateWorkOrderPage`,
+  `WorkOrderDetailPage`, `PaintInventoryPage`, `StageWorkOrdersPage`, `PackingWorkOrdersPage`,
+  `DecoralWorkOrdersPage`, `ManagerPanelPage`) now routes through it — the fractional-step fields
+  (`total_area_m2` ×2, paint `quantity_kg`/`quantity_delta_kg`, automatic `finalCartonRemainingKg`) were
+  the actual offenders. Tests: new `frontend/tests/numberInput.test.tsx` (4 cases: whole-unit wheel on a
+  `0.01`-step field, no-change-when-unfocused, decimal typing still works, min clamp). **82 frontend tests
+  pass + build green.** Frontend-only; no backend/docs/workflow change.
 - Severity: LOW (UX defect, but annoying/error-prone — easy fix; no open questions).
 - Request (verbatim): "Gówno ze scrollem w polach z wpisywaniem liczby."
 - Problem (clarified 2026-06-19): the wheel itself is **fine and wanted** — the issue is that scrolling
@@ -559,6 +615,24 @@ workflow meaning. Severities are first-pass estimates.
   the wheel still works; keyboard entry unaffected.
 
 ### NA36. Technical drawings on a work order — new attachment type
+- Status: **DONE (2026-06-23).** Owner decisions: file types = **PDF + images (PNG/JPG)**; viewing surface =
+  **station cards + detail page**; visibility = **all stations** (upload/delete stays office-only). Built on
+  the existing `WorkOrderAttachment` mechanism. New structured discriminator `WorkOrderAttachmentCategory`
+  (`app/work_orders/enums.py`: `DOCUMENT` default / `TECHNICAL_DRAWING`) stored as a plain `category` string
+  column (validated at the app layer, beside the legacy free-text `attachment_type`); migration
+  `20260623_0037` backfills existing rows to DOCUMENT. `upload_attachment` now accepts `category` and any of
+  PDF/PNG/JPEG — per-type magic-byte validation (`%PDF-`, PNG signature, JPEG `\xff\xd8\xff`) + stored
+  extension by type (`415` wrong type, `400` bad signature, `413` too large, `422` bad category). The station
+  read model gains `technical_drawings: list[WorkOrderAttachmentSummaryRead]` (only `TECHNICAL_DRAWING`
+  attachments), surfaced on all four production station cards via a shared `TechnicalDrawingLinks` component
+  (download links — the download endpoint is already open to every station). Office intake detail page: a
+  category `<select>` + PDF/image file picker + a "Kategoria" table column. Tests: backend
+  `tests/test_work_order_attachments_api.py` (PNG/JPEG accepted, default DOCUMENT, invalid category 422, image
+  bad-signature 400, drawing surfaced on the SP station card / document not); frontend (station-card drawing
+  link + category label on detail). Seed adds a sample drawing. `docs/WORKFLOW.md` new "Work Order Attachments
+  (incl. technical drawings)" section. **Full backend suite green; alembic check clean; 87 frontend tests +
+  both builds green.** Follow-up (deferred, not requested): CAD formats; feeding the drawing into any
+  per-product/template model.
 - Severity: MEDIUM (feature).
 - Request (verbatim): "Rysunki techniczne."
 - Decision (2026-06-19): implement as a **new attachment type extending the existing
@@ -583,6 +657,24 @@ workflow meaning. Severities are first-pass estimates.
   numbering; covered by tests (mechanism-level; Excel rendering is Windows-only like QC).
 
 ### NA38. Enter the Decoral foil when adding an order — foil registry, one per order
+- Status: **DONE (2026-06-22).** Owner decisions: foil fields = name + code (unique) + supplier + notes;
+  registry managed by the **same actors as the paint/RAL registry** (`StationId.OFFICE`, admin bypass);
+  scope = **store + display only** (foil-usage stats/consumption deferred). Built a new `app/foils/`
+  module (model/schema/repository/service/router) mirroring `clients/` — full CRUD with OFFICE-gated
+  writes + audit events (`foil.created/updated/deleted`) and a `usage_count` rollup. `WorkOrder` gains a
+  nullable `decoral_foil_id` FK (`ON DELETE SET NULL`, like `paint_id`) plus a CHECK
+  `decoral_foil_requires_decoral_coating` (a foil can only sit on a DECORAL order). Office intake accepts
+  `decoral_foil_id` on create/update (validated: foil must exist and the order must be Decoral — else
+  422); the chosen foil is surfaced as a compact `FoilSummaryRead` on `WorkOrderRead` **and** the
+  decoral-station read model (`ProcessStageWorkOrderRead`). Frontend: a `/folie` registry page (mirrors
+  Klienci, with topbar "Dodaj folię"), a foil `<select>` in the create form shown **only** when
+  technology = Decoral, and foil display on the work-order detail + the Decoral station card. Migration
+  `20260622_0036` (foils table + FK + CHECK via work_orders batch rebuild); `alembic check` clean. Seed
+  script seeds 3 foils and assigns one to the decoral-manual order. Tests: `tests/test_foils_api.py`
+  (registry CRUD, dup-code 409, wrong-station 403, search by name/code, decoral order stores+shows foil +
+  usage rollup, foil-on-RAL 422, unknown-foil 422) + a frontend intake test (picker only for Decoral,
+  submits `decoral_foil_id`). Full backend + frontend suites green; both builds clean. Follow-up (not
+  built, deferred per owner): feed the chosen foil into Decoral-pass consumption / foil-usage stats.
 - Severity: MEDIUM (feature — office intake).
 - Request (verbatim): "Folie decoral do wprowadzenia przy dodaniu zlecenia."
 - Decision (2026-06-19): add a **Decoral foil registry** (a lookup table like paints/clients) and let the
@@ -594,6 +686,267 @@ workflow meaning. Severities are first-pass estimates.
   registry (office/manager/admin).
 - Acceptance: a foil registry exists and is manageable; office can select one foil per order at intake;
   the chosen foil is stored on the work order and shown where relevant; covered by tests.
+
+## Architecture & design audit findings (2026-06-19)
+
+Source: critical design review on 2026-06-19 (owner-requested — "things we built without sense or that
+are sub-optimal"), full report in **`docs/ARCHITECTURE_AUDIT.md`**. These are **debt/shape** items, not
+correctness defects. Severities reflect maintainability risk, not user-visible breakage.
+
+### NA39. `app/process/service.py` is a 2937-line god class
+- Status: **IN PROGRESS.** Cut 1 (audit/transition-log writing) **DONE (2026-06-22)** — extracted the seven
+  audit + stage-transition writers into `ProcessAuditWriter` (`app/process/audit_writer.py`), instantiated as
+  `self.audit` on `ProcessService`. Cleanest seam (deps were only session + `AuditRepository`); also closes
+  **NA46 §A6** (the dual write to `audit_events` + `stage_transition_events` now lives in one place and cannot
+  diverge). Behavior-preserving: 438 backend tests pass, `alembic check` clean; `service.py` 3119 → 2906 lines.
+  Commit `921c577`.
+  - Cut 2 (resource-lock + packing-slot manager) **DONE (2026-06-22)** — extracted `ResourceLockManager`
+    (`app/process/resource_locks.py`, instantiated as `self.resource_locks`): the HANGING/AUTOMATIC_LINE
+    single-holder locks, the N-slot PACKING capacity model (NA22), the in-process resource-mutation `RLock`s,
+    and the three occupancy predicates (which turned out to be **cluster-local** — used only to decide
+    acquisition/reservation/stale-recovery, so they moved cleanly; the manager keeps a private `_stage_state`
+    copy as its one cross-dependency). The per-work-order *process*-mutation lock stays on `ProcessService`
+    (separate concern). Behavior-preserving: 438 backend tests pass, `alembic check` clean; `service.py`
+    2906 → 2596 lines (3119 → 2596 across both NA39 cuts so far). **NA46 §A5 deliberately left out** — see below.
+    Commit `cc33845`.
+  - **FINDING (2026-06-22): the last two suggested seams do NOT factor cleanly — stop the class-extraction
+    approach here (owner-confirmed pivot to NA43).** On inspection, a `CorrectionService` would have to call
+    **back into 8+ `ProcessService` methods** mid-transaction (`get_correction_return_stage`,
+    `_reset_stage_states_for_active_batch`, `_get_stage_state`, `_sync_legacy_current_active_batch`,
+    `_mark_all_stage_states_done`, `get_work_order_process`, `initialize_stage_states`,
+    `initialize_quantity_tracking`) while the packing-completion flow on `ProcessService` calls **into**
+    corrections — i.e. **bidirectional coupling**. The serializer (`_to_stage_work_order_read`) has the same
+    problem (~15 display-status/quantity/correction-state callbacks). Forcing either extraction would relocate
+    ~400 lines but trade a big-file smell for a circular-dependency smell in the most data-integrity-sensitive
+    code (quantity conservation, the RAL/DECORAL/stat-only model). Verdict: **the two clean seams (audit,
+    resource-locks) are done; what remains in `ProcessService` is the genuinely-coupled workflow core, partly
+    inherent to the domain.** Instead of forcing the bad cuts, pivoted to **NA43** (in-file quantity-resolver
+    consolidation — DONE). Net NA39 result: `service.py` 3119 → 2606 lines across the two clean extractions +
+    NA43.
+  - **Still genuinely available (clean, narrow-dependency, opportunistic):** move the leaf
+    `_allocate_correction_order_number` into `WorkOrderNumberAllocator` (its natural home; deps are only
+    `repository.session` + the WorkOrder model). Small; do when next touching correction numbering.
+    - **NA46 §A5 (bound the in-process lock maps)** still open and risky — evicting an in-use `RLock` could
+      hand two threads different locks for one id; design eviction carefully (only evict provably-unheld
+      locks). `_RESOURCE_MUTATION_LOCKS` now lives in `ResourceLockManager`; `_PROCESS_MUTATION_LOCKS` stays
+      on `ProcessService`.
+- Severity: MEDIUM (maintainability). See `docs/ARCHITECTURE_AUDIT.md` §A1.
+- Problem: `ProcessService` (`app/process/service.py`, ~120 methods) mixes transition logic, resource-lock
+  + packing-slot management (`_PROCESS_MUTATION_LOCKS` at `:30-33`), correction creation/merge,
+  display-status derivation, read-model serialization, and audit/transition-log writing (now extracted).
+  Every workflow change lands in this one file.
+- Required fix: extract along existing seams — `ProcessAuditWriter` (done), `ResourceLockManager`,
+  `CorrectionService`, `ProcessReadModel`/serializer. Behavior-preserving, incremental, test suite as net.
+- Acceptance: `service.py` materially smaller; concerns in separate modules; full suite still green.
+
+### NA40. Abstract the correction subsystem BEFORE adding NA34's third correction kind
+- Status: **DONE (2026-06-22).** Behaviour-preserving refactor. New `CorrectionKind` enum
+  (`app/process/enums.py`: `REPLAN_IN_PLACE`, `SPIN_OFF_CHILD`; STAT_ONLY reserved for NA34) plus a single
+  seam in `ProcessService`: `_select_correction_kind(work_order, *, tracked_batch)` classifies, and
+  `_dispatch_packing_correction(...)` runs the matching strategy (`_reset_to_correction_planning` /
+  `_complete_packing_with_correction_order`). Both `correction_quantity > 0` branches — the plain packing
+  path (`complete_packing`) and the tracked-batch path (`_complete_tracked_batch_packing`) — now route
+  through the one seam instead of inline RAL/DECORAL `if`s. Quantity-conservation + reason capture stay
+  shared in the caller (validated once before dispatch). **NA34 now adds STAT_ONLY as one enum value + one
+  classifier branch + one handler, not a parallel flow.** Tests: new `test_select_correction_kind_seam_NA40`
+  pins the classifier; full backend suite + scenario matrix S01–S12 green; `alembic check` clean (no schema
+  change). `docs/WORKFLOW.md` Corrections Behavior documents the seam.
+- Severity: MEDIUM (debt that becomes risk). See `docs/ARCHITECTURE_AUDIT.md` §A2. **Blocks/precedes NA34.**
+- Problem: RAL (in-place batch reset, `_reset_to_correction_planning` `:1919`) and DECORAL (child order,
+  `_create_correction_work_order` `:1850`) corrections share no common abstraction. NA34 wants a third
+  ("od razu poprawiona" stat-only) path; bolting it onto two un-abstracted flows multiplies the
+  RAL/DECORAL × replan/stat-only × single/multi-round matrix.
+- Required fix: introduce one entry point `record_correction(work_order, qty, category, kind)` dispatching
+  to `{replan_in_place, spin_off_child, stat_only}`, with quantity-conservation + reason-capture shared.
+- Acceptance: a single correction seam exists; NA34 adds a strategy, not a parallel flow; scenario matrix
+  still green. Sequence: do this, then NA34/NA32 (avoids reworking the same code twice).
+
+### NA41. Collapse the duplicated "incomplete / status" truth
+- Status: **DONE (2026-06-22).** Full deletion (owner chose delete over freeze). `is_incomplete_on_arrival`
+  is now the single source of truth: the `incomplete_requires_unplanned` CHECK references only it, all three
+  `_has_incomplete_marker` copies (process/work_orders/manager) collapse to the boolean, and the 5 planning-queue
+  filters (`manager/repository.py` ×4 incl. `get_planned_queue_revision`, `process/repository.py` ×1) drop the
+  redundant `status` clause. The stored `WorkOrder.status` column + `work_order_status_enum` were removed
+  (migration `20260622_0034`, batch table-rebuild; `alembic check` clean). The read-model `status` field stays
+  but is now **always derived** from `process_status` (`WorkOrderService.build_status_view`) — including the
+  client-history view (`clients/service.py`), which previously read the stored column and was the lone
+  inconsistency. Removed dead code surfaced en route: `app/work_orders/workflow.py` (uncalled transition map),
+  `get_status_options`/`WorkOrderStatusOption`, `WorkOrderStatusTransitionRequest`. Status writes removed from
+  `create_work_order`, `mark_complete_arrival` (+ its audit detail), and correction-child creation. Tests:
+  updated `test_work_orders_service`, `test_process_service` (deleted the stored-status-drift test; rewrote the
+  two legacy-only-marker tests to the boolean), `test_db_constraints_phase1/2` (raw inserts; deleted the
+  legacy-status-blocks-queue test); migration tests pinned to old revisions keep the historical column.
+  **Full backend suite green; `alembic check` clean; frontend untouched.** CLAUDE.md note updated.
+- Severity: MEDIUM (truth drift — a CHECK constraint depends on the legacy field). See §A3.
+- Problem: "incomplete" lives in two places kept in sync by hand — `is_incomplete_on_arrival` (real) and
+  the legacy `WorkOrder.status == INCOMPLETE`, both checked in `_has_incomplete_marker`
+  (`app/process/service.py:2333`, mirrored `app/work_orders/service.py:469`). The legacy `status` is still
+  written (`work_orders/service.py:404`, `process/service.py:1883`) and load-bearing in CHECK
+  `incomplete_requires_unplanned` (`work_orders/models.py:64`).
+- Required fix: make `is_incomplete_on_arrival` the single source; migrate the CHECK off `status`; delete
+  or write-once-freeze `WorkOrder.status`; collapse `_has_incomplete_marker` to one field.
+- Acceptance: one source of truth for incomplete; CHECK constraint no longer references `status`; tests cover it.
+
+### NA42. Review the automatic PRODUCTION-as-preview stage (most special-cased, most-churned area)
+- Severity: LOW–MEDIUM (maintainability / churn risk). See §B1.
+- Problem: AUTOMATIC keeps `PRODUCTION` as a no-op "preview" stage and starts `PACKING` at hanging-start,
+  requiring a family of special cases (`_is_automatic_production_preview_stage`,
+  `_get_automatic_packing_display_stage`, `_packing_completion_block_reason`,
+  `can_complete_packing`/`packing_blocked_reason`). The Done log shows this area was reversed 3× + caused a
+  seed bug — it fights the stage-state abstraction.
+- Required fix: spike whether **omitting `PRODUCTION` from the automatic stage sequence** (like
+  PRZEMALOWANKA omits SURFACE_PREPARATION) is simpler than special-casing a phantom stage everywhere. Keep
+  the "live-but-uncompletable packing" state. Decide before more automatic-flow features land.
+- Acceptance: a written decision (remove phantom stage vs keep) with the special-case count it removes/keeps.
+- **Scope guardrail (owner, 2026-06-20): the automatic-station operator's view must stay exactly as it is
+  today** — same screen, same paint-consumption (carton) entry, same upcoming/active line preview, same
+  endpoint. This is a purely **internal** re-homing of where the paint-consumption action and the
+  "show automatic panel" read-model flag hang (they currently key off the PRODUCTION preview stage); the
+  frontend stays 1:1. Any change that alters what the automatic operator sees is out of scope.
+- Status: **DONE (2026-06-20)** — branch `experiment/automatic-no-phantom-production`. Spike verdict:
+  the phantom stems from creating stage-state rows as a method-agnostic superset at intake (the method
+  isn't known until planning). Fix (Option A): a new `ProcessService.reconcile_stage_states_to_route`
+  runs at planning (`assign_plan` / `update_production_type`, before correction replanning) and trims the
+  rows to the real route — AUTOMATIC loses `PRODUCTION`, MANUAL loses `HANGING`, re-adding on a method
+  switch. Removed the phantom implicit `PRODUCTION` transitions and the automatic-`PRODUCTION`-DONE block;
+  re-expressed `_occupies_automatic_line` (hanging DONE & packing not DONE, equivalent to the old
+  PRODUCTION-in-progress window); `is_visible_in_stage` decides the automatic preview before fetching a
+  stage row and walks the actionable route for the predecessor; the production-panel repo query anchors on
+  `PRODUCTION`∨`HANGING`; read models synthesize the "in production" presentation so the **operator view is
+  unchanged**. Real regressions found & fixed during the change: automatic production panel listing, and a
+  method-switch-on-correction-replan 409. Tests: new
+  `test_reconcile_stage_states_drops_phantom_rows_per_route_NA42`; phantom-asserting tests updated to the
+  new model (no PRODUCTION row for automatic / no HANGING row for manual). **433 backend + 78 frontend
+  tests pass, alembic clean, frontend build green.** `WORKFLOW.md` updated. Frontend untouched.
+
+### NA43. Consolidate the over-faceted quantity vocabulary
+- Status: **DONE (2026-06-22).** Collapsed the four scattered display helpers
+  (`_get_stage_display_quantity` / `_get_stage_planned_quantity` / `_get_operational_quantity` /
+  `_get_stage_counted_quantity`) into one resolver `ProcessService._resolve_stage_quantities` returning a
+  frozen `StageQuantities(display, planned, counted, operational)` value object — the read-model serializer
+  now makes one call instead of four, so the "which quantity shows where" rule lives once (and the
+  surface-prep-actual fetch is deduped). Behaviour-preserving (the four computations are transcribed exactly;
+  the read-model fields are byte-identical, so the frontend is untouched). `_get_surface_preparation_actual_quantity`
+  stays shared (also used by the packing path). Documented the **five quantities + the single display rule**
+  in `docs/WORKFLOW.md` → "Quantity model". Test: `test_resolve_stage_quantities_covers_each_context_NA43`
+  pins each context (display DONE vs live, planned, operational pre/post SP count, counted at SP / off-stage /
+  PACKING fallback). **439 backend tests pass; alembic check clean; no schema/frontend change.** Done as the
+  pivot from NA39's coupled-core finding (see NA39) — an in-file consolidation, not a class extraction.
+- Severity: LOW–MEDIUM (clarity; root of NA26-class bugs). See §B3.
+- Problem: five quantity notions (ordered / counted / `current_active` / operational / per-stage planned)
+  with which-shows-where wrong almost everywhere (NA26), resolved via four scattered helpers.
+- Required fix: document the five quantities + the single display rule in `WORKFLOW.md`; collapse the four
+  helpers behind one resolver so the rule lives once.
+- Acceptance: one resolver owns quantity-for-display; WORKFLOW.md states the rule; tests cover each context.
+
+### NA44. Frontend: decompose monolithic pages + move business semantics off the renderer
+- Status: **§C2 (business semantics off the renderer) DONE (2026-06-22); §C1 (page decomposition) still open.**
+  - **Overdue is now backend-owned (`is_overdue`).** Added `is_overdue` to `WorkOrderRead`
+    (`app/work_orders/schemas.py` + computed in `WorkOrderService._to_read_model`: planned pickup day
+    passed and not READY; date-only, server-local, strictly before today). Removed **both** client-side
+    `new Date()` computations — `workOrderDisplay.ts` `getWorkOrderAttentionBadges` and
+    `WorkOrdersListPage.tsx` `delayedCount`. (Minor behaviour refinement: an order due *today* is no longer
+    flagged "PO TERMINIE"; no test pinned the old edge.)
+  - **Status label has one owner (the backend).** Owner chose "backend label everywhere": deleted the
+    frontend `getWorkOrderStatusSummary` switch (`workOrderDisplay.ts`) and render `process_status.label`
+    in `ManagerPanelPage` (×2) and `WorkOrderDetailPage` (×2); removed the redundant stacked summary line
+    in the detail "Status procesu" section (the chip already shows the label). Operators now see the precise
+    backend wording (e.g. "Produkcja ręczna" / "Produkcja automat", "Pakowanie"), distinguishing
+    manual/automatic, instead of the collapsed "W produkcji".
+  - Tests: backend `test_read_model_is_overdue_is_backend_owned_NA44`; frontend overdue-from-`is_overdue`
+    case in `workOrderDisplay.test.ts` + `is_overdue` added to the three `buildWorkOrder` mock helpers and the
+    stale `getWorkOrderStatusSummary` stub dropped from two module mocks. **440 backend + 85 frontend tests
+    pass; both builds clean; alembic clean (read-model-only, no schema change).**
+  - **Still open — §C1 (structure):** decompose the monolith pages (`WorkOrderDetailPage` 1353,
+    `ManagerPanelPage` 1053, `PackingWorkOrdersPage` 908, `StageWorkOrdersPage` 876) into section components
+    with a data hook. Bulky churn; the backlog's own guidance is "do it when next touched", so it is left for
+    when those pages are next edited rather than a standalone churn pass.
+- Severity: LOW–MEDIUM. See §C1, §C2.
+- Problem (structure): `WorkOrderDetailPage.tsx` (1353), `ManagerPanelPage.tsx` (1053),
+  `PackingWorkOrdersPage.tsx` (908), `StageWorkOrdersPage.tsx` (876) are monoliths; known frontend defects
+  (NA13 stray `::`, NA31 stale plan-draft, NA14 dead table) are churn residue.
+- Problem (rule break): the renderer computes business meaning, contradicting "faithful renderer"
+  (`CLAUDE.md`) — "PO TERMINIE"/overdue is computed client-side from `new Date()`
+  (`frontend/src/utils/workOrderDisplay.ts:142,162`); Polish status labels are duplicated between the
+  frontend switch (`workOrderDisplay.ts:28-50`) and backend `ProcessDisplayStatus.polish_label`
+  (`process/service.py:1051`).
+- Required fix: decompose Detail + Manager into section components with a data hook (do it when next
+  touched); expose an `is_overdue` read-model boolean; render the backend `polish_label` (or make the
+  frontend the single label owner) — not both.
+- Acceptance: the two worst pages are split; overdue + labels have one owner; tests updated.
+
+### NA45. Archive frozen documentation snapshots; trim the living set
+- Status: **DONE — first pass (2026-06-22).** Moved 6 frozen snapshots to `docs/archive/` (each banner-
+  flagged): `DOC_COHERENCE_AUDIT`, `CODE_CONFORMANCE_AUDIT`, `OPERATOR_USABILITY_AUDIT_PL`,
+  `UI_PASSIVE_REVIEW_PL`, `FACTORY_DECISION_IMPLEMENTATION_MAP_PL`, `PAINT_SYSTEM_DEFINITION_DRAFT_PL`.
+  `DOCUMENTATION_MAP.md` restructured into Living / Active-reference / Archive sections (precedence intact).
+  Conservatively KEPT (still referenced by docs/code/open items, would break links): `FACTORY_USAGE_NOTES`
+  (WORKING_CONTRACT), `WORKFLOW_VALIDATION_CHECKLIST` (HARDENING_BACKLOG), `STATION_IDENTITY_AND_AUDIT`,
+  `AUTHZ_DESIGN_PROPOSAL` (README), `ARCHITECTURE_AUDIT` (NA39–47), `SCENARIO_WALKTHROUGH` (NA21 + seed
+  script). Stale links repointed to `docs/archive/` in this file + `WORKFLOW_VALIDATION_CHECKLIST.md`.
+  **Still open (deferred):** shorten this file's Done section to one-line + commit refs; collapse the
+  S01–S12 four-way representation; repoint the `/doc-audit` + `/code-audit` skills' output paths/cadence
+  (tied to NA47 owner confirmation).
+- Severity: MEDIUM (every session is told to read the docs; sprawl hides the truth). See §D1, §D2, §D3.
+- Problem: ~5,150 lines across 20 docs; many are dated, frozen-as-history audit snapshots overlapping the
+  two living docs (`DOC_COHERENCE_AUDIT`, `CODE_CONFORMANCE_AUDIT`, `OPERATOR_USABILITY_AUDIT_PL`,
+  `UI_PASSIVE_REVIEW_PL`, `FACTORY_USAGE_NOTES`, `FACTORY_DECISION_IMPLEMENTATION_MAP_PL`,
+  `PAINT_SYSTEM_DEFINITION_DRAFT_PL`, `WORKFLOW_VALIDATION_CHECKLIST` 35 KB). Plus `IMMEDIATE_NEXT_ACTIONS`
+  Done section (~350 lines) duplicates HARDENING_BACKLOG + git; S01–S12 has 4 parallel representations.
+- Required fix: move frozen snapshots to `docs/archive/` (or delete fully-superseded ones); keep the
+  living set small (`WORKFLOW`, `FACTORY_DOMAIN_MODEL`, `WORKING_CONTRACT`, `DEVELOPMENT_RUNBOOK`,
+  `DOCUMENTATION_MAP`); shorten Done entries to one line + commit ref; let `test_scenario_matrix.py` +
+  the WORKFLOW matrix be the canonical scenario truth. Update `DOCUMENTATION_MAP.md` to match.
+- Acceptance: active docs/ contains only living docs; archive holds the snapshots; DOCUMENTATION_MAP is accurate.
+
+### NA46. Backend cleanup: derive `current_active_batch_id`; bound the in-process lock maps
+- Status: **PARTIAL — §A6 + §A4 DONE; §A5 open.**
+  - **§A6 DONE (2026-06-22)** (side effect of NA39 cut 1): both the `audit_events` + `stage_transition_events`
+    writes live in `ProcessAuditWriter` (`app/process/audit_writer.py`), so they cannot diverge.
+  - **§A4 DONE (2026-06-22):** dropped the stored `current_active_batch_id` pointer. `WorkOrder.active_batch`
+    now derives purely from `active_batches` (the partial-unique index
+    `uq_work_order_quantity_batches_one_active_per_work_order` guarantees ≤1 active batch, so the single
+    active batch *is* the active batch). Removed `_sync_legacy_current_active_batch` + its 8 call sites and
+    all 8 direct pointer writes; `audit_writer` derives the paint-consumption `target_id` from `active_batch`.
+    Migration `20260622_0035` drops the column (batch table-rebuild; `alembic check` clean). The derivation is
+    safe because every flow deactivates the prior batch before/while activating the next (verified in
+    `_reset_to_correction_planning` & co.), so no in-memory pre-flush window holds two active batches. Tests:
+    rewrote the raw-SQL INSERTs in `test_db_constraints_phase1/2` (dropped the column), removed the now-dead
+    pointer writes in `test_process_service` + the seed; migration tests pinned to old revisions keep the
+    historical column. **440 backend tests pass; alembic check clean.**
+  - **Still open: §A5** (bound/evict the in-process lock maps — design eviction carefully; only evict
+    provably-unheld `RLock`s).
+- Severity: LOW (robustness). See §A4, §A5, §A6.
+- Problem: `current_active_batch_id` is a stored pointer hand-synced at 8+ sites
+  (`_sync_legacy_current_active_batch`) with a heuristic fallback (`models.py:176-186`) — a forgotten sync
+  desyncs it. `_PROCESS_MUTATION_LOCKS`/`_RESOURCE_MUTATION_LOCKS` (`:30-33`) grow unbounded (one RLock per
+  id forever). Transitions double-write `audit_events` + `stage_transition_events` (coupling that can drift).
+- Required fix: drop the stored pointer and derive `active_batch` from `active_batches` (the partial-unique
+  index makes it unambiguous); cap/evict the lock maps for a long-lived process; add a single helper that
+  writes both logs so they cannot diverge.
+- Acceptance: no `_sync_legacy_current_active_batch` calls remain; lock maps bounded; one write path per transition.
+
+### NA47. Decide how much audit-process cadence to keep (audit-generating-audit overhead)
+- Status: **DONE — owner-confirmed & adopted (2026-06-22).** Cadence policy adopted in
+  `docs/DOCUMENTATION_MAP.md` ("Audit cadence policy"): `/doc-audit` + `/code-audit` run **on-demand only**
+  (not weekly), their generated docs are disposable scratch (durable findings folded into the living docs,
+  snapshot then archived/deleted), and the deterministic `tests/test_documented_invariants.py` fast loop
+  carries routine drift detection. Both skill files (`.claude/commands/doc-audit.md`, `code-audit.md`)
+  updated: on-demand cadence wording + snapshot output repointed to `docs/archive/`.
+- Severity: LOW (process, not code). See `docs/ARCHITECTURE_AUDIT.md` §D4.
+- Problem: the repo accumulates audits-of-itself — NA24 produced `docs/archive/DOC_COHERENCE_AUDIT.md`, NA25
+  produced `docs/archive/CODE_CONFORMANCE_AUDIT.md`, this review produced `docs/ARCHITECTURE_AUDIT.md`, and the
+  `/doc-audit` + `/code-audit` skills regenerate the first two on a weekly cadence. For a single-developer
+  factory tool that is a lot of meta-process whose outputs themselves go stale and then need reconciling
+  (this is the same sprawl NA45 cleans up — the two findings reinforce each other).
+- Required fix: make a conscious decision on the cadence rather than letting it run by default. Options to
+  weigh: (a) keep the skills but run them **on-demand only** (before a big change), not weekly; (b) fold the
+  durable signal each audit produces directly into `WORKFLOW.md` / `FACTORY_DOMAIN_MODEL.md` and treat the
+  audit docs as disposable scratch (delete after acting); (c) keep a single periodic audit instead of three
+  separate doc/code/architecture passes. Pick one, write the chosen cadence into `docs/DOCUMENTATION_MAP.md`
+  or `WORKING_CONTRACT.md`, and stop producing standing audit documents that outlive their usefulness.
+- Acceptance: a stated, written policy on which audits run, how often, and whether their output is durable
+  or disposable; the doc set reflects that choice (coordinate with NA45).
 
 ## Done
 
@@ -620,6 +973,38 @@ workflow meaning. Severities are first-pass estimates.
   Verified: `pytest` green, `alembic check` clean + upgrade/downgrade roundtrip, frontend `npm run test`
   (78) + `npm run build` green. Sets up **NA33** (an "Ułóż automatycznie" / colour-grouping action now lives
   naturally per line).
+
+- **Manual-test pass of the post-20.06 features + 3 bug fixes found and fixed (2026-06-23)** — Owner walked
+  through the new features (curated seeder `scripts/seed_new_features_walkthrough.py` + `WALKTHROUGH_NOWOSCI.md`,
+  commit `a1e2752`). Confirmed working: NA35 wheel, NA38 foil picker, NA36 attachment upload, NA44 labels,
+  NA34 "do zaplanowania" correction, NA32 cumulative paint. Three defects surfaced and were fixed:
+  - **Attachment view/download returned 401 "Nie jesteś zalogowany"** (commit `810d00e`). A bare `<a href>`
+    navigation bypasses the token-injecting `window.fetch` interceptor, so no `Authorization` header was sent.
+    Fix: `openWorkOrderAttachment` fetches the file as a blob (carrying the JWT) and opens it in a new tab;
+    used by the detail-page "Otwórz" button and the station-card drawing links. **Affected ALL attachment
+    downloads, not just NA36.**
+  - **Adding paint failed silently with an empty "Kod farby"** (commit `810d00e`). `paint_code` is required
+    (min_length=1, part of the paint identity) but the form sent `""` and showed a raw 422. Fix: client-side
+    validation of RAL + producer + code on the delivery/adjustment forms.
+  - **Adding/fetching foils failed with a generic "nie udało się… folii" — ROOT CAUSE: Vite dev proxy was
+    missing `/foils`** (commit `136f16a`). In dev the browser talks to the backend through
+    `frontend/vite.config.ts`'s per-prefix proxy allowlist; `/foils` was never added, so the browser hit
+    Vite's HTML 404, `response.json()` threw, and the UI showed its fallback. **NOT a DB/migration problem**
+    (direct backend/TestClient calls always worked — which is why it looked DB-shaped). Fix: add `/foils` to
+    the proxy **and** a guard test `tests/test_vite_proxy_covers_api.py` that fails if any backend router
+    prefix is missing from the proxy, so this class of "new feature breaks in dev" cannot silently recur.
+    Requires a Vite restart to take effect.
+  - **NA34 stat-only correction — owner decision: leave as is.** Verified it IS recorded (audit event on the
+    order + `stat_only_corrections` row) and IS counted in stats (reason report + throughput). Owner chose not
+    to add extra prominence (no separate stat counter, no order-detail badge). No further work.
+
+- **NA36 — Technical drawings as a typed attachment (2026-06-23, commit `6e4d27a`)** — see the NA36 entry above
+  for full detail (DONE note). PDF + PNG/JPG, structured `category` discriminator, surfaced on station cards +
+  detail page; migration `20260623_0037`.
+
+- **Removed `managerPlanDraftReconcile.test.tsx` during the per-line merge (2026-06-23)** — the per-line
+  rebuild removed queue-position picking from manager planning, so the reconcile helper and its test (NA31's
+  2026-06-22 fix) cover behavior that no longer exists. See NA31 for the supersession note.
 
 - **Automatic packing card is now an ACTIVE packing row from hanging-start, not a read-only "waiting for hanging" row (2026-06-18)** —
   follow-up to the NA22a change below; user-requested. Previously `_get_automatic_packing_display_stage`

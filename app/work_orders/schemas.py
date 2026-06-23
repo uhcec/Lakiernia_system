@@ -17,13 +17,9 @@ from app.process.enums import (
     get_quantity_batch_type_label,
     get_stage_status_label,
 )
+from app.foils.schemas import FoilSummaryRead
 from app.shared.enums import WorkOrderStatus
 from app.shared.enums import QueueNamespace, WorkOrderKind, get_queue_namespace_label, get_work_order_kind_label
-
-
-class WorkOrderStatusOption(BaseModel):
-    value: WorkOrderStatus
-    label: str
 
 
 class WorkOrderStatusView(BaseModel):
@@ -99,6 +95,7 @@ class WorkOrderAttachmentRead(BaseModel):
     storage_path: str
     content_type: str
     file_size: int
+    category: str
     attachment_type: str | None
     description: str | None
     uploaded_at: datetime
@@ -164,6 +161,7 @@ class WorkOrderCreate(BaseModel):
     paint_code: str = Field(min_length=1, max_length=64)
     paint_producer: str = Field(min_length=1, max_length=255)
     coating_type: CoatingType
+    decoral_foil_id: int | None = Field(default=None, ge=1)
     work_order_kind: WorkOrderKind = WorkOrderKind.STANDARD
     is_ocynk: bool = False
     received_date: date
@@ -186,13 +184,6 @@ class WorkOrderCreate(BaseModel):
         return self
 
 
-class WorkOrderStatusTransitionRequest(BaseModel):
-    target_status: WorkOrderStatus
-    comment: str | None = None
-
-    model_config = ConfigDict(extra="forbid")
-
-
 class WorkOrderUpdate(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=255)
     external_order_number: str | None = Field(default=None, min_length=1, max_length=128)
@@ -201,6 +192,7 @@ class WorkOrderUpdate(BaseModel):
     ral_code: str | None = Field(default=None, min_length=1, max_length=64)
     paint_code: str | None = Field(default=None, min_length=1, max_length=64)
     paint_producer: str | None = Field(default=None, min_length=1, max_length=255)
+    decoral_foil_id: int | None = Field(default=None, ge=1)
     received_date: date | None = None
     planned_pickup_date: date | None = None
     total_area_m2: float | None = Field(default=None, gt=0)
@@ -255,6 +247,7 @@ class WorkOrderRead(BaseModel):
     queue_blocked_by_resource: str | None = None
     queue_blocked_reason: str | None = None
     coating_type: CoatingTypeView
+    decoral_foil: FoilSummaryRead | None = None
     production_type: ProductionTypeView | None
     queue_namespace: QueueNamespaceView
     queue_position: int | None
@@ -262,6 +255,7 @@ class WorkOrderRead(BaseModel):
     batches: list[WorkOrderQuantityBatchRead]
     received_date: date
     planned_pickup_date: date | None
+    is_overdue: bool = False
     is_released_to_client: bool = False
     released_to_client_at: datetime | None = None
     total_area_m2: float | None
@@ -371,6 +365,7 @@ def build_work_order_attachment_read(attachment: "WorkOrderAttachment") -> WorkO
         storage_path=attachment.storage_path,
         content_type=attachment.content_type,
         file_size=attachment.file_size,
+        category=attachment.category,
         attachment_type=attachment.attachment_type,
         description=attachment.description,
         uploaded_at=attachment.uploaded_at,

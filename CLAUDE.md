@@ -48,6 +48,9 @@ They change slowly; semantics live in `docs/WORKFLOW.md`.
   a `production_type` and reorders only that line; the manager UI edits one line at a time.
 - `paints/` — paint inventory (kg), intake stock snapshots, automatic-production consumption.
 - `clients/` — client registry + per-client order history.
+- `foils/` — Decoral foil registry (lookup table: name + unique code + supplier + notes). Office picks
+  one foil per Decoral order at intake (`WorkOrder.decoral_foil_id`, nullable FK, CHECK
+  `decoral_foil_requires_decoral_coating`); display-only today (no consumption/stats yet). Model: `Foil`.
 - `employees/` — station **presence roster** (`Employee`, `StationPresence`): factory workers (not login
   accounts) check in/out per station; "present now" = `checked_out_at IS NULL`. Actions are attributed to
   currently-present employees via `audit_event_actors`, written centrally in `AuditRepository.add`.
@@ -70,8 +73,11 @@ backend state and must not infer correction/READY/queue/quantity meaning locally
   `current_active_quantity` = sum of **active** batches. Quantity is conserved across parent/child
   correction chains. One active batch per work order (DB-enforced partial unique index).
 - **`process_status` (`ProcessDisplayStatus`) is DERIVED at read time** in
-  `ProcessService.get_display_status` — it is never a stored column. `WorkOrder.status` is a legacy
-  compatibility field; do not drive workflow from it.
+  `ProcessService.get_display_status` — it is never a stored column. The read models still expose a
+  legacy `status` (`WorkOrderStatusView`) field, but it too is **derived** from `process_status`
+  (`WorkOrderService.build_status_view`) — the old stored `WorkOrder.status` column was removed (NA41).
+  `is_incomplete_on_arrival` is the single source of truth for "incomplete on arrival" (the
+  `incomplete_requires_unplanned` CHECK references only it).
 - Stage sequence depends on coating + production type:
   `SURFACE_PREPARATION → [HANGING if AUTOMATIC] → PRODUCTION → PACKING → [DECORAL_PRODUCTION if DECORAL]`.
   For AUTOMATIC, `PRODUCTION` has no manual start/finish (it's a preview); the line finishes from

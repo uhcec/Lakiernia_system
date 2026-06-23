@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useLocation } from "react-router-dom";
-import { BarChart2, ClipboardList, UserCog, FlaskConical, Hand, Factory, Package, Palette, ShieldCheck, Plus, LogOut, Users, UserPlus, HardHat } from "lucide-react";
+import { BarChart2, ClipboardList, UserCog, FlaskConical, Hand, Factory, Package, Palette, ShieldCheck, Plus, LogOut, Users, UserPlus, HardHat, Layers } from "lucide-react";
 import type { SVGProps } from "react";
 import { isFullAccessUser, useAuth } from "../context/AuthContext";
 import { getStationPanelPath, type StationId } from "../api/stationContext";
@@ -44,6 +44,7 @@ const primaryNavigation: NavigationItem[] = [
 
 const secondaryNavigation: NavigationItem[] = [
   { to: "/klienci", label: "Klienci", icon: Users },
+  { to: "/folie", label: "Folie", icon: Layers },
   { to: "/pracownicy", label: "Pracownicy", icon: HardHat },
   { to: "/farby", label: "Farby", icon: Palette },
   { to: "/statystyki", label: "Statystyki", icon: BarChart2 },
@@ -71,6 +72,7 @@ export function AppLayout() {
   const { user, logout } = useAuth();
   const fullAccess = isFullAccessUser(user);
   const isClientsPage = location.pathname.startsWith("/klienci");
+  const isFoilsPage = location.pathname.startsWith("/folie");
 
   const visiblePrimary = fullAccess
     ? primaryNavigation
@@ -82,6 +84,7 @@ export function AppLayout() {
 
   function getSectionTitle(pathname: string): string {
     if (pathname.startsWith("/klienci")) return "Klienci";
+    if (pathname.startsWith("/folie")) return "Folie";
     if (pathname.startsWith("/pracownicy")) return "Pracownicy";
     if (pathname.startsWith("/farby")) return "Farby";
     if (pathname.startsWith("/statystyki")) return "Statystyki";
@@ -229,6 +232,16 @@ export function AppLayout() {
                   >
                     <UserPlus className="h-4 w-4" strokeWidth={1.8} />
                     <span className="hidden sm:inline">Dodaj klienta</span>
+                    <span className="sm:hidden">Dodaj</span>
+                  </button>
+                ) : isFoilsPage ? (
+                  <button
+                    type="button"
+                    onClick={() => document.dispatchEvent(new CustomEvent("foils:open-add-form"))}
+                    className="inline-flex shrink-0 items-center gap-2 rounded-full bg-brand-warm px-5 py-2.5 text-sm font-semibold text-brand-ink transition hover:bg-brand-warm-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#f2761b]/50"
+                  >
+                    <Layers className="h-4 w-4" strokeWidth={1.8} />
+                    <span className="hidden sm:inline">Dodaj folię</span>
                     <span className="sm:hidden">Dodaj</span>
                   </button>
                 ) : (

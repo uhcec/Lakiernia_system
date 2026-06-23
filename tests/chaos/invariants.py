@@ -8,7 +8,6 @@ from sqlalchemy.orm import Session, selectinload
 from app.process.enums import ProcessDisplayStatus
 from app.process.repository import ProcessRepository
 from app.process.service import ProcessService
-from app.shared.enums import WorkOrderStatus
 from app.work_orders.schemas import WorkOrderCreate
 from app.work_orders.models import WorkOrder
 from tests.chaos.harness import ALLOWED_CHAOS_STATUS_CODES, ChaosEvent
@@ -46,7 +45,7 @@ def assert_incomplete_orders_cannot_enter_queue(db_session: Session) -> None:
         select(WorkOrder).where(
             WorkOrder.production_type.is_not(None),
             WorkOrder.queue_position.is_not(None),
-            (WorkOrder.is_incomplete_on_arrival.is_(True) | (WorkOrder.status == WorkOrderStatus.INCOMPLETE)),
+            WorkOrder.is_incomplete_on_arrival.is_(True),
         )
     ).all()
     assert not queued_incomplete, f"Incomplete work orders entered the queue: {[order.id for order in queued_incomplete]}"

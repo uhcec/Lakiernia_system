@@ -5,15 +5,9 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database.base import Base
 from app.process.enums import CoatingType, ProductionType
-from app.shared.enums import QueueNamespace, WorkOrderKind, WorkOrderStatus
+from app.work_orders.enums import WorkOrderAttachmentCategory
+from app.shared.enums import QueueNamespace, WorkOrderKind
 
-
-work_order_status_enum = Enum(
-    WorkOrderStatus,
-    name="work_order_status",
-    native_enum=False,
-    values_callable=lambda statuses: [status.value for status in statuses],
-)
 
 coating_type_enum = Enum(
     CoatingType,
@@ -61,7 +55,7 @@ class WorkOrder(Base):
             name="planned_requires_production_type_and_queue_position",
         ),
         CheckConstraint(
-            "queue_position IS NULL OR (is_incomplete_on_arrival = 0 AND status != 'INCOMPLETE')",
+            "queue_position IS NULL OR is_incomplete_on_arrival = 0",
             name="incomplete_requires_unplanned",
         ),
         CheckConstraint(
@@ -75,6 +69,10 @@ class WorkOrder(Base):
         CheckConstraint(
             "profiles_quantity IS NULL OR accessories_quantity IS NULL OR profiles_quantity + accessories_quantity = total_quantity",
             name="profile_accessory_quantities_sum_total_if_known",
+        ),
+        CheckConstraint(
+            "decoral_foil_id IS NULL OR coating_type = 'DECORAL'",
+            name="decoral_foil_requires_decoral_coating",
         ),
         CheckConstraint("parent_order_id IS NULL OR parent_order_id != id", name="parent_order_cannot_reference_self"),
         CheckConstraint("is_correction = 0 OR parent_order_id IS NOT NULL", name="correction_requires_parent"),
@@ -95,12 +93,12 @@ class WorkOrder(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     paint_id: Mapped[int | None] = mapped_column(ForeignKey("paints.id", ondelete="SET NULL"), nullable=True, index=True)
+    decoral_foil_id: Mapped[int | None] = mapped_column(ForeignKey("foils.id", ondelete="SET NULL"), nullable=True, index=True)
     order_number: Mapped[str] = mapped_column(String(32), unique=True, nullable=False)
     external_order_number: Mapped[str | None] = mapped_column(String(128), nullable=True)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     total_quantity: Mapped[int] = mapped_column(Integer(), nullable=False, default=1)
     completed_quantity: Mapped[int] = mapped_column(Integer(), nullable=False, default=0)
-    current_active_batch_id: Mapped[int | None] = mapped_column(Integer(), nullable=True)
     parent_order_id: Mapped[int | None] = mapped_column(ForeignKey("work_orders.id", ondelete="SET NULL"), nullable=True)
     is_correction: Mapped[bool] = mapped_column(Boolean(), nullable=False, default=False)
     correction_reason_category: Mapped[str | None] = mapped_column(String(64), nullable=True)
@@ -112,7 +110,6 @@ class WorkOrder(Base):
     paint_producer: Mapped[str] = mapped_column(String(255), nullable=False)
     paint_stock_snapshot_quantity_kg: Mapped[float | None] = mapped_column(Float(), nullable=True)
     consumed_paint_quantity_kg: Mapped[float] = mapped_column(Float(), nullable=False, default=0)
-    status: Mapped[WorkOrderStatus] = mapped_column(work_order_status_enum, default=WorkOrderStatus.ENTERED, nullable=False)
     coating_type: Mapped[CoatingType] = mapped_column(coating_type_enum, default=CoatingType.RAL, nullable=False)
     work_order_kind: Mapped[WorkOrderKind] = mapped_column(
         work_order_kind_enum,
@@ -171,6 +168,7 @@ class WorkOrder(Base):
         order_by="WorkOrderAttachment.uploaded_at.desc()",
     )
     paint = relationship("Paint", back_populates="work_orders")
+    decoral_foil = relationship("Foil", back_populates="work_orders")
 
     @property
     def active_batches(self):
@@ -178,19 +176,26 @@ class WorkOrder(Base):
 
     @property
     def active_batch(self):
-        for batch in self.active_batches:
-            if batch.id == self.current_active_batch_id:
-                return batch
-        for batch in self.quantity_batches:
-            if batch.id == self.current_active_batch_id:
-                return batch
-        if len(self.active_batches) == 1:
-            return self.active_batches[0]
-        return None
+        # Derived from active_batches (NA46 §A4): the DB partial-unique index
+        # (uq_work_order_quantity_batches_one_active_per_work_order, WHERE is_active=1) guarantees at
+        # most one active batch per work order, so the single active batch IS the active batch — no
+        # stored pointer to hand-sync. Returns None when there is none (or, defensively, if an
+        # in-memory pre-flush window ever held more than one, which the index would reject on flush).
+        active_batches = self.active_batches
+        return active_batches[0] if len(active_batches) == 1 else None
 
     @property
     def current_active_quantity(self) -> int:
         return sum(batch.quantity for batch in self.active_batches)
+
+    @property
+    def correction_chain_ids(self) -> list[int]:
+        # This order plus all descendant correction orders (recursively). Used to roll up
+        # cumulative paint consumption across a correction chain (NA32).
+        ids = [self.id]
+        for child in self.correction_orders:
+            ids.extend(child.correction_chain_ids)
+        return ids
 
 
 class WorkOrderNumberCounter(Base):
@@ -212,6 +217,12 @@ class WorkOrderAttachment(Base):
     storage_path: Mapped[str] = mapped_column(String(512), nullable=False)
     content_type: Mapped[str] = mapped_column(String(128), nullable=False)
     file_size: Mapped[int] = mapped_column(Integer(), nullable=False)
+    # Structured discriminator (NA36). Plain string validated at the app layer against
+    # WorkOrderAttachmentCategory; defaults to DOCUMENT so every pre-existing attachment is a document.
+    category: Mapped[str] = mapped_column(
+        String(32), nullable=False, default=WorkOrderAttachmentCategory.DOCUMENT.value
+    )
+    # Optional free-text human sub-label (legacy; orthogonal to `category`).
     attachment_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
     description: Mapped[str | None] = mapped_column(Text(), nullable=True)
     uploaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False)

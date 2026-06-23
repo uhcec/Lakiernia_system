@@ -1,14 +1,18 @@
 import { FormEvent, useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
+import { NumberInput } from "../components/NumberInput";
 import { fetchClients } from "../api/clientsApi";
+import { fetchFoils } from "../api/foilsApi";
 import { lookupPaintStock } from "../api/paintsApi";
 import { createWorkOrder } from "../api/workOrdersApi";
+import type { Foil } from "../types/foils";
 import type { CoatingTypeValue, WorkOrderKindValue } from "../types/workOrders";
 
 interface FormState {
   total_quantity: string;
   coating_type: CoatingTypeValue | "";
+  decoral_foil_id: string;
   work_order_kind: WorkOrderKindValue;
   is_ocynk: boolean;
   external_order_number: string;
@@ -31,6 +35,7 @@ interface FormState {
 const initialFormState: FormState = {
   total_quantity: "1",
   coating_type: "",
+  decoral_foil_id: "",
   work_order_kind: "STANDARD",
   is_ocynk: false,
   external_order_number: "",
@@ -234,6 +239,7 @@ export function CreateWorkOrderPage() {
   const [apiError, setApiError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [clientNameSuggestions, setClientNameSuggestions] = useState<string[]>([]);
+  const [foils, setFoils] = useState<Foil[]>([]);
   const [paintLookupState, setPaintLookupState] = useState<{
     currentQuantityKg: number | null;
     existsInInventory: boolean;
@@ -255,6 +261,22 @@ export function CreateWorkOrderPage() {
       })
       .catch(() => {
         // Suggestions are a convenience only; ignore load failures.
+      });
+    return () => {
+      isActive = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let isActive = true;
+    fetchFoils()
+      .then((response) => {
+        if (isActive) {
+          setFoils(response.items);
+        }
+      })
+      .catch(() => {
+        // The foil list is a convenience picker only; ignore load failures.
       });
     return () => {
       isActive = false;
@@ -422,6 +444,8 @@ export function CreateWorkOrderPage() {
       await createWorkOrder({
         total_quantity: totalQuantity,
         coating_type: formState.coating_type,
+        decoral_foil_id:
+          formState.coating_type === "DECORAL" && formState.decoral_foil_id ? Number(formState.decoral_foil_id) : undefined,
         work_order_kind: formState.work_order_kind,
         is_ocynk: formState.is_ocynk,
         external_order_number: formState.external_order_number.trim() || undefined,
@@ -507,7 +531,14 @@ export function CreateWorkOrderPage() {
               <span className="text-sm font-medium text-ink">Technologia</span>
               <select
                 value={formState.coating_type}
-                onChange={(event) => updateField("coating_type", event.target.value as CoatingTypeValue | "")}
+                onChange={(event) => {
+                  const nextCoating = event.target.value as CoatingTypeValue | "";
+                  setFormState((current) => ({
+                    ...current,
+                    coating_type: nextCoating,
+                    decoral_foil_id: nextCoating === "DECORAL" ? current.decoral_foil_id : "",
+                  }));
+                }}
                 className="rounded-2xl border border-line bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-accent"
               >
                 <option value="">Wybierz technologię</option>
@@ -515,6 +546,24 @@ export function CreateWorkOrderPage() {
                 <option value="DECORAL">Decoral</option>
               </select>
             </label>
+
+            {formState.coating_type === "DECORAL" && (
+              <label className="flex flex-col gap-2">
+                <span className="text-sm font-medium text-ink">Folia Decoral</span>
+                <select
+                  value={formState.decoral_foil_id}
+                  onChange={(event) => updateField("decoral_foil_id", event.target.value)}
+                  className="rounded-2xl border border-line bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-accent"
+                >
+                  <option value="">Bez folii / wybierz później</option>
+                  {foils.map((foil) => (
+                    <option key={foil.id} value={String(foil.id)}>
+                      {foil.name} ({foil.code})
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
 
             <label className="flex flex-col gap-2">
               <span className="text-sm font-medium text-ink">Rodzaj zlecenia</span>
@@ -584,12 +633,11 @@ export function CreateWorkOrderPage() {
 
             <label className="flex flex-col gap-2">
               <span className="text-sm font-medium text-ink">Ilość całkowita</span>
-              <input
-                type="number"
+              <NumberInput
                 min="1"
                 step="1"
                 value={formState.total_quantity}
-                onChange={(event) => updateField("total_quantity", event.target.value)}
+                onValueChange={(value) => updateField("total_quantity", value)}
                 className="rounded-2xl border border-line bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-accent"
                 placeholder="1"
               />
@@ -597,12 +645,11 @@ export function CreateWorkOrderPage() {
 
             <label className="flex flex-col gap-2">
               <span className="text-sm font-medium text-ink">Powierzchnia całkowita (m²)</span>
-              <input
-                type="number"
+              <NumberInput
                 min="0"
                 step="0.01"
                 value={formState.total_area_m2}
-                onChange={(event) => updateField("total_area_m2", event.target.value)}
+                onValueChange={(value) => updateField("total_area_m2", value)}
                 className="rounded-2xl border border-line bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-accent"
                 placeholder="np. 42.5"
               />
@@ -635,13 +682,12 @@ export function CreateWorkOrderPage() {
             <div className="space-y-3 rounded-3xl border border-line/80 bg-mist/40 p-4">
               <div className="flex flex-col gap-2">
                 <span className="text-sm font-medium text-ink">Profile</span>
-                <input
-                  type="number"
+                <NumberInput
                   min="0"
                   step="1"
                   disabled={formState.profiles_to_count}
                   value={formState.profiles_quantity}
-                  onChange={(event) => updateField("profiles_quantity", event.target.value)}
+                  onValueChange={(value) => updateField("profiles_quantity", value)}
                   className="rounded-2xl border border-line bg-white px-4 py-3 text-sm text-ink outline-none transition disabled:bg-slate-100 disabled:text-slate-400 focus:border-accent"
                   placeholder="Podaj ilość"
                 />
@@ -660,13 +706,12 @@ export function CreateWorkOrderPage() {
             <div className="space-y-3 rounded-3xl border border-line/80 bg-mist/40 p-4">
               <div className="flex flex-col gap-2">
                 <span className="text-sm font-medium text-ink">Akcesoria</span>
-                <input
-                  type="number"
+                <NumberInput
                   min="0"
                   step="1"
                   disabled={formState.accessories_to_count}
                   value={formState.accessories_quantity}
-                  onChange={(event) => updateField("accessories_quantity", event.target.value)}
+                  onValueChange={(value) => updateField("accessories_quantity", value)}
                   className="rounded-2xl border border-line bg-white px-4 py-3 text-sm text-ink outline-none transition disabled:bg-slate-100 disabled:text-slate-400 focus:border-accent"
                   placeholder="Podaj ilość"
                 />

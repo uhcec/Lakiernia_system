@@ -5,9 +5,11 @@ description: Code-vs-docs conformance audit (NA25) — verify the code matches t
 # Code conformance audit (the NA25 process, made repeatable)
 
 Audit the **code** against the reconciled documentation — the same process that produced
-`docs/CODE_CONFORMANCE_AUDIT.md`. This is the docs↔code half of the repo's self-check loop; pair it
-with `/doc-audit` (which does docs↔docs). **Read-only audit: do not fix code as you go** — log
-divergences as `NA*` items in `IMMEDIATE_NEXT_ACTIONS.md` (that is where NA25/NA26 came from).
+`docs/archive/CODE_CONFORMANCE_AUDIT.md`. This is the docs↔code half of the repo's self-check loop; pair
+it with `/doc-audit` (which does docs↔docs). **Run on-demand** (before a significant change), not on a
+standing schedule — the deterministic `tests/test_documented_invariants.py` fast loop carries routine
+drift detection (cadence policy: `docs/DOCUMENTATION_MAP.md`). **Read-only audit: do not fix code as you
+go** — log divergences as `NA*` items in `IMMEDIATE_NEXT_ACTIONS.md` (that is where NA25/NA26 came from).
 
 ## First: run the fast guardian
 
@@ -33,8 +35,9 @@ If it fails, code and docs have drifted on a pinned constant; record it before t
 
 ## Output
 
-- Refresh `docs/CODE_CONFORMANCE_AUDIT.md`: date the run, per-topic verdicts + evidence, and a summary of
-  divergences.
+- Write the run to `docs/archive/CODE_CONFORMANCE_AUDIT.md` (disposable scratch): date the run, per-topic
+  verdicts + evidence, and a summary of divergences. The actionable divergences live in the backlog below;
+  the snapshot is a spent artifact (cadence policy in `DOCUMENTATION_MAP.md`).
 - Add each actionable divergence to `IMMEDIATE_NEXT_ACTIONS.md` as a new `NA*` item (severity, `file:line`,
   required fix, acceptance).
 

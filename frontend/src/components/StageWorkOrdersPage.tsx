@@ -3,7 +3,9 @@ import { useEffect, useState } from "react";
 import { usePolling, STATION_POLL_INTERVAL_MS } from "../hooks/usePolling";
 import { getMutationErrorMessage } from "../utils/mutationError";
 import { buildWorkOrderDetailHref, getStationIdForLocation } from "../api/stationContext";
+import { NumberInput } from "./NumberInput";
 import { StationPresenceWidget } from "./StationPresenceWidget";
+import { TechnicalDrawingLinks } from "./TechnicalDrawingLinks";
 import { fetchStageWorkOrders, recordAutomaticPaintConsumption, transitionStage } from "../api/processApi";
 import type { ProcessStageValue, StageWorkOrder, StageStatusValue } from "../types/process";
 import type { ProductionTypeValue } from "../types/workOrders";
@@ -550,6 +552,8 @@ export function StageWorkOrdersPage({
                     </div>
                   </dl>
 
+                  <TechnicalDrawingLinks workOrderId={workOrder.id} drawings={workOrder.technical_drawings} />
+
                   <div className="space-y-1 text-sm">
                     <p className="font-semibold text-ink">{status === "DONE" ? `Zakończono: ${title}` : title}</p>
                     {showBatchProgress ? (
@@ -667,13 +671,11 @@ export function StageWorkOrdersPage({
 
                               <label className="space-y-1 text-sm font-medium text-steel">
                                 <span>Pozostało w ostatnim kartonie [kg]</span>
-                                <input
-                                  type="number"
+                                <NumberInput
                                   min={0}
                                   step="0.01"
                                   value={automaticPaintDraft.finalCartonRemainingKg}
-                                  onChange={(event) => {
-                                    const { value } = event.target;
+                                  onValueChange={(value) => {
                                     setPaintConsumptionDrafts((current) => ({
                                       ...current,
                                       [workOrder.id]: {
@@ -723,13 +725,11 @@ export function StageWorkOrdersPage({
                       status === "IN_PROGRESS" ? (
                         <label className="space-y-1 text-sm font-medium text-steel">
                           <span>Policzono</span>
-                          <input
-                            type="number"
+                          <NumberInput
                             min={1}
                             step={1}
                             value={countedDraft}
-                            onChange={(event) => {
-                              const { value } = event.target;
+                            onValueChange={(value) => {
                               setCountedQuantities((current) => ({
                                 ...current,
                                 [workOrder.id]: value,

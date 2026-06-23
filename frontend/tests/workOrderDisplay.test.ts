@@ -39,6 +39,7 @@ function buildWorkOrder(overrides: Partial<WorkOrder> = {}): WorkOrder {
     batches: [],
     received_date: "2026-05-30",
     planned_pickup_date: null,
+    is_overdue: false,
     is_released_to_client: false,
     released_to_client_at: null,
     total_area_m2: null,
@@ -95,6 +96,17 @@ describe("work order display helpers", () => {
 
     expect(getWorkOrderDiscrepancyText(workOrder)).toBe("Przygotowanie: zadeklarowano 10, policzono 8 (-2 szt.)");
     expect(getWorkOrderAttentionBadges(workOrder)).toContainEqual({ label: "RÓŻNICA: -2 SZT.", tone: "warning" });
+  });
+
+  it("shows the PO TERMINIE badge from the backend is_overdue flag, not a client clock", () => {
+    expect(getWorkOrderAttentionBadges(buildWorkOrder({ is_overdue: true }))).toContainEqual({
+      label: "PO TERMINIE",
+      tone: "danger",
+    });
+    expect(getWorkOrderAttentionBadges(buildWorkOrder({ is_overdue: false }))).not.toContainEqual({
+      label: "PO TERMINIE",
+      tone: "danger",
+    });
   });
 
   it("shows work-type badges for Przemalowanka and Ocynk", () => {

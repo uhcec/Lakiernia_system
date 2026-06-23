@@ -13,16 +13,19 @@ from app.audit.context import StationContext, ensure_station_allowed
 from app.audit.models import AuditEvent
 from app.audit.repository import AuditRepository
 from app.core.config import get_settings, get_work_order_attachments_path
+from app.foils.repository import FoilRepository
 from app.paints.repository import PaintRepository
 from app.paints.service import PaintService
-from app.process.enums import ProcessDisplayStatus
+from app.process.enums import CoatingType, ProcessDisplayStatus
 from app.process.repository import ProcessRepository
 from app.process.service import ProcessService
 from app.shared.enums import StationId, WorkOrderStatus, get_work_order_status_label
 from app.shared.exceptions import InvalidAttachmentError, InvalidStatusTransitionError, InvalidWorkOrderDataError, ResourceNotFoundError
+from app.work_orders.enums import WorkOrderAttachmentCategory
 from app.work_orders.models import WorkOrder, WorkOrderAttachment
 from app.work_orders.number_allocator import WorkOrderNumberAllocator
 from app.work_orders.repository import WorkOrderRepository
+from app.foils.schemas import FoilSummaryRead
 from app.work_orders.schemas import (
     WorkOrderAttachmentRead,
     WorkOrderCreate,
@@ -32,7 +35,6 @@ from app.work_orders.schemas import (
     WorkOrderRead,
     WorkOrderReleaseUpdate,
     WorkOrderStageStateRead,
-    WorkOrderStatusOption,
     WorkOrderStatusView,
     WorkOrderUpdate,
     calculate_paint_shortage_quantity_kg,
@@ -143,22 +145,22 @@ def _get_excel_pdf_converter() -> _ExcelPdfConverter:
 
 
 class WorkOrderService:
-    ALLOWED_ATTACHMENT_CONTENT_TYPES = {"application/pdf"}
-    PDF_MAGIC_BYTES = b"%PDF-"
+    # Allowed attachment content types → (magic-byte prefix, stored file extension) (NA36: PDF + images).
+    ALLOWED_ATTACHMENT_TYPES: dict[str, tuple[bytes, str]] = {
+        "application/pdf": (b"%PDF-", ".pdf"),
+        "image/png": (b"\x89PNG\r\n\x1a\n", ".png"),
+        "image/jpeg": (b"\xff\xd8\xff", ".jpg"),
+    }
+    # Bytes sniffed from the file head to verify the magic prefix (longest prefix above is 8 bytes).
+    ATTACHMENT_HEADER_BYTES = 8
 
     def __init__(self, repository: WorkOrderRepository) -> None:
         self.repository = repository
         self.process_service = ProcessService(ProcessRepository(repository.session))
         self.paint_service = PaintService(PaintRepository(repository.session))
+        self.foil_repository = FoilRepository(repository.session)
         self.number_allocator = WorkOrderNumberAllocator(repository.session)
         self.audit_repository = AuditRepository(repository.session)
-
-    @staticmethod
-    def get_status_options() -> list[WorkOrderStatusOption]:
-        return [
-            WorkOrderStatusOption(value=status, label=get_work_order_status_label(status))
-            for status in WorkOrderStatus
-        ]
 
     @staticmethod
     def derive_status(process_status: ProcessDisplayStatus) -> WorkOrderStatus:
@@ -184,9 +186,17 @@ class WorkOrderService:
             paint_code=work_order.paint_code,
         ).current_quantity_kg
 
+    def _validate_decoral_foil(self, coating_type, decoral_foil_id: int | None) -> None:
+        if decoral_foil_id is None:
+            return
+        if coating_type != CoatingType.DECORAL:
+            raise InvalidWorkOrderDataError("Folię można wybrać tylko dla zlecenia w technologii Decoral.")
+        if self.foil_repository.get_by_id(decoral_foil_id) is None:
+            raise InvalidWorkOrderDataError(f"Wybrana folia (id={decoral_foil_id}) nie istnieje.")
+
     def create_work_order(self, payload: WorkOrderCreate, station_context: StationContext | None = None) -> WorkOrderRead:
         self._ensure_office_station_action(station_context, "office work-order actions")
-        initial_status = WorkOrderStatus.INCOMPLETE if payload.is_incomplete_on_arrival else WorkOrderStatus.ENTERED
+        self._validate_decoral_foil(payload.coating_type, payload.decoral_foil_id)
         order_number = self.number_allocator.allocate()
         paint, paint_stock_snapshot_quantity_kg = self.paint_service.capture_work_order_snapshot(
             ral_code=payload.ral_code,
@@ -207,8 +217,8 @@ class WorkOrderService:
             paint_producer=payload.paint_producer,
             paint_stock_snapshot_quantity_kg=paint_stock_snapshot_quantity_kg,
             consumed_paint_quantity_kg=0,
-            status=initial_status,
             coating_type=payload.coating_type,
+            decoral_foil_id=payload.decoral_foil_id,
             work_order_kind=payload.work_order_kind,
             is_ocynk=payload.is_ocynk,
             received_date=payload.received_date,
@@ -252,6 +262,8 @@ class WorkOrderService:
         work_order = self._get_existing_work_order(work_order_id)
         updates = payload.model_dump(exclude_unset=True)
         validated_payload = self._validate_work_order_state(work_order, updates)
+        if "decoral_foil_id" in updates:
+            self._validate_decoral_foil(work_order.coating_type, validated_payload.decoral_foil_id)
         paint_identity_changed = any(field_name in updates for field_name in {"ral_code", "paint_code", "paint_producer"})
         resolved_paint = None
         resolved_snapshot = None
@@ -318,6 +330,7 @@ class WorkOrderService:
             "paint_code": work_order.paint_code,
             "paint_producer": work_order.paint_producer,
             "coating_type": work_order.coating_type,
+            "decoral_foil_id": work_order.decoral_foil_id,
             "work_order_kind": work_order.work_order_kind,
             "is_ocynk": work_order.is_ocynk,
             "received_date": work_order.received_date,
@@ -401,7 +414,6 @@ class WorkOrderService:
         self._validate_work_order_state(work_order, {"is_incomplete_on_arrival": False})
 
         work_order.is_incomplete_on_arrival = False
-        work_order.status = WorkOrderStatus.ENTERED
         work_order.updated_at = datetime.now(UTC)
         self._record_audit_event(
             event_type="work_order.arrival_completed",
@@ -412,7 +424,6 @@ class WorkOrderService:
             summary=f"Marked work order {work_order.order_number} as complete on arrival.",
             details={
                 "is_incomplete_on_arrival": False,
-                "status": WorkOrderStatus.ENTERED.value,
             },
         )
 
@@ -466,42 +477,46 @@ class WorkOrderService:
 
     @staticmethod
     def _has_incomplete_marker(work_order: WorkOrder) -> bool:
-        return work_order.is_incomplete_on_arrival or work_order.status == WorkOrderStatus.INCOMPLETE
+        return work_order.is_incomplete_on_arrival
 
     async def upload_attachment(
         self,
         work_order_id: int,
         file: UploadFile,
         *,
+        category: str | None = None,
         attachment_type: str | None = None,
         description: str | None = None,
         station_context: StationContext | None = None,
     ) -> WorkOrderAttachmentRead:
         self._ensure_office_station_action(station_context, "office attachment actions")
         work_order = self._get_existing_work_order(work_order_id)
+        category_value = self._normalize_attachment_category(category)
         original_filename = Path(file.filename or "").name.strip()
         if not original_filename:
             raise InvalidAttachmentError("Plik musi mieć nazwę.")
-        if file.content_type not in self.ALLOWED_ATTACHMENT_CONTENT_TYPES:
-            raise InvalidAttachmentError("Dozwolone są tylko pliki PDF.", status_code=415)
+        allowed = self.ALLOWED_ATTACHMENT_TYPES.get(file.content_type or "")
+        if allowed is None:
+            raise InvalidAttachmentError("Dozwolone są tylko pliki PDF lub obrazy (PNG/JPG).", status_code=415)
+        magic_prefix, extension = allowed
 
         settings = get_settings()
         root_path = get_work_order_attachments_path()
         attachment_directory = root_path / str(work_order.id)
         attachment_directory.mkdir(parents=True, exist_ok=True)
 
-        stored_filename = f"{uuid4().hex}.pdf"
+        stored_filename = f"{uuid4().hex}{extension}"
         destination_path = attachment_directory / stored_filename
         relative_storage_path = destination_path.relative_to(root_path).as_posix()
 
         file_size = 0
         try:
             with destination_path.open("wb") as output_file:
-                header = await file.read(len(self.PDF_MAGIC_BYTES))
+                header = await file.read(self.ATTACHMENT_HEADER_BYTES)
                 if not header:
-                    raise InvalidAttachmentError("Nie można przesłać pustego pliku PDF.")
-                if header != self.PDF_MAGIC_BYTES:
-                    raise InvalidAttachmentError("Przesłany plik nie jest prawidłowym PDF.")
+                    raise InvalidAttachmentError("Nie można przesłać pustego pliku.")
+                if not header.startswith(magic_prefix):
+                    raise InvalidAttachmentError(self._invalid_signature_message(file.content_type))
 
                 file_size += len(header)
                 output_file.write(header)
@@ -522,6 +537,7 @@ class WorkOrderService:
                 storage_path=relative_storage_path,
                 content_type=file.content_type,
                 file_size=file_size,
+                category=category_value,
                 attachment_type=self._normalize_optional_text(attachment_type),
                 description=self._normalize_optional_text(description),
             )
@@ -667,6 +683,23 @@ class WorkOrderService:
         normalized = value.strip()
         return normalized or None
 
+    @staticmethod
+    def _normalize_attachment_category(value: str | None) -> str:
+        if value is None or not value.strip():
+            return WorkOrderAttachmentCategory.DOCUMENT.value
+        try:
+            return WorkOrderAttachmentCategory(value.strip().upper()).value
+        except ValueError as error:
+            raise InvalidAttachmentError(
+                f"Nieprawidłowa kategoria załącznika: {value}.", status_code=422
+            ) from error
+
+    @staticmethod
+    def _invalid_signature_message(content_type: str | None) -> str:
+        if content_type == "application/pdf":
+            return "Przesłany plik nie jest prawidłowym PDF."
+        return "Przesłany plik nie jest prawidłowym obrazem (PNG/JPG)."
+
     def _record_work_order_created(self, work_order: WorkOrder, station_context: StationContext | None) -> None:
         self._record_audit_event(
             event_type="work_order.created",
@@ -706,6 +739,7 @@ class WorkOrderService:
                 "stored_filename": attachment.stored_filename,
                 "content_type": attachment.content_type,
                 "file_size": attachment.file_size,
+                "category": attachment.category,
                 "attachment_type": attachment.attachment_type,
             },
         )
@@ -752,6 +786,15 @@ class WorkOrderService:
         total_progress_quantity = self.process_service.get_total_progress_quantity(work_order)
         process_status = self.process_service.get_display_status(work_order)
 
+        # Overdue is business meaning, so it is owned by the backend (NA44), not computed on the
+        # renderer: the planned pickup day has passed and the order is not yet READY. Date-only,
+        # server-local — strictly before today (the pickup day itself is not yet "past the deadline").
+        is_overdue = (
+            work_order.planned_pickup_date is not None
+            and process_status != ProcessDisplayStatus.READY
+            and work_order.planned_pickup_date < date.today()
+        )
+
         predicted_paint_quantity_kg = calculate_predicted_paint_quantity_kg(work_order.total_area_m2)
         current_paint_stock_quantity_kg = self._get_current_paint_stock_quantity_kg(work_order)
         paint_inventory_shortage_quantity_kg = calculate_paint_shortage_quantity_kg(
@@ -796,10 +839,15 @@ class WorkOrderService:
             paint_inventory_insufficient_for_prediction=paint_inventory_shortage_quantity_kg is not None,
             paint_inventory_shortage_quantity_kg=paint_inventory_shortage_quantity_kg,
             paint_stock_snapshot_quantity_kg=work_order.paint_stock_snapshot_quantity_kg,
-            consumed_paint_quantity_kg=work_order.consumed_paint_quantity_kg,
+            consumed_paint_quantity_kg=self.paint_service.get_consumed_paint_kg_for_work_orders(work_order.correction_chain_ids),
             status=self.build_status_view(process_status),
             process_status=build_process_status_view(process_status),
             coating_type=build_coating_type_view(work_order.coating_type),
+            decoral_foil=(
+                FoilSummaryRead(id=work_order.decoral_foil.id, name=work_order.decoral_foil.name, code=work_order.decoral_foil.code)
+                if work_order.decoral_foil is not None
+                else None
+            ),
             production_type=(
                 build_production_type_view(work_order.production_type)
                 if work_order.production_type is not None
@@ -835,6 +883,7 @@ class WorkOrderService:
             ],
             received_date=work_order.received_date,
             planned_pickup_date=work_order.planned_pickup_date,
+            is_overdue=is_overdue,
             is_released_to_client=work_order.released_to_client_at is not None,
             released_to_client_at=work_order.released_to_client_at,
             total_area_m2=work_order.total_area_m2,

@@ -24,6 +24,7 @@ from app.auth.service import hash_password
 from app.clients.models import Client
 from app.core.config import get_settings, get_work_order_attachments_path
 from app.employees.models import Employee, StationPresence
+from app.foils.models import Foil
 from app.database import models as _models  # noqa: F401
 from app.database.session import get_session_factory
 from app.manager.repository import ManagerRepository
@@ -38,7 +39,8 @@ from app.process.models import (
 )
 from app.process.repository import ProcessRepository
 from app.process.service import ProcessService
-from app.shared.enums import StationId, WorkOrderKind, WorkOrderStatus
+from app.shared.enums import StationId, WorkOrderKind
+from app.work_orders.enums import WorkOrderAttachmentCategory
 from app.work_orders.models import WorkOrder, WorkOrderAttachment, WorkOrderNumberCounter
 from app.work_orders.repository import WorkOrderRepository
 from app.work_orders.schemas import WorkOrderCreate
@@ -46,6 +48,11 @@ from app.work_orders.service import WorkOrderService
 
 
 PDF_BYTES = b"%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\ntrailer\n<<>>\n%%EOF\n"
+# Minimal 1x1 PNG (valid signature + body) for a seeded technical drawing (NA36).
+PNG_BYTES = (
+    b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15\xc4"
+    b"\x89\x00\x00\x00\nIDATx\x9cc\x00\x01\x00\x00\x05\x00\x01\r\n-\xb4\x00\x00\x00\x00IEND\xaeB`\x82"
+)
 
 _PAINT_BY_RAL: dict[str, tuple[str, str]] = {
     "RAL 7016": ("TIG-7016-MA", "Tiger"),
@@ -167,6 +174,7 @@ def reset_app_data(session: Session) -> None:
     session.execute(delete(WorkOrderQuantityBatch))
     session.execute(delete(WorkOrder))
     session.execute(delete(WorkOrderNumberCounter))
+    session.execute(delete(Foil))
     session.execute(delete(Client))
     session.execute(delete(User))
     session.execute(delete(StationPresence))
@@ -187,6 +195,11 @@ def reset_app_data(session: Session) -> None:
         session.add(Client(company_name=company_name, contact_phone=contact_phone, nip=nip))
     session.commit()
     print(f"Seeded {len(_SEED_CLIENTS)} clients.")
+
+    for name, code, supplier, notes in _SEED_FOILS:
+        session.add(Foil(name=name, code=code, supplier=supplier, notes=notes))
+    session.commit()
+    print(f"Seeded {len(_SEED_FOILS)} foils.")
 
     for full_name in _SEED_EMPLOYEES:
         session.add(Employee(full_name=full_name))
@@ -247,6 +260,13 @@ _SEED_CLIENTS = [
     ("Profiltech Sp. z o.o.", "+48 22 123 45 67", "5261040828"),
     ("Aluminco", "+48 71 345 67 89", "8991234567"),
     ("Metal-Bud Zając", "+48 12 456 78 90", "6761234567"),
+]
+
+# (name, code, supplier, notes)
+_SEED_FOILS = [
+    ("Złoty dąb", "FOIL-ZD", "Decoral S.p.A.", "Drobny słój, ciepły odcień."),
+    ("Orzech", "FOIL-OR", "Decoral S.p.A.", None),
+    ("Antracyt struktura", "FOIL-AS", "Proszki Sp. z o.o.", "Matowa struktura."),
 ]
 
 
@@ -373,6 +393,7 @@ def seed_all_use_cases(session: Session) -> list[SeededScenario]:
         )
     )
 
+    seeded_foil = session.scalars(select(Foil).order_by(Foil.id.asc())).first()
     decoral_manual = create_work_order(
         work_order_service,
         title="Decoral manual - gotowe do decoral",
@@ -380,6 +401,7 @@ def seed_all_use_cases(session: Session) -> list[SeededScenario]:
         total_quantity=9,
         customer_name="Fasada Polska",
         ral_code="D-200",
+        decoral_foil_id=seeded_foil.id if seeded_foil is not None else None,
         profiles_quantity=8,
         accessories_quantity=1,
         notes="F. Manualny Decoral po pakowaniu, gotowy do etapu Decoral.",
@@ -1096,7 +1118,6 @@ def seed_statistics_demo(
                 main_batch.is_active = False
                 main_batch.current_stage = stage_sequence[-1]
                 main_batch.current_stage_status = StageStatus.DONE
-            persisted.current_active_batch_id = None
             session.flush()
 
             made.append((work_order.id, base_dt, method, coating))
@@ -1208,6 +1229,7 @@ def create_work_order(
     total_quantity: int,
     customer_name: str,
     ral_code: str,
+    decoral_foil_id: int | None = None,
     is_incomplete_on_arrival: bool = False,
     profiles_quantity: int | None = None,
     profiles_to_count: bool = False,
@@ -1225,6 +1247,7 @@ def create_work_order(
         paint_code=paint_code,
         paint_producer=paint_producer,
         coating_type=coating_type,
+        decoral_foil_id=decoral_foil_id,
         received_date=date.today(),
         planned_pickup_date=date.today() + timedelta(days=7),
         total_area_m2=float(total_quantity),
@@ -1300,17 +1323,34 @@ def create_attachment(repository: WorkOrderRepository, work_order_id: int) -> No
     absolute_path = attachment_directory / stored_filename
     absolute_path.write_bytes(PDF_BYTES)
 
-    attachment = WorkOrderAttachment(
+    document = WorkOrderAttachment(
         work_order_id=work_order_id,
         original_filename="instrukcja-testowa.pdf",
         stored_filename=stored_filename,
         storage_path=absolute_path.relative_to(root_path).as_posix(),
         content_type="application/pdf",
         file_size=len(PDF_BYTES),
+        category=WorkOrderAttachmentCategory.DOCUMENT.value,
         attachment_type="SPEC",
         description="Przykladowy plik PDF do testow lokalnych.",
     )
-    repository.add_attachment(attachment)
+    repository.add_attachment(document)
+
+    # A technical drawing (NA36) so stations show the "Rysunki techniczne" link in dev.
+    drawing_filename = "seeded-drawing.png"
+    drawing_path = attachment_directory / drawing_filename
+    drawing_path.write_bytes(PNG_BYTES)
+    drawing = WorkOrderAttachment(
+        work_order_id=work_order_id,
+        original_filename="rysunek-techniczny.png",
+        stored_filename=drawing_filename,
+        storage_path=drawing_path.relative_to(root_path).as_posix(),
+        content_type="image/png",
+        file_size=len(PNG_BYTES),
+        category=WorkOrderAttachmentCategory.TECHNICAL_DRAWING.value,
+        description="Przykladowy rysunek techniczny do testow lokalnych.",
+    )
+    repository.add_attachment(drawing)
     repository.commit()
 
 

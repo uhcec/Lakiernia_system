@@ -8,14 +8,15 @@ import {
   fetchWorkOrder,
   fetchWorkOrderAttachments,
   getQualityControlDocumentUrl,
-  getWorkOrderAttachmentDownloadUrl,
+  openWorkOrderAttachment,
   markWorkOrderCompleteArrival,
   updateWorkOrder,
   updateWorkOrderReleaseStatus,
   uploadWorkOrderAttachment,
 } from "../api/workOrdersApi";
 import type { AuditEvent, AuditStationId } from "../types/audit";
-import type { UpdateWorkOrderRequest, WorkOrder, WorkOrderAttachment } from "../types/workOrders";
+import type { UpdateWorkOrderRequest, WorkOrder, WorkOrderAttachment, WorkOrderAttachmentCategory } from "../types/workOrders";
+import { NumberInput } from "../components/NumberInput";
 import { WorkOrderPrimaryInfoLine } from "../components/WorkOrderPrimaryInfoLine";
 import {
   formatWorkOrderPrimaryInfo,
@@ -26,9 +27,15 @@ import {
   getWorkOrderDiscrepancyText,
   getHistoricalWorkOrderResultText,
   getWorkOrderProgressText,
-  getWorkOrderStatusSummary,
   type DisplayBadge,
 } from "../utils/workOrderDisplay";
+
+const ALLOWED_ATTACHMENT_MIME_TYPES = ["application/pdf", "image/png", "image/jpeg"];
+
+const ATTACHMENT_CATEGORY_LABELS: Record<WorkOrderAttachmentCategory, string> = {
+  DOCUMENT: "Dokument",
+  TECHNICAL_DRAWING: "Rysunek techniczny",
+};
 
 function processStatusClasses(statusValue: WorkOrder["process_status"]["value"]): string {
   switch (statusValue) {
@@ -244,6 +251,7 @@ export function WorkOrderDetailPage() {
   const [isUploadingAttachment, setIsUploadingAttachment] = useState(false);
   const [deletingAttachmentId, setDeletingAttachmentId] = useState<number | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [attachmentCategory, setAttachmentCategory] = useState<WorkOrderAttachmentCategory>("DOCUMENT");
   const [attachmentType, setAttachmentType] = useState("");
   const [attachmentDescription, setAttachmentDescription] = useState("");
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -493,11 +501,11 @@ export function WorkOrderDetailPage() {
       return;
     }
     if (!selectedFile) {
-      setUploadErrorMessage("Wybierz plik PDF do przesłania.");
+      setUploadErrorMessage("Wybierz plik do przesłania.");
       return;
     }
-    if (selectedFile.type !== "application/pdf") {
-      setUploadErrorMessage("Dozwolone są tylko pliki PDF.");
+    if (!ALLOWED_ATTACHMENT_MIME_TYPES.includes(selectedFile.type)) {
+      setUploadErrorMessage("Dozwolone są tylko pliki PDF lub obrazy (PNG/JPG).");
       return;
     }
 
@@ -507,10 +515,12 @@ export function WorkOrderDetailPage() {
     try {
       await uploadWorkOrderAttachment(Number(id), {
         file: selectedFile,
+        category: attachmentCategory,
         attachmentType,
         description: attachmentDescription,
       });
       setSelectedFile(null);
+      setAttachmentCategory("DOCUMENT");
       setAttachmentType("");
       setAttachmentDescription("");
       await Promise.all([loadAttachments(Number(id)), loadAuditEvents(Number(id))]);
@@ -518,6 +528,18 @@ export function WorkOrderDetailPage() {
       setUploadErrorMessage(error instanceof Error ? error.message : "Nie udało się przesłać załącznika");
     } finally {
       setIsUploadingAttachment(false);
+    }
+  }
+
+  async function handleAttachmentOpen(attachment: WorkOrderAttachment) {
+    if (!workOrder) {
+      return;
+    }
+    setAttachmentsErrorMessage(null);
+    try {
+      await openWorkOrderAttachment(workOrder.id, attachment.id);
+    } catch (error) {
+      setAttachmentsErrorMessage(error instanceof Error ? error.message : "Nie udało się otworzyć załącznika");
     }
   }
 
@@ -567,7 +589,7 @@ export function WorkOrderDetailPage() {
                       </span>
                     ))}
                   </div>
-                  <p className="text-lg font-semibold text-ink">{getWorkOrderStatusSummary(workOrder)}</p>
+                  <p className="text-lg font-semibold text-ink">{workOrder.process_status.label}</p>
                   {isHistoricalWorkOrder(workOrder) ? (
                     <p className="text-sm font-semibold text-emerald-700">{getHistoricalWorkOrderResultText(workOrder)}</p>
                   ) : (
@@ -655,6 +677,14 @@ export function WorkOrderDetailPage() {
                   <dt className="text-sm font-medium text-steel">Technologia</dt>
                   <dd className="mt-1 text-base text-ink">{workOrder.coating_type.label}</dd>
                 </div>
+                {workOrder.coating_type.value === "DECORAL" && (
+                  <div>
+                    <dt className="text-sm font-medium text-steel">Folia Decoral</dt>
+                    <dd className="mt-1 text-base text-ink">
+                      {workOrder.decoral_foil ? `${workOrder.decoral_foil.name} (${workOrder.decoral_foil.code})` : "—"}
+                    </dd>
+                  </div>
+                )}
                 <div>
                   <dt className="text-sm font-medium text-steel">Kod RAL</dt>
                   <dd className="mt-1 text-base text-ink">{workOrder.ral_code}</dd>
@@ -715,7 +745,7 @@ export function WorkOrderDetailPage() {
                 ) : null}
                 <div>
                   <dt className="text-sm font-medium text-steel">Podsumowanie stanu</dt>
-                  <dd className="mt-1 text-base font-semibold text-ink">{getWorkOrderStatusSummary(workOrder)}</dd>
+                  <dd className="mt-1 text-base font-semibold text-ink">{workOrder.process_status.label}</dd>
                 </div>
                 <div>
                   <dt className="text-sm font-medium text-steel">
@@ -813,7 +843,6 @@ export function WorkOrderDetailPage() {
                 <div className={["mt-6 inline-flex rounded-full px-4 py-2 text-sm font-semibold", processStatusClasses(workOrder.process_status.value)].join(" ")}>
                   {workOrder.process_status.label}
                 </div>
-                <p className="mt-4 text-lg font-semibold text-ink">{getWorkOrderStatusSummary(workOrder)}</p>
                 {getWorkOrderActiveCorrectionsText(workOrder) ? (
                   <p className="mt-2 text-sm text-rose-700">{getWorkOrderActiveCorrectionsText(workOrder)}</p>
                 ) : null}
@@ -966,10 +995,10 @@ export function WorkOrderDetailPage() {
               <form className="mt-6 grid gap-4 rounded-3xl border border-line/80 bg-white p-5 md:grid-cols-[1.1fr_0.9fr]" onSubmit={handleAttachmentUpload}>
                 <div className="space-y-4">
                   <label className="flex flex-col gap-2">
-                    <span className="text-sm font-medium text-ink">Plik PDF</span>
+                    <span className="text-sm font-medium text-ink">Plik (PDF lub obraz PNG/JPG)</span>
                     <input
                       type="file"
-                      accept="application/pdf,.pdf"
+                      accept="application/pdf,.pdf,image/png,.png,image/jpeg,.jpg,.jpeg"
                       onChange={handleFileSelection}
                       className="rounded-2xl border border-line bg-white px-4 py-3 text-sm text-ink outline-none transition file:mr-4 file:rounded-full file:border-0 file:bg-mist file:px-4 file:py-2 file:text-sm file:font-medium file:text-ink hover:file:bg-line/40"
                     />
@@ -978,6 +1007,17 @@ export function WorkOrderDetailPage() {
                 </div>
 
                 <div className="grid gap-4">
+                  <label className="flex flex-col gap-2">
+                    <span className="text-sm font-medium text-ink">Kategoria</span>
+                    <select
+                      value={attachmentCategory}
+                      onChange={(event) => setAttachmentCategory(event.target.value as WorkOrderAttachmentCategory)}
+                      className="rounded-2xl border border-line bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-accent"
+                    >
+                      <option value="DOCUMENT">Dokument</option>
+                      <option value="TECHNICAL_DRAWING">Rysunek techniczny</option>
+                    </select>
+                  </label>
                   <label className="flex flex-col gap-2">
                     <span className="text-sm font-medium text-ink">Typ załącznika</span>
                     <input
@@ -1034,6 +1074,7 @@ export function WorkOrderDetailPage() {
                         <th className="px-5 py-4 font-semibold">Nazwa pliku</th>
                         <th className="px-5 py-4 font-semibold">Rozmiar</th>
                         <th className="px-5 py-4 font-semibold">Data dodania</th>
+                        <th className="px-5 py-4 font-semibold">Kategoria</th>
                         <th className="px-5 py-4 font-semibold">Typ</th>
                         <th className="px-5 py-4 font-semibold">Opis</th>
                         <th className="px-5 py-4 font-semibold text-right">Akcje</th>
@@ -1045,16 +1086,18 @@ export function WorkOrderDetailPage() {
                           <td className="px-5 py-4 font-medium">{attachment.original_filename}</td>
                           <td className="px-5 py-4 text-steel">{formatFileSize(attachment.file_size)}</td>
                           <td className="px-5 py-4 text-steel">{formatDateTime(attachment.uploaded_at)}</td>
+                          <td className="px-5 py-4 text-steel">{ATTACHMENT_CATEGORY_LABELS[attachment.category] ?? attachment.category}</td>
                           <td className="px-5 py-4 text-steel">{attachment.attachment_type ?? "-"}</td>
                           <td className="px-5 py-4 text-steel">{attachment.description ?? "-"}</td>
                           <td className="px-5 py-4">
                             <div className="flex justify-end gap-3">
-                              <a
-                                href={getWorkOrderAttachmentDownloadUrl(workOrder.id, attachment.id)}
+                              <button
+                                type="button"
+                                onClick={() => void handleAttachmentOpen(attachment)}
                                 className="inline-flex items-center justify-center rounded-full border border-line bg-white px-4 py-2 text-sm font-medium text-steel transition hover:border-accent hover:text-accent"
                               >
-                                Pobierz
-                              </a>
+                                Otwórz
+                              </button>
                               {canManageAttachments ? (
                                 <button
                                   type="button"
@@ -1240,13 +1283,12 @@ export function WorkOrderDetailPage() {
 
                 <div className="sm:col-span-2">
                   <label className="block text-sm font-medium text-steel">Metraż (m²) *</label>
-                  <input
-                    type="number"
+                  <NumberInput
                     step="0.01"
                     min="0.01"
                     required
                     value={editForm.total_area_m2}
-                    onChange={(e) => handleEditFormChange("total_area_m2", e.target.value)}
+                    onValueChange={(value) => handleEditFormChange("total_area_m2", value)}
                     className="mt-1 w-full rounded-2xl border border-line bg-mist/40 px-4 py-2.5 text-base text-ink focus:border-accent focus:outline-none"
                   />
                 </div>
@@ -1264,11 +1306,11 @@ export function WorkOrderDetailPage() {
                       Do policzenia na produkcji
                     </label>
                     {!editForm.profiles_to_count && (
-                      <input
-                        type="number"
+                      <NumberInput
                         min="0"
+                        step="1"
                         value={editForm.profiles_quantity}
-                        onChange={(e) => handleEditFormChange("profiles_quantity", e.target.value)}
+                        onValueChange={(value) => handleEditFormChange("profiles_quantity", value)}
                         placeholder="Ilość"
                         className="w-full rounded-2xl border border-line bg-mist/40 px-4 py-2.5 text-base text-ink focus:border-accent focus:outline-none"
                       />
@@ -1289,11 +1331,11 @@ export function WorkOrderDetailPage() {
                       Do policzenia na produkcji
                     </label>
                     {!editForm.accessories_to_count && (
-                      <input
-                        type="number"
+                      <NumberInput
                         min="0"
+                        step="1"
                         value={editForm.accessories_quantity}
-                        onChange={(e) => handleEditFormChange("accessories_quantity", e.target.value)}
+                        onValueChange={(value) => handleEditFormChange("accessories_quantity", value)}
                         placeholder="Ilość"
                         className="w-full rounded-2xl border border-line bg-mist/40 px-4 py-2.5 text-base text-ink focus:border-accent focus:outline-none"
                       />

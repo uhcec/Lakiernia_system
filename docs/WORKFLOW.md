@@ -33,6 +33,7 @@ Confirmed needs:
 - `external_order_number` is optional, not unique, and duplicate values should be allowed without warning or blocking
 - paint identity and a paint stock snapshot or stock reference should be captured at intake before planning/production
 - the office-entered paint quantity currently means only the stock snapshot seen at intake, not work-order demand and not a live warehouse balance
+- a **Decoral foil** may be selected at intake from the foil registry (`foils` lookup table), at most one per order (`WorkOrder.decoral_foil_id`); it is allowed only on `DECORAL`-coating orders (DB CHECK `decoral_foil_requires_decoral_coating`) and is optional. Today the foil is stored and displayed only (work-order detail + Decoral station); it does not yet feed Decoral-pass consumption or foil-usage stats (deferred, NA38)
 
 Open implementation design:
 - whether the work-order stock snapshot later links to a shared inventory batch/item model if this app ever grows into real warehouse tracking
@@ -53,12 +54,23 @@ that packing is folded into `DECORAL_PRODUCTION` completion (confirmed out of sc
 `docs/FACTORY_DOMAIN_MODEL.md` §1).
 
 Actionable stage sequence depends on production type:
-- `MANUAL`: all configured stages are actionable
-- `AUTOMATIC`: `PRODUCTION` does not use manual start/finish stage actions, but the automatic production station is allowed to record paint consumption through the current paint-allocation slice
+- `MANUAL`: route is `SURFACE_PREPARATION → PRODUCTION → PACKING [→ DECORAL_PRODUCTION]`; there is **no
+  `HANGING`** (manual parts are painted by hand, not hung).
+- `AUTOMATIC`: route is `SURFACE_PREPARATION → HANGING → PACKING [→ DECORAL_PRODUCTION]`; there is **no
+  `PRODUCTION` stage** — the line paints automatically, so there is no manual production step. The
+  automatic production *station* still has its panel (a view over the line + paint-consumption entry),
+  but it is not a `PRODUCTION` stage in the route.
+
+> **NA42 — no phantom stages.** Stage-state rows are created as a method-agnostic superset at intake
+> (the method isn't chosen until planning) and then **reconciled to the real route at planning**
+> (`reconcile_stage_states_to_route`): an AUTOMATIC order has no `PRODUCTION` row, a MANUAL order has no
+> `HANGING` row. The automatic-production panel/visibility and paint entry are unchanged for the operator;
+> they are keyed off `HANGING` + the line state, not a `PRODUCTION` row.
 
 Automatic constraints:
-- Cannot start/finish `PRODUCTION` directly for `AUTOMATIC`
-- Automatic production is no longer display-only: it should allow paint-consumption entry as a separate audited paint-consumption action.
+- There is no `PRODUCTION` stage to start/finish for `AUTOMATIC` (NA42).
+- The automatic production station is not display-only: it records paint consumption as a separate
+  audited paint-consumption action (gated off `HANGING`, not `PRODUCTION`).
 - `HANGING` start transitions automatic flow forward
 - The automatic production panel must show upcoming and active automatic flow from the moment a work order is ready for `HANGING`, including `HANGING` not-started/in-progress rows, so the automatic operator sees the day's workflow before the line is occupied.
 - An automatic order **starts packing the moment `HANGING` starts** (its `PACKING` stage goes `IN_PROGRESS` immediately, not merely a slot reservation), so packing is active end-to-end as the line runs. The packing panel shows it as an **active packing row (the count form), not a read-only "waiting for hanging" row**, so the packing operator can work it in parallel with the line. Packing **completion stays blocked until `HANGING` is `DONE` and automatic paint consumption is recorded** — "Zakończ pakowanie" is disabled with a Polish reason (`packing_blocked_reason`) until both hold. Start now, finish after hanging + paint.
@@ -111,6 +123,23 @@ No correction outcome:
 When packing has correction quantity (`correction_quantity > 0`), the representation depends on coating
 type. Both paths conserve quantity, skip `SURFACE_PREPARATION`, and rejoin the global queue only after
 manager planning.
+
+The choice of representation (the *correction kind*) is selected and dispatched at a single seam in the
+backend — `ProcessService._select_correction_kind` / `_dispatch_packing_correction` (NA40) — rather than
+branched inline at each packing path. There are three kinds: `REPLAN_IN_PLACE` (RAL, and any
+tracked-batch packing), `SPIN_OFF_CHILD` (a DECORAL root being packed), and `STAT_ONLY` (NA34, below).
+
+Stat-only correction — "fixed on the spot" (od razu poprawiona, NA34):
+- When the packing operator marks a correction as fixed-on-the-spot (`stat_only_correction = true`), the
+  defect was corrected immediately, so the pieces are good and **the order completes as-is**: the
+  corrected pieces fold into OK (`completed_quantity` counts the full counted quantity), and the order
+  does **not** return to planning and does **not** spin off a child. Applies to both RAL (closes to
+  READY) and DECORAL (the pieces continue the single Decoral pass; no `N` marker).
+- The correction is recorded **only as a statistic** in `stat_only_corrections` (quantity + required
+  reason/category + profiles/accessories split) — never as a `CORRECTION` batch or child order — and the
+  shared correction-event source unions it in, so the reason report and throughput count it like the
+  other kinds. A reason/category is required (same as a re-planned correction).
+- "To be re-planned" (do zaplanowania) is the default: the existing RAL/DECORAL flows above.
 
 RAL (packing is the last stage):
 1. The OK quantity is added to `completed_quantity` and the active batch is closed.
@@ -352,6 +381,30 @@ Rules:
 - Starting `SURFACE_PREPARATION` does not require counted quantity.
 - Finishing `SURFACE_PREPARATION` requires counted quantity.
 
+### Quantity model — the five quantities and the single display rule (NA43)
+
+A work order carries several distinct quantity notions. Confusing them is the root of NA26-class
+bugs, so they have one documented meaning and **one resolver** owns the display rule.
+
+The five notions:
+1. **ordered** (`total_quantity`) — the fixed client-ordered count. Never changes.
+2. **counted** — the actual received count from `SURFACE_PREPARATION` (and the count recorded at
+   `PACKING`). The source of truth for validation/READY once counted.
+3. **current active** (`current_active_quantity`) — the sum of the order's active batches (the live
+   work-in-progress count; one active batch per order).
+4. **operational** — the count an operator physically handles at a station (NA26): a tracked batch's
+   own size, else the surface-prep actual received once counted, else the ordered total.
+5. **per-stage planned** — the expected count for a stage (the ordered total, or a tracked/correction
+   batch's own size).
+
+**Single display rule:** the four *display* quantities a station card shows for a given
+`(work order, stage, batch)` — `batch_quantity` (display), `planned_quantity`, `counted_quantity`,
+`operational_quantity` — are computed in exactly one place, `ProcessService._resolve_stage_quantities`
+(returning a `StageQuantities` value object). These are **display-only**: validation, READY, and
+quantity conservation use `total_quantity` / counted directly and never the resolver. `counted_quantity`
+is non-`None` only at `SURFACE_PREPARATION` / `PACKING`; `planned_quantity` stays the original expected
+quantity for audit/office-manager visibility (principle 6).
+
 ## Profile And Accessory Quantity Semantics
 
 Rules:
@@ -532,6 +585,24 @@ Open implementation design:
 - decide where the template file is stored and who may update it
 - confirm how manual/signature fields in the template should remain blank for printing
 
+## Work Order Attachments (incl. technical drawings)
+
+The office attaches files (PDF or PNG/JPG images) to a work order. Every attachment carries a structured
+**category** (`WorkOrderAttachmentCategory`): `DOCUMENT` (the default — any general file, e.g. a spec) or
+`TECHNICAL_DRAWING` (NA36). The category is the discriminator that distinguishes a technical drawing from
+other attachments; an optional free-text `attachment_type` may still carry a human sub-label.
+
+- **Upload/delete is office-only**; **viewing/downloading is open to every authenticated station** (the
+  download endpoint is not station-gated). Uploads are validated by content type **and** magic bytes
+  (`%PDF-`, the PNG signature, or the JPEG `\xff\xd8\xff` prefix) and capped by the configured max size; a
+  mismatch is rejected (`415` wrong type, `400` bad signature, `413` too large, `422` bad category).
+- **Technical drawings are surfaced on the production station cards** (surface preparation, production,
+  hanging, packing, decoral) as a "Rysunki techniczne" list of download links, so the operator can open the
+  drawing where they work — in addition to the work-order detail page. The station read model
+  (`ProcessStageWorkOrderRead.technical_drawings`) only includes attachments whose category is
+  `TECHNICAL_DRAWING`; plain documents are not listed on station cards.
+- One work order may hold many attachments (one drawing or several); there is no per-product/template model.
+
 ## Paint Inventory And Consumption
 
 The target paint slice uses an application-owned paint inventory plus historical work-order snapshots.
@@ -554,6 +625,12 @@ Confirmed non-conflicting needs:
 - packing completion for automatic work should be blocked until required paint consumption has been entered, so departments remind each other to complete the required production data
 - automatic correction work follows the same consumption requirement as standard automatic work
 - recorded consumption stays audited and updates live stock balance when saved
+- the **displayed** consumed-paint total on read models is the **cumulative** kg across the whole
+  correction chain (the order plus its correction descendants), computed from the durable
+  `paint_stock_movements` log rather than the per-round `consumed_paint_quantity_kg` field (NA32). That
+  field remains the per-round "paint registered before packing?" gate and is reset between correction
+  rounds; only the displayed total is rolled up, so a corrected order shows the sum of all rounds (and a
+  parent shows parent + children) while stock stays correct
 - current stock must not be allowed to go below zero
 - work-order detail must preserve historical paint identity and intake snapshot even if the paint card changes later
 - the first inventory slice supports deliveries, automatic-production consumption, and manual office adjustments
@@ -613,6 +690,18 @@ Tracked batch reopen rule:
 - Any reopen attempt for a finished tracked batch must fail with a controlled `409` error.
 - A rejected reopen attempt must not change quantities, READY state, parent/child state, or completed progress.
 
+Completion invariant (no backwards transitions) — NA30:
+- Once a work order is complete (READY by the rules above — all quantity accounted for and no open
+  corrections), it must not be sent backwards. A stage start/finish/transition that would move any
+  stage to `IN_PROGRESS` or `DONE` on a completed order is rejected with a controlled error, even for
+  an admin (the invariant is independent of station permission).
+- Without this guard a forward transition on a fully-packed order (e.g. re-opening `HANGING` or
+  `PRODUCTION`) succeeded and left a contradictory state — an earlier stage `IN_PROGRESS` while the
+  terminal stage was already `DONE`.
+- The legitimate way to re-touch a finished colour is the correction flow (RAL batch reset / DECORAL
+  child), not a raw stage transition. A rejected transition must not change any stage status,
+  quantity, or READY state.
+
 Additional completion behavior:
 - If correction descendants are completed and no active quantity remains, completion can finalize upward through parent chain.
 - Parent remains non-READY while any correction descendant is still open.
@@ -623,9 +712,9 @@ Additional completion behavior:
 | Scenario | Coating | Production | Correction mode | Expected stage path | Final status | Final quantities | Parent/child behavior |
 |---|---|---|---|---|---|---|---|
 | S01 | RAL | MANUAL | none | SURFACE_PREPARATION -> PRODUCTION -> PACKING | READY | parent completed=Q, active=0 | no child |
-| S02 | RAL | AUTOMATIC | none | SURFACE_PREPARATION -> HANGING -> PACKING (PRODUCTION preview) | READY | parent completed=Q, active=0 | no child |
+| S02 | RAL | AUTOMATIC | none | SURFACE_PREPARATION -> HANGING -> PACKING (no PRODUCTION stage) | READY | parent completed=Q, active=0 | no child |
 | S03 | DECORAL | MANUAL | none | SURFACE_PREPARATION -> PRODUCTION -> PACKING -> DECORAL_PRODUCTION | READY | parent completed=Q, active=0 | no child |
-| S04 | DECORAL | AUTOMATIC | none | SURFACE_PREPARATION -> HANGING -> PACKING -> DECORAL_PRODUCTION (PRODUCTION preview) | READY | parent completed=Q, active=0 | no child |
+| S04 | DECORAL | AUTOMATIC | none | SURFACE_PREPARATION -> HANGING -> PACKING -> DECORAL_PRODUCTION (no PRODUCTION stage) | READY | parent completed=Q, active=0 | no child |
 | S05 | RAL | MANUAL | correction after packing | order: ... -> PACKING, then replanned: PRODUCTION -> PACKING | READY after correction round closes | order final completed=Q | same order reset to planning with a CORRECTION batch; no child order |
 | S06 | RAL | AUTOMATIC | correction after packing | order: ... -> PACKING, then replanned: HANGING -> PACKING | READY after correction round closes | order final completed=Q | same order reset to planning with a CORRECTION batch; automatic return via HANGING; no child order |
 | S07 | DECORAL | MANUAL | correction after packing | parent: ... -> PACKING -> DECORAL_PRODUCTION(ok); child: PRODUCTION -> PACKING (then OK returns to root's Decoral; child does NOT run its own Decoral) | READY after parent ok-part and all returned pieces finish the root's single Decoral pass | parent final completed=Q | one Decoral pass on the root; child closes at packing and its OK pieces rejoin the root's Decoral (merge if still open, else a fresh root Decoral batch) |

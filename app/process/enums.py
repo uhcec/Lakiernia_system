@@ -110,6 +110,19 @@ class QuantityBatchType(StrEnum):
         return QUANTITY_BATCH_TYPE_LABELS_PL[self.value]
 
 
+class CorrectionKind(StrEnum):
+    """How a packing correction re-enters (or does not re-enter) the workflow.
+
+    Selected at the single correction seam in ``ProcessService`` (``_select_correction_kind`` /
+    ``_dispatch_packing_correction``, NA40) so adding a kind is one branch rather than a parallel flow.
+    NA34 will add ``STAT_ONLY`` ("od razu poprawiona" — fixed on the spot: logged as a statistic only,
+    the order completes as-is with no replan and no child)."""
+
+    REPLAN_IN_PLACE = "REPLAN_IN_PLACE"  # RAL: same order returns to planning with a CORRECTION batch.
+    SPIN_OFF_CHILD = "SPIN_OFF_CHILD"  # DECORAL: a child "P" order; OK stays on the root's single Decoral pass.
+    STAT_ONLY = "STAT_ONLY"  # NA34: fixed on the spot — logged as a statistic only; order completes as-is.
+
+
 def get_coating_type_label(coating_type: CoatingType) -> str:
     return COATING_TYPE_LABELS_PL[coating_type.value]
 

@@ -12,7 +12,7 @@ from app.audit.repository import AuditRepository
 from app.paints.repository import PaintRepository
 from app.paints.service import PaintService
 from app.process.enums import CoatingType, ProcessDisplayStatus, ProductionType
-from app.process.models import StageTransitionEvent, WorkOrderQuantityBatch, WorkOrderStageState
+from app.process.models import StageTransitionEvent, WorkOrderStageState
 from app.process.repository import ProcessRepository
 from app.process.service import ProcessService
 from app.manager.repository import ManagerRepository
@@ -35,7 +35,7 @@ from app.manager.schemas import (
     WorkOrderQueueReorderRequest,
 )
 from app.process.enums import ProcessStage, QuantityBatchType, StageStatus
-from app.shared.enums import StationId, WorkOrderStatus
+from app.shared.enums import StationId
 from app.shared.exceptions import InvalidManagerPlanningError, ResourceNotFoundError
 from app.work_orders.models import WorkOrder
 from app.work_orders.schemas import WorkOrderRead
@@ -263,11 +263,10 @@ class ManagerService:
             .order_by(period_expr)
         ).all()
 
-        # Corrections come from two disjoint sources in the hybrid model (mirrors
-        # ManagerRepository.list_correction_reason_report so the chart and the reason
-        # report agree): RAL packing / DECORAL decoral-stage corrections are CORRECTION
-        # quantity batches, while DECORAL packing corrections spin off child "P" work
-        # orders. Both are aggregated by their own created_at date.
+        # Corrections are read from the SINGLE shared correction-event source
+        # (ManagerRepository.correction_events_select) so the chart and the reason report can never
+        # drift (NA4). It already unions both origins (CORRECTION batches + child "P" orders); here we
+        # just aggregate it by period over the requested window.
         corrections_by_period: dict[str, list[int]] = {}
 
         def _add_corrections(period: str, pieces: int, events: int) -> None:
@@ -275,36 +274,21 @@ class ManagerService:
             bucket[0] += pieces
             bucket[1] += events
 
-        batch_correction_rows = session.execute(
+        correction_events = self.repository.correction_events_select()
+        correction_period_expr = func.strftime(date_fmt, correction_events.c.created_at)
+        correction_rows = session.execute(
             select(
-                func.strftime(date_fmt, WorkOrderQuantityBatch.created_at).label("period"),
-                func.coalesce(func.sum(WorkOrderQuantityBatch.quantity), 0).label("pieces"),
-                func.count(WorkOrderQuantityBatch.id).label("events"),
+                correction_period_expr.label("period"),
+                func.coalesce(func.sum(correction_events.c.quantity), 0).label("pieces"),
+                func.count().label("events"),
             )
             .where(
-                WorkOrderQuantityBatch.type == QuantityBatchType.CORRECTION,
-                func.date(WorkOrderQuantityBatch.created_at) >= date_from,
-                func.date(WorkOrderQuantityBatch.created_at) <= date_to,
+                func.date(correction_events.c.created_at) >= date_from,
+                func.date(correction_events.c.created_at) <= date_to,
             )
-            .group_by(func.strftime(date_fmt, WorkOrderQuantityBatch.created_at))
+            .group_by(correction_period_expr)
         ).all()
-        for row in batch_correction_rows:
-            _add_corrections(row.period, int(row.pieces or 0), int(row.events))
-
-        child_correction_rows = session.execute(
-            select(
-                func.strftime(date_fmt, WorkOrder.created_at).label("period"),
-                func.coalesce(func.sum(WorkOrder.total_quantity), 0).label("pieces"),
-                func.count(WorkOrder.id).label("events"),
-            )
-            .where(
-                WorkOrder.is_correction == True,  # noqa: E712
-                func.date(WorkOrder.created_at) >= date_from,
-                func.date(WorkOrder.created_at) <= date_to,
-            )
-            .group_by(func.strftime(date_fmt, WorkOrder.created_at))
-        ).all()
-        for row in child_correction_rows:
+        for row in correction_rows:
             _add_corrections(row.period, int(row.pieces or 0), int(row.events))
 
         without_m2_count = session.execute(
@@ -741,6 +725,9 @@ class ManagerService:
             work_order.production_type = production_type
             work_order.queue_position = target_position
             work_order.updated_at = now
+            # Reconcile the stage-state rows to the (now-known) route FIRST, so correction replanning
+            # below resets statuses on the rows the route actually has (NA42).
+            self.process_service.reconcile_stage_states_to_route(work_order)
             self.process_service.prepare_correction_work_order_for_planning(work_order)
             self.repository.session.flush()
             self._trail_completed_work_orders(
@@ -863,6 +850,9 @@ class ManagerService:
             work_order.production_type = payload.production_type
             work_order.queue_position = target_position
             work_order.updated_at = now
+            # Reconcile the stage-state rows to the (now-known) route FIRST, so correction replanning
+            # below resets statuses on the rows the route actually has (NA42).
+            self.process_service.reconcile_stage_states_to_route(work_order)
             self.process_service.prepare_correction_work_order_for_planning(work_order)
             self._record_audit_event(
                 event_type="manager.production_type_changed",
@@ -1161,7 +1151,7 @@ class ManagerService:
 
     @staticmethod
     def _has_incomplete_marker(work_order: WorkOrder) -> bool:
-        return work_order.is_incomplete_on_arrival or work_order.status == WorkOrderStatus.INCOMPLETE
+        return work_order.is_incomplete_on_arrival
 
     def _record_audit_event(
         self,
@@ -1236,7 +1226,7 @@ class ManagerService:
             paint_inventory_insufficient_for_prediction=paint_inventory_shortage_quantity_kg is not None,
             paint_inventory_shortage_quantity_kg=paint_inventory_shortage_quantity_kg,
             paint_stock_snapshot_quantity_kg=work_order.paint_stock_snapshot_quantity_kg,
-            consumed_paint_quantity_kg=work_order.consumed_paint_quantity_kg,
+            consumed_paint_quantity_kg=self.paint_service.get_consumed_paint_kg_for_work_orders(work_order.correction_chain_ids),
             status=WorkOrderService.build_status_view(self.process_service.get_display_status(work_order)),
             process_status=build_process_status_view(self.process_service.get_display_status(work_order)),
             queue_blocked_by_resource=(queue_resource_block[0] if queue_resource_block is not None else None),

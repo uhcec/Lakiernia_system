@@ -1,24 +1,30 @@
 from collections.abc import Sequence
-from contextlib import ExitStack, contextmanager
+from contextlib import contextmanager
+from dataclasses import dataclass
 from datetime import UTC, datetime
-import json
 import logging
 from threading import RLock
 
 from sqlalchemy import func, or_, select
-from sqlalchemy.exc import IntegrityError
 
 from app.audit.context import StationContext, ensure_station_allowed
-from app.core.config import get_settings
-from app.audit.models import AuditEvent
 from app.audit.repository import AuditRepository
+from app.process.audit_writer import ProcessAuditWriter
+from app.process.resource_locks import ResourceLockManager
 from app.paints.repository import PaintRepository
 from app.paints.service import PaintService
-from app.process.enums import CoatingType, ProcessDisplayStatus, ProcessStage, ProductionType, QuantityBatchType, StageStatus
-from app.process.models import StageTransitionEvent, WorkOrderQuantityBatch, WorkOrderStageState
+from app.process.enums import CoatingType, CorrectionKind, ProcessDisplayStatus, ProcessStage, ProductionType, QuantityBatchType, StageStatus
+from app.process.models import StatOnlyCorrection, WorkOrderQuantityBatch, WorkOrderStageState
 from app.process.repository import ProcessRepository
-from app.process.schemas import ProcessStageStatusRead, ProcessStageWorkOrderRead, StageStatusView
-from app.shared.enums import QueueNamespace, StationId, WorkOrderKind, WorkOrderStatus
+from app.foils.schemas import FoilSummaryRead
+from app.process.schemas import (
+    ProcessStageStatusRead,
+    ProcessStageWorkOrderRead,
+    StageStatusView,
+    WorkOrderAttachmentSummaryRead,
+)
+from app.work_orders.enums import WorkOrderAttachmentCategory
+from app.shared.enums import QueueNamespace, StationId, WorkOrderKind
 from app.shared.exceptions import InvalidPaintInventoryError, InvalidProcessStageTransitionError, ResourceNotFoundError
 from app.work_orders.number_allocator import WorkOrderNumberAllocator
 from app.work_orders.models import WorkOrder
@@ -29,8 +35,26 @@ logger = logging.getLogger(__name__)
 
 _PROCESS_MUTATION_LOCKS: dict[int, RLock] = {}
 _PROCESS_MUTATION_LOCKS_GUARD = RLock()
-_RESOURCE_MUTATION_LOCKS: dict[str, RLock] = {}
-_RESOURCE_MUTATION_LOCKS_GUARD = RLock()
+
+
+@dataclass(frozen=True)
+class StageQuantities:
+    """The quantities a station card shows for one (work order, stage, batch), resolved in one
+    place (NA43). See ``docs/WORKFLOW.md`` → "Quantity model" for what each means and when it
+    applies. These are **display-only**: validation/READY use ``total_quantity`` / counted directly.
+
+    - ``display`` — ``batch_quantity``: the headline count on the card.
+    - ``planned`` — ``planned_quantity``: the expected count for the stage (the ordered total, or a
+      tracked/correction batch's own size).
+    - ``counted`` — ``counted_quantity``: actually counted at SURFACE_PREPARATION / PACKING; ``None``
+      at every other stage.
+    - ``operational`` — ``operational_quantity``: pieces the operator physically handles (NA26).
+    """
+
+    display: int | None
+    planned: int
+    counted: int | None
+    operational: int
 
 
 class ProcessService:
@@ -50,19 +74,14 @@ class ProcessService:
         "HANGING": "Zawieszanie zajęte",
         "AUTOMATIC_LINE": "Linia automatyczna zajęta",
     }
-    # Packing capacity model (NA22). Packing has N configurable slots (PACKING:1..N). By default only
-    # one work order packs at a time; an automatic order reserves a slot when HANGING starts (so it
-    # cannot be blocked by a manual order), and a manual operator may *override* to open an additional
-    # slot up to N when two orders can be packed at once. The lock row per slot is the claim/reservation.
-    PACKING_SLOT_PREFIX = "PACKING:"
-    PACKING_OCCUPIED_ERROR = "Stanowisko pakowania jest zajęte przez inne zlecenie."
-    PACKING_ALL_SLOTS_FULL_ERROR = "Wszystkie stanowiska pakowania są zajęte."
 
     def __init__(self, repository: ProcessRepository) -> None:
         self.repository = repository
         self.paint_service = PaintService(PaintRepository(repository.session))
         self.number_allocator = WorkOrderNumberAllocator(repository.session)
         self.audit_repository = AuditRepository(repository.session)
+        self.audit = ProcessAuditWriter(repository.session, self.audit_repository)
+        self.resource_locks = ResourceLockManager(repository)
 
     @staticmethod
     def get_stage_sequence_for_configuration(
@@ -113,6 +132,26 @@ class ProcessService:
         ]
         self.repository.add_stage_states(stage_states)
 
+    def reconcile_stage_states_to_route(self, work_order: WorkOrder) -> None:
+        # NA42: stage-state rows are created as a method-agnostic superset at intake because the
+        # production method (MANUAL/AUTOMATIC) isn't chosen until manager planning. Once it IS known,
+        # trim the rows to the order's real route — AUTOMATIC has no PRODUCTION (the line paints
+        # automatically; there is no manual production step), MANUAL has no HANGING — and add any the
+        # route now needs if the method is later switched. This removes the "phantom" stage that used
+        # to be special-cased everywhere. Idempotent.
+        if work_order.production_type is None:
+            return  # route still unknown until planned; keep the superset
+        target_stages = set(self.get_actionable_stage_sequence_for_work_order(work_order))
+        existing_stages = {stage_state.stage for stage_state in work_order.stage_states}
+        for stage_state in list(work_order.stage_states):
+            if stage_state.stage not in target_stages:
+                work_order.stage_states.remove(stage_state)
+        for stage in target_stages:
+            if stage not in existing_stages:
+                work_order.stage_states.append(
+                    WorkOrderStageState(work_order_id=work_order.id, stage=stage, status=StageStatus.NOT_STARTED)
+                )
+
     def initialize_quantity_tracking(self, work_order: WorkOrder) -> None:
         main_batch = WorkOrderQuantityBatch(
             work_order_id=work_order.id,
@@ -125,7 +164,6 @@ class ProcessService:
             is_partial=False,
         )
         self.repository.add_quantity_batch(main_batch)
-        work_order.current_active_batch_id = main_batch.id
 
     def list_stage_states(self, work_order_id: int) -> Sequence[WorkOrderStageState]:
         return self.repository.list_stage_states(work_order_id)
@@ -159,39 +197,33 @@ class ProcessService:
         with self._serialize_process_mutation(work_order_id):
             work_order = self.get_work_order_process(work_order_id)
             self._ensure_stage_station_action(work_order, stage, station_context)
-            resource_keys = self._get_stage_resource_keys(work_order, stage, target_status)
-            with self._serialize_stage_resources(resource_keys):
+            resource_keys = self.resource_locks.get_stage_resource_keys(work_order, stage, target_status)
+            with self.resource_locks.serialize_stage_resources(resource_keys):
                 if resource_keys:
-                    self._ensure_stage_resources_available(work_order, stage, target_status)
+                    self.resource_locks.ensure_stage_resources_available(work_order, stage, target_status)
 
                 stage_state = self._get_stage_state(work_order, stage)
                 self._validate_transition(work_order, stage_state, target_status)
                 if resource_keys:
-                    self._acquire_stage_resource_locks(work_order, stage, target_status)
+                    self.resource_locks.acquire_stage_resource_locks(work_order, stage, target_status)
                 stage_state.status = target_status
                 stage_state.updated_at = datetime.now(UTC)
                 # NA22a: automatic orders reserve a packing slot the moment hanging starts.
-                self._reserve_packing_for_automatic_hanging(work_order, stage, target_status)
+                self.resource_locks.reserve_packing_for_automatic_hanging(work_order, stage, target_status)
 
-                # The automatic line runs without a manual start, so PRODUCTION and PACKING move into
-                # progress as soon as automatic HANGING *starts* (not only when it finishes): an
-                # automatic order begins packing immediately instead of merely holding a slot
-                # reservation. Packing *completion* still waits for HANGING to be DONE (see
-                # complete_packing) and the packing card stays a read-only "waiting for hanging" row
-                # until then (_get_automatic_packing_display_stage). The DONE branch remains an
-                # idempotent fallback for orders whose hanging started before this behavior existed.
-                # Log the implicit transitions so cycle-time/throughput stats see when the line started.
+                # The automatic line runs without a manual production step (NA42: AUTOMATIC has no
+                # PRODUCTION stage), so PACKING moves into progress as soon as automatic HANGING
+                # *starts* (not only when it finishes): an automatic order begins packing immediately
+                # instead of merely holding a slot reservation. Packing *completion* still waits for
+                # HANGING to be DONE (see complete_packing). The DONE branch remains an idempotent
+                # fallback for orders whose hanging started before this behavior existed. Log the
+                # implicit transition so cycle-time/throughput stats see when the line started.
                 implicit_in_progress: list[ProcessStage] = []
                 if (
                     stage == ProcessStage.HANGING
                     and target_status in {StageStatus.IN_PROGRESS, StageStatus.DONE}
                     and work_order.production_type == ProductionType.AUTOMATIC
                 ):
-                    production_state = self._get_stage_state(work_order, ProcessStage.PRODUCTION)
-                    if production_state.status == StageStatus.NOT_STARTED:
-                        production_state.status = StageStatus.IN_PROGRESS
-                        production_state.updated_at = stage_state.updated_at
-                        implicit_in_progress.append(ProcessStage.PRODUCTION)
                     packing_state = self._get_stage_state(work_order, ProcessStage.PACKING)
                     if packing_state.status == StageStatus.NOT_STARTED:
                         packing_state.status = StageStatus.IN_PROGRESS
@@ -199,9 +231,9 @@ class ProcessService:
                         implicit_in_progress.append(ProcessStage.PACKING)
 
                 if target_status != StageStatus.IN_PROGRESS:
-                    self._release_inactive_resource_locks(work_order)
+                    self.resource_locks.release_inactive_resource_locks(work_order)
 
-                self._record_stage_audit_event(
+                self.audit.record_stage_audit_event(
                     work_order=work_order,
                     stage=stage,
                     target_status=target_status,
@@ -209,7 +241,7 @@ class ProcessService:
                     batch_id=None,
                 )
                 for implicit_stage in implicit_in_progress:
-                    self._record_stage_transition(
+                    self.audit.record_stage_transition(
                         work_order=work_order,
                         stage=implicit_stage,
                         status=StageStatus.IN_PROGRESS,
@@ -257,9 +289,9 @@ class ProcessService:
             self._ensure_stage_station_action(work_order, stage, station_context)
             target_batch = self._resolve_batch_for_stage(work_order, stage, batch_id)
             if target_batch is not None:
-                resource_keys = self._get_stage_resource_keys(work_order, stage, StageStatus.IN_PROGRESS)
-                with self._serialize_stage_resources(resource_keys):
-                    self._ensure_stage_resources_available(work_order, stage, StageStatus.IN_PROGRESS)
+                resource_keys = self.resource_locks.get_stage_resource_keys(work_order, stage, StageStatus.IN_PROGRESS)
+                with self.resource_locks.serialize_stage_resources(resource_keys):
+                    self.resource_locks.ensure_stage_resources_available(work_order, stage, StageStatus.IN_PROGRESS)
                     return self._start_tracked_batch_stage(
                         work_order,
                         target_batch,
@@ -332,7 +364,6 @@ class ProcessService:
                     active_batch = work_order.active_batch
                     if active_batch is not None:
                         active_batch.is_active = False
-                    work_order.current_active_batch_id = None
                     try:
                         self.repository.commit()
                     except Exception:
@@ -403,7 +434,7 @@ class ProcessService:
         with self._serialize_process_mutation(work_order_id):
             work_order = self.get_work_order_process(work_order_id)
             self._ensure_packing_station_action(station_context)
-            already_held = self._work_order_packing_slot_key(work_order.id) is not None
+            already_held = self.resource_locks.work_order_packing_slot_key(work_order.id) is not None
             target_batch = self._resolve_batch_for_stage(work_order, ProcessStage.PACKING, batch_id)
 
             if target_batch is not None:
@@ -411,12 +442,12 @@ class ProcessService:
                     return self._to_stage_work_order_read(work_order, ProcessStage.PACKING, batch=target_batch)
                 if target_batch.current_stage != ProcessStage.PACKING:
                     raise InvalidProcessStageTransitionError("Batch is not ready for packing.")
-                self._acquire_packing_slot(work_order, override=override)
+                self.resource_locks.acquire_packing_slot(work_order, override=override)
                 if override and not already_held:
-                    self._record_packing_override_audit_event(work_order, station_context, batch_id=target_batch.id)
+                    self.audit.record_packing_override_audit_event(work_order, station_context, batch_id=target_batch.id)
                 if target_batch.current_stage_status == StageStatus.NOT_STARTED:
                     target_batch.current_stage_status = StageStatus.IN_PROGRESS
-                    self._record_stage_audit_event(
+                    self.audit.record_stage_audit_event(
                         work_order=work_order,
                         stage=ProcessStage.PACKING,
                         target_status=StageStatus.IN_PROGRESS,
@@ -429,7 +460,7 @@ class ProcessService:
                 return self._to_stage_work_order_read(refreshed_work_order, ProcessStage.PACKING, batch=refreshed_batch)
 
             packing_state = self._get_stage_state(work_order, ProcessStage.PACKING)
-            hanging_state = self._get_stage_state(work_order, ProcessStage.HANGING)
+            hanging_state = self._find_stage_state(work_order, ProcessStage.HANGING)  # None for MANUAL (NA42)
 
             if packing_state.status == StageStatus.DONE:
                 return self._to_idempotent_packing_response(work_order)
@@ -441,14 +472,14 @@ class ProcessService:
                 # Validates prerequisites (previous stage DONE, workflow membership) before claiming.
                 self._validate_transition(work_order, packing_state, StageStatus.IN_PROGRESS)
 
-            self._acquire_packing_slot(work_order, override=override)
+            self.resource_locks.acquire_packing_slot(work_order, override=override)
             if override and not already_held:
-                self._record_packing_override_audit_event(work_order, station_context, batch_id=None)
+                self.audit.record_packing_override_audit_event(work_order, station_context, batch_id=None)
 
             if packing_state.status == StageStatus.NOT_STARTED:
                 packing_state.status = StageStatus.IN_PROGRESS
                 packing_state.updated_at = datetime.now(UTC)
-                self._record_stage_audit_event(
+                self.audit.record_stage_audit_event(
                     work_order=work_order,
                     stage=ProcessStage.PACKING,
                     target_status=StageStatus.IN_PROGRESS,
@@ -481,11 +512,11 @@ class ProcessService:
         with self._serialize_process_mutation(work_order_id):
             work_order = self.get_work_order_process(work_order_id)
             self._ensure_packing_station_action(station_context)
-            held_claim = self._work_order_packing_slot_key(work_order.id) is not None
-            with self._serialize_resource_mutation(self.PACKING_SLOT_PREFIX):
-                self._release_packing_slot(work_order)
+            held_claim = self.resource_locks.work_order_packing_slot_key(work_order.id) is not None
+            with self.resource_locks.serialize_resource_mutation(self.resource_locks.PACKING_SLOT_PREFIX):
+                self.resource_locks.release_packing_slot(work_order)
             if held_claim:
-                self._record_audit_event(
+                self.audit.record_audit_event(
                     event_type="process.packing.claim_released",
                     station_context=station_context,
                     work_order=work_order,
@@ -514,6 +545,7 @@ class ProcessService:
         correction_accessories_quantity: int | None = None,
         correction_reason_category: str | None = None,
         correction_reason_note: str | None = None,
+        stat_only_correction: bool = False,
         batch_id: int | None = None,
         station_context: StationContext | None = None,
     ) -> ProcessStageWorkOrderRead:
@@ -541,11 +573,12 @@ class ProcessService:
                     correction_category_fields=correction_category_fields,
                     correction_reason_category=normalized_correction_reason_category,
                     correction_reason_note=normalized_correction_reason_note,
+                    stat_only_correction=stat_only_correction,
                     station_context=station_context,
                 )
 
             packing_state = self._get_stage_state(work_order, ProcessStage.PACKING)
-            hanging_state = self._get_stage_state(work_order, ProcessStage.HANGING)
+            hanging_state = self._find_stage_state(work_order, ProcessStage.HANGING)  # None for MANUAL (NA42)
 
             if packing_state.status == StageStatus.DONE:
                 return self._to_idempotent_packing_response(work_order)
@@ -564,7 +597,7 @@ class ProcessService:
             # Confirm a packing slot before mutating: idempotent if this order started packing, else
             # take any free slot (completion is capacity-bound — the start action is the gate). 409
             # only when all slots are genuinely full.
-            self._acquire_packing_slot(work_order, for_completion=True)
+            self.resource_locks.acquire_packing_slot(work_order, for_completion=True)
 
             active_batch = work_order.active_batch
             if active_batch is None:
@@ -594,42 +627,44 @@ class ProcessService:
             packing_state.counted_quantity = counted_quantity
             packing_state.updated_at = datetime.now(UTC)
 
-            production_state = self._get_stage_state(work_order, ProcessStage.PRODUCTION)
+            # AUTOMATIC orders have no PRODUCTION stage (NA42); only MANUAL ones do.
+            production_state = self._find_stage_state(work_order, ProcessStage.PRODUCTION)
+
+            # Stat-only correction (NA34): the pieces were fixed on the spot, so the order completes
+            # as-is — record the statistic, then fold the corrected pieces into OK and fall through the
+            # normal no-correction completion below (RAL closes READY; DECORAL pieces continue Decoral).
+            if correction_quantity > 0 and self._select_correction_kind(
+                work_order, tracked_batch=False, stat_only=stat_only_correction
+            ) == CorrectionKind.STAT_ONLY:
+                self._record_stat_only_correction(
+                    work_order,
+                    correction_quantity=correction_quantity,
+                    correction_category_fields=correction_category_fields,
+                    correction_reason_category=normalized_correction_reason_category,
+                    correction_reason_note=normalized_correction_reason_note,
+                    station_context=station_context,
+                )
+                ok_quantity = counted_quantity
+                correction_quantity = 0
 
             if correction_quantity > 0:
-                if work_order.coating_type == CoatingType.DECORAL:
-                    # DECORAL has a stage (DECORAL_PRODUCTION) AFTER packing, so the OK pieces must
-                    # still pass through Decoral. They continue on this order as a tracked batch,
-                    # while the correction becomes a separately-plannable child work order ("P").
-                    response_stage, response_batch = self._complete_packing_with_correction_order(
-                        work_order,
-                        active_batch,
-                        packing_state,
-                        production_state,
-                        planned_quantity=active_batch.quantity,
-                        ok_quantity=ok_quantity,
-                        correction_quantity=correction_quantity,
-                        correction_category_fields=correction_category_fields,
-                        correction_reason_category=normalized_correction_reason_category,
-                        correction_reason_note=normalized_correction_reason_note,
-                        station_context=station_context,
-                    )
-                else:
-                    # RAL packing is the last stage, so the unified batch-reset model applies:
-                    # ok goes to completed and the same order returns to planning for the correction.
-                    self._reset_to_correction_planning(
-                        work_order,
-                        active_batch,
-                        ok_quantity=ok_quantity,
-                        correction_quantity=correction_quantity,
-                        correction_reason_category=normalized_correction_reason_category,
-                        correction_reason_note=normalized_correction_reason_note,
-                        station_context=station_context,
-                    )
-                    response_stage = ProcessStage.PACKING
-                    response_batch = None
-                self._release_inactive_resource_locks(work_order)
-                self._record_packing_audit_event(
+                # Single correction seam (NA40): the kind (DECORAL spin-off child vs RAL in-place
+                # replan) is selected and dispatched in one place rather than branched inline here.
+                response_stage, response_batch = self._dispatch_packing_correction(
+                    work_order,
+                    active_batch,
+                    tracked_batch=False,
+                    ok_quantity=ok_quantity,
+                    correction_quantity=correction_quantity,
+                    correction_category_fields=correction_category_fields,
+                    correction_reason_category=normalized_correction_reason_category,
+                    correction_reason_note=normalized_correction_reason_note,
+                    packing_state=packing_state,
+                    production_state=production_state,
+                    station_context=station_context,
+                )
+                self.resource_locks.release_inactive_resource_locks(work_order)
+                self.audit.record_packing_audit_event(
                     work_order=work_order,
                     station_context=station_context,
                     batch_id=active_batch.id,
@@ -649,7 +684,6 @@ class ProcessService:
                 packing_state.updated_at = datetime.now(UTC)
                 if work_order.coating_type == CoatingType.RAL:
                     work_order.completed_quantity += ok_quantity
-                    work_order.current_active_batch_id = None
                     active_batch.is_active = False
                 elif work_order.is_correction:
                     # Fully-fixed correction child of a DECORAL root: its OK pieces return to the
@@ -658,18 +692,8 @@ class ProcessService:
                     self._place_returned_pieces_on_root_decoral(root, ok_quantity)
                     self._close_returned_correction_child(work_order)
 
-            if work_order.production_type == ProductionType.AUTOMATIC:
-                production_state.status = StageStatus.DONE
-                production_state.updated_at = datetime.now(UTC)
-                # Automatic PRODUCTION has no manual finish; it completes implicitly at packing.
-                # Log it so the automatic production stage has a DONE event in the analytics log.
-                self._record_stage_transition(
-                    work_order=work_order,
-                    stage=ProcessStage.PRODUCTION,
-                    status=StageStatus.DONE,
-                    station_context=station_context,
-                    batch_id=active_batch.id,
-                )
+            # NA42: AUTOMATIC orders have no PRODUCTION stage, so there is nothing to implicitly
+            # finish here — the line's output is realized at PACKING completion above.
 
             if (
                 work_order.coating_type == CoatingType.DECORAL
@@ -678,8 +702,8 @@ class ProcessService:
             ):
                 active_batch.is_active = True
 
-            self._release_inactive_resource_locks(work_order)
-            self._record_packing_audit_event(
+            self.resource_locks.release_inactive_resource_locks(work_order)
+            self.audit.record_packing_audit_event(
                 work_order=work_order,
                 station_context=station_context,
                 batch_id=active_batch.id,
@@ -746,7 +770,7 @@ class ProcessService:
             work_order.paint_id = paint.id
             work_order.consumed_paint_quantity_kg = consumed_paint_quantity_kg
             work_order.updated_at = datetime.now(UTC)
-            self._record_automatic_paint_consumption_audit_event(
+            self.audit.record_automatic_paint_consumption_audit_event(
                 work_order=work_order,
                 station_context=station_context,
                 previous_value=previous_value,
@@ -833,8 +857,8 @@ class ProcessService:
                     station_context=station_context,
                     completed_stage=ProcessStage.DECORAL_PRODUCTION,
                 )
-                self._release_inactive_resource_locks(work_order)
-                self._record_decoral_audit_event(
+                self.resource_locks.release_inactive_resource_locks(work_order)
+                self.audit.record_decoral_audit_event(
                     work_order=work_order,
                     station_context=station_context,
                     batch_id=None,
@@ -851,9 +875,8 @@ class ProcessService:
                 work_order.completed_quantity += ok_quantity
                 if active_batch is not None:
                     active_batch.is_active = False
-                work_order.current_active_batch_id = None
-                self._release_inactive_resource_locks(work_order)
-                self._record_decoral_audit_event(
+                self.resource_locks.release_inactive_resource_locks(work_order)
+                self.audit.record_decoral_audit_event(
                     work_order=work_order,
                     station_context=station_context,
                     batch_id=None,
@@ -906,9 +929,8 @@ class ProcessService:
             batch.is_active = False
             work_order.completed_quantity += ok_quantity
 
-        self._sync_legacy_current_active_batch(work_order)
-        self._release_inactive_resource_locks(work_order)
-        self._record_decoral_audit_event(
+        self.resource_locks.release_inactive_resource_locks(work_order)
+        self.audit.record_decoral_audit_event(
             work_order=work_order,
             station_context=station_context,
             batch_id=batch.id,
@@ -964,13 +986,15 @@ class ProcessService:
         if stage not in stage_sequence:
             return False
 
+        # AUTOMATIC PRODUCTION is a preview panel with no stage row (NA42); decide it from the line
+        # state before touching a stage state that does not exist on this route.
+        if self._is_automatic_production_preview_stage(work_order, stage):
+            return self._is_visible_in_automatic_production_preview(work_order, production_type)
+
         stage_state = self._get_stage_state(work_order, stage)
         allowed_statuses = {StageStatus.NOT_STARTED, StageStatus.IN_PROGRESS}
         if include_done:
             allowed_statuses.add(StageStatus.DONE)
-
-        if self._is_automatic_production_preview_stage(work_order, stage):
-            return self._is_visible_in_automatic_production_preview(work_order, production_type)
 
         if self._is_visible_in_automatic_packing(work_order, stage, stage_state.status):
             return True
@@ -978,7 +1002,10 @@ class ProcessService:
         if stage_state.status not in allowed_statuses:
             return False
 
-        previous_stage = self._get_previous_stage(stage_sequence, stage)
+        # Walk the ACTUAL route (actionable sequence) so the previous stage is well-defined when the
+        # phantom PRODUCTION/HANGING rows are absent — e.g. an automatic PACKING's predecessor is HANGING.
+        actionable_sequence = self.get_actionable_stage_sequence_for_work_order(work_order)
+        previous_stage = self._get_previous_stage(actionable_sequence, stage)
         if previous_stage is not None:
             previous_state = self._get_stage_state(work_order, previous_stage)
             if previous_state.status != StageStatus.DONE:
@@ -1020,7 +1047,7 @@ class ProcessService:
             if packing_state.status == StageStatus.IN_PROGRESS:
                 return ProcessDisplayStatus.PACKING
 
-        stage_sequence = self.get_stage_sequence_for_work_order(work_order)
+        stage_sequence = self.get_actionable_stage_sequence_for_work_order(work_order)
         for stage in stage_sequence:
             stage_state = self._get_stage_state(work_order, stage)
             if stage_state.status != StageStatus.DONE:
@@ -1066,11 +1093,11 @@ class ProcessService:
             work_order,
             ProcessStage.HANGING,
         ):
-            if self._find_active_hanging_conflict(work_order.id) is not None:
+            if self.resource_locks.find_active_hanging_conflict(work_order.id) is not None:
                 return "HANGING", self.QUEUE_RESOURCE_BLOCK_REASONS["HANGING"]
 
         if hanging_state.status == StageStatus.IN_PROGRESS:
-            if self._find_active_automatic_line_conflict(work_order.id) is not None:
+            if self.resource_locks.find_active_automatic_line_conflict(work_order.id) is not None:
                 return "AUTOMATIC_LINE", self.QUEUE_RESOURCE_BLOCK_REASONS["AUTOMATIC_LINE"]
 
         return None
@@ -1137,6 +1164,20 @@ class ProcessService:
 
         if self._is_skipped_surface_preparation(work_order, stage_state.stage):
             raise InvalidProcessStageTransitionError(self._get_surface_preparation_skipped_message(work_order))
+
+        # Completion invariant (NA30): a work order that is already complete (READY — all quantity
+        # accounted for, no open corrections) must not be sent backwards by re-opening an earlier
+        # stage. Without this, a forward transition (e.g. HANGING/PRODUCTION -> IN_PROGRESS) on a
+        # fully-packed order would succeed and leave a contradictory state (an earlier stage
+        # IN_PROGRESS while the terminal stage is DONE). The legitimate way to re-touch a finished
+        # colour is the correction flow, not a raw stage transition. Only guards forward moves;
+        # the completing transition itself does not hit this path (complete_packing sets PACKING
+        # DONE directly, and DECORAL's finish runs before completion is recorded).
+        if target_status in {StageStatus.IN_PROGRESS, StageStatus.DONE} and self._is_complete_for_display(work_order):
+            raise InvalidProcessStageTransitionError(
+                f"Cannot transition stage {stage_state.stage.value}: work order {work_order.id} is already "
+                "completed. Re-opening a finished order requires the correction flow."
+            )
 
         allowed_transitions = {
             StageStatus.NOT_STARTED: {StageStatus.IN_PROGRESS},
@@ -1295,11 +1336,8 @@ class ProcessService:
             stage_state = self._get_stage_state(work_order, stage)
             stage_state.status = StageStatus.DONE if index < return_stage_index else StageStatus.NOT_STARTED
             stage_state.updated_at = current_timestamp
-
-        if work_order.production_type == ProductionType.AUTOMATIC:
-            production_state = self._get_stage_state(work_order, ProcessStage.PRODUCTION)
-            production_state.status = StageStatus.NOT_STARTED
-            production_state.updated_at = current_timestamp
+        # NA42: AUTOMATIC has no PRODUCTION stage row to reset; the actionable sequence above already
+        # excludes it.
 
     def get_actionable_stage_sequence_for_work_order(self, work_order: WorkOrder) -> list[ProcessStage]:
         stage_sequence = self.get_stage_sequence_for_work_order(work_order)
@@ -1343,7 +1381,6 @@ class ProcessService:
 
         hanging_state = self._get_stage_state(work_order, ProcessStage.HANGING)
         packing_state = self._get_stage_state(work_order, ProcessStage.PACKING)
-        production_state = self._get_stage_state(work_order, ProcessStage.PRODUCTION)
 
         if packing_state.status == StageStatus.DONE:
             return False
@@ -1351,10 +1388,9 @@ class ProcessService:
         if hanging_state.status == StageStatus.NOT_STARTED:
             return self._is_stage_ready_for_next_action(work_order, ProcessStage.HANGING)
 
-        if hanging_state.status == StageStatus.IN_PROGRESS:
-            return True
-
-        return production_state.status == StageStatus.IN_PROGRESS
+        # Hanging in progress, or hanging done and the parts are on the line not yet packed (NA42: this
+        # last case used to be PRODUCTION==IN_PROGRESS). Packing-done already returned False above.
+        return True
 
     def _get_automatic_production_preview_display_stage(self, work_order: WorkOrder) -> ProcessStage:
         hanging_state = self._get_stage_state(work_order, ProcessStage.HANGING)
@@ -1484,10 +1520,9 @@ class ProcessService:
             )
 
         self._store_stage_start_data(work_order, stage, counted_quantity)
-        self._acquire_stage_resource_locks(work_order, stage, StageStatus.IN_PROGRESS)
+        self.resource_locks.acquire_stage_resource_locks(work_order, stage, StageStatus.IN_PROGRESS)
         batch.current_stage_status = StageStatus.IN_PROGRESS
-        self._sync_legacy_current_active_batch(work_order)
-        self._record_stage_audit_event(
+        self.audit.record_stage_audit_event(
             work_order=work_order,
             stage=stage,
             target_status=StageStatus.IN_PROGRESS,
@@ -1532,10 +1567,10 @@ class ProcessService:
             response_stage = batch.current_stage
         elif stage == ProcessStage.HANGING:
             if work_order.production_type == ProductionType.AUTOMATIC:
-                resource_keys = self._get_stage_resource_keys(work_order, stage, StageStatus.DONE)
-                with self._serialize_stage_resources(resource_keys):
-                    self._ensure_stage_resources_available(work_order, stage, StageStatus.DONE)
-                    self._acquire_stage_resource_locks(work_order, stage, StageStatus.DONE)
+                resource_keys = self.resource_locks.get_stage_resource_keys(work_order, stage, StageStatus.DONE)
+                with self.resource_locks.serialize_stage_resources(resource_keys):
+                    self.resource_locks.ensure_stage_resources_available(work_order, stage, StageStatus.DONE)
+                    self.resource_locks.acquire_stage_resource_locks(work_order, stage, StageStatus.DONE)
             batch.current_stage = ProcessStage.PACKING if work_order.production_type == ProductionType.AUTOMATIC else ProcessStage.PRODUCTION
             batch.current_stage_status = (
                 StageStatus.IN_PROGRESS if work_order.production_type == ProductionType.AUTOMATIC else StageStatus.NOT_STARTED
@@ -1549,8 +1584,7 @@ class ProcessService:
             batch.current_stage_status = StageStatus.DONE
             batch.is_active = False
             work_order.completed_quantity += batch.quantity
-            self._sync_legacy_current_active_batch(work_order)
-            self._record_stage_audit_event(
+            self.audit.record_stage_audit_event(
                 work_order=work_order,
                 stage=stage,
                 target_status=StageStatus.DONE,
@@ -1565,9 +1599,8 @@ class ProcessService:
             refreshed_batch = self._get_batch(refreshed_work_order, batch.id)
             return self._to_stage_work_order_read(refreshed_work_order, stage, batch=refreshed_batch)
 
-        self._sync_legacy_current_active_batch(work_order)
-        self._release_inactive_resource_locks(work_order)
-        self._record_stage_audit_event(
+        self.resource_locks.release_inactive_resource_locks(work_order)
+        self.audit.record_stage_audit_event(
             work_order=work_order,
             stage=stage,
             target_status=StageStatus.DONE,
@@ -1596,9 +1629,8 @@ class ProcessService:
 
         batch.current_stage_status = StageStatus.NOT_STARTED
         batch.is_active = True
-        self._sync_legacy_current_active_batch(work_order)
-        self._release_inactive_resource_locks(work_order)
-        self._record_stage_audit_event(
+        self.resource_locks.release_inactive_resource_locks(work_order)
+        self.audit.record_stage_audit_event(
             work_order=work_order,
             stage=stage,
             target_status=StageStatus.NOT_STARTED,
@@ -1621,6 +1653,7 @@ class ProcessService:
         correction_category_fields: dict[str, int | bool | None],
         correction_reason_category: str | None,
         correction_reason_note: str | None,
+        stat_only_correction: bool = False,
         station_context: StationContext | None = None,
     ) -> ProcessStageWorkOrderRead:
         if batch.current_stage == ProcessStage.PACKING and batch.current_stage_status == StageStatus.DONE:
@@ -1640,22 +1673,38 @@ class ProcessService:
             )
 
         # Packing-slot exclusivity also covers tracked-batch (DECORAL) packing (capacity-bound at completion).
-        self._acquire_packing_slot(work_order, for_completion=True)
+        self.resource_locks.acquire_packing_slot(work_order, for_completion=True)
 
         packing_state = self._get_stage_state(work_order, ProcessStage.PACKING)
         packing_state.counted_quantity = counted_quantity
         packing_state.updated_at = datetime.now(UTC)
 
+        # Stat-only correction (NA34): fixed on the spot — record the statistic and fold the corrected
+        # pieces into OK so the batch completes normally (DECORAL continues Decoral; RAL closes).
+        if correction_quantity > 0 and self._select_correction_kind(
+            work_order, tracked_batch=True, stat_only=stat_only_correction
+        ) == CorrectionKind.STAT_ONLY:
+            self._record_stat_only_correction(
+                work_order,
+                correction_quantity=correction_quantity,
+                correction_category_fields=correction_category_fields,
+                correction_reason_category=correction_reason_category,
+                correction_reason_note=correction_reason_note,
+                station_context=station_context,
+            )
+            ok_quantity = counted_quantity
+            correction_quantity = 0
+
         if correction_quantity > 0:
-            batch.is_active = False
-            batch.current_stage = ProcessStage.PACKING
-            batch.current_stage_status = StageStatus.DONE
-            batch.is_partial = False
-            self._reset_to_correction_planning(
+            # Single correction seam (NA40): a tracked-batch packing correction always replans in
+            # place today; dispatch keeps the kind selection in one place for NA34's STAT_ONLY.
+            self._dispatch_packing_correction(
                 work_order,
                 batch,
+                tracked_batch=True,
                 ok_quantity=ok_quantity,
                 correction_quantity=correction_quantity,
+                correction_category_fields=correction_category_fields,
                 correction_reason_category=correction_reason_category,
                 correction_reason_note=correction_reason_note,
                 station_context=station_context,
@@ -1671,9 +1720,8 @@ class ProcessService:
             batch.is_partial = False
             work_order.completed_quantity += ok_quantity
 
-        self._sync_legacy_current_active_batch(work_order)
-        self._release_inactive_resource_locks(work_order)
-        self._record_packing_audit_event(
+        self.resource_locks.release_inactive_resource_locks(work_order)
+        self.audit.record_packing_audit_event(
             work_order=work_order,
             station_context=station_context,
             batch_id=batch.id,
@@ -1705,12 +1753,134 @@ class ProcessService:
         active_batch = work_order.active_batch
         return active_batch is not None and active_batch.parent_batch_id is not None
 
+    def _select_correction_kind(
+        self, work_order: WorkOrder, *, tracked_batch: bool, stat_only: bool = False
+    ) -> CorrectionKind:
+        """The single decision point for how a packing correction re-enters the workflow (NA40/NA34).
+
+        When the operator marks the correction "fixed on the spot" (od razu poprawiona) it is
+        ``STAT_ONLY`` for any order (RAL or DECORAL): logged as a statistic, the order completes as-is,
+        nothing returns. Otherwise a DECORAL root being packed on the plain (non-tracked) path spins off
+        a child "P" order and keeps its OK pieces on the root's single Decoral pass; every other case
+        (RAL, and any tracked-batch packing such as returned Decoral pieces) returns the same order to
+        planning with a CORRECTION batch."""
+        if stat_only:
+            return CorrectionKind.STAT_ONLY
+        if not tracked_batch and work_order.coating_type == CoatingType.DECORAL:
+            return CorrectionKind.SPIN_OFF_CHILD
+        return CorrectionKind.REPLAN_IN_PLACE
+
+    def _record_stat_only_correction(
+        self,
+        work_order: WorkOrder,
+        *,
+        correction_quantity: int,
+        correction_category_fields: dict[str, int | bool | None],
+        correction_reason_category: str | None,
+        correction_reason_note: str | None,
+        station_context: StationContext | None = None,
+    ) -> None:
+        """Record a "fixed on the spot" correction as a pure statistic (NA34).
+
+        No CORRECTION batch and no child order: the corrected pieces are good and the order completes
+        as-is. Only this stat row (+ an audit event) captures the reason/quantity so the corrections
+        report and throughput counters can count it via the shared correction-event source."""
+        profiles_quantity = correction_category_fields.get("profiles_quantity") if correction_category_fields else None
+        accessories_quantity = (
+            correction_category_fields.get("accessories_quantity") if correction_category_fields else None
+        )
+        self.repository.add_stat_only_correction(
+            StatOnlyCorrection(
+                work_order_id=work_order.id,
+                correction_quantity=correction_quantity,
+                correction_reason_category=correction_reason_category,
+                correction_reason_note=correction_reason_note,
+                correction_profiles_quantity=profiles_quantity,
+                correction_accessories_quantity=accessories_quantity,
+            )
+        )
+        self.audit.record_audit_event(
+            event_type="work_order.stat_only_correction",
+            station_context=station_context,
+            work_order=work_order,
+            target_type="work_order",
+            target_id=work_order.id,
+            summary=(
+                f"Recorded fixed-on-the-spot correction on {work_order.order_number} "
+                f"({correction_quantity} pcs, {correction_reason_category})."
+            ),
+            details={
+                "correction_quantity": correction_quantity,
+                "correction_reason_category": correction_reason_category,
+                "correction_reason_note": correction_reason_note,
+                "correction_profiles_quantity": profiles_quantity,
+                "correction_accessories_quantity": accessories_quantity,
+            },
+        )
+
+    def _dispatch_packing_correction(
+        self,
+        work_order: WorkOrder,
+        batch: WorkOrderQuantityBatch,
+        *,
+        tracked_batch: bool,
+        ok_quantity: int,
+        correction_quantity: int,
+        correction_category_fields: dict[str, int | bool | None],
+        correction_reason_category: str | None,
+        correction_reason_note: str | None,
+        packing_state: WorkOrderStageState | None = None,
+        production_state: WorkOrderStageState | None = None,
+        station_context: StationContext | None = None,
+    ) -> tuple[ProcessStage, WorkOrderQuantityBatch | None]:
+        """The single correction seam (NA40): classify the correction kind, then run its strategy.
+
+        Quantity conservation and reason capture are already validated by the caller; this owns only the
+        "which model re-enters the workflow" decision, so a new kind (NA34's STAT_ONLY) is one branch
+        here rather than a parallel flow scattered across the packing paths. Returns the
+        ``(stage, batch)`` the caller should render."""
+        kind = self._select_correction_kind(work_order, tracked_batch=tracked_batch)
+
+        if kind == CorrectionKind.SPIN_OFF_CHILD:
+            return self._complete_packing_with_correction_order(
+                work_order,
+                batch,
+                packing_state,
+                production_state,
+                planned_quantity=batch.quantity,
+                ok_quantity=ok_quantity,
+                correction_quantity=correction_quantity,
+                correction_category_fields=correction_category_fields,
+                correction_reason_category=correction_reason_category,
+                correction_reason_note=correction_reason_note,
+                station_context=station_context,
+            )
+
+        # REPLAN_IN_PLACE — the same order returns to planning with a CORRECTION batch. A tracked batch
+        # carried partial state, so close it first (the plain RAL path hands its active batch straight to
+        # the reset, which closes it there).
+        if tracked_batch:
+            batch.is_active = False
+            batch.current_stage = ProcessStage.PACKING
+            batch.current_stage_status = StageStatus.DONE
+            batch.is_partial = False
+        self._reset_to_correction_planning(
+            work_order,
+            batch,
+            ok_quantity=ok_quantity,
+            correction_quantity=correction_quantity,
+            correction_reason_category=correction_reason_category,
+            correction_reason_note=correction_reason_note,
+            station_context=station_context,
+        )
+        return ProcessStage.PACKING, None
+
     def _complete_packing_with_correction_order(
         self,
         work_order: WorkOrder,
         active_batch: WorkOrderQuantityBatch,
         packing_state: WorkOrderStageState,
-        production_state: WorkOrderStageState,
+        production_state: WorkOrderStageState | None,
         *,
         planned_quantity: int,
         ok_quantity: int,
@@ -1764,11 +1934,10 @@ class ProcessService:
             station_context=station_context,
         )
 
-        if work_order.production_type == ProductionType.AUTOMATIC:
-            production_state.status = StageStatus.DONE
-            production_state.updated_at = datetime.now(UTC)
+        # NA42: AUTOMATIC orders have no PRODUCTION stage to finish here. (production_state is set only
+        # for MANUAL DECORAL orders; it is intentionally unused now and kept for signature stability.)
+        _ = production_state
 
-        self._sync_legacy_current_active_batch(work_order)
         return response_stage, response_batch
 
     def _resolve_root_order(self, work_order: WorkOrder) -> WorkOrder:
@@ -1812,7 +1981,6 @@ class ProcessService:
             if decoral_state.status == StageStatus.DONE:
                 decoral_state.status = StageStatus.IN_PROGRESS
                 decoral_state.updated_at = datetime.now(UTC)
-        self._sync_legacy_current_active_batch(root)
 
     def _close_returned_correction_child(self, child: WorkOrder) -> None:
         for batch in list(child.active_batches):
@@ -1820,7 +1988,6 @@ class ProcessService:
             batch.current_stage_status = StageStatus.DONE
             batch.is_active = False
         child.completed_quantity = child.total_quantity
-        child.current_active_batch_id = None
         self._mark_all_stage_states_done(child)
 
     def _allocate_correction_order_number(self, parent_work_order: WorkOrder) -> str:
@@ -1864,7 +2031,6 @@ class ProcessService:
             title=parent_work_order.title,
             total_quantity=correction_quantity,
             completed_quantity=0,
-            current_active_batch_id=None,
             parent_order_id=parent_work_order.id,
             is_correction=True,
             correction_reason_category=correction_reason_category,
@@ -1880,7 +2046,6 @@ class ProcessService:
                 paint_code=parent_work_order.paint_code,
             ).current_quantity_kg,
             consumed_paint_quantity_kg=0,
-            status=WorkOrderStatus.ENTERED,
             coating_type=parent_work_order.coating_type,
             work_order_kind=WorkOrderKind.STANDARD,
             is_ocynk=parent_work_order.is_ocynk,
@@ -1897,7 +2062,7 @@ class ProcessService:
         persisted_correction_order = self.repository.add_work_order(correction_order)
         self.initialize_quantity_tracking(persisted_correction_order)
         self.initialize_stage_states(persisted_correction_order)
-        self._record_audit_event(
+        self.audit.record_audit_event(
             event_type="work_order.correction_created",
             station_context=station_context,
             work_order=persisted_correction_order,
@@ -1946,7 +2111,6 @@ class ProcessService:
             correction_reason_note=correction_reason_note,
         )
         self.repository.add_quantity_batch(correction_batch)
-        work_order.current_active_batch_id = correction_batch.id
 
         work_order.correction_reason_category = correction_reason_category
         work_order.correction_reason_note = correction_reason_note
@@ -1966,7 +2130,7 @@ class ProcessService:
         work_order.queue_position = None
         work_order.consumed_paint_quantity_kg = 0
 
-        self._record_audit_event(
+        self.audit.record_audit_event(
             event_type="work_order.returned_to_correction_planning",
             station_context=station_context,
             work_order=work_order,
@@ -1980,219 +2144,6 @@ class ProcessService:
                 "total_quantity": work_order.total_quantity,
                 "correction_reason_category": correction_reason_category,
             },
-        )
-
-    def _record_stage_audit_event(
-        self,
-        *,
-        work_order: WorkOrder,
-        stage: ProcessStage,
-        target_status: StageStatus,
-        station_context: StationContext | None,
-        batch_id: int | None,
-    ) -> None:
-        action_by_status = {
-            StageStatus.IN_PROGRESS: ("process.stage.started", "Started"),
-            StageStatus.DONE: ("process.stage.finished", "Finished"),
-            StageStatus.NOT_STARTED: ("process.stage.reopened", "Reopened"),
-        }
-        event_type, action_label = action_by_status[target_status]
-        self._record_audit_event(
-            event_type=event_type,
-            station_context=station_context,
-            work_order=work_order,
-            target_type="process_stage",
-            target_id=batch_id,
-            summary=f"{action_label} {stage.value} for work order {work_order.order_number}.",
-            details={
-                "stage": stage.value,
-                "target_status": target_status.value,
-                "batch_id": batch_id,
-            },
-        )
-        self._record_stage_transition(
-            work_order=work_order,
-            stage=stage,
-            status=target_status,
-            station_context=station_context,
-            batch_id=batch_id,
-        )
-
-    def _record_packing_override_audit_event(
-        self,
-        work_order: WorkOrder,
-        station_context: StationContext | None,
-        *,
-        batch_id: int | None,
-    ) -> None:
-        # NA22b: a manual operator opened an additional packing slot. Audited for traceability.
-        self._record_audit_event(
-            event_type="process.packing.slot_override_opened",
-            station_context=station_context,
-            work_order=work_order,
-            target_type="process_stage",
-            target_id=batch_id,
-            summary=f"Opened an additional packing slot (override) for work order {work_order.order_number}.",
-            details={"stage": ProcessStage.PACKING.value, "batch_id": batch_id},
-        )
-
-    def _record_packing_audit_event(
-        self,
-        *,
-        work_order: WorkOrder,
-        station_context: StationContext | None,
-        batch_id: int | None,
-        counted_quantity: int,
-        ok_quantity: int,
-        correction_quantity: int,
-        correction_category_fields: dict[str, int | bool | None],
-    ) -> None:
-        details = {
-            "stage": ProcessStage.PACKING.value,
-            "batch_id": batch_id,
-            "counted_quantity": counted_quantity,
-            "ok_quantity": ok_quantity,
-            "correction_quantity": correction_quantity,
-        }
-        if correction_quantity > 0:
-            details.update(
-                {
-                    "correction_profiles_quantity": correction_category_fields["profiles_quantity"],
-                    "correction_accessories_quantity": correction_category_fields["accessories_quantity"],
-                }
-            )
-        self._record_audit_event(
-            event_type="process.packing.completed",
-            station_context=station_context,
-            work_order=work_order,
-            target_type="process_stage",
-            target_id=batch_id,
-            summary=f"Completed packing for work order {work_order.order_number}.",
-            details=details,
-        )
-        self._record_stage_transition(
-            work_order=work_order,
-            stage=ProcessStage.PACKING,
-            status=StageStatus.DONE,
-            station_context=station_context,
-            batch_id=batch_id,
-            counted_quantity=counted_quantity,
-        )
-
-    def _record_decoral_audit_event(
-        self,
-        *,
-        work_order: WorkOrder,
-        station_context: StationContext | None,
-        batch_id: int | None,
-        ok_quantity: int,
-        correction_quantity: int,
-        correction_category_fields: dict[str, int | bool | None],
-    ) -> None:
-        details: dict[str, object] = {
-            "stage": ProcessStage.DECORAL_PRODUCTION.value,
-            "batch_id": batch_id,
-            "ok_quantity": ok_quantity,
-            "correction_quantity": correction_quantity,
-        }
-        if correction_quantity > 0:
-            details.update(
-                {
-                    "correction_profiles_quantity": correction_category_fields["profiles_quantity"],
-                    "correction_accessories_quantity": correction_category_fields["accessories_quantity"],
-                }
-            )
-        self._record_audit_event(
-            event_type="process.decoral_production.completed",
-            station_context=station_context,
-            work_order=work_order,
-            target_type="process_stage",
-            target_id=batch_id,
-            summary=f"Completed decoral production for work order {work_order.order_number}.",
-            details=details,
-        )
-        self._record_stage_transition(
-            work_order=work_order,
-            stage=ProcessStage.DECORAL_PRODUCTION,
-            status=StageStatus.DONE,
-            station_context=station_context,
-            batch_id=batch_id,
-            counted_quantity=ok_quantity,
-        )
-
-    def _record_automatic_paint_consumption_audit_event(
-        self,
-        *,
-        work_order: WorkOrder,
-        station_context: StationContext | None,
-        previous_value: float,
-        consumed_paint_quantity_kg: float,
-    ) -> None:
-        self._record_audit_event(
-            event_type="process.automatic_paint_consumption.recorded",
-            station_context=station_context,
-            work_order=work_order,
-            target_type="process_stage",
-            target_id=work_order.current_active_batch_id,
-            summary=f"Recorded automatic paint consumption for work order {work_order.order_number}.",
-            details={
-                "stage": ProcessStage.PRODUCTION.value,
-                "paint_code": work_order.paint_code,
-                "paint_stock_snapshot_quantity_kg": work_order.paint_stock_snapshot_quantity_kg,
-                "previous_consumed_paint_quantity_kg": previous_value,
-                "consumed_paint_quantity_kg": consumed_paint_quantity_kg,
-            },
-        )
-
-    def _record_stage_transition(
-        self,
-        *,
-        work_order: WorkOrder,
-        stage: ProcessStage,
-        status: StageStatus,
-        station_context: StationContext | None,
-        batch_id: int | None,
-        counted_quantity: int | None = None,
-    ) -> None:
-        """Append a row to the analytics stage-transition log (see ``StageTransitionEvent``).
-
-        Mirrors the audit choke points so coverage matches the audit log. ``occurred_at`` defaults
-        to now and is never updated, giving a durable timestamp for cycle-time/throughput stats.
-        """
-        self.repository.session.add(
-            StageTransitionEvent(
-                work_order_id=work_order.id,
-                batch_id=batch_id,
-                stage=stage,
-                status=status,
-                counted_quantity=counted_quantity,
-                station_id=station_context.station_id if station_context is not None else StationId.SYSTEM,
-                user_id=station_context.user_id if station_context is not None else None,
-            )
-        )
-
-    def _record_audit_event(
-        self,
-        *,
-        event_type: str,
-        station_context: StationContext | None,
-        work_order: WorkOrder,
-        target_type: str,
-        target_id: int | None,
-        summary: str,
-        details: dict[str, object],
-    ) -> None:
-        station_id = station_context.station_id if station_context is not None else StationId.SYSTEM
-        self.audit_repository.add(
-            AuditEvent(
-                event_type=event_type,
-                station_id=station_id,
-                work_order_id=work_order.id,
-                target_type=target_type,
-                target_id=target_id,
-                summary=summary,
-                details_json=json.dumps(details, separators=(",", ":")),
-            )
         )
 
     @staticmethod
@@ -2258,11 +2209,6 @@ class ProcessService:
     def _get_ordered_batches(work_order: WorkOrder) -> list[WorkOrderQuantityBatch]:
         return sorted(work_order.quantity_batches, key=lambda batch: (batch.created_at, batch.id))
 
-    @staticmethod
-    def _sync_legacy_current_active_batch(work_order: WorkOrder) -> None:
-        active_batches = sorted(work_order.active_batches, key=lambda batch: (batch.created_at, batch.id))
-        work_order.current_active_batch_id = active_batches[0].id if active_batches else None
-
     def _commit_process_changes(self) -> None:
         try:
             self.repository.commit()
@@ -2292,7 +2238,6 @@ class ProcessService:
                     current_work_order.total_quantity,
                 )
             current_work_order.completed_quantity = current_work_order.total_quantity
-            current_work_order.current_active_batch_id = None
             self._mark_all_stage_states_done(current_work_order)
             finalized_work_order = current_work_order
 
@@ -2330,7 +2275,7 @@ class ProcessService:
 
     @staticmethod
     def _has_incomplete_marker(work_order: WorkOrder) -> bool:
-        return work_order.is_incomplete_on_arrival or work_order.status == WorkOrderStatus.INCOMPLETE
+        return work_order.is_incomplete_on_arrival
 
     def _is_complete_for_display(self, work_order: WorkOrder) -> bool:
         return (
@@ -2405,6 +2350,12 @@ class ProcessService:
                 return stage_state
         raise InvalidProcessStageTransitionError(f"Stage {stage.value} is not configured for work order {work_order.id}.")
 
+    @staticmethod
+    def _find_stage_state(work_order: WorkOrder, stage: ProcessStage) -> WorkOrderStageState | None:
+        # Like _get_stage_state but returns None instead of raising when the stage is not part of the
+        # order's route (NA42: AUTOMATIC has no PRODUCTION row, MANUAL has no HANGING row).
+        return next((stage_state for stage_state in work_order.stage_states if stage_state.stage == stage), None)
+
     def _to_stage_work_order_read(
         self,
         work_order: WorkOrder,
@@ -2416,31 +2367,41 @@ class ProcessService:
         elif batch is None and stage == ProcessStage.PACKING and work_order.production_type == ProductionType.AUTOMATIC:
             stage = self._get_automatic_packing_display_stage(work_order)
 
-        stage_state = self._get_stage_state(work_order, stage)
+        stage_state = self._find_stage_state(work_order, stage)
+        if stage_state is None:
+            # NA42: an AUTOMATIC order has no PRODUCTION stage row, but the automatic-production panel
+            # still presents it as "in production" once it is on the line (display unchanged for the
+            # operator). Synthesize a transient stage state mirroring the old phantom: IN_PROGRESS
+            # while on the line (hanging done, not yet packed), else DONE.
+            synthetic_status = (
+                StageStatus.DONE
+                if self._get_stage_state(work_order, ProcessStage.PACKING).status == StageStatus.DONE
+                else StageStatus.IN_PROGRESS
+            )
+            stage_state = WorkOrderStageState(work_order_id=work_order.id, stage=stage, status=synthetic_status)
         if batch is None:
             current_active_quantity = work_order.current_active_quantity
-            batch_quantity = self._get_stage_display_quantity(work_order, stage, stage_state, batch=None)
             batch_type = None
             batch_is_partial = False
             batch_id = None
-            planned_quantity = self._get_stage_planned_quantity(work_order, stage, stage_state, batch=None)
             stage_status = self.build_stage_status_view(stage_state.status)
         else:
             batch_status = self._get_tracked_batch_stage_status(work_order, batch, stage)
             if batch_status is None:
                 batch_status = batch.current_stage_status or StageStatus.NOT_STARTED
             current_active_quantity = batch.quantity
-            batch_quantity = self._get_stage_display_quantity(work_order, stage, stage_state, batch=batch)
             batch_type = batch.type
             batch_is_partial = batch.is_partial
             batch_id = batch.id
-            planned_quantity = self._get_stage_planned_quantity(work_order, stage, stage_state, batch=batch)
             stage_status = self.build_stage_status_view(batch_status)
 
-        counted_quantity = self._get_stage_counted_quantity(work_order, stage, batch=batch)
+        quantities = self._resolve_stage_quantities(work_order, stage, stage_state, batch=batch)
+        batch_quantity = quantities.display
+        planned_quantity = quantities.planned
+        counted_quantity = quantities.counted
+        operational_quantity = quantities.operational
         quantity_difference = counted_quantity - planned_quantity if counted_quantity is not None else None
 
-        operational_quantity = self._get_operational_quantity(work_order, batch)
         category_fields = self._derive_category_fields_for_operational_quantity(
             work_order,
             operational_quantity,
@@ -2455,9 +2416,9 @@ class ProcessService:
         # includes an automatic order that reserved a slot at hanging start but has not reached packing
         # yet. `is_being_packed` (show the packing form) additionally requires the resolved stage to be
         # PACKING. `packing_slots_total` is the configured capacity N.
-        holds_packing_slot = self._work_order_packing_slot_key(work_order.id) is not None
+        holds_packing_slot = self.resource_locks.work_order_packing_slot_key(work_order.id) is not None
         is_being_packed = holds_packing_slot and stage == ProcessStage.PACKING
-        packing_slots_total = self._packing_slot_count()
+        packing_slots_total = self.resource_locks.packing_slot_count()
 
         # Whether "Zakończ pakowanie" is allowed for this card (automatic orders pack in parallel with
         # the line but can only finish once HANGING is DONE and paint consumption is recorded).
@@ -2482,7 +2443,7 @@ class ProcessService:
             paint_producer=work_order.paint_producer,
             current_paint_stock_quantity_kg=current_paint_stock_quantity_kg,
             paint_stock_snapshot_quantity_kg=work_order.paint_stock_snapshot_quantity_kg,
-            consumed_paint_quantity_kg=work_order.consumed_paint_quantity_kg,
+            consumed_paint_quantity_kg=self.paint_service.get_consumed_paint_kg_for_work_orders(work_order.correction_chain_ids),
             total_area_m2=work_order.total_area_m2,
             total_quantity=work_order.total_quantity,
             current_active_quantity=current_active_quantity,
@@ -2501,6 +2462,20 @@ class ProcessService:
                 else None
             ),
             coating_type=build_coating_type_view(work_order.coating_type),
+            decoral_foil=(
+                FoilSummaryRead(id=work_order.decoral_foil.id, name=work_order.decoral_foil.name, code=work_order.decoral_foil.code)
+                if work_order.decoral_foil is not None
+                else None
+            ),
+            technical_drawings=[
+                WorkOrderAttachmentSummaryRead(
+                    id=attachment.id,
+                    original_filename=attachment.original_filename,
+                    content_type=attachment.content_type,
+                )
+                for attachment in work_order.attachments
+                if attachment.category == WorkOrderAttachmentCategory.TECHNICAL_DRAWING.value
+            ],
             batch_type=batch_type,
             batch_is_partial=batch_is_partial,
             is_being_packed=is_being_packed,
@@ -2514,40 +2489,71 @@ class ProcessService:
             ),
         )
 
-    @staticmethod
-    def _get_stage_display_quantity(
+    def _resolve_stage_quantities(
+        self,
         work_order: WorkOrder,
         stage: ProcessStage,
         stage_state: WorkOrderStageState,
         *,
         batch: WorkOrderQuantityBatch | None,
-    ) -> int | None:
-        if batch is not None:
-            return batch.quantity
+    ) -> StageQuantities:
+        """Single source of the per-stage display quantities (NA43).
 
-        if stage_state.status == StageStatus.DONE:
-            return work_order.total_quantity
-
-        return work_order.current_active_quantity
-
-    @staticmethod
-    def _get_stage_planned_quantity(
-        work_order: WorkOrder,
-        stage: ProcessStage,
-        stage_state: WorkOrderStageState,
-        *,
-        batch: WorkOrderQuantityBatch | None,
-    ) -> int:
-        _ = stage
-        _ = stage_state
-        if batch is not None:
-            return batch.quantity
-
+        Folds the four former helpers (display / planned / counted / operational) into one place so
+        the "which quantity shows where" rule lives once. **Display-only** — validation, READY, and
+        quantity conservation use ``total_quantity`` / counted directly, never these. See
+        ``docs/WORKFLOW.md`` → "Quantity model".
+        """
         active_batch = work_order.active_batch
-        if active_batch is not None and active_batch.parent_batch_id is not None:
-            return active_batch.quantity
+        # Surface-prep actual received (NA26) feeds both `operational` and the PACKING `counted`
+        # fallback; computed once here (it is a pure function of the work order).
+        surface_prep_actual = self._get_surface_preparation_actual_quantity(work_order)
 
-        return work_order.total_quantity
+        # display: a tracked batch shows its own size; a finished stage shows the full order;
+        # otherwise the live active quantity.
+        if batch is not None:
+            display: int | None = batch.quantity
+        elif stage_state.status == StageStatus.DONE:
+            display = work_order.total_quantity
+        else:
+            display = work_order.current_active_quantity
+
+        # planned (expected for the stage): a tracked batch — or a correction batch (an active batch
+        # with a parent) — shows that batch's size; otherwise the ordered total.
+        if batch is not None:
+            planned = batch.quantity
+        elif active_batch is not None and active_batch.parent_batch_id is not None:
+            planned = active_batch.quantity
+        else:
+            planned = work_order.total_quantity
+
+        # operational (NA26): pieces the operator physically handles — a tracked batch's own quantity,
+        # else the surface-prep actual received once counted, else the ordered total before counting.
+        if batch is not None:
+            operational = batch.quantity
+        elif surface_prep_actual is not None:
+            operational = surface_prep_actual
+        else:
+            operational = work_order.current_active_quantity
+
+        # counted: only SURFACE_PREPARATION and PACKING carry a counted quantity (both rows exist on
+        # every route, incl. the now-absent AUTOMATIC PRODUCTION — NA42). PACKING falls back to the
+        # surface-prep actual only on the plain (non-batch, non-correction) path.
+        counted: int | None
+        if stage not in (ProcessStage.SURFACE_PREPARATION, ProcessStage.PACKING):
+            counted = None
+        elif stage == ProcessStage.SURFACE_PREPARATION:
+            counted = self._get_stage_state(work_order, ProcessStage.SURFACE_PREPARATION).counted_quantity
+        else:
+            packing_counted = self._get_stage_state(work_order, ProcessStage.PACKING).counted_quantity
+            if packing_counted is not None:
+                counted = packing_counted
+            elif batch is None and not self._is_in_correction_round(work_order):
+                counted = surface_prep_actual
+            else:
+                counted = None
+
+        return StageQuantities(display=display, planned=planned, counted=counted, operational=operational)
 
     @staticmethod
     def _get_process_mutation_lock(work_order_id: int) -> RLock:
@@ -2558,305 +2564,6 @@ class ProcessService:
                 _PROCESS_MUTATION_LOCKS[work_order_id] = lock
             return lock
 
-    @staticmethod
-    def _get_resource_mutation_lock(resource_key: str) -> RLock:
-        with _RESOURCE_MUTATION_LOCKS_GUARD:
-            lock = _RESOURCE_MUTATION_LOCKS.get(resource_key)
-            if lock is None:
-                lock = RLock()
-                _RESOURCE_MUTATION_LOCKS[resource_key] = lock
-            return lock
-
-    @staticmethod
-    def _get_stage_resource_keys(
-        work_order: WorkOrder,
-        stage: ProcessStage,
-        target_status: StageStatus,
-    ) -> tuple[str, ...]:
-        if stage != ProcessStage.HANGING:
-            return ()
-
-        if target_status == StageStatus.IN_PROGRESS:
-            return ("HANGING",)
-
-        if target_status == StageStatus.DONE and work_order.production_type == ProductionType.AUTOMATIC:
-            return ("AUTOMATIC_LINE",)
-
-        return ()
-
-    @contextmanager
-    def _serialize_stage_resources(self, resource_keys: Sequence[str]):
-        with ExitStack() as stack:
-            for resource_key in sorted(set(resource_keys)):
-                stack.enter_context(self._serialize_resource_mutation(resource_key))
-            yield
-
-    @contextmanager
-    def _serialize_resource_mutation(self, resource_key: str):
-        lock = self._get_resource_mutation_lock(resource_key)
-        lock.acquire()
-        try:
-            yield
-        finally:
-            lock.release()
-
-    def _ensure_stage_resources_available(
-        self,
-        work_order: WorkOrder,
-        stage: ProcessStage,
-        target_status: StageStatus,
-    ) -> None:
-        if stage != ProcessStage.HANGING:
-            return
-
-        if target_status == StageStatus.DONE and work_order.production_type == ProductionType.AUTOMATIC:
-            automatic_line_conflict = self._find_active_automatic_line_conflict(work_order.id)
-            if automatic_line_conflict is not None:
-                raise InvalidProcessStageTransitionError("Automatic line is already occupied by another active job.")
-            return
-
-        if target_status != StageStatus.IN_PROGRESS:
-            return
-
-        hanging_conflict = self._find_active_hanging_conflict(work_order.id)
-        if hanging_conflict is not None:
-            raise InvalidProcessStageTransitionError("Hanging resource is already occupied by another active job.")
-
-    def _acquire_stage_resource_locks(self, work_order: WorkOrder, stage: ProcessStage, target_status: StageStatus) -> None:
-        resource_keys = self._get_stage_resource_keys(work_order, stage, target_status)
-        for resource_key in resource_keys:
-            self._acquire_resource_lock_with_stale_recovery(resource_key, work_order)
-
-    def _acquire_resource_lock_with_stale_recovery(self, resource_key: str, work_order: WorkOrder) -> None:
-        try:
-            self.repository.acquire_resource_lock(resource_key, work_order.id)
-            return
-        except ValueError:
-            if not self._release_stale_resource_lock(resource_key):
-                raise self._build_resource_conflict_error(resource_key)
-        except IntegrityError:
-            self.repository.rollback()
-            if not self._release_stale_resource_lock(resource_key):
-                raise self._build_resource_conflict_error(resource_key)
-
-        try:
-            self.repository.acquire_resource_lock(resource_key, work_order.id)
-        except ValueError as exc:
-            raise self._build_resource_conflict_error(resource_key) from exc
-        except IntegrityError as exc:
-            self.repository.rollback()
-            raise self._build_resource_conflict_error(resource_key) from exc
-
-    # --- Packing capacity / slots (NA22) ---------------------------------------------------------
-
-    def _packing_slot_count(self) -> int:
-        return max(1, int(get_settings().packing_max_concurrent_slots))
-
-    def _packing_slot_keys(self) -> list[str]:
-        return [f"{self.PACKING_SLOT_PREFIX}{index}" for index in range(1, self._packing_slot_count() + 1)]
-
-    def _packing_slot_locks(self):
-        return self.repository.list_resource_locks_with_prefix(self.PACKING_SLOT_PREFIX)
-
-    def _work_order_packing_slot_key(self, work_order_id: int) -> str | None:
-        return next(
-            (lock.resource_key for lock in self._packing_slot_locks() if lock.work_order_id == work_order_id),
-            None,
-        )
-
-    def _cleanup_stale_packing_slots(self) -> None:
-        # A slot is stale when its owner no longer occupies packing (completed, reset, or — for an
-        # automatic reservation — its packing finished). Releasing keeps occupancy counts honest.
-        for lock in list(self._packing_slot_locks()):
-            owner = self.repository.get_work_order_with_stage_states(lock.work_order_id)
-            if owner is None or not self._occupies_packing(owner):
-                self.repository.release_resource_lock(lock.resource_key, lock.work_order_id)
-
-    def _acquire_packing_slot(
-        self,
-        work_order: WorkOrder,
-        *,
-        override: bool = False,
-        reserve_only: bool = False,
-        for_completion: bool = False,
-    ) -> bool:
-        """Acquire a packing slot for this work order. Returns True if a slot is now held.
-
-        Capacity is N (``packing_max_concurrent_slots``). **Only manual orders may use a second slot**
-        — an automatic order always uses the single station, never opening a 2nd packing:
-
-        - **Capacity-bound** (occupied < N): a manual ``override`` start, or a manual completion. This
-          is the only way to open slots 2..N.
-        - **Single-station** (slot held, or station completely free): automatic hanging-start
-          reservation (``reserve_only`` — a 2nd automatic queues silently), automatic completion (a
-          queued 2nd automatic waits, raising "occupied" rather than taking a 2nd slot), and a manual
-          default start (so two manual operators don't accidentally start at once).
-        """
-        is_automatic = work_order.production_type == ProductionType.AUTOMATIC
-        capacity_bound = override or (for_completion and not is_automatic)
-        with self._serialize_resource_mutation(self.PACKING_SLOT_PREFIX):
-            self._cleanup_stale_packing_slots()
-            if self._work_order_packing_slot_key(work_order.id) is not None:
-                return True  # idempotent — already holds a slot
-
-            slot_keys = self._packing_slot_keys()
-            occupied_keys = {lock.resource_key for lock in self._packing_slot_locks()}
-            occupied = len(occupied_keys)
-            capacity = len(slot_keys)
-
-            if capacity_bound:
-                if occupied >= capacity:
-                    raise InvalidProcessStageTransitionError(self.PACKING_ALL_SLOTS_FULL_ERROR)
-            elif occupied != 0:
-                # Single-station: automatic reservation/completion and manual default start.
-                if reserve_only:
-                    return False  # 2nd automatic queues; it does not reserve a second slot
-                raise InvalidProcessStageTransitionError(self.PACKING_OCCUPIED_ERROR)
-
-            free_key = next((key for key in slot_keys if key not in occupied_keys), None)
-            if free_key is None:
-                if reserve_only:
-                    return False
-                raise InvalidProcessStageTransitionError(self.PACKING_ALL_SLOTS_FULL_ERROR)
-
-            try:
-                self.repository.acquire_resource_lock(free_key, work_order.id)
-            except ValueError:
-                if reserve_only:
-                    return False
-                raise self._build_resource_conflict_error(free_key)
-            return True
-
-    def _release_packing_slot(self, work_order: WorkOrder) -> None:
-        slot_key = self._work_order_packing_slot_key(work_order.id)
-        if slot_key is not None:
-            self.repository.release_resource_lock(slot_key, work_order.id)
-
-    def _reserve_packing_for_automatic_hanging(
-        self, work_order: WorkOrder, stage: ProcessStage, target_status: StageStatus
-    ) -> None:
-        # NA22a: an automatic order reserves a packing slot the moment HANGING starts, so a manual
-        # order cannot take the (default single) slot and block the un-pausable automatic line.
-        if (
-            stage == ProcessStage.HANGING
-            and target_status == StageStatus.IN_PROGRESS
-            and work_order.production_type == ProductionType.AUTOMATIC
-        ):
-            self._acquire_packing_slot(work_order, reserve_only=True)
-
-    def _release_stale_resource_lock(self, resource_key: str) -> bool:
-        existing_lock = self.repository.get_resource_lock(resource_key)
-        if existing_lock is None:
-            return False
-
-        lock_owner = self.repository.get_work_order_with_stage_states(existing_lock.work_order_id)
-        if lock_owner is None:
-            self.repository.release_resource_lock(resource_key, existing_lock.work_order_id)
-            return True
-
-        if resource_key == "HANGING" and not self._has_active_hanging_work(lock_owner):
-            self.repository.release_resource_lock(resource_key, existing_lock.work_order_id)
-            return True
-
-        if resource_key == "AUTOMATIC_LINE" and not self._occupies_automatic_line(lock_owner):
-            self.repository.release_resource_lock(resource_key, existing_lock.work_order_id)
-            return True
-
-        if resource_key.startswith(self.PACKING_SLOT_PREFIX) and not self._occupies_packing(lock_owner):
-            self.repository.release_resource_lock(resource_key, existing_lock.work_order_id)
-            return True
-
-        return False
-
-    def _release_inactive_resource_locks(self, work_order: WorkOrder) -> None:
-        for resource_lock in self.repository.list_resource_locks_for_work_order(work_order.id):
-            if resource_lock.resource_key == "HANGING" and not self._has_active_hanging_work(work_order):
-                self.repository.release_resource_lock(resource_lock.resource_key, work_order.id)
-            elif resource_lock.resource_key == "AUTOMATIC_LINE" and not self._occupies_automatic_line(work_order):
-                self.repository.release_resource_lock(resource_lock.resource_key, work_order.id)
-            elif resource_lock.resource_key.startswith(self.PACKING_SLOT_PREFIX) and not self._occupies_packing(work_order):
-                self.repository.release_resource_lock(resource_lock.resource_key, work_order.id)
-
-    def _build_resource_conflict_error(self, resource_key: str) -> InvalidProcessStageTransitionError:
-        if resource_key == "AUTOMATIC_LINE":
-            return InvalidProcessStageTransitionError("Automatic line is already occupied by another active job.")
-        if resource_key.startswith(self.PACKING_SLOT_PREFIX):
-            return InvalidProcessStageTransitionError(self.PACKING_OCCUPIED_ERROR)
-        return InvalidProcessStageTransitionError("Hanging resource is already occupied by another active job.")
-
-    def _find_active_hanging_conflict(self, work_order_id: int) -> WorkOrder | None:
-        for candidate in self.repository.list_work_orders_with_stage(ProcessStage.HANGING):
-            if candidate.id == work_order_id:
-                continue
-            if self._has_active_hanging_work(candidate):
-                return candidate
-        return None
-
-    def _find_active_automatic_line_conflict(self, work_order_id: int) -> WorkOrder | None:
-        for candidate in self.repository.list_work_orders_with_stage(ProcessStage.HANGING):
-            if candidate.id == work_order_id:
-                continue
-            if self._occupies_automatic_line(candidate):
-                return candidate
-        return None
-
-    def _has_active_hanging_work(self, work_order: WorkOrder) -> bool:
-        hanging_state = self._get_stage_state(work_order, ProcessStage.HANGING)
-        if hanging_state.status == StageStatus.IN_PROGRESS:
-            return True
-
-        return any(
-            batch.is_active
-            and batch.current_stage == ProcessStage.HANGING
-            and batch.current_stage_status == StageStatus.IN_PROGRESS
-            for batch in work_order.quantity_batches
-        )
-
-    def _occupies_automatic_line(self, work_order: WorkOrder) -> bool:
-        if work_order.production_type != ProductionType.AUTOMATIC:
-            return False
-
-        hanging_state = self._get_stage_state(work_order, ProcessStage.HANGING)
-        production_state = self._get_stage_state(work_order, ProcessStage.PRODUCTION)
-        packing_state = self._get_stage_state(work_order, ProcessStage.PACKING)
-        if hanging_state.status == StageStatus.DONE and production_state.status == StageStatus.IN_PROGRESS and packing_state.status != StageStatus.DONE:
-            return True
-
-        return any(
-            batch.is_active
-            and batch.current_stage == ProcessStage.PACKING
-            and batch.current_stage_status == StageStatus.IN_PROGRESS
-            for batch in work_order.quantity_batches
-        )
-
-    def _occupies_packing(self, work_order: WorkOrder) -> bool:
-        """Whether this work order should keep a held packing slot.
-
-        True while the full-order packing stage is IN_PROGRESS, or an active tracked batch is
-        IN_PROGRESS at packing (DECORAL). For an AUTOMATIC order it is also true from HANGING start
-        through packing completion (NA22a reservation): the order reserves its slot when hanging
-        starts and holds it until its own packing finishes. Used to keep slots and to recover stale
-        ones once the owner's packing has finished or reset.
-        """
-        packing_state = self._get_stage_state(work_order, ProcessStage.PACKING)
-        if packing_state.status == StageStatus.IN_PROGRESS:
-            return True
-
-        if any(
-            batch.is_active
-            and batch.current_stage == ProcessStage.PACKING
-            and batch.current_stage_status == StageStatus.IN_PROGRESS
-            for batch in work_order.quantity_batches
-        ):
-            return True
-
-        if work_order.production_type == ProductionType.AUTOMATIC:
-            hanging_state = self._get_stage_state(work_order, ProcessStage.HANGING)
-            if hanging_state.status in {StageStatus.IN_PROGRESS, StageStatus.DONE} and packing_state.status != StageStatus.DONE:
-                return True
-
-        return False
-
     def _get_surface_preparation_actual_quantity(self, work_order: WorkOrder) -> int | None:
         if self._skips_surface_preparation(work_order):
             return None
@@ -2864,44 +2571,6 @@ class ProcessService:
         surface_preparation_state = self._get_stage_state(work_order, ProcessStage.SURFACE_PREPARATION)
         return surface_preparation_state.counted_quantity
 
-    def _get_operational_quantity(
-        self,
-        work_order: WorkOrder,
-        batch: WorkOrderQuantityBatch | None,
-    ) -> int:
-        # The count operators physically handle (NA26): a tracked batch's own quantity, otherwise the
-        # surface-preparation actual received quantity once counted, else the ordered total before
-        # counting. Does not affect validation/READY (those keep using total_quantity / counted).
-        if batch is not None:
-            return batch.quantity
-        actual_received = self._get_surface_preparation_actual_quantity(work_order)
-        if actual_received is not None:
-            return actual_received
-        return work_order.current_active_quantity
-
-    def _get_stage_counted_quantity(
-        self,
-        work_order: WorkOrder,
-        stage: ProcessStage,
-        *,
-        batch: WorkOrderQuantityBatch | None,
-    ) -> int | None:
-        stage_state = self._get_stage_state(work_order, stage)
-        if stage == ProcessStage.SURFACE_PREPARATION:
-            return stage_state.counted_quantity
-
-        if stage != ProcessStage.PACKING:
-            return None
-
-        if stage_state.counted_quantity is not None:
-            return stage_state.counted_quantity
-
-        if batch is None:
-            if self._is_in_correction_round(work_order):
-                return None
-            return self._get_surface_preparation_actual_quantity(work_order)
-
-        return None
 
     @contextmanager
     def _serialize_process_mutation(self, work_order_id: int):

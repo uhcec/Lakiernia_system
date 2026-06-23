@@ -6,6 +6,7 @@ import { PackingWorkOrdersPage } from "../src/components/PackingWorkOrdersPage";
 import { StageWorkOrdersPage } from "../src/components/StageWorkOrdersPage";
 import { ApiError } from "../src/api/apiError";
 import { PaintInventoryPage } from "../src/pages/PaintInventoryPage";
+import { FoilsPage } from "../src/pages/FoilsPage";
 import { AutomaticProductionPage } from "../src/pages/AutomaticProductionPage";
 import { CreateWorkOrderPage } from "../src/pages/CreateWorkOrderPage";
 import { ManagerPanelPage } from "../src/pages/ManagerPanelPage";
@@ -51,9 +52,17 @@ vi.mock("../src/api/workOrdersApi", () => ({
   fetchWorkOrder: vi.fn(),
   fetchWorkOrderAttachments: vi.fn(),
   getWorkOrderAttachmentDownloadUrl: vi.fn(),
+  openWorkOrderAttachment: vi.fn(),
   markWorkOrderCompleteArrival: vi.fn(),
   updateWorkOrderReleaseStatus: vi.fn(),
   uploadWorkOrderAttachment: vi.fn(),
+}));
+
+vi.mock("../src/api/foilsApi", () => ({
+  fetchFoils: vi.fn(),
+  createFoil: vi.fn(),
+  updateFoil: vi.fn(),
+  deleteFoil: vi.fn(),
 }));
 
 vi.mock("../src/utils/workOrderDisplay", () => ({
@@ -82,7 +91,6 @@ vi.mock("../src/utils/workOrderDisplay", () => ({
       ? `Przygotowanie: zadeklarowano ${workOrder.total_quantity}, policzono ${workOrder.surface_preparation_counted_quantity} (${workOrder.surface_preparation_quantity_difference} szt.)`
       : null,
   getWorkOrderProgressText: (workOrder: { total_quantity: number }) => `${workOrder.total_quantity} / ${workOrder.total_quantity} szt.`,
-  getWorkOrderStatusSummary: () => "Status testowy",
 }));
 
 const managerApi = await import("../src/api/managerApi");
@@ -90,6 +98,7 @@ const auditApi = await import("../src/api/auditApi");
 const paintsApi = await import("../src/api/paintsApi");
 const processApi = await import("../src/api/processApi");
 const workOrdersApi = await import("../src/api/workOrdersApi");
+const foilsApi = await import("../src/api/foilsApi");
 
 const fetchWorkOrderAuditEventsMock = vi.mocked(auditApi.fetchWorkOrderAuditEvents);
 const fetchCorrectionReasonReportMock = vi.mocked(managerApi.fetchCorrectionReasonReport);
@@ -109,6 +118,8 @@ const completePackingMock = vi.mocked(processApi.completePacking);
 const startPackingMock = vi.mocked(processApi.startPacking);
 const releasePackingMock = vi.mocked(processApi.releasePacking);
 const createWorkOrderMock = vi.mocked(workOrdersApi.createWorkOrder);
+const openWorkOrderAttachmentMock = vi.mocked(workOrdersApi.openWorkOrderAttachment);
+const fetchFoilsMock = vi.mocked(foilsApi.fetchFoils);
 const fetchWorkOrdersMock = vi.mocked(workOrdersApi.fetchWorkOrders);
 const fetchWorkOrderMock = vi.mocked(workOrdersApi.fetchWorkOrder);
 const fetchWorkOrderAttachmentsMock = vi.mocked(workOrdersApi.fetchWorkOrderAttachments);
@@ -158,6 +169,7 @@ function buildWorkOrder(id: number, orderNumber: string, queuePosition: number, 
     batches: [],
     received_date: "2026-05-27",
     planned_pickup_date: null,
+    is_overdue: false,
     is_released_to_client: false,
     released_to_client_at: null,
     total_area_m2: null,
@@ -221,6 +233,7 @@ function buildStageWorkOrder(
     queue_namespace: overrides.queue_namespace ?? { value: "MAIN", label: "Główna" },
     production_type: overrides.production_type ?? { value: "MANUAL", label: "Ręczna" },
     coating_type: overrides.coating_type ?? { value: "RAL", label: "RAL" },
+    technical_drawings: overrides.technical_drawings ?? [],
     batch_type: overrides.batch_type ?? "MAIN",
     batch_is_partial: overrides.batch_is_partial ?? false,
     is_being_packed: overrides.is_being_packed ?? false,
@@ -275,6 +288,8 @@ beforeEach(() => {
   startPackingMock.mockReset();
   releasePackingMock.mockReset();
   createWorkOrderMock.mockReset();
+  fetchFoilsMock.mockReset();
+  fetchFoilsMock.mockResolvedValue({ items: [], total: 0, limit: 100, offset: 0 });
   fetchWorkOrdersMock.mockReset();
   fetchPaintsMock.mockReset();
   fetchPaintMovementsMock.mockReset();
@@ -346,6 +361,59 @@ describe("frontend state consistency", () => {
           is_ocynk: true,
           paint_code: "P-7016",
           total_area_m2: 84,
+        }),
+      );
+    });
+  });
+
+  it("offers the Decoral foil picker only for Decoral orders and submits the chosen foil (NA38)", async () => {
+    createWorkOrderMock.mockResolvedValue({ ...buildWorkOrder(94, "WO-CREATE-FOIL", 1) });
+    fetchFoilsMock.mockResolvedValue({
+      items: [
+        { id: 7, name: "Złoty dąb", code: "FOIL-ZD", supplier: null, notes: null, usage_count: 0, created_at: "", updated_at: "" },
+      ],
+      total: 1,
+      limit: 100,
+      offset: 0,
+    });
+    lookupPaintStockMock.mockResolvedValue({
+      paint_id: 1,
+      ral_code: "D-200",
+      paint_producer: "AkzoNobel",
+      paint_code: "P-D200",
+      current_quantity_kg: 30,
+      exists_in_inventory: true,
+    });
+
+    render(
+      <MemoryRouter>
+        <CreateWorkOrderPage />
+      </MemoryRouter>,
+    );
+
+    // No foil picker until Decoral is chosen.
+    expect(screen.queryByLabelText("Folia Decoral")).toBeNull();
+
+    fireEvent.change(screen.getByLabelText("Klient"), { target: { value: "Fasada Polska" } });
+    fireEvent.change(screen.getByLabelText("Technologia"), { target: { value: "DECORAL" } });
+
+    const foilSelect = await screen.findByLabelText("Folia Decoral");
+    fireEvent.change(foilSelect, { target: { value: "7" } });
+
+    fireEvent.change(screen.getByLabelText("Kod RAL"), { target: { value: "D-200" } });
+    fireEvent.change(screen.getByLabelText("Producent farby"), { target: { value: "AkzoNobel" } });
+    fireEvent.change(screen.getByLabelText("Kod farby"), { target: { value: "P-D200" } });
+    await screen.findByText(/aktualny stan 30 kg/i);
+    fireEvent.change(screen.getByLabelText("Data przyjęcia"), { target: { value: "2026-05-30" } });
+    fireEvent.change(screen.getByLabelText(/Powierzchnia całkowita/i), { target: { value: "12" } });
+    screen.getAllByLabelText("Do policzenia na produkcji").forEach((checkbox) => fireEvent.click(checkbox));
+    fireEvent.click(screen.getByRole("button", { name: "Zapisz" }));
+
+    await waitFor(() => {
+      expect(createWorkOrderMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          coating_type: "DECORAL",
+          decoral_foil_id: 7,
         }),
       );
     });
@@ -589,6 +657,49 @@ describe("frontend state consistency", () => {
     });
   });
 
+  it("adds a foil from the registry page", async () => {
+    const createFoilMock = vi.mocked(foilsApi.createFoil);
+    fetchFoilsMock.mockResolvedValue({ items: [], total: 0, limit: 50, offset: 0 });
+    createFoilMock.mockResolvedValue({ id: 9, name: "Nowa", code: "FOIL-NEW", supplier: null, notes: null, usage_count: 0 } as never);
+
+    render(
+      <MemoryRouter>
+        <FoilsPage />
+      </MemoryRouter>,
+    );
+
+    await screen.findByText("Lista folii");
+    fireEvent.click(screen.getByRole("button", { name: /Dodaj nową folię/ }));
+    fireEvent.change(screen.getByPlaceholderText("Nazwa folii *"), { target: { value: "Nowa" } });
+    fireEvent.change(screen.getByPlaceholderText("Kod folii *"), { target: { value: "FOIL-NEW" } });
+    fireEvent.click(screen.getByRole("button", { name: "Zapisz folię" }));
+
+    await waitFor(() =>
+      expect(createFoilMock).toHaveBeenCalledWith(
+        expect.objectContaining({ name: "Nowa", code: "FOIL-NEW" }),
+      ),
+    );
+  });
+
+  it("blocks a paint delivery with an empty paint code and shows a clear message", async () => {
+    fetchPaintsMock.mockResolvedValue({ items: [], total: 0, limit: 50, offset: 0 });
+
+    render(
+      <MemoryRouter>
+        <PaintInventoryPage />
+      </MemoryRouter>,
+    );
+
+    // Fill RAL + producer + quantity but leave "Kod farby" empty → must not hit the backend.
+    fireEvent.change(screen.getAllByPlaceholderText("RAL")[0], { target: { value: "RAL 7016" } });
+    fireEvent.change(screen.getAllByPlaceholderText("Producent farby")[0], { target: { value: "AkzoNobel" } });
+    fireEvent.change(screen.getByPlaceholderText("Ilość [kg]"), { target: { value: "15" } });
+    fireEvent.click(screen.getByRole("button", { name: "Zapisz dostawę" }));
+
+    expect(await screen.findByText("Podaj kod farby.")).toBeTruthy();
+    expect(recordPaintDeliveryMock).not.toHaveBeenCalled();
+  });
+
   it("resets manager reorder UI to backend state after save failure", async () => {
     fetchUnplannedWorkOrdersMock.mockResolvedValue([]);
     fetchPlannedWorkOrdersMock
@@ -792,6 +903,30 @@ describe("frontend state consistency", () => {
     expect(screen.queryByText("Technologia")).toBeNull();
     expect(screen.queryByText("Typ produkcji")).toBeNull();
     expect(screen.queryByText("Partia")).toBeNull();
+  });
+
+  it("surfaces technical-drawing download links on the station card (NA36)", async () => {
+    fetchStageWorkOrdersMock.mockResolvedValueOnce([
+      buildStageWorkOrder({
+        id: 33,
+        order_number: "WO-DRAWING",
+        customer_name: "ACME",
+        technical_drawings: [{ id: 88, original_filename: "rysunek.png", content_type: "image/png" }],
+        stage_status: { stage: "SURFACE_PREPARATION", status: { value: "NOT_STARTED", label: "Nie rozpoczęto" } },
+      }),
+    ]);
+
+    render(
+      <StageWorkOrdersPage
+        stage="SURFACE_PREPARATION"
+        title="Przygotowanie"
+        emptyMessage="Brak zleceń"
+      />,
+    );
+
+    expect(await screen.findByText("Rysunki techniczne")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "rysunek.png" }));
+    expect(openWorkOrderAttachmentMock).toHaveBeenCalledWith(33, 88);
   });
 
   it("shows area and paint columns on production stations", async () => {
@@ -1082,8 +1217,50 @@ describe("frontend state consistency", () => {
           correction_profiles_quantity: 1,
           correction_accessories_quantity: 0,
           correction_reason_category: "inne",
+          stat_only_correction: false,
           correction_reason_note: "ryska przy profilu",
         },
+        undefined,
+      );
+    });
+  });
+
+  it("sends stat_only_correction=true when the operator marks a correction fixed on the spot (NA34)", async () => {
+    fetchStageWorkOrdersMock.mockResolvedValue([
+      buildStageWorkOrder({
+        id: 41,
+        order_number: "WO-PACK-STATONLY",
+        current_active_quantity: 4,
+        planned_quantity: 4,
+        is_being_packed: true,
+        stage_status: { stage: "PACKING", status: { value: "IN_PROGRESS", label: "W toku" } },
+      }),
+    ]);
+    completePackingMock.mockResolvedValue({} as never);
+
+    render(<PackingWorkOrdersPage />);
+    await screen.findByText("WO-PACK-STATONLY :: Klient");
+
+    const inputs = screen.getAllByRole("spinbutton");
+    fireEvent.change(inputs[0], { target: { value: "4" } });
+    fireEvent.change(inputs[1], { target: { value: "3" } });
+    fireEvent.change(inputs[2], { target: { value: "1" } });
+    const correctionInputs = screen.getAllByRole("spinbutton");
+    fireEvent.change(correctionInputs[3], { target: { value: "1" } });
+    fireEvent.change(correctionInputs[4], { target: { value: "0" } });
+    fireEvent.change(screen.getByRole("combobox"), { target: { value: "niedomalowanie" } });
+
+    // Default is "do zaplanowania"; switch to "od razu poprawiona".
+    fireEvent.click(screen.getByText("Od razu poprawiona"));
+
+    const submitButton = screen.getByRole("button", { name: "Zakończ pakowanie" }) as HTMLButtonElement;
+    await waitFor(() => expect(submitButton.disabled).toBe(false));
+    fireEvent.click(submitButton);
+
+    await waitFor(() => {
+      expect(completePackingMock).toHaveBeenCalledWith(
+        41,
+        expect.objectContaining({ correction_quantity: 1, stat_only_correction: true }),
         undefined,
       );
     });
@@ -1781,6 +1958,7 @@ describe("frontend state consistency", () => {
         storage_path: "71/stored.pdf",
         content_type: "application/pdf",
         file_size: 1200,
+        category: "TECHNICAL_DRAWING",
         attachment_type: "RYSUNEK",
         description: null,
         uploaded_at: "2026-05-27T08:00:00Z",
@@ -1790,9 +1968,11 @@ describe("frontend state consistency", () => {
     renderWorkOrderDetail(71, "?station_context=PACKING");
 
     await screen.findByText("rysunek.pdf");
-    expect(screen.getByRole("link", { name: "Pobierz" }).getAttribute("href")).toBe(
-      "/work-orders/71/attachments/12/download",
-    );
+    // NA36: the structured category is rendered (not just the free-text type label).
+    expect(screen.getByText("Rysunek techniczny")).toBeTruthy();
+    // Download goes through the token-carrying fetch (not a bare <a href> that 401s).
+    fireEvent.click(screen.getByRole("button", { name: "Otwórz" }));
+    expect(openWorkOrderAttachmentMock).toHaveBeenCalledWith(71, 12);
     expect(screen.getByRole("link", { name: "Wróć do listy" }).getAttribute("href")).toBe("/pakowanie");
     expect(screen.queryByRole("button", { name: "Dodaj załącznik" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Usuń" })).toBeNull();

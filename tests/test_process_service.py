@@ -14,12 +14,12 @@ from app.audit.models import AuditEvent
 from app.manager.repository import ManagerRepository
 from app.manager.schemas import WorkOrderPlanAssignRequest, WorkOrderProductionTypeUpdateRequest
 from app.manager.service import ManagerService
-from app.process.enums import CoatingType, ProcessStage, ProductionType, QuantityBatchType, StageStatus
-from app.process.models import ProcessResourceLock
+from app.process.enums import CoatingType, CorrectionKind, ProcessStage, ProductionType, QuantityBatchType, StageStatus
+from app.process.models import ProcessResourceLock, StatOnlyCorrection
 from app.process.repository import ProcessRepository
 from app.process.service import ProcessService
 from app.paints.schemas import PaintDeliveryCreate
-from app.shared.enums import QueueNamespace, StationId, WorkOrderStatus
+from app.shared.enums import QueueNamespace, StationId
 from app.shared.exceptions import InvalidManagerPlanningError, InvalidProcessStageTransitionError
 from app.work_orders.repository import WorkOrderRepository
 from app.work_orders.schemas import WorkOrderCreate
@@ -260,6 +260,43 @@ def test_operational_quantity_reflects_actual_received_after_surface_preparation
     assert row.planned_quantity == 100
 
 
+def test_resolve_stage_quantities_covers_each_context_NA43(db_session: Session) -> None:
+    # NA43: the four display quantities (display / planned / counted / operational) come from one
+    # resolver. Pin each context so the consolidated rule cannot silently drift.
+    work_order_service, process_service, manager_service, _, _ = build_services(db_session)
+    created = create_ral_work_order(work_order_service, "Quantity contexts NA43")  # total 100
+    manager_service.assign_plan(
+        created.id,
+        WorkOrderPlanAssignRequest(production_type=ProductionType.MANUAL, queue_position=1),
+    )
+
+    # Before surface prep counts: a non-DONE stage with no tracked batch.
+    wo = process_service.get_work_order_process(created.id)
+    prod_state = next(s for s in wo.stage_states if s.stage == ProcessStage.PRODUCTION)
+    before = process_service._resolve_stage_quantities(wo, ProcessStage.PRODUCTION, prod_state, batch=None)
+    assert before.display == wo.current_active_quantity == 100  # non-DONE → live active quantity
+    assert before.planned == 100  # ordered total
+    assert before.operational == 100  # no actual-received yet → ordered total
+    assert before.counted is None  # PRODUCTION carries no counted quantity
+
+    # After surface prep counts 95 (NA26 actual received).
+    process_service.start_stage(created.id, ProcessStage.SURFACE_PREPARATION)
+    process_service.finish_stage(created.id, ProcessStage.SURFACE_PREPARATION, counted_quantity=95)
+    wo = process_service.get_work_order_process(created.id)
+
+    sp_state = next(s for s in wo.stage_states if s.stage == ProcessStage.SURFACE_PREPARATION)
+    at_sp = process_service._resolve_stage_quantities(wo, ProcessStage.SURFACE_PREPARATION, sp_state, batch=None)
+    assert at_sp.display == 100  # SP is DONE → full order
+    assert at_sp.planned == 100  # ordered total is unchanged by counting
+    assert at_sp.counted == 95  # SP's counted quantity
+    assert at_sp.operational == 95  # actual received
+
+    packing_state = next(s for s in wo.stage_states if s.stage == ProcessStage.PACKING)
+    at_packing = process_service._resolve_stage_quantities(wo, ProcessStage.PACKING, packing_state, batch=None)
+    assert at_packing.counted == 95  # PACKING with no count yet → falls back to SP actual received
+    assert at_packing.operational == 95
+
+
 def test_office_and_manager_read_models_expose_surface_preparation_discrepancy(db_session: Session) -> None:
     work_order_service, process_service, manager_service, _, _ = build_services(db_session)
     created = create_ral_work_order(work_order_service, "Office manager discrepancy")
@@ -409,6 +446,27 @@ def test_production_type_affects_visibility_logic(db_session: Session) -> None:
     assert [work_order.id for work_order in automatic_visible] == [automatic_order.id]
 
 
+def test_reconcile_stage_states_drops_phantom_rows_per_route_NA42(db_session: Session) -> None:
+    # NA42: once the production method is known at planning, the stage-state rows are trimmed to the
+    # real route — AUTOMATIC has no PRODUCTION row (the line paints automatically), MANUAL has no
+    # HANGING row. Switching the method later re-adds/removes the right rows.
+    work_order_service, process_service, manager_service, _, process_repository = build_services(db_session)
+    auto = create_ral_work_order(work_order_service, "Auto NA42")
+    manual = create_ral_work_order(work_order_service, "Manual NA42")
+    manager_service.assign_plan(auto.id, WorkOrderPlanAssignRequest(production_type=ProductionType.AUTOMATIC, queue_position=1))
+    manager_service.assign_plan(manual.id, WorkOrderPlanAssignRequest(production_type=ProductionType.MANUAL, queue_position=2))
+
+    auto_stages = {ss.stage for ss in process_repository.get_work_order_with_stage_states(auto.id).stage_states}
+    manual_stages = {ss.stage for ss in process_repository.get_work_order_with_stage_states(manual.id).stage_states}
+    assert ProcessStage.PRODUCTION not in auto_stages and ProcessStage.HANGING in auto_stages
+    assert ProcessStage.HANGING not in manual_stages and ProcessStage.PRODUCTION in manual_stages
+
+    # Switching AUTOMATIC -> MANUAL reconciles: PRODUCTION appears, HANGING goes away.
+    manager_service.update_production_type(auto.id, WorkOrderProductionTypeUpdateRequest(production_type=ProductionType.MANUAL))
+    switched_stages = {ss.stage for ss in process_repository.get_work_order_with_stage_states(auto.id).stage_states}
+    assert ProcessStage.PRODUCTION in switched_stages and ProcessStage.HANGING not in switched_stages
+
+
 def test_manual_path_skips_hanging_stage_visibility(db_session: Session) -> None:
     work_order_service, process_service, manager_service, _, process_repository = build_services(db_session)
 
@@ -455,13 +513,14 @@ def test_automatic_hanging_start_starts_production_and_packing(db_session: Sessi
     process_service.transition_stage(automatic_order.id, ProcessStage.SURFACE_PREPARATION, StageStatus.DONE)
     process_service.transition_stage(automatic_order.id, ProcessStage.HANGING, StageStatus.IN_PROGRESS)
 
-    # The automatic line runs without a manual start, so PRODUCTION and PACKING begin the moment
-    # HANGING starts — an automatic order starts packing immediately, not merely holding a reservation.
+    # The automatic line runs without a manual production step (NA42: AUTOMATIC has no PRODUCTION
+    # stage), so PACKING begins the moment HANGING starts — the order starts packing immediately, not
+    # merely holding a reservation. The automatic-production panel still shows it (preview view).
     before_finish = process_repository.get_work_order_with_stage_states(automatic_order.id)
     assert before_finish is not None
     assert process_service.is_visible_in_stage(before_finish, ProcessStage.PRODUCTION, ProductionType.AUTOMATIC) is True
     stages_before_finish = {stage.stage: stage.status for stage in before_finish.stage_states}
-    assert stages_before_finish[ProcessStage.PRODUCTION] == StageStatus.IN_PROGRESS
+    assert ProcessStage.PRODUCTION not in stages_before_finish  # NA42: automatic has no PRODUCTION row
     assert stages_before_finish[ProcessStage.PACKING] == StageStatus.IN_PROGRESS
     # ...and the order already reports as being in packing for office/list views.
     assert process_service.get_display_status(before_finish).value == "PACKING"
@@ -481,7 +540,7 @@ def test_automatic_hanging_start_starts_production_and_packing(db_session: Sessi
 
     assert work_order is not None
     stages_after_finish = {stage.stage: stage.status for stage in work_order.stage_states}
-    assert stages_after_finish[ProcessStage.PRODUCTION] == StageStatus.IN_PROGRESS
+    assert ProcessStage.PRODUCTION not in stages_after_finish  # NA42: automatic has no PRODUCTION row
     assert stages_after_finish[ProcessStage.PACKING] == StageStatus.IN_PROGRESS
 
 
@@ -992,6 +1051,29 @@ def test_decoral_automatic_correction_returns_to_root_and_completes_S08(db_sessi
     assert process_service.get_display_status(final).value == "READY"
 
 
+def test_corrected_order_reports_cumulative_paint_across_chain_NA32(db_session: Session) -> None:
+    # NA32: a corrected automatic order must report the CUMULATIVE paint consumption of the whole
+    # correction chain, not just the last round. advance_to_packing records 1.0 kg per automatic pass,
+    # so the DECORAL parent (1.0 kg) plus its automatic correction child (1.0 kg) must roll up to 2.0 kg
+    # on the parent's read model, even though the per-round gate field is reset between rounds.
+    work_order_service, process_service, manager_service, work_order_repository, _ = build_services(db_session)
+
+    parent = work_order_service.create_work_order(
+        build_work_order_create(title="Decoral NA32 rollup", coating_type=CoatingType.DECORAL, total_quantity=10)
+    )
+    manager_service.assign_plan(parent.id, WorkOrderPlanAssignRequest(production_type=ProductionType.AUTOMATIC, queue_position=1))
+    advance_to_packing(process_service, parent.id)
+    complete_packing(process_service, parent.id, ok_quantity=8, correction_quantity=2)
+
+    child = next(wo for wo in work_order_repository.list(limit=50, offset=0) if wo.is_correction)
+    manager_service.assign_plan(child.id, WorkOrderPlanAssignRequest(production_type=ProductionType.AUTOMATIC, queue_position=2))
+    advance_to_packing(process_service, child.id)
+
+    # Parent paint (1.0) + child paint (1.0) roll up on the parent; the child reports only its own.
+    assert work_order_service.get_work_order(parent.id).consumed_paint_quantity_kg == 2.0
+    assert work_order_service.get_work_order(child.id).consumed_paint_quantity_kg == 1.0
+
+
 def test_nested_decoral_corrections_complete_to_ready_S11(db_session: Session) -> None:
     # S11: a correction-of-a-correction. Every child closes at packing and returns OK to the root's
     # single Decoral pass; the order is READY only once all flat descendants close and the root's
@@ -1288,7 +1370,7 @@ def test_complete_packing_splits_ok_and_correction_quantities(db_session: Sessio
 
     stage_states = {stage_state.stage: stage_state.status for stage_state in work_order.stage_states}
     assert stage_states[ProcessStage.SURFACE_PREPARATION] == StageStatus.DONE
-    assert stage_states[ProcessStage.HANGING] == StageStatus.NOT_STARTED
+    assert ProcessStage.HANGING not in stage_states  # NA42: MANUAL has no HANGING row
     assert stage_states[ProcessStage.PRODUCTION] == StageStatus.NOT_STARTED
     assert stage_states[ProcessStage.PACKING] == StageStatus.NOT_STARTED
 
@@ -1953,7 +2035,6 @@ def test_incomplete_quantity_never_displays_as_ready(db_session: Session) -> Non
     assert work_order is not None
 
     work_order.completed_quantity = 96
-    work_order.current_active_batch_id = None
     for batch in work_order.quantity_batches:
         batch.is_active = False
 
@@ -1963,23 +2044,6 @@ def test_incomplete_quantity_never_displays_as_ready(db_session: Session) -> Non
 
     assert refreshed is not None
     assert process_service.get_display_status(refreshed).value != "READY"
-
-
-def test_read_model_status_is_derived_even_if_stored_status_drifts(db_session: Session) -> None:
-    work_order_service, _, _, work_order_repository, _ = build_services(db_session)
-
-    created = create_ral_work_order(work_order_service, "Status drift ignored")
-    stored = work_order_repository.get_by_id(created.id)
-
-    assert stored is not None
-
-    stored.status = WorkOrderStatus.FINISHED
-    work_order_repository.commit()
-
-    refreshed = work_order_service.get_work_order(created.id)
-
-    assert refreshed.process_status.value == "TO_BE_PLANNED"
-    assert refreshed.status.value == WorkOrderStatus.ENTERED
 
 
 def test_incomplete_marker_cannot_be_forced_into_manager_or_stage_views(db_session: Session) -> None:
@@ -2014,18 +2078,17 @@ def test_incomplete_marker_cannot_be_forced_into_manager_or_stage_views(db_sessi
     assert hidden_order.id not in stage_ids
 
 
-def test_inconsistent_incomplete_row_cannot_be_planned(db_session: Session) -> None:
+def test_incomplete_order_cannot_be_planned(db_session: Session) -> None:
     work_order_service, _, manager_service, work_order_repository, _ = build_services(db_session)
 
     created = work_order_service.create_work_order(
-        build_work_order_create(title="Inconsistent incomplete planning")
+        build_work_order_create(title="Incomplete planning")
     )
     stored = work_order_repository.get_by_id(created.id)
 
     assert stored is not None
 
-    stored.status = WorkOrderStatus.INCOMPLETE
-    stored.is_incomplete_on_arrival = False
+    stored.is_incomplete_on_arrival = True
     work_order_repository.commit()
 
     with pytest.raises(InvalidManagerPlanningError) as exc_info:
@@ -2049,8 +2112,7 @@ def test_planned_row_cannot_be_marked_incomplete_by_direct_update(db_session: Se
 
     assert stored is not None
 
-    stored.status = WorkOrderStatus.INCOMPLETE
-    stored.is_incomplete_on_arrival = False
+    stored.is_incomplete_on_arrival = True
 
     with pytest.raises(IntegrityError):
         work_order_repository.commit()
@@ -2297,3 +2359,179 @@ def test_s12_decoral_automatic_multi_round_correction_chain_merges(db_session: S
     assert completed_first_correction.current_active_quantity == 0
     assert completed_second_correction.completed_quantity == completed_second_correction.total_quantity
     assert completed_second_correction.current_active_quantity == 0
+
+
+def test_completed_order_cannot_be_sent_backwards_manual_NA30(db_session: Session) -> None:
+    """NA30: a completed (READY) order must reject re-opening an earlier stage.
+
+    Without the completion invariant a forward transition on a fully-packed order succeeded and left
+    a contradictory state (an earlier stage IN_PROGRESS while PACKING was DONE).
+    """
+    work_order_service, process_service, manager_service, _, process_repository = build_services(db_session)
+    created = create_ral_work_order(work_order_service, "NA30 manual completion invariant")
+    manager_service.assign_plan(
+        created.id, WorkOrderPlanAssignRequest(production_type=ProductionType.MANUAL, queue_position=1)
+    )
+    advance_to_packing(process_service, created.id)
+    complete_packing(process_service, created.id, ok_quantity=100, correction_quantity=0)
+
+    completed = process_repository.get_work_order_with_stage_states(created.id)
+    assert process_service.get_display_status(completed).value == "READY"
+
+    # Re-opening PRODUCTION on a completed order must raise, not silently flip it back.
+    with pytest.raises(InvalidProcessStageTransitionError) as exc_info:
+        process_service.transition_stage(created.id, ProcessStage.PRODUCTION, StageStatus.IN_PROGRESS)
+    assert "already" in str(exc_info.value).lower()
+
+    # The higher-level start_stage entry point is guarded too.
+    with pytest.raises(InvalidProcessStageTransitionError):
+        process_service.start_stage(created.id, ProcessStage.PRODUCTION)
+
+    # State is untouched: PRODUCTION and PACKING both remain DONE.
+    after = process_repository.get_work_order_with_stage_states(created.id)
+    production = next(s for s in after.stage_states if s.stage == ProcessStage.PRODUCTION)
+    packing = next(s for s in after.stage_states if s.stage == ProcessStage.PACKING)
+    assert production.status == StageStatus.DONE
+    assert packing.status == StageStatus.DONE
+    assert process_service.get_display_status(after).value == "READY"
+
+
+def test_completed_order_cannot_be_sent_backwards_automatic_hanging_NA30(db_session: Session) -> None:
+    """NA30 (original report): an AUTOMATIC order, once packed, must reject re-opening HANGING."""
+    work_order_service, process_service, manager_service, _, process_repository = build_services(db_session)
+    created = create_ral_work_order(work_order_service, "NA30 automatic completion invariant")
+    manager_service.assign_plan(
+        created.id, WorkOrderPlanAssignRequest(production_type=ProductionType.AUTOMATIC, queue_position=1)
+    )
+    advance_to_packing(process_service, created.id)
+    complete_packing(process_service, created.id, ok_quantity=100, correction_quantity=0)
+
+    completed = process_repository.get_work_order_with_stage_states(created.id)
+    assert process_service.get_display_status(completed).value == "READY"
+
+    with pytest.raises(InvalidProcessStageTransitionError) as exc_info:
+        process_service.transition_stage(created.id, ProcessStage.HANGING, StageStatus.IN_PROGRESS)
+    assert "already" in str(exc_info.value).lower()
+
+    after = process_repository.get_work_order_with_stage_states(created.id)
+    hanging = next(s for s in after.stage_states if s.stage == ProcessStage.HANGING)
+    packing = next(s for s in after.stage_states if s.stage == ProcessStage.PACKING)
+    assert hanging.status == StageStatus.DONE
+    assert packing.status == StageStatus.DONE
+
+
+def test_select_correction_kind_seam_NA40(db_session: Session) -> None:
+    """NA40: the single correction seam classifies the kind by coating + packing path.
+
+    Pins the classifier so NA34's stat-only kind is added as one more branch here, not a parallel flow.
+    """
+    work_order_service, process_service, _, _, _ = build_services(db_session)
+    ral_created = work_order_service.create_work_order(
+        build_work_order_create(title="NA40 RAL kind", coating_type=CoatingType.RAL)
+    )
+    decoral_created = work_order_service.create_work_order(
+        build_work_order_create(title="NA40 DECORAL kind", coating_type=CoatingType.DECORAL)
+    )
+    # Classify against the ORM work orders (the seam runs on these in production).
+    ral = process_service.get_work_order_process(ral_created.id)
+    decoral = process_service.get_work_order_process(decoral_created.id)
+    assert ral.coating_type == CoatingType.RAL
+    assert decoral.coating_type == CoatingType.DECORAL
+
+    # Plain (non-tracked) packing path: DECORAL spins off a child "P" order; RAL replans in place.
+    assert process_service._select_correction_kind(ral, tracked_batch=False) == CorrectionKind.REPLAN_IN_PLACE
+    assert process_service._select_correction_kind(decoral, tracked_batch=False) == CorrectionKind.SPIN_OFF_CHILD
+    # Tracked-batch packing always replans in place, regardless of coating.
+    assert process_service._select_correction_kind(ral, tracked_batch=True) == CorrectionKind.REPLAN_IN_PLACE
+    assert process_service._select_correction_kind(decoral, tracked_batch=True) == CorrectionKind.REPLAN_IN_PLACE
+
+
+def test_stat_only_correction_ral_completes_as_is_NA34(db_session: Session) -> None:
+    """NA34: a RAL "fixed on the spot" correction logs a statistic and completes the order as-is.
+
+    No CORRECTION batch, no child, no return to planning: completed == total (the corrected pieces are
+    good), the order is READY, and the corrections reason report counts the stat-only correction.
+    """
+    work_order_service, process_service, manager_service, _, process_repository = build_services(db_session)
+    created = create_ral_work_order(work_order_service, "NA34 RAL stat-only")
+    manager_service.assign_plan(
+        created.id, WorkOrderPlanAssignRequest(production_type=ProductionType.MANUAL, queue_position=1)
+    )
+    advance_to_packing(process_service, created.id)
+
+    process_service.complete_packing(
+        created.id,
+        counted_quantity=100,
+        ok_quantity=90,
+        correction_quantity=10,
+        correction_profiles_quantity=10,
+        correction_accessories_quantity=0,
+        correction_reason_category="niedomalowanie",
+        stat_only_correction=True,
+    )
+
+    work_order = process_repository.get_work_order_with_stage_states(created.id)
+    assert process_service.get_display_status(work_order).value == "READY"
+    assert work_order.completed_quantity == work_order.total_quantity == 100
+    assert work_order.current_active_quantity == 0
+    # No replan and no child: not sent back to planning, no CORRECTION batch, no correction orders.
+    assert work_order.production_type is not None  # still planned (was not reset to planning)
+    assert not any(b.type == QuantityBatchType.CORRECTION for b in work_order.quantity_batches)
+    assert work_order.correction_orders == []
+
+    # The stat-only correction is recorded once and shows up in the corrections reason report.
+    stat_rows = db_session.query(StatOnlyCorrection).filter_by(work_order_id=created.id).all()
+    assert len(stat_rows) == 1
+    assert stat_rows[0].correction_quantity == 10
+    assert stat_rows[0].correction_reason_category == "niedomalowanie"
+    report = {row[0]: (row[1], row[2]) for row in manager_service.repository.list_correction_reason_report()}
+    assert report.get("niedomalowanie") == (1, 10)
+
+
+def test_stat_only_correction_requires_quantity_at_schema(db_session: Session) -> None:
+    """NA34: stat-only with zero correction quantity is rejected at the request schema."""
+    from pydantic import ValidationError
+
+    from app.process.schemas import PackingCompleteRequest
+
+    with pytest.raises(ValidationError):
+        PackingCompleteRequest(counted_quantity=10, ok_quantity=10, correction_quantity=0, stat_only_correction=True)
+
+
+def test_stat_only_correction_decoral_keeps_single_decoral_no_child_NA34(db_session: Session) -> None:
+    """NA34: a DECORAL stat-only correction logs the stat and keeps the pieces on the single Decoral
+    pass — no child "P" order, no decoral-incomplete marker."""
+    work_order_service, process_service, manager_service, _, process_repository = build_services(db_session)
+    created = work_order_service.create_work_order(
+        build_work_order_create(title="NA34 DECORAL stat-only", coating_type=CoatingType.DECORAL, total_quantity=100)
+    )
+    manager_service.assign_plan(
+        created.id, WorkOrderPlanAssignRequest(production_type=ProductionType.MANUAL, queue_position=1)
+    )
+    advance_to_packing(process_service, created.id)
+
+    process_service.complete_packing(
+        created.id,
+        counted_quantity=100,
+        ok_quantity=92,
+        correction_quantity=8,
+        correction_profiles_quantity=8,
+        correction_accessories_quantity=0,
+        correction_reason_category="za grubo",
+        stat_only_correction=True,
+    )
+
+    work_order = process_repository.get_work_order_with_stage_states(created.id)
+    # No child order spun off and no decoral-incomplete ("N") marker.
+    assert work_order.correction_orders == []
+    assert not process_service.is_decoral_incomplete(work_order)
+    # The whole counted quantity continues on the single Decoral pass: the order is now at the Decoral
+    # stage (not READY, not replanned) with all 100 pieces on one active batch (nothing spun off).
+    assert process_service.get_display_status(work_order).value == "DECORAL_PRODUCTION"
+    active_batches = [b for b in work_order.quantity_batches if b.is_active]
+    assert len(active_batches) == 1
+    assert active_batches[0].quantity == 100
+    # Stat recorded once, counted in the report.
+    assert db_session.query(StatOnlyCorrection).filter_by(work_order_id=created.id).count() == 1
+    report = {row[0]: (row[1], row[2]) for row in manager_service.repository.list_correction_reason_report()}
+    assert report.get("za grubo") == (1, 8)

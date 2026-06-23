@@ -1,3 +1,5 @@
+> ARCHIVED — frozen historical snapshot as of 2026-05-31. Living truth lives in docs/WORKFLOW.md / docs/FACTORY_DOMAIN_MODEL.md.
+
 # Pasywny przeglad UI
 
 Status: roboczy przeglad zrodel frontendu, bez zmiany zachowania aplikacji.

@@ -6,7 +6,6 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.process.enums import ProcessStage, ProductionType
 from app.shared.enums import QueueNamespace
-from app.shared.enums import WorkOrderStatus
 from app.process.models import ProcessResourceLock, WorkOrderStageState
 from app.work_orders.models import WorkOrder
 
@@ -55,11 +54,20 @@ class ProcessRepository:
                 selectinload(WorkOrder.parent_order),
                 selectinload(WorkOrder.correction_orders),
             )
-            .where(WorkOrderStageState.stage == stage)
             .where(WorkOrder.is_incomplete_on_arrival.is_(False))
-            .where(WorkOrder.status != WorkOrderStatus.INCOMPLETE)
             .order_by(WorkOrder.queue_position.asc(), WorkOrder.id.asc())
         )
+
+        if stage == ProcessStage.PRODUCTION:
+            # NA42: AUTOMATIC orders have no PRODUCTION stage row (the line paints automatically) and are
+            # anchored on HANGING instead; MANUAL orders keep PRODUCTION. Match either so the production
+            # panel still finds automatic orders. The precise visibility decision is made by
+            # ProcessService.is_visible_in_stage; .unique() below dedupes the join.
+            statement = statement.where(
+                WorkOrderStageState.stage.in_([ProcessStage.PRODUCTION, ProcessStage.HANGING])
+            )
+        else:
+            statement = statement.where(WorkOrderStageState.stage == stage)
 
         if production_type is not None:
             statement = statement.where(WorkOrder.production_type == production_type)
@@ -70,6 +78,10 @@ class ProcessRepository:
 
     def add_quantity_batch(self, batch) -> None:
         self.session.add(batch)
+        self.session.flush()
+
+    def add_stat_only_correction(self, stat_only_correction) -> None:
+        self.session.add(stat_only_correction)
         self.session.flush()
 
     def add_work_order(self, work_order: WorkOrder) -> WorkOrder:

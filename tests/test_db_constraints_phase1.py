@@ -9,7 +9,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.process.enums import CoatingType, ProcessStage, QuantityBatchType, StageStatus
-from app.shared.enums import QueueNamespace, WorkOrderStatus
+from app.shared.enums import QueueNamespace
 from app.work_orders.models import WorkOrder
 
 
@@ -19,14 +19,12 @@ def _insert_valid_work_order(db_session: Session, *, order_number: str = "WO-202
         title=order_number,
         total_quantity=10,
         completed_quantity=0,
-        current_active_batch_id=None,
         parent_order_id=None,
         is_correction=False,
         description=None,
         customer_name="Customer",
         ral_code="RAL 9005",
         paint_producer="Producer",
-        status=WorkOrderStatus.ENTERED,
         coating_type=CoatingType.RAL,
         production_type=None,
         queue_namespace=QueueNamespace.MAIN,
@@ -95,14 +93,12 @@ def test_profile_accessory_quantities_must_sum_to_total_when_known(db_session: S
         title="valid-category-quantities",
         total_quantity=10,
         completed_quantity=0,
-        current_active_batch_id=None,
         parent_order_id=None,
         is_correction=False,
         description=None,
         customer_name="Customer",
         ral_code="RAL 9005",
         paint_producer="Producer",
-        status=WorkOrderStatus.ENTERED,
         coating_type=CoatingType.RAL,
         production_type=None,
         queue_namespace=QueueNamespace.MAIN,
@@ -125,14 +121,12 @@ def test_profile_accessory_quantities_must_sum_to_total_when_known(db_session: S
         title="invalid-category-quantities",
         total_quantity=10,
         completed_quantity=0,
-        current_active_batch_id=None,
         parent_order_id=None,
         is_correction=False,
         description=None,
         customer_name="Customer",
         ral_code="RAL 9005",
         paint_producer="Producer",
-        status=WorkOrderStatus.ENTERED,
         coating_type=CoatingType.RAL,
         production_type=None,
         queue_namespace=QueueNamespace.MAIN,
@@ -159,14 +153,14 @@ def test_profile_accessory_quantities_must_sum_to_total_when_known(db_session: S
         (
             """
             INSERT INTO work_orders (
-                order_number, title, total_quantity, completed_quantity, current_active_batch_id, parent_order_id,
-                is_correction, description, customer_name, ral_code, paint_producer, status, coating_type,
+                order_number, title, total_quantity, completed_quantity, parent_order_id,
+                is_correction, description, customer_name, ral_code, paint_producer, coating_type,
                 production_type, queue_namespace, queue_position, received_date, planned_pickup_date, total_area_m2,
                 is_incomplete_on_arrival, profiles_quantity, profiles_to_count, accessories_quantity, accessories_to_count,
                 notes, created_at, updated_at
             ) VALUES (
-                :order_number, :title, :total_quantity, :completed_quantity, NULL, NULL,
-                :is_correction, NULL, 'Customer', 'RAL 9005', 'Producer', 'ENTERED', 'RAL',
+                :order_number, :title, :total_quantity, :completed_quantity, NULL,
+                :is_correction, NULL, 'Customer', 'RAL 9005', 'Producer', 'RAL',
                 :production_type, :queue_namespace, :queue_position, '2026-05-25', NULL, NULL,
                 0, :profiles_quantity, 1, :accessories_quantity, 1,
                 NULL, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
@@ -188,14 +182,14 @@ def test_profile_accessory_quantities_must_sum_to_total_when_known(db_session: S
         (
             """
             INSERT INTO work_orders (
-                order_number, title, total_quantity, completed_quantity, current_active_batch_id, parent_order_id,
-                is_correction, description, customer_name, ral_code, paint_producer, status, coating_type,
+                order_number, title, total_quantity, completed_quantity, parent_order_id,
+                is_correction, description, customer_name, ral_code, paint_producer, coating_type,
                 production_type, queue_namespace, queue_position, received_date, planned_pickup_date, total_area_m2,
                 is_incomplete_on_arrival, profiles_quantity, profiles_to_count, accessories_quantity, accessories_to_count,
                 notes, created_at, updated_at
             ) VALUES (
-                :order_number, :title, 10, 11, NULL, NULL,
-                0, NULL, 'Customer', 'RAL 9005', 'Producer', 'ENTERED', 'RAL',
+                :order_number, :title, 10, 11, NULL,
+                0, NULL, 'Customer', 'RAL 9005', 'Producer', 'RAL',
                 NULL, 'MAIN', NULL, '2026-05-25', NULL, NULL,
                 0, NULL, 1, NULL, 1,
                 NULL, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
@@ -206,14 +200,14 @@ def test_profile_accessory_quantities_must_sum_to_total_when_known(db_session: S
         (
             """
             INSERT INTO work_orders (
-                order_number, title, total_quantity, completed_quantity, current_active_batch_id, parent_order_id,
-                is_correction, description, customer_name, ral_code, paint_producer, status, coating_type,
+                order_number, title, total_quantity, completed_quantity, parent_order_id,
+                is_correction, description, customer_name, ral_code, paint_producer, coating_type,
                 production_type, queue_namespace, queue_position, received_date, planned_pickup_date, total_area_m2,
                 is_incomplete_on_arrival, profiles_quantity, profiles_to_count, accessories_quantity, accessories_to_count,
                 notes, created_at, updated_at
             ) VALUES (
-                :order_number, :title, 10, 0, NULL, NULL,
-                0, NULL, 'Customer', 'RAL 9005', 'Producer', 'ENTERED', 'RAL',
+                :order_number, :title, 10, 0, NULL,
+                0, NULL, 'Customer', 'RAL 9005', 'Producer', 'RAL',
                 NULL, 'MAIN', 0, '2026-05-25', NULL, NULL,
                 0, NULL, 1, NULL, 1,
                 NULL, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
@@ -224,14 +218,14 @@ def test_profile_accessory_quantities_must_sum_to_total_when_known(db_session: S
         (
             """
             INSERT INTO work_orders (
-                order_number, title, total_quantity, completed_quantity, current_active_batch_id, parent_order_id,
-                is_correction, description, customer_name, ral_code, paint_producer, status, coating_type,
+                order_number, title, total_quantity, completed_quantity, parent_order_id,
+                is_correction, description, customer_name, ral_code, paint_producer, coating_type,
                 production_type, queue_namespace, queue_position, received_date, planned_pickup_date, total_area_m2,
                 is_incomplete_on_arrival, profiles_quantity, profiles_to_count, accessories_quantity, accessories_to_count,
                 notes, created_at, updated_at
             ) VALUES (
-                :order_number, :title, 10, 0, NULL, NULL,
-                0, NULL, 'Customer', 'RAL 9005', 'Producer', 'ENTERED', 'RAL',
+                :order_number, :title, 10, 0, NULL,
+                0, NULL, 'Customer', 'RAL 9005', 'Producer', 'RAL',
                 'MANUAL', 'MAIN', NULL, '2026-05-25', NULL, NULL,
                 0, NULL, 1, NULL, 1,
                 NULL, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
@@ -242,14 +236,14 @@ def test_profile_accessory_quantities_must_sum_to_total_when_known(db_session: S
         (
             """
             INSERT INTO work_orders (
-                id, order_number, title, total_quantity, completed_quantity, current_active_batch_id, parent_order_id,
-                is_correction, description, customer_name, ral_code, paint_producer, status, coating_type,
+                id, order_number, title, total_quantity, completed_quantity, parent_order_id,
+                is_correction, description, customer_name, ral_code, paint_producer, coating_type,
                 production_type, queue_namespace, queue_position, received_date, planned_pickup_date, total_area_m2,
                 is_incomplete_on_arrival, profiles_quantity, profiles_to_count, accessories_quantity, accessories_to_count,
                 notes, created_at, updated_at
             ) VALUES (
-                9910, :order_number, :title, 10, 0, NULL, 9910,
-                0, NULL, 'Customer', 'RAL 9005', 'Producer', 'ENTERED', 'RAL',
+                9910, :order_number, :title, 10, 0, 9910,
+                0, NULL, 'Customer', 'RAL 9005', 'Producer', 'RAL',
                 NULL, 'MAIN', NULL, '2026-05-25', NULL, NULL,
                 0, NULL, 1, NULL, 1,
                 NULL, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
@@ -260,14 +254,14 @@ def test_profile_accessory_quantities_must_sum_to_total_when_known(db_session: S
         (
             """
             INSERT INTO work_orders (
-                order_number, title, total_quantity, completed_quantity, current_active_batch_id, parent_order_id,
-                is_correction, description, customer_name, ral_code, paint_producer, status, coating_type,
+                order_number, title, total_quantity, completed_quantity, parent_order_id,
+                is_correction, description, customer_name, ral_code, paint_producer, coating_type,
                 production_type, queue_namespace, queue_position, received_date, planned_pickup_date, total_area_m2,
                 is_incomplete_on_arrival, profiles_quantity, profiles_to_count, accessories_quantity, accessories_to_count,
                 notes, created_at, updated_at
             ) VALUES (
-                :order_number, :title, 10, 0, NULL, NULL,
-                1, NULL, 'Customer', 'RAL 9005', 'Producer', 'ENTERED', 'RAL',
+                :order_number, :title, 10, 0, NULL,
+                1, NULL, 'Customer', 'RAL 9005', 'Producer', 'RAL',
                 NULL, 'MAIN', NULL, '2026-05-25', NULL, NULL,
                 0, NULL, 1, NULL, 1,
                 NULL, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP

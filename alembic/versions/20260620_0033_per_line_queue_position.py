@@ -1,8 +1,12 @@
 """Per-line queue position uniqueness (MANUAL / AUTOMATIC numbered independently)
 
 Revision ID: 20260620_0033
-Revises: 491d1bfa0b62
+Revises: 20260623_0037
 Create Date: 2026-06-20 00:00:00
+
+Re-parented during the per-line/main merge (2026-06-23) to sit after the colleague's
+20260622_0033..20260623_0037 chain so Alembic has a single head; both branches originally
+forked from 491d1bfa0b62.
 """
 
 from alembic import op
@@ -10,7 +14,7 @@ import sqlalchemy as sa
 
 
 revision = "20260620_0033"
-down_revision = "491d1bfa0b62"
+down_revision = "20260623_0037"
 branch_labels = None
 depends_on = None
 

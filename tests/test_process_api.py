@@ -518,7 +518,9 @@ def test_automatic_correction_requires_and_records_paint_consumption(test_client
     assert paint_response.status_code == 200
     assert paint_response.json()["current_paint_stock_quantity_kg"] == 16.25
     assert paint_response.json()["paint_stock_snapshot_quantity_kg"] == 30.0
-    assert paint_response.json()["consumed_paint_quantity_kg"] == 1.25
+    # NA32: displayed consumption is now the cumulative total across correction rounds (12.5 + 1.25),
+    # read from the durable movement log, not just the last round's per-round gate value.
+    assert paint_response.json()["consumed_paint_quantity_kg"] == 13.75
     assert finish_response.status_code == 200
 
 

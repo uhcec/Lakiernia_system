@@ -1,5 +1,6 @@
 import { FormEvent, useEffect, useState } from "react";
 
+import { NumberInput } from "../components/NumberInput";
 import { fetchPaintMovements, fetchPaints, recordPaintAdjustment, recordPaintDelivery } from "../api/paintsApi";
 import type { Paint, PaintStockMovement } from "../types/paints";
 
@@ -49,6 +50,15 @@ function parseNumber(value: string): number | undefined {
     return Number.NaN;
   }
   return parsed;
+}
+
+// A paint is identified by RAL + producer + code (all required, DB-enforced). Validate them client-side
+// so an empty field gives a clear message instead of a raw 422 from the backend.
+function validatePaintIdentity(form: { ral_code: string; paint_producer: string; paint_code: string }): string | null {
+  if (!form.ral_code.trim()) return "Podaj kod RAL.";
+  if (!form.paint_producer.trim()) return "Podaj producenta farby.";
+  if (!form.paint_code.trim()) return "Podaj kod farby.";
+  return null;
 }
 
 function formatQuantity(quantity: number): string {
@@ -147,6 +157,11 @@ export function PaintInventoryPage() {
   async function handleDeliverySubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setDeliveryErrorMessage(null);
+    const identityError = validatePaintIdentity(deliveryFormState);
+    if (identityError) {
+      setDeliveryErrorMessage(identityError);
+      return;
+    }
     const quantityKg = parseNumber(deliveryFormState.quantity_kg);
     if (quantityKg === undefined || Number.isNaN(quantityKg) || quantityKg <= 0) {
       setDeliveryErrorMessage("Ilość dostawy musi być dodatnią liczbą.");
@@ -179,6 +194,11 @@ export function PaintInventoryPage() {
   async function handleAdjustmentSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setAdjustmentErrorMessage(null);
+    const identityError = validatePaintIdentity(adjustmentFormState);
+    if (identityError) {
+      setAdjustmentErrorMessage(identityError);
+      return;
+    }
     const quantityDeltaKg = parseNumber(adjustmentFormState.quantity_delta_kg);
     if (quantityDeltaKg === undefined || Number.isNaN(quantityDeltaKg) || quantityDeltaKg === 0) {
       setAdjustmentErrorMessage("Korekta musi być liczbą różną od zera.");
@@ -332,7 +352,7 @@ export function PaintInventoryPage() {
               <input value={deliveryFormState.ral_code} onChange={(event) => setDeliveryFormState((current) => ({ ...current, ral_code: event.target.value }))} placeholder="RAL" className="w-full rounded-2xl border border-line bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-accent" />
               <input value={deliveryFormState.paint_producer} onChange={(event) => setDeliveryFormState((current) => ({ ...current, paint_producer: event.target.value }))} placeholder="Producent farby" className="w-full rounded-2xl border border-line bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-accent" />
               <input value={deliveryFormState.paint_code} onChange={(event) => setDeliveryFormState((current) => ({ ...current, paint_code: event.target.value }))} placeholder="Kod farby" className="w-full rounded-2xl border border-line bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-accent" />
-              <input type="number" min="0" step="0.01" value={deliveryFormState.quantity_kg} onChange={(event) => setDeliveryFormState((current) => ({ ...current, quantity_kg: event.target.value }))} placeholder="Ilość [kg]" className="w-full rounded-2xl border border-line bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-accent" />
+              <NumberInput min="0" step="0.01" value={deliveryFormState.quantity_kg} onValueChange={(value) => setDeliveryFormState((current) => ({ ...current, quantity_kg: value }))} placeholder="Ilość [kg]" className="w-full rounded-2xl border border-line bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-accent" />
               <input type="date" value={deliveryFormState.movement_date} onChange={(event) => setDeliveryFormState((current) => ({ ...current, movement_date: event.target.value }))} className="w-full rounded-2xl border border-line bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-accent" />
               <textarea value={deliveryFormState.note} onChange={(event) => setDeliveryFormState((current) => ({ ...current, note: event.target.value }))} rows={3} placeholder="Notatka opcjonalna" className="w-full rounded-2xl border border-line bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-accent" />
               {deliveryErrorMessage ? <p className="text-sm text-rose-700">{deliveryErrorMessage}</p> : null}
@@ -352,7 +372,7 @@ export function PaintInventoryPage() {
               <input value={adjustmentFormState.ral_code} onChange={(event) => setAdjustmentFormState((current) => ({ ...current, ral_code: event.target.value }))} placeholder="RAL" className="w-full rounded-2xl border border-line bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-accent" />
               <input value={adjustmentFormState.paint_producer} onChange={(event) => setAdjustmentFormState((current) => ({ ...current, paint_producer: event.target.value }))} placeholder="Producent farby" className="w-full rounded-2xl border border-line bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-accent" />
               <input value={adjustmentFormState.paint_code} onChange={(event) => setAdjustmentFormState((current) => ({ ...current, paint_code: event.target.value }))} placeholder="Kod farby" className="w-full rounded-2xl border border-line bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-accent" />
-              <input type="number" step="0.01" value={adjustmentFormState.quantity_delta_kg} onChange={(event) => setAdjustmentFormState((current) => ({ ...current, quantity_delta_kg: event.target.value }))} placeholder="Korekta [+/- kg]" className="w-full rounded-2xl border border-line bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-accent" />
+              <NumberInput step="0.01" value={adjustmentFormState.quantity_delta_kg} onValueChange={(value) => setAdjustmentFormState((current) => ({ ...current, quantity_delta_kg: value }))} placeholder="Korekta [+/- kg]" className="w-full rounded-2xl border border-line bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-accent" />
               <input type="date" value={adjustmentFormState.movement_date} onChange={(event) => setAdjustmentFormState((current) => ({ ...current, movement_date: event.target.value }))} className="w-full rounded-2xl border border-line bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-accent" />
               <textarea value={adjustmentFormState.note} onChange={(event) => setAdjustmentFormState((current) => ({ ...current, note: event.target.value }))} rows={3} placeholder="Powód korekty" className="w-full rounded-2xl border border-line bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-accent" />
               {adjustmentErrorMessage ? <p className="text-sm text-rose-700">{adjustmentErrorMessage}</p> : null}

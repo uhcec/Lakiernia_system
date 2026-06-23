@@ -1,6 +1,6 @@
 import { createApiError } from "./apiError";
 import { getCurrentStationHeaders } from "./stationContext";
-import type { CreateWorkOrderRequest, UpdateWorkOrderRequest, WorkOrder, WorkOrderAttachment, WorkOrdersListResponse } from "../types/workOrders";
+import type { CreateWorkOrderRequest, UpdateWorkOrderRequest, WorkOrder, WorkOrderAttachment, WorkOrderAttachmentCategory, WorkOrdersListResponse } from "../types/workOrders";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL?.trim();
 
@@ -165,10 +165,13 @@ export async function fetchWorkOrderAttachments(workOrderId: number): Promise<Wo
 
 export async function uploadWorkOrderAttachment(
   workOrderId: number,
-  payload: { file: File; attachmentType?: string; description?: string },
+  payload: { file: File; category?: WorkOrderAttachmentCategory; attachmentType?: string; description?: string },
 ): Promise<WorkOrderAttachment> {
   const formData = new FormData();
   formData.append("file", payload.file);
+  if (payload.category) {
+    formData.append("category", payload.category);
+  }
   if (payload.attachmentType?.trim()) {
     formData.append("attachment_type", payload.attachmentType.trim());
   }
@@ -208,6 +211,38 @@ export async function deleteWorkOrderAttachment(workOrderId: number, attachmentI
 
 export function getWorkOrderAttachmentDownloadUrl(workOrderId: number, attachmentId: number): string {
   return createApiUrl(`/work-orders/${workOrderId}/attachments/${attachmentId}/download`);
+}
+
+// Attachment download is auth-protected, but a plain <a href> browser navigation does not carry the
+// Authorization header (it bypasses the fetch interceptor) → 401 "Nie jesteś zalogowany". Fetch the
+// file as a blob (this fetch goes through the token-injecting window.fetch) and open it in a new tab so
+// PDFs/images are viewable. The tab is opened synchronously inside the click gesture to avoid popup
+// blockers, then pointed at the blob once it arrives.
+export async function openWorkOrderAttachment(workOrderId: number, attachmentId: number): Promise<void> {
+  const newTab = window.open("about:blank", "_blank");
+  try {
+    const response = await fetch(getWorkOrderAttachmentDownloadUrl(workOrderId, attachmentId), {
+      headers: { Accept: "*/*" },
+    });
+    if (!response.ok) {
+      newTab?.close();
+      throw await createApiError(response, "Nie udało się otworzyć załącznika");
+    }
+    const blobUrl = URL.createObjectURL(await response.blob());
+    if (newTab) {
+      newTab.location.href = blobUrl;
+    } else {
+      // Popup blocked — fall back to a direct download.
+      const anchor = document.createElement("a");
+      anchor.href = blobUrl;
+      anchor.download = "";
+      anchor.click();
+    }
+    setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
+  } catch (error) {
+    newTab?.close();
+    throw error;
+  }
 }
 
 export function getQualityControlDocumentUrl(workOrderId: number): string {

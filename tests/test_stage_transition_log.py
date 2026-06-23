@@ -134,9 +134,10 @@ def test_stage_transitions_are_logged_with_timestamp_station_and_user(admin_clie
     assert packing_done.counted_quantity == 100
 
 
-def test_automatic_hanging_finish_logs_implicit_production_and_packing_start(admin_client_and_sessions) -> None:
-    # Automatic production has no manual PRODUCTION/PACKING start: finishing HANGING implicitly moves
-    # both into progress. Those implicit transitions are logged too, so automatic cycle time is visible.
+def test_automatic_hanging_start_logs_implicit_packing_start(admin_client_and_sessions) -> None:
+    # NA42: AUTOMATIC has no PRODUCTION stage. Starting HANGING implicitly moves PACKING into progress
+    # (the line begins packing in parallel); that implicit transition is logged so automatic cycle time
+    # is visible. There is no PRODUCTION transition to log.
     client, session_factory = admin_client_and_sessions
     created = client.post("/work-orders", json=_create_payload("Automatic implicit start")).json()
 
@@ -163,7 +164,7 @@ def test_automatic_hanging_finish_logs_implicit_production_and_packing_start(adm
             ).scalars().all()
         }
 
-    assert ProcessStage.PRODUCTION in in_progress
+    assert ProcessStage.PRODUCTION not in in_progress  # NA42: automatic has no PRODUCTION stage
     assert ProcessStage.PACKING in in_progress
 
 

@@ -1,3 +1,5 @@
+> ARCHIVED — frozen historical snapshot as of 2026-06-17. Living truth lives in docs/WORKFLOW.md / docs/FACTORY_DOMAIN_MODEL.md.
+
 # Code Conformance Audit (NA25)
 
 Status: **DONE — 2026-06-17.** Full read-only pass auditing the **code** against the reconciled

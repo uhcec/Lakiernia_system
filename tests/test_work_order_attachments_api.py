@@ -61,10 +61,13 @@ def upload_pdf(
     filename: str = "specyfikacja.pdf",
     content: bytes = b"%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF",
     content_type: str = "application/pdf",
+    category: str | None = None,
     attachment_type: str | None = None,
     description: str | None = None,
 ):
     data: dict[str, str] = {}
+    if category is not None:
+        data["category"] = category
     if attachment_type is not None:
         data["attachment_type"] = attachment_type
     if description is not None:
@@ -110,7 +113,7 @@ def test_reject_non_pdf_attachment(test_client: TestClient) -> None:
     )
 
     assert response.status_code == 415
-    assert response.json()["detail"] == "Dozwolone są tylko pliki PDF."
+    assert response.json()["detail"] == "Dozwolone są tylko pliki PDF lub obrazy (PNG/JPG)."
 
 
 def test_reject_fake_pdf_with_application_pdf_content_type(test_client: TestClient) -> None:
@@ -149,6 +152,112 @@ def test_accept_pdf_with_real_header(test_client: TestClient) -> None:
     assert response.json()["original_filename"] == "real-header.pdf"
     assert response.json()["attachment_type"] == "SPEC"
     assert response.json()["description"] == "Zweryfikowany PDF"
+
+
+PNG_BYTES = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR-fake-png-body"
+JPEG_BYTES = b"\xff\xd8\xff\xe0\x00\x10JFIF-fake-jpeg-body\xff\xd9"
+
+
+def test_default_category_is_document(test_client: TestClient) -> None:
+    created = create_work_order(test_client)
+
+    response = upload_pdf(test_client, created["id"])
+
+    assert response.status_code == 201
+    assert response.json()["category"] == "DOCUMENT"
+
+
+def test_upload_png_technical_drawing(test_client: TestClient) -> None:
+    created = create_work_order(test_client)
+
+    response = upload_pdf(
+        test_client,
+        created["id"],
+        filename="rysunek.png",
+        content=PNG_BYTES,
+        content_type="image/png",
+        category="TECHNICAL_DRAWING",
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["content_type"] == "image/png"
+    assert body["category"] == "TECHNICAL_DRAWING"
+    assert body["storage_path"].endswith(".png")
+
+
+def test_upload_jpeg_technical_drawing(test_client: TestClient) -> None:
+    created = create_work_order(test_client)
+
+    response = upload_pdf(
+        test_client,
+        created["id"],
+        filename="rysunek.jpg",
+        content=JPEG_BYTES,
+        content_type="image/jpeg",
+        category="technical_drawing",  # case-insensitive
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["content_type"] == "image/jpeg"
+    assert body["category"] == "TECHNICAL_DRAWING"
+    assert body["storage_path"].endswith(".jpg")
+
+
+def test_reject_image_with_wrong_signature(test_client: TestClient) -> None:
+    created = create_work_order(test_client)
+
+    response = upload_pdf(
+        test_client,
+        created["id"],
+        filename="falszywy.png",
+        content=b"not-a-real-png",
+        content_type="image/png",
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Przesłany plik nie jest prawidłowym obrazem (PNG/JPG)."
+
+
+def test_reject_invalid_category(test_client: TestClient) -> None:
+    created = create_work_order(test_client)
+
+    response = upload_pdf(test_client, created["id"], category="NIE_ISTNIEJE")
+
+    assert response.status_code == 422
+    assert "kategoria" in response.json()["detail"].lower()
+
+
+def test_technical_drawing_is_surfaced_on_station_card(test_client: TestClient) -> None:
+    created = create_work_order(test_client)
+    drawing = upload_pdf(
+        test_client,
+        created["id"],
+        filename="rysunek.png",
+        content=PNG_BYTES,
+        content_type="image/png",
+        category="TECHNICAL_DRAWING",
+    )
+    # A plain document must NOT appear among technical drawings.
+    upload_pdf(test_client, created["id"], filename="dok.pdf")
+    assert drawing.status_code == 201
+
+    # An order is only visible at a station once planned.
+    plan = test_client.post(
+        f"/manager/work-orders/{created['id']}/plan",
+        json={"production_type": "MANUAL", "queue_position": 1},
+    )
+    assert plan.status_code == 200
+
+    response = test_client.get("/process/stages/SURFACE_PREPARATION/work-orders")
+    assert response.status_code == 200
+    card = next(item for item in response.json() if item["id"] == created["id"])
+
+    drawings = card["technical_drawings"]
+    assert [d["original_filename"] for d in drawings] == ["rysunek.png"]
+    assert drawings[0]["id"] == drawing.json()["id"]
+    assert drawings[0]["content_type"] == "image/png"
 
 
 def test_upload_attachment_records_station_audit_event(db_session: Session) -> None:
