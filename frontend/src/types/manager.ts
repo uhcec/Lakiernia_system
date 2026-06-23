@@ -2,7 +2,8 @@ import type { ProductionTypeValue } from "./workOrders";
 
 export interface AssignWorkOrderPlanRequest {
   production_type: ProductionTypeValue;
-  queue_position: number;
+  // Omitted → the order is appended to the end of the selected line's queue.
+  queue_position?: number;
 }
 
 export interface UpdateQueuePositionRequest {
@@ -19,6 +20,7 @@ export interface ReorderQueueItemRequest {
 }
 
 export interface ReorderQueueRequest {
+  production_type: ProductionTypeValue;
   queue_revision: string;
   items: ReorderQueueItemRequest[];
 }

@@ -1,5 +1,5 @@
 import type { ReorderQueueItemRequest, ReorderQueueRequest } from "../types/manager";
-import type { WorkOrder } from "../types/workOrders";
+import type { ProductionTypeValue, WorkOrder } from "../types/workOrders";
 
 interface QueueOrderedItem {
   id: number;
@@ -65,8 +65,10 @@ export function buildQueueReorderPayload(
 export function buildQueueReorderRequest(
   activeItems: QueueOrderedItem[],
   queueRevision: string,
+  productionType: ProductionTypeValue,
 ): ReorderQueueRequest {
   return {
+    production_type: productionType,
     queue_revision: queueRevision,
     items: buildQueueReorderPayload(activeItems),
   };

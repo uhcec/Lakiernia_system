@@ -716,24 +716,36 @@ class ManagerService:
                 raise InvalidManagerPlanningError(f"Work order {work_order_id} is already planned.")
             if self._has_incomplete_marker(work_order):
                 raise InvalidManagerPlanningError("Cannot plan incomplete order. Mark as complete first.")
-            self._ensure_queue_position_available_or_releasable(payload.queue_position)
+
+            production_type = payload.production_type
+            # No explicit position → append to the end of this line's active queue. An explicit
+            # position is still honoured (seeds/tests), validated within the line.
+            if payload.queue_position is not None:
+                target_position = payload.queue_position
+                self._ensure_queue_position_available_or_releasable(target_position, production_type)
+            else:
+                target_position = self._next_active_queue_position_for_line(production_type)
 
             now = datetime.now(UTC)
             completed_work_orders_to_trail = self._get_completed_work_orders_requiring_trailing(
-                reserved_queue_positions=[payload.queue_position],
+                production_type=production_type,
+                reserved_queue_positions=[target_position],
             )
             self._temporarily_move_queue_rows_out_of_the_way(
                 completed_work_orders_to_trail,
-                reserved_queue_positions=[payload.queue_position],
+                production_type=production_type,
+                reserved_queue_positions=[target_position],
                 now=now,
             )
 
-            work_order.production_type = payload.production_type
-            work_order.queue_position = payload.queue_position
+            work_order.production_type = production_type
+            work_order.queue_position = target_position
             work_order.updated_at = now
             self.process_service.prepare_correction_work_order_for_planning(work_order)
             self.repository.session.flush()
-            self._trail_completed_work_orders(completed_work_orders_to_trail, now=now)
+            self._trail_completed_work_orders(
+                completed_work_orders_to_trail, production_type=production_type, now=now
+            )
             self._record_audit_event(
                 event_type="manager.plan_assigned",
                 station_context=station_context,
@@ -742,8 +754,8 @@ class ManagerService:
                 target_id=work_order.id,
                 summary=f"Assigned plan for work order {work_order.order_number}.",
                 details={
-                    "production_type": payload.production_type.value,
-                    "queue_position": payload.queue_position,
+                    "production_type": production_type.value,
+                    "queue_position": target_position,
                 },
             )
 
@@ -752,7 +764,7 @@ class ManagerService:
             except IntegrityError as exc:
                 self.repository.rollback()
                 raise InvalidManagerPlanningError(
-                    f"Queue position {payload.queue_position} is already taken."
+                    f"Queue position {target_position} is already taken."
                 ) from exc
             except Exception:
                 self.repository.rollback()
@@ -773,18 +785,22 @@ class ManagerService:
                 raise InvalidManagerPlanningError(f"Work order {work_order_id} must be planned before updating queue position.")
             if self.process_service.get_display_status(work_order) == ProcessDisplayStatus.READY:
                 raise InvalidManagerPlanningError("Completed work orders cannot be moved in the active queue.")
+            production_type = work_order.production_type
             self._ensure_queue_position_available_or_releasable(
                 payload.queue_position,
+                production_type,
                 exclude_work_order_id=work_order_id,
             )
 
             now = datetime.now(UTC)
             completed_work_orders_to_trail = self._get_completed_work_orders_requiring_trailing(
+                production_type=production_type,
                 reserved_queue_positions=[payload.queue_position],
                 exclude_work_order_id=work_order_id,
             )
             self._temporarily_move_queue_rows_out_of_the_way(
                 completed_work_orders_to_trail,
+                production_type=production_type,
                 reserved_queue_positions=[payload.queue_position],
                 now=now,
             )
@@ -793,7 +809,9 @@ class ManagerService:
             work_order.queue_position = payload.queue_position
             work_order.updated_at = now
             self.repository.session.flush()
-            self._trail_completed_work_orders(completed_work_orders_to_trail, now=now)
+            self._trail_completed_work_orders(
+                completed_work_orders_to_trail, production_type=production_type, now=now
+            )
             self._record_audit_event(
                 event_type="manager.queue_position_updated",
                 station_context=station_context,
@@ -836,8 +854,14 @@ class ManagerService:
             self._ensure_production_not_started(work_order)
 
             previous_production_type = work_order.production_type
+            previous_queue_position = work_order.queue_position
+            # Compute the append slot on the target line BEFORE mutating this order, so the
+            # position query doesn't autoflush it into the new line and collide on the
+            # per-line (production_type, queue_position) unique index.
+            target_position = self._next_active_queue_position_for_line(payload.production_type)
             now = datetime.now(UTC)
             work_order.production_type = payload.production_type
+            work_order.queue_position = target_position
             work_order.updated_at = now
             self.process_service.prepare_correction_work_order_for_planning(work_order)
             self._record_audit_event(
@@ -850,6 +874,8 @@ class ManagerService:
                 details={
                     "previous_production_type": previous_production_type.value if previous_production_type else None,
                     "production_type": payload.production_type.value,
+                    "previous_queue_position": previous_queue_position,
+                    "queue_position": target_position,
                 },
             )
 
@@ -866,8 +892,10 @@ class ManagerService:
         if not items:
             return self.list_planned_work_orders()
 
+        production_type = payload.production_type
         with _QUEUE_MUTATION_LOCK:
-            current_revision = self.repository.get_planned_queue_revision()
+            # Each production line is reordered independently, so staleness is checked per line.
+            current_revision = self.repository.get_planned_queue_revision(production_type)
             if current_revision is not None and payload.queue_revision != current_revision:
                 raise InvalidManagerPlanningError("Queue reorder payload is stale. Refresh the manager queue and try again.")
 
@@ -885,7 +913,17 @@ class ManagerService:
                 missing_id = missing_ids[0]
                 raise ResourceNotFoundError(f"Work order {missing_id} not found.")
 
-            planned_work_orders = list(self.repository.list_planned_work_orders())
+            off_line_work_orders = [
+                work_order
+                for work_order in existing_work_orders.values()
+                if work_order.production_type != production_type
+            ]
+            if off_line_work_orders:
+                raise InvalidManagerPlanningError(
+                    "Queue reorder payload must only contain work orders from the reordered production line."
+                )
+
+            planned_work_orders = self._planned_work_orders_for_line(production_type)
             omitted_work_orders = [work_order for work_order in planned_work_orders if work_order.id not in existing_work_orders]
             omitted_active_work_orders = [
                 work_order
@@ -947,6 +985,7 @@ class ManagerService:
                 target_id=None,
                 summary="Reordered manager queue.",
                 details={
+                    "production_type": production_type.value,
                     "queue_revision": payload.queue_revision.isoformat(),
                     "items": [
                         {
@@ -991,14 +1030,34 @@ class ManagerService:
             raise ResourceNotFoundError(f"Work order {work_order_id} not found.")
         return work_order
 
+    def _planned_work_orders_for_line(self, production_type: ProductionType) -> list[WorkOrder]:
+        """Planned work orders on a single production line (MANUAL / AUTOMATIC)."""
+        return [
+            work_order
+            for work_order in self.repository.list_planned_work_orders()
+            if work_order.production_type == production_type
+        ]
+
+    def _next_active_queue_position_for_line(self, production_type: ProductionType) -> int:
+        """Position one past the last *active* order on a line — i.e. append before the trailing
+        completed block so newly planned orders land at the end of the live queue."""
+        active_positions = [
+            work_order.queue_position or 0
+            for work_order in self._planned_work_orders_for_line(production_type)
+            if self.process_service.get_display_status(work_order) != ProcessDisplayStatus.READY
+        ]
+        return max(active_positions, default=0) + 1
+
     def _ensure_queue_position_available_or_releasable(
         self,
         queue_position: int,
+        production_type: ProductionType,
         *,
         exclude_work_order_id: int | None = None,
     ) -> None:
         existing_work_order = self.repository.get_planned_by_queue_position(
             queue_position,
+            production_type,
             exclude_work_order_id=exclude_work_order_id,
         )
         if existing_work_order is not None and self.process_service.get_display_status(existing_work_order) != ProcessDisplayStatus.READY:
@@ -1007,10 +1066,11 @@ class ManagerService:
     def _get_completed_work_orders_requiring_trailing(
         self,
         *,
+        production_type: ProductionType,
         reserved_queue_positions: list[int],
         exclude_work_order_id: int | None = None,
     ) -> list[WorkOrder]:
-        planned_work_orders = list(self.repository.list_planned_work_orders())
+        planned_work_orders = self._planned_work_orders_for_line(production_type)
         completed_work_orders = [
             work_order
             for work_order in planned_work_orders
@@ -1040,13 +1100,14 @@ class ManagerService:
         self,
         work_orders: list[WorkOrder],
         *,
+        production_type: ProductionType,
         reserved_queue_positions: list[int],
         now: datetime,
     ) -> None:
         if not work_orders:
             return
 
-        planned_work_orders = list(self.repository.list_planned_work_orders())
+        planned_work_orders = self._planned_work_orders_for_line(production_type)
         temporary_queue_position = max(
             [work_order.queue_position or 0 for work_order in planned_work_orders] + reserved_queue_positions,
             default=0,
@@ -1062,12 +1123,13 @@ class ManagerService:
         self,
         work_orders: list[WorkOrder],
         *,
+        production_type: ProductionType,
         now: datetime,
     ) -> None:
         if not work_orders:
             return
 
-        planned_work_orders = list(self.repository.list_planned_work_orders())
+        planned_work_orders = self._planned_work_orders_for_line(production_type)
         active_queue_positions = [
             work_order.queue_position or 0
             for work_order in planned_work_orders

@@ -41,7 +41,11 @@ They change slowly; semantics live in `docs/WORKFLOW.md`.
   `enums.py`: `ProcessStage`, `StageStatus`, `CoatingType`, `ProductionType`, `QuantityBatchType`,
   `ProcessDisplayStatus`.
 - `manager/` — planning queue (`assign_plan`, `update_queue_position`, `update_production_type`,
-  `reorder_queue` with stale-revision protection), correction-reason report, throughput stats.
+  `reorder_queue` with stale-revision protection), correction-reason report, throughput stats. The
+  queue is **per production line**: `queue_position` is unique within `production_type` (DB partial
+  unique index `(production_type, queue_position)`), so MANUAL and AUTOMATIC are numbered independently.
+  `assign_plan` appends to the end of the chosen line (server-computed position); `reorder_queue` carries
+  a `production_type` and reorders only that line; the manager UI edits one line at a time.
 - `paints/` — paint inventory (kg), intake stock snapshots, automatic-production consumption.
 - `clients/` — client registry + per-client order history.
 - `employees/` — station **presence roster** (`Employee`, `StationPresence`): factory workers (not login

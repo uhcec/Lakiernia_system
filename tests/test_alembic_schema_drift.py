@@ -34,7 +34,7 @@ def test_alembic_check_passes_after_upgrade_head(tmp_path: Path) -> None:
     assert "correction_reason_category" in columns
     assert "correction_reason_note" in columns
     assert "ix_work_orders_queue_namespace" in work_order_indexes
-    assert "uq_work_orders_queue_position" in work_order_indexes
+    assert "uq_work_orders_line_queue_position" in work_order_indexes
     assert "uq_work_order_quantity_batches_one_active_per_work_order" in quantity_batch_indexes
     assert "ix_audit_events_event_type" in audit_event_indexes
     assert "ix_audit_events_work_order_id" in audit_event_indexes

@@ -109,16 +109,25 @@ def create_packing_correction(
     return correction_orders[0]
 
 
-def get_queue_revision(test_client: TestClient) -> str:
+def get_queue_revision(test_client: TestClient, production_type: str | None = None) -> str:
     planned = test_client.get("/manager/work-orders")
     assert planned.status_code == 200
-    return max(item["updated_at"] for item in planned.json())
+    items = planned.json()
+    if production_type is not None:
+        items = [item for item in items if (item.get("production_type") or {}).get("value") == production_type]
+    return max(item["updated_at"] for item in items)
 
 
-def post_queue_reorder(test_client: TestClient, items: list[dict], queue_revision: str):
+def post_queue_reorder(
+    test_client: TestClient,
+    items: list[dict],
+    queue_revision: str,
+    production_type: str = "MANUAL",
+):
     return test_client.post(
         "/manager/queue/reorder",
         json={
+            "production_type": production_type,
             "queue_revision": queue_revision,
             "items": items,
         },
@@ -844,19 +853,28 @@ def test_cannot_assign_plan_twice(test_client: TestClient) -> None:
 def test_cannot_plan_order_into_occupied_queue_position(test_client: TestClient) -> None:
     first = create_work_order(test_client, "Queue occupied 1")
     second = create_work_order(test_client, "Queue occupied 2")
+    other_line = create_work_order(test_client, "Queue occupied other line")
 
     first_response = test_client.post(
         f"/manager/work-orders/{first['id']}/plan",
         json={"production_type": "MANUAL", "queue_position": 4},
     )
+    # Same line + same position is rejected.
     second_response = test_client.post(
         f"/manager/work-orders/{second['id']}/plan",
+        json={"production_type": "MANUAL", "queue_position": 4},
+    )
+    # The SAME position on the OTHER line is allowed — each line is numbered independently.
+    other_line_response = test_client.post(
+        f"/manager/work-orders/{other_line['id']}/plan",
         json={"production_type": "AUTOMATIC", "queue_position": 4},
     )
 
     assert first_response.status_code == 200
     assert second_response.status_code == 409
     assert second_response.json()["detail"] == "Queue position 4 is already taken."
+    assert other_line_response.status_code == 200
+    assert other_line_response.json()["queue_position"] == 4
 
 
 def test_assign_plan_reuses_completed_queue_position_and_trails_completed_order(test_client: TestClient) -> None:
@@ -876,7 +894,7 @@ def test_assign_plan_reuses_completed_queue_position_and_trails_completed_order(
 
     response = test_client.post(
         f"/manager/work-orders/{incoming['id']}/plan",
-        json={"production_type": "AUTOMATIC", "queue_position": 1},
+        json={"production_type": "MANUAL", "queue_position": 1},
     )
     planned_response = test_client.get("/manager/work-orders")
 
@@ -1007,7 +1025,7 @@ def test_bulk_reorder_updates_queue_positions(test_client: TestClient) -> None:
     )
     test_client.post(
         f"/manager/work-orders/{third['id']}/plan",
-        json={"production_type": "AUTOMATIC", "queue_position": 3},
+        json={"production_type": "MANUAL", "queue_position": 3},
     )
 
     response = post_queue_reorder(
@@ -1325,3 +1343,100 @@ def test_two_manager_overwrite_is_prevented_by_queue_revision(test_client: TestC
         (first["id"], 2),
         (second["id"], 3),
     ]
+
+
+# --- Per-line queues (MANUAL / AUTOMATIC numbered independently) -------------------------------
+
+
+def _planned_positions_by_id(test_client: TestClient) -> dict[int, int | None]:
+    return {item["id"]: item["queue_position"] for item in test_client.get("/manager/work-orders").json()}
+
+
+def test_plan_without_position_appends_to_end_of_selected_line(test_client: TestClient) -> None:
+    automatic_first = create_work_order(test_client, "Automatic append 1")
+    automatic_second = create_work_order(test_client, "Automatic append 2")
+    manual_first = create_work_order(test_client, "Manual append 1")
+
+    response_a1 = test_client.post(
+        f"/manager/work-orders/{automatic_first['id']}/plan", json={"production_type": "AUTOMATIC"}
+    )
+    response_a2 = test_client.post(
+        f"/manager/work-orders/{automatic_second['id']}/plan", json={"production_type": "AUTOMATIC"}
+    )
+    response_m1 = test_client.post(
+        f"/manager/work-orders/{manual_first['id']}/plan", json={"production_type": "MANUAL"}
+    )
+
+    assert response_a1.status_code == 200 and response_a1.json()["queue_position"] == 1
+    assert response_a2.status_code == 200 and response_a2.json()["queue_position"] == 2
+    # The first MANUAL order is position 1 even though AUTOMATIC already holds positions 1 and 2 —
+    # the two lines are numbered independently.
+    assert response_m1.status_code == 200 and response_m1.json()["queue_position"] == 1
+
+
+def test_reorder_one_line_leaves_the_other_line_untouched(test_client: TestClient) -> None:
+    automatic_first = create_work_order(test_client, "Auto isolate 1")
+    automatic_second = create_work_order(test_client, "Auto isolate 2")
+    manual_first = create_work_order(test_client, "Manual isolate 1")
+    manual_second = create_work_order(test_client, "Manual isolate 2")
+    for work_order, line in [
+        (automatic_first, "AUTOMATIC"),
+        (automatic_second, "AUTOMATIC"),
+        (manual_first, "MANUAL"),
+        (manual_second, "MANUAL"),
+    ]:
+        test_client.post(f"/manager/work-orders/{work_order['id']}/plan", json={"production_type": line})
+
+    response = post_queue_reorder(
+        test_client,
+        [
+            {"work_order_id": manual_second["id"], "queue_position": 1},
+            {"work_order_id": manual_first["id"], "queue_position": 2},
+        ],
+        get_queue_revision(test_client, production_type="MANUAL"),
+        production_type="MANUAL",
+    )
+
+    assert response.status_code == 200
+    positions = _planned_positions_by_id(test_client)
+    assert positions[manual_second["id"]] == 1
+    assert positions[manual_first["id"]] == 2
+    # The AUTOMATIC line keeps its original order.
+    assert positions[automatic_first["id"]] == 1
+    assert positions[automatic_second["id"]] == 2
+
+
+def test_change_production_type_reslots_to_end_of_target_line(test_client: TestClient) -> None:
+    automatic_order = create_work_order(test_client, "Move to manual")
+    manual_order = create_work_order(test_client, "Existing manual")
+    test_client.post(f"/manager/work-orders/{automatic_order['id']}/plan", json={"production_type": "AUTOMATIC"})
+    test_client.post(f"/manager/work-orders/{manual_order['id']}/plan", json={"production_type": "MANUAL"})
+    # Both orders sit at position 1 on their own line.
+
+    response = test_client.patch(
+        f"/manager/work-orders/{automatic_order['id']}/production-type",
+        json={"production_type": "MANUAL"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["production_type"]["value"] == "MANUAL"
+    # The moved order is appended to the end of the MANUAL line (position 2) — no collision with
+    # the order already at MANUAL position 1.
+    assert response.json()["queue_position"] == 2
+
+
+def test_reorder_rejects_work_order_from_another_line(test_client: TestClient) -> None:
+    automatic_order = create_work_order(test_client, "Auto reject")
+    manual_order = create_work_order(test_client, "Manual reject")
+    test_client.post(f"/manager/work-orders/{automatic_order['id']}/plan", json={"production_type": "AUTOMATIC"})
+    test_client.post(f"/manager/work-orders/{manual_order['id']}/plan", json={"production_type": "MANUAL"})
+
+    response = post_queue_reorder(
+        test_client,
+        [{"work_order_id": automatic_order["id"], "queue_position": 1}],
+        get_queue_revision(test_client, production_type="MANUAL"),
+        production_type="MANUAL",
+    )
+
+    assert response.status_code == 409
+    assert "production line" in response.json()["detail"]

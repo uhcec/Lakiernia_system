@@ -7,7 +7,9 @@ from app.process.enums import CoatingType, ProcessStage, ProductionType
 
 class WorkOrderPlanAssignRequest(BaseModel):
     production_type: ProductionType
-    queue_position: int = Field(ge=1)
+    # Optional: when omitted the order is appended to the end of its production line's queue.
+    # A position may still be supplied (e.g. by seeds/tests) to place it explicitly.
+    queue_position: int | None = Field(default=None, ge=1)
 
     model_config = ConfigDict(extra="forbid")
 
@@ -32,6 +34,9 @@ class WorkOrderQueueReorderRequest(BaseModel):
 
 
 class WorkOrderQueueReorderBatchRequest(BaseModel):
+    # The production line whose queue is being reordered. Each line (MANUAL / AUTOMATIC) is
+    # reordered independently, so a reorder only touches orders on this line.
+    production_type: ProductionType
     queue_revision: datetime
     items: list[WorkOrderQueueReorderRequest]
 

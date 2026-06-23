@@ -3,7 +3,7 @@ from collections.abc import Sequence
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
-from app.process.enums import QuantityBatchType
+from app.process.enums import ProductionType, QuantityBatchType
 from app.process.models import WorkOrderQuantityBatch
 from app.shared.enums import WorkOrderStatus
 from app.work_orders.models import WorkOrder
@@ -45,11 +45,12 @@ class ManagerRepository:
     def get_planned_by_queue_position(
         self,
         queue_position: int,
+        production_type: ProductionType,
         *,
         exclude_work_order_id: int | None = None,
     ) -> WorkOrder | None:
         statement = select(WorkOrder).where(
-            WorkOrder.production_type.is_not(None),
+            WorkOrder.production_type == production_type,
             WorkOrder.queue_position == queue_position,
             WorkOrder.is_incomplete_on_arrival.is_(False),
             WorkOrder.status != WorkOrderStatus.INCOMPLETE,
@@ -57,6 +58,14 @@ class ManagerRepository:
         if exclude_work_order_id is not None:
             statement = statement.where(WorkOrder.id != exclude_work_order_id)
         return self.session.scalar(statement)
+
+    def get_max_queue_position_for_line(self, production_type: ProductionType) -> int:
+        """Highest queue position currently used on a production line (0 if the line is empty)."""
+        statement = select(func.max(WorkOrder.queue_position)).where(
+            WorkOrder.production_type == production_type,
+            WorkOrder.queue_position.is_not(None),
+        )
+        return int(self.session.scalar(statement) or 0)
 
     def list_unplanned_work_orders(self) -> Sequence[WorkOrder]:
         statement = (
@@ -139,13 +148,15 @@ class ManagerRepository:
             key=lambda row: (-row[2], row[0] is None, row[0] or ""),
         )
 
-    def get_planned_queue_revision(self):
+    def get_planned_queue_revision(self, production_type: ProductionType | None = None):
         statement = select(func.max(WorkOrder.updated_at)).where(
             WorkOrder.production_type.is_not(None),
             WorkOrder.queue_position.is_not(None),
             WorkOrder.is_incomplete_on_arrival.is_(False),
             WorkOrder.status != WorkOrderStatus.INCOMPLETE,
         )
+        if production_type is not None:
+            statement = statement.where(WorkOrder.production_type == production_type)
         return self.session.scalar(statement)
 
     def commit(self) -> None:

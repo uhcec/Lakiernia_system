@@ -174,6 +174,18 @@ function buildWorkOrder(id: number, orderNumber: string, queuePosition: number, 
   };
 }
 
+// Opens the manager plan editor overlay and optionally selects a production line
+// (the line toggle lives in the overlay header). Returns a `within` scope bound to
+// the dialog so queries don't collide with the read-only boards on the entry screen.
+async function openManagerPlanEditor(line?: "Automat" | "Ręczna") {
+  fireEvent.click(await screen.findByRole("button", { name: "Edytuj plan" }));
+  const dialog = screen.getByRole("dialog");
+  if (line) {
+    fireEvent.click(within(dialog).getByRole("button", { name: `Plan ${line.toLowerCase()}` }));
+  }
+  return within(dialog);
+}
+
 function buildStageWorkOrder(
   overrides: Partial<StageWorkOrder> & Pick<StageWorkOrder, "id" | "order_number" | "stage_status">,
 ): StageWorkOrder {
@@ -590,16 +602,18 @@ describe("frontend state consistency", () => {
       ]);
     reorderWorkOrderQueueMock.mockRejectedValue(new ApiError(409, "Stale queue"));
 
-    const { container } = render(<ManagerPanelPage />);
+    render(<ManagerPanelPage />);
 
-    await screen.findAllByText("WO-1");
+    await openManagerPlanEditor("Ręczna");
+    const dialogEl = screen.getByRole("dialog");
 
-    const getQueueOrder = () => Array.from(container.querySelectorAll("article")).map((item) => item.textContent ?? "");
+    const getQueueOrder = () => Array.from(dialogEl.querySelectorAll("article")).map((item) => item.textContent ?? "");
+    await waitFor(() => expect(getQueueOrder().length).toBeGreaterThanOrEqual(2));
     expect(getQueueOrder()[0]).toContain("WO-1");
     expect(getQueueOrder()[1]).toContain("WO-2");
 
-    const source = screen.getAllByText("WO-2")[0].closest("article");
-    const target = screen.getAllByText("WO-1")[0].closest("article");
+    const source = within(dialogEl).getAllByText("WO-2")[0].closest("article");
+    const target = within(dialogEl).getAllByText("WO-1")[0].closest("article");
 
     expect(source).not.toBeNull();
     expect(target).not.toBeNull();
@@ -1535,12 +1549,12 @@ describe("frontend state consistency", () => {
 
     render(<ManagerPanelPage />);
 
-    await screen.findAllByText("WO-CORR-ACTIVE-MGR");
-    expect(screen.getByText("Postęp: 4 / 4 szt.")).toBeTruthy();
-    expect(screen.queryByText(/Poprawiono/)).toBeNull();
+    const dialog = await openManagerPlanEditor();
+    expect(await dialog.findByText("Postęp: 4 / 4 szt.")).toBeTruthy();
+    expect(dialog.queryByText(/Poprawiono/)).toBeNull();
   });
 
-  it("shows original pickup context and active-queue default while planning corrections", async () => {
+  it("shows original pickup context and appends to the selected line while planning corrections", async () => {
     const correction = {
       ...buildWorkOrder(91, "WO-CORR-PLAN", 0, "Hotel"),
       total_quantity: 4,
@@ -1590,21 +1604,21 @@ describe("frontend state consistency", () => {
 
     render(<ManagerPanelPage />);
 
-    await screen.findAllByText("WO-CORR-PLAN");
-    expect(screen.getByText("Termin oryginału: 18.06.2026")).toBeTruthy();
-    expect(screen.getByRole("link", { name: "Poprawka do WO-PARENT-PLAN" }).getAttribute("href")).toBe(
+    // Select the automatic plan in the editor header, then append the correction to it.
+    const dialog = await openManagerPlanEditor("Automat");
+
+    await dialog.findAllByText("WO-CORR-PLAN");
+    expect(dialog.getByText("Termin oryginału: 18.06.2026")).toBeTruthy();
+    expect(dialog.getByRole("link", { name: "Poprawka do WO-PARENT-PLAN" }).getAttribute("href")).toBe(
       "/zlecenia/90?station_context=MANAGER",
     );
-    expect((screen.getByLabelText("Pozycja") as HTMLInputElement).value).toBe("3");
 
-    const planningForm = screen.getAllByText("WO-CORR-PLAN")[0].closest("form") as HTMLElement;
-    fireEvent.click(within(planningForm).getByRole("button", { name: "Automat" }));
-    fireEvent.click(within(planningForm).getByRole("button", { name: "Zaplanuj" }));
+    fireEvent.click(dialog.getByRole("button", { name: "Zaplanuj" }));
 
     await waitFor(() => {
+      // No position is sent — the backend appends the order to the end of the selected line.
       expect(assignWorkOrderPlanMock).toHaveBeenCalledWith(91, {
         production_type: "AUTOMATIC",
-        queue_position: 3,
       });
     });
   });
@@ -1621,10 +1635,12 @@ describe("frontend state consistency", () => {
 
     render(<ManagerPanelPage />);
 
-    const matches = await screen.findAllByText("WO-MANAGER-DISCREPANCY");
+    const dialog = await openManagerPlanEditor("Ręczna");
+
+    const matches = await dialog.findAllByText("WO-MANAGER-DISCREPANCY");
     expect(matches.length).toBeGreaterThan(0);
-    expect(screen.getByText("RÓŻNICA: -2 SZT.")).toBeTruthy();
-    expect(screen.getByText("Przygotowanie: zadeklarowano 10, policzono 8 (-2 szt.)")).toBeTruthy();
+    expect(dialog.getByText("RÓŻNICA: -2 SZT.")).toBeTruthy();
+    expect(dialog.getByText("Przygotowanie: zadeklarowano 10, policzono 8 (-2 szt.)")).toBeTruthy();
   });
 
   it("shows paint shortage warning in manager planner cards", async () => {
@@ -1642,10 +1658,12 @@ describe("frontend state consistency", () => {
 
     render(<ManagerPanelPage />);
 
-    await screen.findAllByText("WO-MANAGER-PAINT");
-    expect(screen.getByText("Farby nie starczy na to zlecenie.")).toBeTruthy();
-    expect(screen.getByText(/Predykcja: 17 kg. Aktualny stan: 12 kg. Brakuje około 5 kg/i)).toBeTruthy();
-    expect(screen.getByText(/trzeba domówić farbę/i)).toBeTruthy();
+    const dialog = await openManagerPlanEditor();
+
+    await dialog.findAllByText("WO-MANAGER-PAINT");
+    expect(dialog.getByText("Farby nie starczy na to zlecenie.")).toBeTruthy();
+    expect(dialog.getByText(/Predykcja: 17 kg. Aktualny stan: 12 kg. Brakuje około 5 kg/i)).toBeTruthy();
+    expect(dialog.getByText(/trzeba domówić farbę/i)).toBeTruthy();
   });
 
   it("renders completed correction quantity context from manager payload after decoral merge", async () => {
@@ -1699,11 +1717,11 @@ describe("frontend state consistency", () => {
 
     render(<ManagerPanelPage />);
 
-    await screen.findByRole("button", { name: "Pokaż zakończone" });
-    fireEvent.click(screen.getByRole("button", { name: "Pokaż zakończone" }));
+    const dialog = await openManagerPlanEditor("Ręczna");
+    fireEvent.click(await dialog.findByRole("button", { name: "Pokaż zakończone" }));
 
-    await screen.findByText("Poprawka do WO-PARENT · Poprawiono 3 z 10 szt.");
-    expect(screen.queryByText("0 / 3 szt.")).toBeNull();
+    await dialog.findByText("Poprawka do WO-PARENT · Poprawiono 3 z 10 szt.");
+    expect(dialog.queryByText("0 / 3 szt.")).toBeNull();
   });
 
   it("shows only historical final result for completed normal work order in manager tab", async () => {
@@ -1721,11 +1739,11 @@ describe("frontend state consistency", () => {
 
     render(<ManagerPanelPage />);
 
-    await screen.findByRole("button", { name: "Pokaż zakończone" });
-    fireEvent.click(screen.getByRole("button", { name: "Pokaż zakończone" }));
+    const dialog = await openManagerPlanEditor("Ręczna");
+    fireEvent.click(await dialog.findByRole("button", { name: "Pokaż zakończone" }));
 
-    await screen.findByText("Wynik końcowy: 9 szt.");
-    expect(screen.queryByText("Postęp: 9 / 9 szt.")).toBeNull();
+    await dialog.findByText("Wynik końcowy: 9 szt.");
+    expect(dialog.queryByText("Postęp: 9 / 9 szt.")).toBeNull();
   });
 
   it("shows only final result for READY work order detail", async () => {

@@ -198,7 +198,12 @@ Before starting Phase 3, resolve the open owner questions on NA34/NA36/NA37/NA38
 ## LOW
 
 ### NA31. Manager panel suggests/blocks a wrong queue position after a correction returns to planning
-- Status: OPEN (discovered 2026-06-19 during the S05 walkthrough).
+- Status: **LIKELY RESOLVED (2026-06-20)** by the per-line queue rebuild — the manager no longer picks or
+  is shown a queue position when planning. Planning is a single "Zaplanuj" button that appends to the end of
+  the selected line (server-computed position), and the stale `planDrafts` / `normalizedActivePlanned.length + 1`
+  suggestion logic was removed entirely from `ManagerPanelPage.tsx`. The specific symptom (a wrong suggested
+  position / position 1 shown as "taken" until F5) can no longer occur. Confirm in a walkthrough, then close.
+- Status (original): OPEN (discovered 2026-06-19 during the S05 walkthrough).
 - Problem: when a RAL order is sent back to planning by a packing correction, the manager panel
   transiently offers a queue position > 1 and treats position 1 as taken, even when the queue is
   otherwise empty — until the user refreshes (F5). **Backend is correct** (verified): `_reset_to_correction_planning`
@@ -591,6 +596,30 @@ workflow meaning. Severities are first-pass estimates.
   the chosen foil is stored on the work order and shown where relevant; covered by tests.
 
 ## Done
+
+- **Two independent planning queues (Automat / Ręczna) + simpler manager planning flow (2026-06-20)** —
+  owner-requested. The manager planning queue is now **per production line**: `queue_position` is unique
+  within `production_type` (DB partial unique index swapped from `uq_work_orders_queue_position` on
+  `(queue_position)` to `uq_work_orders_line_queue_position` on `(production_type, queue_position)`,
+  migration `20260620_0033`, with per-line renumbering + downgrade). MANUAL and AUTOMATIC are numbered
+  independently (position 1 exists on both). Backend: the queue helpers in `app/manager/service.py`
+  (`assign_plan`, `update_queue_position`, `update_production_type`, `reorder_queue`, completed-trailing,
+  revision) now operate within a single line; **`assign_plan` appends to the end of the chosen line**
+  (server-computed position, `queue_position` is now optional in `WorkOrderPlanAssignRequest`);
+  **`update_production_type` re-slots the order to the end of the target line**; `reorder_queue` carries a
+  `production_type` and reorders only that line (per-line stale revision via
+  `get_planned_queue_revision(production_type)`). Frontend (`ManagerPanelPage.tsx`): rebuilt into an entry
+  screen with an **"Edytuj plan"** button + two read-only boards (Automat / Ręczna), opening a full-screen
+  editor with a top-right line switch, the unplanned list (existing filters) on the left, and the selected
+  line's queue (drag-and-drop) on the right; planning is now a single **"Zaplanuj"** button that appends to
+  the selected line (no position field, no per-card type picker). Tests: 4 new per-line API tests
+  (independent positions, append, one-line-reorder isolation, type-move re-slot, cross-line reject) in
+  `tests/test_manager_api.py`; updated `test_manager_service.py`, `test_db_constraints_phase2` index name,
+  `test_alembic_schema_drift`, and 7 manager UI tests in `frontend/tests/uiStateConsistency.test.tsx`.
+  Docs: `docs/WORKFLOW.md` "Per-Line Queue Rule" (replaces "Shared Queue Rule (Global)") + `CLAUDE.md`.
+  Verified: `pytest` green, `alembic check` clean + upgrade/downgrade roundtrip, frontend `npm run test`
+  (78) + `npm run build` green. Sets up **NA33** (an "Ułóż automatycznie" / colour-grouping action now lives
+  naturally per line).
 
 - **Automatic packing card is now an ACTIVE packing row from hanging-start, not a read-only "waiting for hanging" row (2026-06-18)** —
   follow-up to the NA22a change below; user-requested. Previously `_get_automatic_packing_display_stage`

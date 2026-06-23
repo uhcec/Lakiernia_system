@@ -258,25 +258,33 @@ Decoral production list columns:
 - company/customer
 - queue position
 
-## Shared Queue Rule (Global)
+## Per-Line Queue Rule (MANUAL / AUTOMATIC numbered independently)
 
-Queue position is global for all planned work orders.
+Queue position is scoped to the **production line**. The manual plan and the automatic plan are two
+**independent** queues, each numbered from 1; the same `queue_position` may exist once on each line
+(e.g. there is an automatic "position 1" and a separate manual "position 1"). This matches the physical
+factory, which runs the two lines in parallel. The manager UI presents the two plans as separate boards
+and edits one line at a time (a top-of-screen `Automat / Ręczna` switch).
 
 Rules:
-1. Planned order requires unique `queue_position` globally.
-2. This uniqueness is not namespace-scoped.
-3. Correction orders start unplanned (`queue_position = null`), then when planned they join the same global queue uniqueness rule.
-4. Reorder payload must also preserve unique positions.
-5. Reorder payload must include the queue revision from the manager snapshot it was built from.
-6. If the queue revision is stale, reorder must fail with a controlled `409` error.
+1. A planned order requires a `queue_position` unique **within its `production_type`** — enforced by a DB
+   partial unique index on `(production_type, queue_position)`.
+2. This uniqueness is per production line. It is not global and not namespace-scoped.
+3. Correction orders start unplanned (`queue_position = null`); when planned they join **their line's**
+   queue under the same per-line uniqueness rule.
+4. A reorder reorders **one line at a time**: the payload carries the `production_type`, must contain only
+   orders from that line, and positions within it must be unique.
+5. Reorder payload must include the queue revision from the manager snapshot it was built from; the
+   revision is computed **per line** (editing one line does not invalidate the other).
+6. If the (per-line) queue revision is stale, reorder must fail with a controlled `409` error.
 7. Queue uniqueness conflicts, including database-level uniqueness collisions during concurrent writes, must fail with a controlled `409` error and must never surface as a raw `500`.
 8. Two managers must not be able to silently overwrite each other's queue reorder using stale data.
 9. Corrections do not receive automatic priority over normal work orders.
-10. Manager views should warn when a globally high-priority item is blocked by resource or station state, without splitting the global queue.
+10. Manager views should warn when a high-priority item is blocked by resource or station state, without reordering the line automatically.
 11. Current manager queue warnings cover the exclusive resources currently modeled by backend locks/conflict checks: `HANGING` and `AUTOMATIC_LINE`. They are read-only visibility and do not change queue order or station-action authorization.
-12. Manager planning should default a new order's proposed queue position to the next slot after active planned work. This is an ergonomics/defaulting rule, not permission to split the global queue.
+12. Planning a new order **appends it to the end of its line's active queue** — the position is computed by the backend, the manager no longer types one. Changing an order's production type re-slots it to the **end of the target line**. Reordering within a line is by drag-and-drop.
 13. Completed/READY orders are historical in manager queue views and must not permanently block active planning slots.
-14. When manager planning or queue-position updates need active slots, completed/READY rows should move to trailing queue positions after active planned work.
+14. When manager planning or queue-position updates need active slots, completed/READY rows should move to trailing queue positions after active planned work **on the same line**.
 15. A completed/READY row may keep a `queue_position` for manager sorting and historical visibility, but that value is not an immutable record of the row's original active priority.
 
 ## Station Permissions

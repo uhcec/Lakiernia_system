@@ -82,8 +82,11 @@ class WorkOrder(Base):
             "(is_correction = 1 AND queue_namespace = 'CORRECTIONS') OR (is_correction = 0 AND queue_namespace = 'MAIN')",
             name="correction_namespace_consistent",
         ),
+        # Queue position is unique *per production line* (MANUAL vs AUTOMATIC), so the manual
+        # and automatic plans are numbered independently (position 1 may exist on both lines).
         Index(
-            "uq_work_orders_queue_position",
+            "uq_work_orders_line_queue_position",
+            "production_type",
             "queue_position",
             unique=True,
             sqlite_where=text("queue_position IS NOT NULL"),

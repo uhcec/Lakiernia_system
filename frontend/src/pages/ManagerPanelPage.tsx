@@ -1,4 +1,4 @@
-import { DragEvent, FormEvent, useEffect, useRef, useState } from "react";
+import { DragEvent, useEffect, useRef, useState } from "react";
 
 import { usePolling, STATION_POLL_INTERVAL_MS } from "../hooks/usePolling";
 import {
@@ -33,24 +33,21 @@ import {
   type DisplayBadge,
 } from "../utils/workOrderDisplay";
 
-interface PlanDraft {
-  productionType: ProductionTypeValue;
-  queuePosition: string;
-}
-
 type QueueFilter = "ALL" | "NORMAL" | "CORRECTIONS";
 type UnplannedSort = "NONE" | "COLOR" | "COMPANY" | "DEADLINE";
 
 interface AuthoritativeQueueSnapshot {
   active: WorkOrder[];
   completed: WorkOrder[];
-  queueRevision: string | null;
 }
 
-const productionTypeOptions: Array<{ value: ProductionTypeValue; label: string }> = [
-  { value: "MANUAL", label: "Ręczna" },
+// Both production lines, in the order they are shown left-to-right on the boards.
+const PRODUCTION_LINES: Array<{ value: ProductionTypeValue; label: string }> = [
   { value: "AUTOMATIC", label: "Automat" },
+  { value: "MANUAL", label: "Ręczna" },
 ];
+
+const productionTypeOptions = PRODUCTION_LINES;
 
 function getProductionTypeLabel(value: ProductionTypeValue | null | undefined): string {
   if (value === "MANUAL") {
@@ -64,14 +61,8 @@ function getProductionTypeLabel(value: ProductionTypeValue | null | undefined): 
   return "-";
 }
 
-function createPlanDrafts(workOrders: WorkOrder[], nextQueuePosition: number): Record<number, PlanDraft> {
-  return workOrders.reduce<Record<number, PlanDraft>>((drafts, workOrder, index) => {
-    drafts[workOrder.id] = {
-      productionType: "MANUAL",
-      queuePosition: String(nextQueuePosition + index),
-    };
-    return drafts;
-  }, {});
+function isOnLine(workOrder: WorkOrder, line: ProductionTypeValue): boolean {
+  return workOrder.production_type?.value === line;
 }
 
 function formatDate(value: string | null | undefined): string {
@@ -92,26 +83,6 @@ function splitPlannedWorkOrders(workOrders: WorkOrder[]) {
     active: workOrders.filter((workOrder) => workOrder.process_status.value !== "READY"),
     completed: workOrders.filter((workOrder) => workOrder.process_status.value === "READY"),
   };
-}
-
-function summarizeQueueOrders(workOrders: WorkOrder[]) {
-  return workOrders.map((workOrder) => ({
-    id: workOrder.id,
-    order_number: workOrder.order_number,
-    queue_position: workOrder.queue_position,
-    is_correction: workOrder.is_correction,
-    process_status: workOrder.process_status.value,
-  }));
-}
-
-function logQueueDebug(label: string, payload: unknown) {
-  if (!import.meta.env.DEV || import.meta.env.VITE_QUEUE_DEBUG !== "true") {
-    return;
-  }
-
-  console.groupCollapsed(`[queue-debug] ${label}`);
-  console.log(payload);
-  console.groupEnd();
 }
 
 function sortUnplannedWorkOrders(workOrders: WorkOrder[], sort: UnplannedSort): WorkOrder[] {
@@ -235,7 +206,6 @@ export function ManagerPanelPage() {
   const [activePlannedWorkOrders, setActivePlannedWorkOrders] = useState<WorkOrder[]>([]);
   const [completedPlannedWorkOrders, setCompletedPlannedWorkOrders] = useState<WorkOrder[]>([]);
   const [correctionReasonReport, setCorrectionReasonReport] = useState<CorrectionReasonReportItem[]>([]);
-  const [planDrafts, setPlanDrafts] = useState<Record<number, PlanDraft>>({});
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -245,17 +215,41 @@ export function ManagerPanelPage() {
   const [draggedWorkOrderId, setDraggedWorkOrderId] = useState<number | null>(null);
   const [changingProductionTypeId, setChangingProductionTypeId] = useState<number | null>(null);
   const [showCompleted, setShowCompleted] = useState(false);
-  const [queueRevision, setQueueRevision] = useState<string | null>(null);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editLine, setEditLine] = useState<ProductionTypeValue>("AUTOMATIC");
   const authoritativeQueueRef = useRef<AuthoritativeQueueSnapshot | null>(null);
+
+  const isAllQueueFilter = queueFilter === "ALL";
+  const correctionReasonReportExportUrl = getCorrectionReasonReportExportUrl();
 
   const filteredUnplannedWorkOrders = sortUnplannedWorkOrders(
     filterQueueByType(unplannedWorkOrders, queueFilter),
     unplannedSort,
   );
-  const filteredActivePlannedWorkOrders = filterQueueByType(activePlannedWorkOrders, queueFilter);
-  const filteredCompletedPlannedWorkOrders = filterQueueByType(completedPlannedWorkOrders, queueFilter);
-  const isAllQueueFilter = queueFilter === "ALL";
-  const correctionReasonReportExportUrl = getCorrectionReasonReportExportUrl();
+
+  function lineActiveOrders(line: ProductionTypeValue): WorkOrder[] {
+    return assignSequentialQueuePositions(
+      activePlannedWorkOrders.filter((workOrder) => isOnLine(workOrder, line)),
+    );
+  }
+
+  function lineCompletedOrders(line: ProductionTypeValue): WorkOrder[] {
+    const active = activePlannedWorkOrders.filter((workOrder) => isOnLine(workOrder, line));
+    return assignSequentialQueuePositions(
+      completedPlannedWorkOrders.filter((workOrder) => isOnLine(workOrder, line)),
+      active.length + 1,
+    );
+  }
+
+  function getLineRevision(line: ProductionTypeValue): string | null {
+    const snapshot = authoritativeQueueRef.current;
+    if (!snapshot) {
+      return null;
+    }
+
+    const lineOrders = [...snapshot.active, ...snapshot.completed].filter((workOrder) => isOnLine(workOrder, line));
+    return getQueueRevisionFromPlannedOrders(lineOrders);
+  }
 
   function restoreAuthoritativeQueueSnapshot() {
     const authoritativeQueue = authoritativeQueueRef.current;
@@ -266,7 +260,6 @@ export function ManagerPanelPage() {
 
     setActivePlannedWorkOrders(authoritativeQueue.active);
     setCompletedPlannedWorkOrders(authoritativeQueue.completed);
-    setQueueRevision(authoritativeQueue.queueRevision);
   }
 
   async function loadManagerData(options?: { preserveErrorMessage?: boolean; background?: boolean }): Promise<boolean> {
@@ -285,32 +278,17 @@ export function ManagerPanelPage() {
         fetchCorrectionReasonReport(),
       ]);
       const splitPlanned = splitPlannedWorkOrders(planned);
-      const normalizedActivePlanned = assignSequentialQueuePositions(splitPlanned.active);
-      const normalizedCompletedPlanned = assignSequentialQueuePositions(
-        splitPlanned.completed,
-        normalizedActivePlanned.length + 1,
-      );
-      const nextQueueRevision = getQueueRevisionFromPlannedOrders(planned);
-
-      logQueueDebug("planned orders loaded from API", summarizeQueueOrders(planned));
-      logQueueDebug("normalized active queue", summarizeQueueOrders(normalizedActivePlanned));
-      logQueueDebug("normalized completed queue", summarizeQueueOrders(normalizedCompletedPlanned));
 
       setUnplannedWorkOrders(unplanned);
-      setActivePlannedWorkOrders(normalizedActivePlanned);
-      setCompletedPlannedWorkOrders(normalizedCompletedPlanned);
+      setActivePlannedWorkOrders(splitPlanned.active);
+      setCompletedPlannedWorkOrders(splitPlanned.completed);
       setCorrectionReasonReport(nextCorrectionReasonReport);
-      setQueueRevision(nextQueueRevision);
-      // In background mode keep the planning drafts the manager is typing and don't
-      // touch the pending-queue flag (polling only runs when nothing is being edited).
       if (!background) {
-        setPlanDrafts(createPlanDrafts(unplanned, normalizedActivePlanned.length + 1));
         setHasPendingQueueChanges(false);
       }
       authoritativeQueueRef.current = {
-        active: normalizedActivePlanned,
-        completed: normalizedCompletedPlanned,
-        queueRevision: nextQueueRevision,
+        active: splitPlanned.active,
+        completed: splitPlanned.completed,
       };
       return true;
     } catch (error) {
@@ -344,48 +322,23 @@ export function ManagerPanelPage() {
       changingProductionTypeId === null,
   );
 
-  useEffect(() => {
-    logQueueDebug("visible filtered list", {
-      filter: queueFilter,
-      active: summarizeQueueOrders(filteredActivePlannedWorkOrders),
-      completed: summarizeQueueOrders(filteredCompletedPlannedWorkOrders),
+  function replaceLineActiveOrders(line: ProductionTypeValue, nextLineActive: WorkOrder[]) {
+    setActivePlannedWorkOrders((current) => {
+      const otherLines = current.filter((workOrder) => !isOnLine(workOrder, line));
+      return [...otherLines, ...nextLineActive];
     });
-  }, [queueFilter, filteredActivePlannedWorkOrders, filteredCompletedPlannedWorkOrders]);
-
-  function updatePlanDraft(workOrderId: number, patch: Partial<PlanDraft>) {
-    setPlanDrafts((current) => ({
-      ...current,
-      [workOrderId]: {
-        productionType: current[workOrderId]?.productionType ?? "MANUAL",
-        queuePosition: current[workOrderId]?.queuePosition ?? "1",
-        ...patch,
-      },
-    }));
   }
 
-  async function handlePlanSubmit(event: FormEvent<HTMLFormElement>, workOrderId: number) {
-    event.preventDefault();
-
-    const draft = planDrafts[workOrderId];
-    const parsedQueuePosition = Number(draft?.queuePosition);
-
-    if (!draft || !Number.isInteger(parsedQueuePosition) || parsedQueuePosition < 1) {
-      setSuccessMessage(null);
-      setErrorMessage("Pozycja w kolejce musi być liczbą większą lub równą 1");
-      return;
-    }
-
+  async function handlePlanWorkOrder(workOrderId: number) {
     setPlanningWorkOrderId(workOrderId);
     setErrorMessage(null);
     setSuccessMessage(null);
 
     try {
-      await assignWorkOrderPlan(workOrderId, {
-        production_type: draft.productionType,
-        queue_position: parsedQueuePosition,
-      });
+      // No position — the backend appends the order to the end of the selected line's queue.
+      await assignWorkOrderPlan(workOrderId, { production_type: editLine });
       await loadManagerData();
-      setSuccessMessage("Zlecenie zostało zaplanowane");
+      setSuccessMessage("Zlecenie trafiło na koniec planu");
     } catch (error) {
       const message = getMutationErrorMessage(
         error,
@@ -401,29 +354,25 @@ export function ManagerPanelPage() {
     }
   }
 
-  async function saveQueueOrder(workOrders: WorkOrder[]) {
-    if (!queueRevision) {
+  async function saveLineQueueOrder(lineActive: WorkOrder[], line: ProductionTypeValue) {
+    const revision = getLineRevision(line);
+    if (!revision) {
       setHasPendingQueueChanges(true);
       setErrorMessage("Nie udało się odczytać wersji kolejki. Odśwież panel kierownika i spróbuj ponownie.");
       return;
     }
 
-    const payload = buildQueueReorderRequest(workOrders, queueRevision);
-
-    logQueueDebug("payload sent to /manager/queue/reorder", payload);
+    const payload = buildQueueReorderRequest(lineActive, revision, line);
 
     setIsSavingQueueOrder(true);
     setErrorMessage(null);
     setSuccessMessage(null);
 
     try {
-      const response = await reorderWorkOrderQueue(payload);
-      logQueueDebug("backend response from /manager/queue/reorder", summarizeQueueOrders(response));
+      await reorderWorkOrderQueue(payload);
       await loadManagerData();
       setSuccessMessage("Kolejność została zaktualizowana");
     } catch (error) {
-      logQueueDebug("backend error from /manager/queue/reorder", error instanceof Error ? error.message : error);
-
       restoreAuthoritativeQueueSnapshot();
       setHasPendingQueueChanges(false);
 
@@ -441,11 +390,12 @@ export function ManagerPanelPage() {
   }
 
   async function handleSaveQueueOrder() {
-    if (activePlannedWorkOrders.length === 0) {
+    const lineActive = lineActiveOrders(editLine);
+    if (lineActive.length === 0) {
       return;
     }
 
-    await saveQueueOrder(activePlannedWorkOrders);
+    await saveLineQueueOrder(lineActive, editLine);
   }
 
   function handleQueueDragStart(event: DragEvent<HTMLElement>, workOrderId: number) {
@@ -488,21 +438,21 @@ export function ManagerPanelPage() {
       return;
     }
 
+    const lineActive = lineActiveOrders(editLine);
     const reorderedWorkOrders = moveWorkOrderWithinQueueSlots(
-      activePlannedWorkOrders,
+      lineActive,
       resolvedDraggedWorkOrderId,
       targetWorkOrderId,
     );
-    logQueueDebug("drag result order", summarizeQueueOrders(reorderedWorkOrders));
     setDraggedWorkOrderId(null);
 
-    if (reorderedWorkOrders === activePlannedWorkOrders) {
+    if (reorderedWorkOrders === lineActive) {
       return;
     }
 
-    setActivePlannedWorkOrders(reorderedWorkOrders);
+    replaceLineActiveOrders(editLine, reorderedWorkOrders);
     setHasPendingQueueChanges(true);
-    void saveQueueOrder(reorderedWorkOrders);
+    void saveLineQueueOrder(reorderedWorkOrders, editLine);
   }
 
   function canChangeProductionType(workOrder: WorkOrder): boolean {
@@ -523,7 +473,7 @@ export function ManagerPanelPage() {
     try {
       await updateWorkOrderProductionType(workOrderId, { production_type: newType });
       await loadManagerData();
-      setSuccessMessage("Typ produkcji został zmieniony");
+      setSuccessMessage("Zlecenie przeniesiono na koniec drugiego planu");
     } catch (error) {
       const message = getMutationErrorMessage(error, "Nie udało się zmienić typu produkcji");
       await loadManagerData({ preserveErrorMessage: true });
@@ -535,7 +485,7 @@ export function ManagerPanelPage() {
 
   function renderActiveQueue(workOrders: WorkOrder[]) {
     return (
-      <div className="space-y-3">
+      <div className="space-y-2">
         {workOrders.map((workOrder) => {
           const isDragged = draggedWorkOrderId === workOrder.id;
 
@@ -548,7 +498,7 @@ export function ManagerPanelPage() {
               onDrop={(event) => handleQueueDrop(event, workOrder.id)}
               onDragEnd={handleQueueDragEnd}
               className={[
-                "flex cursor-grab flex-col gap-4 rounded-3xl border bg-white p-5 transition sm:flex-row sm:items-center sm:justify-between",
+                "flex cursor-grab flex-col gap-3 rounded-2xl border bg-white px-4 py-3 transition sm:flex-row sm:items-center sm:justify-between",
                 workOrder.is_correction
                   ? "border-amber-300 bg-amber-50/60"
                   : isDragged
@@ -556,8 +506,8 @@ export function ManagerPanelPage() {
                     : "border-line/80",
               ].join(" ")}
             >
-              <div className="flex items-start gap-4">
-                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-mist text-sm font-semibold text-ink">
+              <div className="flex items-start gap-3">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-mist text-sm font-semibold text-ink">
                   {workOrder.queue_position ?? "-"}
                 </div>
                 <div className="space-y-1">
@@ -574,7 +524,7 @@ export function ManagerPanelPage() {
                         : "Przełącz na Wszystkie, aby zmieniać kolejność"}
                     </span>
                   </div>
-                  <h4 className="text-lg font-semibold text-ink"><WorkOrderPrimaryInfoLine workOrder={workOrder} /></h4>
+                  <h4 className="text-base font-semibold text-ink"><WorkOrderPrimaryInfoLine workOrder={workOrder} /></h4>
                   <div className="flex flex-wrap gap-2">
                     {[...getWorkOrderBadgeStack(workOrder), ...getWorkOrderAttentionBadges(workOrder)].map((badge) => (
                       <span
@@ -585,10 +535,10 @@ export function ManagerPanelPage() {
                       </span>
                     ))}
                   </div>
-                  <p className="text-sm font-semibold text-ink">{getWorkOrderStatusSummary(workOrder)}</p>
-                  <p className="text-sm text-steel">Postęp: {getWorkOrderProgressText(workOrder)}</p>
+                  <p className="text-xs font-semibold text-ink">{getWorkOrderStatusSummary(workOrder)}</p>
+                  <p className="text-xs text-steel">Postęp: {getWorkOrderProgressText(workOrder)}</p>
                   {getWorkOrderDiscrepancyText(workOrder) ? (
-                    <p className="text-sm font-medium text-amber-700">{getWorkOrderDiscrepancyText(workOrder)}</p>
+                    <p className="text-xs font-medium text-amber-700">{getWorkOrderDiscrepancyText(workOrder)}</p>
                   ) : null}
                   {workOrder.is_correction ? (
                     <div className="space-y-1 text-sm">
@@ -651,11 +601,6 @@ export function ManagerPanelPage() {
                 >
                   Szczegóły
                 </a>
-                {workOrder.is_correction ? (
-                  <span className="inline-flex rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800">
-                    POPRAWKA
-                  </span>
-                ) : null}
               </div>
             </article>
           );
@@ -709,78 +654,369 @@ export function ManagerPanelPage() {
     );
   }
 
+  // Compact read-only board shown on the entry screen (one per production line).
+  function renderReadOnlyBoard(line: ProductionTypeValue, label: string) {
+    const active = lineActiveOrders(line);
+    const completed = lineCompletedOrders(line);
+
+    return (
+      <div className="flex flex-col gap-4 rounded-[2rem] border border-white/70 bg-white/80 p-6 shadow-panel backdrop-blur">
+        <div className="flex items-center justify-between">
+          <h3 className="text-xl font-semibold text-ink">{label}</h3>
+          <span className="inline-flex rounded-full bg-mist px-3 py-1 text-sm font-medium text-steel">
+            {active.length} w kolejce
+          </span>
+        </div>
+
+        {active.length === 0 ? (
+          <div className="rounded-3xl border border-dashed border-line bg-mist px-5 py-8 text-center text-sm text-steel">
+            Brak zaplanowanych zleceń na tej linii
+          </div>
+        ) : (
+          <ol className="space-y-2">
+            {active.map((workOrder) => (
+              <li
+                key={workOrder.id}
+                className={[
+                  "flex items-start gap-3 rounded-2xl border px-4 py-3",
+                  workOrder.is_correction ? "border-amber-300 bg-amber-50/60" : "border-line/80 bg-white",
+                ].join(" ")}
+              >
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-mist text-sm font-semibold text-ink">
+                  {workOrder.queue_position ?? "-"}
+                </span>
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-xs font-semibold uppercase tracking-[0.12em] text-accent">{workOrder.order_number}</span>
+                    {workOrder.is_correction ? (
+                      <span className="inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-amber-800">
+                        POPRAWKA
+                      </span>
+                    ) : null}
+                  </div>
+                  <p className="truncate text-sm font-semibold text-ink"><WorkOrderPrimaryInfoLine workOrder={workOrder} /></p>
+                  <p className="text-xs text-steel">{getWorkOrderStatusSummary(workOrder)}</p>
+                </div>
+              </li>
+            ))}
+          </ol>
+        )}
+
+        {completed.length > 0 ? (
+          <p className="text-xs text-steel">+ {completed.length} zakończonych (poglądowo)</p>
+        ) : null}
+      </div>
+    );
+  }
+
+  function renderQueueFilterTabs() {
+    return (
+      <div className="inline-flex rounded-full border border-line bg-mist p-1">
+        {(
+          [
+            { value: "ALL", label: "Wszystkie" },
+            { value: "NORMAL", label: "Zwykłe" },
+            { value: "CORRECTIONS", label: "Poprawki" },
+          ] as Array<{ value: QueueFilter; label: string }>
+        ).map((option) => (
+          <button
+            key={option.value}
+            type="button"
+            onClick={() => setQueueFilter(option.value)}
+            className={[
+              "rounded-full px-4 py-2 text-sm font-medium transition",
+              queueFilter === option.value ? "bg-white text-ink shadow-sm" : "text-steel hover:text-accent",
+            ].join(" ")}
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
+    );
+  }
+
+  function renderUnplannedColumn() {
+    return (
+      <div className="flex flex-col rounded-3xl border border-white/70 bg-white/80 p-4 shadow-panel backdrop-blur lg:h-full lg:min-h-0">
+        <div className="mb-3 space-y-2">
+          <div>
+            <h3 className="text-xl font-semibold text-ink">Do zaplanowania</h3>
+            <p className="mt-1 text-sm text-steel">
+              Kliknij „Zaplanuj", a zlecenie trafi na koniec planu {editLine === "AUTOMATIC" ? "automatu" : "ręcznej"}.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs font-semibold uppercase tracking-[0.12em] text-steel">Sortowanie:</span>
+            <div className="inline-flex flex-wrap rounded-2xl border border-line bg-mist p-1 gap-1">
+              {(
+                [
+                  { value: "NONE", label: "Domyślnie" },
+                  { value: "COLOR", label: "Kolor" },
+                  { value: "COMPANY", label: "Firma" },
+                  { value: "DEADLINE", label: "Termin" },
+                ] as Array<{ value: UnplannedSort; label: string }>
+              ).map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => setUnplannedSort(option.value)}
+                  className={[
+                    "rounded-xl px-3 py-1.5 text-xs font-semibold transition",
+                    unplannedSort === option.value ? "bg-white text-ink shadow-sm" : "text-steel hover:text-accent",
+                  ].join(" ")}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {isLoading ? (
+          <div className="rounded-3xl border border-dashed border-line bg-mist px-6 py-12 text-center text-base text-steel">
+            Ładowanie...
+          </div>
+        ) : filteredUnplannedWorkOrders.length === 0 ? (
+          <div className="rounded-3xl border border-dashed border-line bg-mist px-6 py-12 text-center text-base text-steel">
+            Wszystkie zlecenia są już zaplanowane
+          </div>
+        ) : (
+          <div className="space-y-2 pr-1 lg:flex-1 lg:min-h-0 lg:overflow-y-auto">
+            {filteredUnplannedWorkOrders.map((workOrder) => {
+              const isSubmitting = planningWorkOrderId === workOrder.id;
+              const paintWarning = renderPaintShortageWarning(workOrder);
+
+              return (
+                <article key={workOrder.id} className="rounded-2xl border border-line/80 bg-white px-4 py-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 space-y-1">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span className="text-xs font-semibold uppercase tracking-[0.12em] text-accent">{workOrder.order_number}</span>
+                        {[...getWorkOrderBadgeStack(workOrder), ...getWorkOrderAttentionBadges(workOrder)].map((badge) => (
+                          <span
+                            key={`${workOrder.id}-${badge.label}`}
+                            className={["inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold", badgeClasses(badge.tone)].join(" ")}
+                          >
+                            {badge.label}
+                          </span>
+                        ))}
+                      </div>
+                      <p className="truncate text-sm font-semibold text-ink"><WorkOrderPrimaryInfoLine workOrder={workOrder} /></p>
+                      <p className="text-xs font-semibold text-ink">{getWorkOrderStatusSummary(workOrder)}</p>
+                      <p className="text-xs text-steel">Postęp: {getWorkOrderProgressText(workOrder)}</p>
+                      {workOrder.is_correction ? (
+                        <div className="space-y-0.5 text-xs text-amber-700">
+                          <p className="font-medium text-amber-800">
+                            {workOrder.parent_order ? (
+                              <a href={buildWorkOrderDetailHref(workOrder.parent_order.id, "MANAGER")} className="underline-offset-2 hover:underline">
+                                {buildCorrectionReference(workOrder)}
+                              </a>
+                            ) : (
+                              buildCorrectionReference(workOrder)
+                            )}
+                            {buildCorrectionQuantityContext(workOrder) ? ` · ${buildCorrectionQuantityContext(workOrder)}` : ""}
+                          </p>
+                          <p>{buildOriginalPickupContext(workOrder)}</p>
+                        </div>
+                      ) : null}
+                      {getWorkOrderActiveCorrectionsText(workOrder) ? (
+                        <p className="text-xs text-rose-700">{getWorkOrderActiveCorrectionsText(workOrder)}</p>
+                      ) : null}
+                    </div>
+
+                    <div className="flex shrink-0 flex-col items-stretch gap-1.5">
+                      <button
+                        type="button"
+                        disabled={isSubmitting}
+                        onClick={() => void handlePlanWorkOrder(workOrder.id)}
+                        className="inline-flex items-center justify-center rounded-full bg-accent px-4 py-1.5 text-sm font-semibold text-white transition hover:bg-brand-800 disabled:cursor-not-allowed disabled:bg-brand-100 disabled:text-brand-muted"
+                      >
+                        {isSubmitting ? "..." : "Zaplanuj"}
+                      </button>
+                      <a
+                        href={buildWorkOrderDetailHref(workOrder.id, "MANAGER")}
+                        className="inline-flex items-center justify-center rounded-full border border-line bg-white px-4 py-1.5 text-xs font-medium text-accent transition hover:border-accent/50"
+                      >
+                        Szczegóły
+                      </a>
+                    </div>
+                  </div>
+                  {paintWarning ? <div className="mt-2">{paintWarning}</div> : null}
+                </article>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  function renderPlannedColumn() {
+    const lineActive = filterQueueByType(lineActiveOrders(editLine), queueFilter);
+    const lineCompleted = filterQueueByType(lineCompletedOrders(editLine), queueFilter);
+
+    return (
+      <div className="flex flex-col rounded-3xl border border-white/70 bg-white/80 p-4 shadow-panel backdrop-blur lg:h-full lg:min-h-0">
+        <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h3 className="text-xl font-semibold text-ink">
+              Plan: {editLine === "AUTOMATIC" ? "Automat" : "Ręczna"}
+            </h3>
+            <p className="mt-1 text-sm text-steel">Przeciągnij zlecenia, aby ustawić kolejność. Zmiany zapisują się same.</p>
+          </div>
+          <button
+            type="button"
+            disabled={isSavingQueueOrder || lineActiveOrders(editLine).length < 2 || !isAllQueueFilter}
+            onClick={() => void handleSaveQueueOrder()}
+            className="inline-flex items-center justify-center rounded-full border border-line bg-white px-4 py-2 text-sm font-medium text-steel transition hover:border-accent hover:text-accent disabled:cursor-not-allowed disabled:border-line disabled:text-slate-400"
+          >
+            {isSavingQueueOrder ? "Zapisywanie..." : hasPendingQueueChanges ? "Zapisz kolejność" : "Kolejność zapisana"}
+          </button>
+        </div>
+
+        {!isAllQueueFilter ? (
+          <div className="mb-4 rounded-3xl border border-dashed border-line bg-mist px-6 py-4 text-center text-sm text-steel">
+            Zmiana kolejności działa dla pełnej kolejki. Przełącz filtr na Wszystkie, aby zmienić kolejność.
+          </div>
+        ) : null}
+
+        <div className="space-y-6 pr-1 lg:flex-1 lg:min-h-0 lg:overflow-y-auto">
+          {isLoading ? (
+            <div className="rounded-3xl border border-dashed border-line bg-mist px-6 py-12 text-center text-base text-steel">
+              Ładowanie...
+            </div>
+          ) : lineActive.length === 0 ? (
+            <div className="rounded-3xl border border-dashed border-line bg-mist px-6 py-12 text-center text-base text-steel">
+              Brak zaplanowanych zleceń na tej linii
+            </div>
+          ) : (
+            renderActiveQueue(lineActive)
+          )}
+
+          {lineCompleted.length > 0 ? (
+            <div className="space-y-4 rounded-3xl border border-line/80 bg-mist/50 p-5">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <h4 className="text-lg font-semibold text-ink">Zakończone</h4>
+                  <p className="mt-1 text-sm text-steel">Ukończone zlecenia pozostają w kolejce wyłącznie poglądowo.</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowCompleted((current) => !current)}
+                  className="inline-flex items-center justify-center rounded-full border border-line bg-white px-4 py-2 text-sm font-medium text-steel transition hover:border-accent hover:text-accent"
+                >
+                  {showCompleted ? "Ukryj zakończone" : "Pokaż zakończone"}
+                </button>
+              </div>
+
+              {showCompleted ? renderCompletedWorkOrdersTable(lineCompleted) : null}
+            </div>
+          ) : null}
+        </div>
+      </div>
+    );
+  }
+
+  function renderEditOverlay() {
+    return (
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Układanie planu"
+        className="fixed inset-0 z-40 flex flex-col bg-shell/95 backdrop-blur"
+      >
+        <header className="flex flex-col gap-4 border-b border-line/70 bg-white/80 px-6 py-4 backdrop-blur lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex flex-wrap items-center gap-4">
+            <h2 className="text-2xl font-semibold text-ink">Układanie planu</h2>
+            {renderQueueFilterTabs()}
+          </div>
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="text-xs font-semibold uppercase tracking-[0.12em] text-steel">Plan:</span>
+            <div className="inline-flex rounded-2xl border border-line bg-mist p-1">
+              {PRODUCTION_LINES.map((line) => (
+                <button
+                  key={line.value}
+                  type="button"
+                  aria-label={`Plan ${line.label.toLowerCase()}`}
+                  onClick={() => setEditLine(line.value)}
+                  className={[
+                    "rounded-xl px-5 py-2 text-sm font-semibold transition",
+                    editLine === line.value ? "bg-white text-ink shadow-sm" : "text-steel hover:text-accent",
+                  ].join(" ")}
+                >
+                  {line.label}
+                </button>
+              ))}
+            </div>
+            <button
+              type="button"
+              onClick={() => setIsEditing(false)}
+              className="inline-flex items-center justify-center rounded-full bg-accent px-5 py-2 text-sm font-medium text-white transition hover:bg-brand-800"
+            >
+              Gotowe
+            </button>
+          </div>
+        </header>
+
+        {errorMessage ? (
+          <div className="mx-6 mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-5 py-3 text-sm text-rose-700">{errorMessage}</div>
+        ) : null}
+        {successMessage ? (
+          <div className="mx-6 mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-3 text-sm text-emerald-700">{successMessage}</div>
+        ) : null}
+
+        <div className="grid flex-1 min-h-0 grid-cols-1 gap-6 overflow-y-auto p-6 lg:grid-cols-2 lg:overflow-hidden">
+          {renderUnplannedColumn()}
+          {renderPlannedColumn()}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <main className="flex w-full flex-col gap-5 px-1 pb-5">
       <section className="rounded-[2rem] border border-white/70 bg-white/80 p-6 shadow-panel backdrop-blur sm:p-8">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-          <div className="space-y-2">
+        <div className="flex flex-col gap-6">
+          <div className="space-y-2 text-center">
             <p className="text-sm font-semibold uppercase tracking-[0.18em] text-accent">Panel kierownika</p>
-            <div>
-              <h2 className="text-3xl font-semibold text-ink sm:text-4xl">Planowanie produkcji</h2>
-              <p className="mt-2 max-w-3xl text-sm leading-6 text-steel sm:text-base">
-                Najpierw zaplanuj zlecenie, przypisując typ produkcji i pozycję w kolejce. Dopiero po tym trafi ono do
-                widoków etapów produkcyjnych.
-              </p>
-            </div>
-            <div className="mt-3 inline-flex rounded-full border border-line bg-mist p-1">
-              <button
-                type="button"
-                onClick={() => setQueueFilter("ALL")}
-                className={[
-                  "rounded-full px-4 py-2 text-sm font-medium transition",
-                  queueFilter === "ALL" ? "bg-white text-ink shadow-sm" : "text-steel hover:text-accent",
-                ].join(" ")}
-              >
-                Wszystkie
-              </button>
-              <button
-                type="button"
-                onClick={() => setQueueFilter("NORMAL")}
-                className={[
-                  "rounded-full px-4 py-2 text-sm font-medium transition",
-                  queueFilter === "NORMAL" ? "bg-white text-ink shadow-sm" : "text-steel hover:text-accent",
-                ].join(" ")}
-              >
-                Zwykłe
-              </button>
-              <button
-                type="button"
-                onClick={() => setQueueFilter("CORRECTIONS")}
-                className={[
-                  "rounded-full px-4 py-2 text-sm font-medium transition",
-                  queueFilter === "CORRECTIONS" ? "bg-white text-ink shadow-sm" : "text-steel hover:text-accent",
-                ].join(" ")}
-              >
-                Poprawki
-              </button>
-            </div>
+            <h2 className="text-3xl font-semibold text-ink sm:text-4xl">Planowanie produkcji</h2>
+            <p className="mx-auto max-w-2xl text-sm leading-6 text-steel sm:text-base">
+              Dwa osobne plany — automat i ręczna. Kliknij „Edytuj plan", aby układać kolejność i dodawać zlecenia.
+            </p>
           </div>
-          <div className="grid gap-2 sm:grid-cols-3">
-            <div className="rounded-2xl border border-line bg-mist px-4 py-3 text-sm text-steel">
-              Zlecenia
-              <div className="mt-1 text-2xl font-semibold text-ink">{filteredUnplannedWorkOrders.length}</div>
-            </div>
-            <div className="rounded-2xl border border-line bg-mist px-4 py-3 text-sm text-steel">
-              Na produkcji
-              <div className="mt-1 text-2xl font-semibold text-ink">{filteredActivePlannedWorkOrders.length}</div>
-            </div>
-            <div className="rounded-2xl border border-line bg-mist px-4 py-3 text-sm text-steel">
-              Gotowe
-              <div className="mt-1 text-2xl font-semibold text-ink">{filteredCompletedPlannedWorkOrders.length}</div>
-            </div>
+          <div className="flex justify-center">
+            <button
+              type="button"
+              onClick={() => setIsEditing(true)}
+              className="inline-flex items-center justify-center rounded-full bg-accent px-8 py-4 text-base font-semibold text-white shadow-panel transition hover:bg-brand-800"
+            >
+              Edytuj plan
+            </button>
           </div>
         </div>
       </section>
 
-      {errorMessage ? (
+      {errorMessage && !isEditing ? (
         <section className="rounded-2xl border border-rose-200 bg-rose-50 px-5 py-4 text-sm text-rose-700">{errorMessage}</section>
       ) : null}
 
-      {successMessage ? (
+      {successMessage && !isEditing ? (
         <section className="rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-4 text-sm text-emerald-700">
           {successMessage}
         </section>
       ) : null}
+
+      {isLoading ? (
+        <section className="rounded-[2rem] border border-dashed border-line bg-mist px-6 py-12 text-center text-base text-steel">
+          Ładowanie...
+        </section>
+      ) : (
+        <section className="grid gap-6 lg:grid-cols-2">
+          {PRODUCTION_LINES.map((line) => (
+            <div key={line.value}>{renderReadOnlyBoard(line.value, line.label)}</div>
+          ))}
+        </section>
+      )}
 
       <section className="rounded-[2rem] border border-white/70 bg-white/80 p-6 shadow-panel backdrop-blur sm:p-8">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -826,229 +1062,7 @@ export function ManagerPanelPage() {
         )}
       </section>
 
-      <section className="grid gap-6 xl:grid-cols-[1.1fr_1.4fr]">
-        <div className="rounded-[2rem] border border-white/70 bg-white/80 p-6 shadow-panel backdrop-blur sm:p-8">
-          <div className="mb-5 space-y-3">
-            <div>
-              <h3 className="text-2xl font-semibold text-ink">Do zaplanowania</h3>
-              <p className="mt-1 text-sm text-steel">Wybierz typ produkcji i nadaj miejsce w kolejce.</p>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-xs font-semibold uppercase tracking-[0.12em] text-steel">Sortowanie:</span>
-              <div className="inline-flex flex-wrap rounded-2xl border border-line bg-mist p-1 gap-1">
-                {(
-                  [
-                    { value: "NONE", label: "Domyślnie" },
-                    { value: "COLOR", label: "Kolor" },
-                    { value: "COMPANY", label: "Firma" },
-                    { value: "DEADLINE", label: "Termin" },
-                  ] as Array<{ value: UnplannedSort; label: string }>
-                ).map((option) => (
-                  <button
-                    key={option.value}
-                    type="button"
-                    onClick={() => setUnplannedSort(option.value)}
-                    className={[
-                      "rounded-xl px-3 py-1.5 text-xs font-semibold transition",
-                      unplannedSort === option.value
-                        ? "bg-white text-ink shadow-sm"
-                        : "text-steel hover:text-accent",
-                    ].join(" ")}
-                  >
-                    {option.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          {isLoading ? (
-            <div className="rounded-3xl border border-dashed border-line bg-mist px-6 py-12 text-center text-base text-steel">
-              Ładowanie...
-            </div>
-          ) : filteredUnplannedWorkOrders.length === 0 ? (
-            <div className="rounded-3xl border border-dashed border-line bg-mist px-6 py-12 text-center text-base text-steel">
-              Wszystkie zlecenia są już zaplanowane
-            </div>
-          ) : (
-            <div className="space-y-4">
-              {filteredUnplannedWorkOrders.map((workOrder) => {
-                const draft = planDrafts[workOrder.id] ?? { productionType: "MANUAL" as const, queuePosition: "1" };
-                const isSubmitting = planningWorkOrderId === workOrder.id;
-
-                return (
-                  <form
-                    key={workOrder.id}
-                    onSubmit={(event) => void handlePlanSubmit(event, workOrder.id)}
-                    className="rounded-3xl border border-line/80 bg-white p-5"
-                  >
-                    <div className="flex flex-col gap-4">
-                      <div>
-                        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-accent">{workOrder.order_number}</p>
-                        <h4 className="mt-2 text-lg font-semibold text-ink"><WorkOrderPrimaryInfoLine workOrder={workOrder} /></h4>
-                        <div className="mt-2 flex flex-wrap gap-2">
-                          {[...getWorkOrderBadgeStack(workOrder), ...getWorkOrderAttentionBadges(workOrder)].map((badge) => (
-                            <span
-                              key={`${workOrder.id}-${badge.label}`}
-                              className={["inline-flex rounded-full px-2 py-1 text-[11px] font-semibold", badgeClasses(badge.tone)].join(" ")}
-                            >
-                              {badge.label}
-                            </span>
-                          ))}
-                        </div>
-                        <p className="mt-2 text-sm font-semibold text-ink">{getWorkOrderStatusSummary(workOrder)}</p>
-                        <p className="text-sm text-steel">Postęp: {getWorkOrderProgressText(workOrder)}</p>
-                        {workOrder.is_correction ? (
-                          <div className="mt-2 space-y-1 text-sm">
-                            <span className="inline-flex rounded-full bg-amber-100 px-2 py-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-amber-800">
-                              POPRAWKA
-                            </span>
-                            <p className="font-medium text-amber-800">
-                              {workOrder.parent_order ? (
-                                <a href={buildWorkOrderDetailHref(workOrder.parent_order.id, "MANAGER")} className="text-amber-800 underline-offset-2 hover:underline">
-                                  {buildCorrectionReference(workOrder)}
-                                </a>
-                              ) : (
-                                buildCorrectionReference(workOrder)
-                              )}
-                            </p>
-                            <p className="text-amber-700">{buildCorrectionQuantityContext(workOrder)}</p>
-                            <p className="text-amber-700">{buildOriginalPickupContext(workOrder)}</p>
-                          </div>
-                        ) : null}
-                        {getWorkOrderActiveCorrectionsText(workOrder) ? (
-                          <p className="mt-2 text-sm text-rose-700">{getWorkOrderActiveCorrectionsText(workOrder)}</p>
-                        ) : null}
-                        <div className="mt-3">{renderPaintShortageWarning(workOrder)}</div>
-                      </div>
-
-                      <div className="grid gap-4 md:grid-cols-[1fr_160px]">
-                        <fieldset className="flex flex-col gap-2">
-                          <legend className="text-sm font-medium text-ink">Typ produkcji</legend>
-                          <div className="grid grid-cols-2 rounded-2xl border border-line bg-mist p-1">
-                            {productionTypeOptions.map((option) => {
-                              const isSelected = draft.productionType === option.value;
-                              return (
-                                <button
-                                  key={option.value}
-                                  type="button"
-                                  aria-pressed={isSelected}
-                                  onClick={() => updatePlanDraft(workOrder.id, { productionType: option.value })}
-                                  className={[
-                                    "rounded-xl px-4 py-2 text-sm font-semibold transition",
-                                    isSelected ? "bg-white text-ink shadow-sm" : "text-steel hover:text-accent",
-                                  ].join(" ")}
-                                >
-                                  {option.label}
-                                </button>
-                              );
-                            })}
-                          </div>
-                        </fieldset>
-
-                        <label className="flex flex-col gap-2">
-                          <span className="text-sm font-medium text-ink">Pozycja</span>
-                          <input
-                            type="number"
-                            min={1}
-                            value={draft.queuePosition}
-                            onChange={(event) => updatePlanDraft(workOrder.id, { queuePosition: event.target.value })}
-                            className="rounded-2xl border border-line bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-accent"
-                          />
-                        </label>
-                      </div>
-
-                      <div className="flex justify-end">
-                        <a
-                          href={buildWorkOrderDetailHref(workOrder.id, "MANAGER")}
-                          className="mr-3 inline-flex items-center justify-center rounded-full border border-line bg-white px-5 py-3 text-sm font-medium text-accent transition hover:border-accent/50"
-                        >
-                          Szczegóły
-                        </a>
-                        <button
-                          type="submit"
-                          disabled={isSubmitting}
-                          className="inline-flex items-center justify-center rounded-full bg-accent px-5 py-3 text-sm font-medium text-white transition hover:bg-brand-800 disabled:cursor-not-allowed disabled:bg-brand-100 disabled:text-brand-muted"
-                        >
-                          {isSubmitting ? "Zapisywanie..." : "Zaplanuj"}
-                        </button>
-                      </div>
-                    </div>
-                  </form>
-                );
-              })}
-            </div>
-          )}
-        </div>
-
-        <div className="rounded-[2rem] border border-white/70 bg-white/80 p-6 shadow-panel backdrop-blur sm:p-8">
-          <div className="mb-5">
-            <h3 className="text-2xl font-semibold text-ink">Zaplanowane</h3>
-            <p className="mt-1 text-sm text-steel">Lista jest sortowana według pozycji w kolejce.</p>
-          </div>
-
-          {isLoading ? (
-            <div className="rounded-3xl border border-dashed border-line bg-mist px-6 py-12 text-center text-base text-steel">
-              Ładowanie...
-            </div>
-          ) : filteredActivePlannedWorkOrders.length + filteredCompletedPlannedWorkOrders.length === 0 ? (
-            <div className="rounded-3xl border border-dashed border-line bg-mist px-6 py-12 text-center text-base text-steel">
-              Brak zaplanowanych zleceń
-            </div>
-          ) : (
-            <div className="space-y-6">
-              <div className="space-y-4">
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                  <div>
-                    <h4 className="text-lg font-semibold text-ink">Aktywne</h4>
-                    <p className="mt-1 text-sm text-steel">Przeciągnij zlecenia, aby ustawić kolejkę produkcji. Zmiany zapisują się po upuszczeniu.</p>
-                  </div>
-                  <button
-                    type="button"
-                    disabled={isSavingQueueOrder || activePlannedWorkOrders.length < 2 || !isAllQueueFilter}
-                    onClick={() => void handleSaveQueueOrder()}
-                    className="inline-flex items-center justify-center rounded-full border border-line bg-white px-4 py-2 text-sm font-medium text-steel transition hover:border-accent hover:text-accent disabled:cursor-not-allowed disabled:border-line disabled:text-slate-400"
-                  >
-                    {isSavingQueueOrder ? "Zapisywanie..." : hasPendingQueueChanges ? "Zapisz kolejność" : "Kolejność zapisana"}
-                  </button>
-                </div>
-                {!isAllQueueFilter ? (
-                  <div className="rounded-3xl border border-dashed border-line bg-mist px-6 py-6 text-center text-sm text-steel">
-                    Zmiana kolejności działa dla pełnej kolejki. Przełącz filtr na Wszystkie, aby zmienić kolejność.
-                  </div>
-                ) : null}
-                {filteredActivePlannedWorkOrders.length === 0 ? (
-                  <div className="rounded-3xl border border-dashed border-line bg-mist px-6 py-12 text-center text-base text-steel">
-                    Brak aktywnych zaplanowanych zleceń
-                  </div>
-                ) : (
-                  renderActiveQueue(filteredActivePlannedWorkOrders)
-                )}
-              </div>
-
-              {filteredCompletedPlannedWorkOrders.length > 0 ? (
-                <div className="space-y-4 rounded-3xl border border-line/80 bg-mist/50 p-5">
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                    <div>
-                      <h4 className="text-lg font-semibold text-ink">Zakończone</h4>
-                      <p className="mt-1 text-sm text-steel">Ukończone zlecenia pozostają w kolejce wyłącznie poglądowo.</p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setShowCompleted((current) => !current)}
-                      className="inline-flex items-center justify-center rounded-full border border-line bg-white px-4 py-2 text-sm font-medium text-steel transition hover:border-accent hover:text-accent"
-                    >
-                      {showCompleted ? "Ukryj zakończone" : "Pokaż zakończone"}
-                    </button>
-                  </div>
-
-                  {showCompleted ? renderCompletedWorkOrdersTable(filteredCompletedPlannedWorkOrders) : null}
-                </div>
-              ) : null}
-            </div>
-          )}
-        </div>
-      </section>
+      {isEditing ? renderEditOverlay() : null}
     </main>
   );
 }

@@ -111,7 +111,8 @@ def test_correction_reason_report_keeps_uncategorized_rows(db_session: Session) 
 def test_reorder_queue_swaps_positions_under_sqlite_unique_index(db_session: Session) -> None:
     db_session.execute(
         text(
-            "CREATE UNIQUE INDEX IF NOT EXISTS uq_work_orders_queue_position ON work_orders(queue_position) WHERE queue_position IS NOT NULL"
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_work_orders_line_queue_position "
+            "ON work_orders(production_type, queue_position) WHERE queue_position IS NOT NULL"
         )
     )
     db_session.commit()
@@ -140,6 +141,7 @@ def test_reorder_queue_swaps_positions_under_sqlite_unique_index(db_session: Ses
 
     reordered = manager_service.reorder_queue(
         WorkOrderQueueReorderBatchRequest(
+            production_type=ProductionType.MANUAL,
             queue_revision=queue_revision,
             items=[
                 WorkOrderQueueReorderRequest(work_order_id=second.id, queue_position=1),
