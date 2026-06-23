@@ -76,6 +76,7 @@ def _create_payload(title: str, **overrides: object) -> dict:
         "paint_code": "P-7016",
         "paint_producer": "AkzoNobel",
         "received_date": "2026-05-25",
+        "planned_pickup_date": "2026-06-01",
         "total_area_m2": 24.0,
         "profiles_to_count": True,
         "accessories_to_count": True,
@@ -200,6 +201,7 @@ def test_throughput_falls_back_to_stage_state_when_no_event_exists(admin_client_
             ral_code="RAL 9005",
             paint_producer="AkzoNobel",
             received_date=datetime(2026, 3, 1, tzinfo=UTC).date(),
+            planned_pickup_date=datetime(2026, 3, 8, tzinfo=UTC).date(),
             total_area_m2=12.0,
         )
         session.add(work_order)

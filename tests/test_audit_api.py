@@ -11,6 +11,7 @@ def build_create_payload(**overrides: object) -> dict:
         "paint_code": "P-7016",
         "paint_producer": "AkzoNobel",
         "received_date": "2026-05-29",
+        "planned_pickup_date": "2026-06-05",
         "total_area_m2": 24.0,
         "profiles_to_count": True,
         "accessories_to_count": True,

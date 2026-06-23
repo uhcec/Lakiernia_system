@@ -40,6 +40,7 @@ def _create_order(db_session, *, quantity: int, area: float):
             paint_code="P-7016",
             paint_producer="AkzoNobel",
             received_date=date(2026, 5, 27),
+            planned_pickup_date=date(2026, 6, 3),
             total_area_m2=area,
             profiles_quantity=quantity,
             accessories_quantity=0,

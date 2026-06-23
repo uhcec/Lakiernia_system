@@ -559,14 +559,24 @@ only. Five elements, top to bottom:
 #### Refined build plan (dependency-ordered — supersedes the framing further below)
 
 **Foundation (do first):**
-- **N49-1 — Make `planned_pickup_date` a hard, required deadline.** It IS the hard "Termin odbioru"
-  (always set at intake — owner confirmed), but the schema allows NULL and the scheduler treats it as a
-  soft sort key. Require it at intake; treat it as a **hard feasibility constraint** in the planner. (No
-  new column needed; legacy `due_date` was dropped in migration `20260529_0014`.) **Verified 2026-06-23:**
-  `WorkOrderCreate` (`app/work_orders/schemas.py:168`) has `planned_pickup_date: date | None = None`
-  (optional), while `total_area_m2` (`:169`, `Field(gt=0)`) and `ral_code` (`:160`) are **already
-  required** — so the planner's other inputs (m², colour) are forced; only the deadline isn't. Acceptance:
-  intake requires a pickup date; the planner can rely on every active order having one.
+- **N49-1 — Make `planned_pickup_date` a hard, required deadline. DONE (2026-06-24).** The pickup deadline
+  is now **required at intake and NOT NULL** in the schema/DB, so the planner can rely on every active order
+  carrying one. Changes: `WorkOrderCreate.planned_pickup_date` is now `date` (required, no default,
+  `app/work_orders/schemas.py`); the model column is `nullable=False` (`app/work_orders/models.py`);
+  migration `20260624_0039` backfills legacy NULLs → `received_date` then sets NOT NULL (batch rebuild,
+  `alembic check` clean). Frontend: the "Termin odbioru *" field is JS-validated as required (no native
+  `required` attr — matches the other fields) and always submitted (`CreateWorkOrderPage.tsx`); the
+  `CreateWorkOrderRequest` type now requires it. Docs: `docs/WORKFLOW.md` "Work Order Intake Fields".
+  Tests: new `test_creating_without_planned_pickup_date_fails_N49_1` (422); ~16 backend create-helpers +
+  raw-insert constraint helpers + 3 frontend form-submit tests updated to supply a pickup date; the NA44
+  overdue test dropped its now-unconstructible `no_date` case. **474 backend + 89 frontend tests pass;
+  alembic check clean; frontend build green.** The "hard feasibility constraint in the planner" half lands
+  with the planner itself (N49-3/N49-4) — this item delivered the data-foundation guarantee.
+  - Original framing — It IS the hard "Termin odbioru" (always set at intake — owner confirmed), but the
+    schema allowed NULL and the scheduler treated it as a soft sort key. **Verified 2026-06-23:**
+    `WorkOrderCreate` had `planned_pickup_date: date | None = None` (optional), while `total_area_m2`
+    (`Field(gt=0)`) and `ral_code` were already required — so only the deadline wasn't. Acceptance: intake
+    requires a pickup date; the planner can rely on every active order having one.
 - **N49-2 — Measurement engine ("learn the numbers").** Derive real automatic **m²/h** and a
   **statistical colour-changeover cost** from `StageTransitionEvent` (HANGING-start → PACKING-done
   brackets the automatic pass — **no booth tap**, owner: "na kabinie nie tapnie"). Seed ~55–60 m²/h.

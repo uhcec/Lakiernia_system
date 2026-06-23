@@ -210,7 +210,7 @@ export interface CreateWorkOrderRequest {
   paint_code: string;
   paint_producer: string;
   received_date: string;
-  planned_pickup_date?: string;
+  planned_pickup_date: string;
   total_area_m2: number;
   is_incomplete_on_arrival?: boolean;
   profiles_quantity?: number;

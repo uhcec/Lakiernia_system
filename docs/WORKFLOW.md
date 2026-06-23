@@ -29,6 +29,11 @@ Scope:
 Office intake should support operational and traceability fields needed later by production, manager, and documents.
 
 Confirmed needs:
+- the pickup deadline (`planned_pickup_date`, "Termin odbioru") is **required at intake** and is a **hard
+  deadline**, not a soft sort key (N49-1). It is always set by the office in real operation, so the
+  schema/DB enforce it (NOT NULL); the multi-day capacity planner relies on every active order carrying
+  one (it places orders deadline-feasibly across days — see "Target planning model"). Legacy rows that
+  predated the requirement were backfilled to their `received_date` (migration `20260624_0039`).
 - client-facing/external work-order number (`external_order_number`) is captured separately from the internal system work-order number
 - `external_order_number` is optional, not unique, and duplicate values should be allowed without warning or blocking
 - paint identity and a paint stock snapshot or stock reference should be captured at intake before planning/production

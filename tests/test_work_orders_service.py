@@ -25,6 +25,7 @@ def build_incomplete_work_order_payload(**overrides: object) -> WorkOrderCreate:
         "paint_code": "P-7016",
         "paint_producer": "AkzoNobel",
         "received_date": date(2026, 5, 25),
+        "planned_pickup_date": date(2026, 6, 1),
         "total_area_m2": 24.0,
         "is_incomplete_on_arrival": True,
         "profiles_to_count": True,
@@ -84,11 +85,6 @@ def test_read_model_is_overdue_is_backend_owned_NA44(db_session: Session) -> Non
     )
     assert due_today.is_overdue is False  # the pickup day itself is not yet past the deadline
 
-    no_date = service.create_work_order(
-        build_incomplete_work_order_payload(is_incomplete_on_arrival=False, planned_pickup_date=None)
-    )
-    assert no_date.is_overdue is False
-
 
 def test_update_work_order_records_station_audit_event(db_session: Session) -> None:
     service, _ = build_work_order_service(db_session)
@@ -111,7 +107,7 @@ def test_update_work_order_records_station_audit_event(db_session: Session) -> N
         "updated_fields": ["planned_pickup_date", "title"],
         "changes": {
             "title": {"before": "Niekompletne zlecenie", "after": "Po korekcie"},
-            "planned_pickup_date": {"before": None, "after": "2026-06-03"},
+            "planned_pickup_date": {"before": "2026-06-01", "after": "2026-06-03"},
         },
     }
 

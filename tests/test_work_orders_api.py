@@ -12,6 +12,7 @@ def build_create_payload(**overrides: object) -> dict:
         "paint_code": "P-7016",
         "paint_producer": "AkzoNobel",
         "received_date": "2026-05-25",
+        "planned_pickup_date": "2026-06-01",
         "total_area_m2": 24.0,
         "profiles_to_count": True,
         "accessories_to_count": True,
@@ -283,12 +284,10 @@ def test_create_work_order_with_missing_optional_fields(test_client: TestClient)
     response = create_work_order(
         test_client,
         title="Optional fields omitted",
-        planned_pickup_date=None,
     )
 
     assert response.status_code == 201
     assert response.json()["external_order_number"] is None
-    assert response.json()["planned_pickup_date"] is None
     assert response.json()["total_area_m2"] == 24.0
 
 
@@ -414,6 +413,17 @@ def test_creating_without_required_fields_fails(test_client: TestClient) -> None
     payload = build_create_payload()
     payload.pop("customer_name")
     payload.pop("received_date")
+
+    response = test_client.post("/work-orders", json=payload)
+
+    assert response.status_code == 422
+
+
+def test_creating_without_planned_pickup_date_fails_N49_1(test_client: TestClient) -> None:
+    # N49-1: the pickup date is the hard "Termin odbioru" deadline the planner relies on, so it is
+    # required at intake (not an optional sort key).
+    payload = build_create_payload()
+    payload.pop("planned_pickup_date")
 
     response = test_client.post("/work-orders", json=payload)
 

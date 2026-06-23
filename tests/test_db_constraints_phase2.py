@@ -28,7 +28,7 @@ def _insert_work_order(
             ) VALUES (
                 :order_number, :order_number, 10, 0, :parent_order_id,
                 :is_correction, NULL, 'Customer', 'RAL 9005', 'Producer', 'RAL',
-                'STANDARD', 0, :production_type, :queue_namespace, :queue_position, '2026-05-25', NULL, NULL,
+                'STANDARD', 0, :production_type, :queue_namespace, :queue_position, '2026-05-25', '2026-06-01', NULL,
                 :is_incomplete_on_arrival, NULL, 1, NULL, 1,
                 NULL, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
             )

@@ -122,6 +122,7 @@ function buildCreateWorkOrderRequest(): CreateWorkOrderRequest {
     paint_code: "P-7016",
     paint_producer: "AkzoNobel",
     received_date: "2026-05-29",
+    planned_pickup_date: "2026-06-05",
     total_area_m2: 24,
     profiles_to_count: true,
     accessories_to_count: true,

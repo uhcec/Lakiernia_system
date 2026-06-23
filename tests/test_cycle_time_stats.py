@@ -54,6 +54,7 @@ def _create_order(work_order_service: WorkOrderService, title: str, coating_type
             paint_code="P-7016",
             paint_producer="AkzoNobel",
             received_date=date(2026, 5, 27),
+            planned_pickup_date=date(2026, 6, 3),
             total_area_m2=24.0,
             profiles_quantity=10,
             accessories_quantity=0,

@@ -426,6 +426,11 @@ export function CreateWorkOrderPage() {
       return;
     }
 
+    if (!formState.planned_pickup_date) {
+      setValidationError("Termin odbioru jest wymagany");
+      return;
+    }
+
     const totalArea = parseOptionalPositiveNumber(formState.total_area_m2);
     if (totalArea === undefined) {
       setValidationError("Powierzchnia całkowita jest wymagana");
@@ -455,7 +460,7 @@ export function CreateWorkOrderPage() {
         paint_code: trimmedPaintCode,
         paint_producer: trimmedPaintProducer,
         received_date: formState.received_date,
-        planned_pickup_date: formState.planned_pickup_date || undefined,
+        planned_pickup_date: formState.planned_pickup_date,
         total_area_m2: totalArea,
         is_incomplete_on_arrival: formState.is_incomplete_on_arrival,
         profiles_quantity: profilesQuantity,
@@ -622,7 +627,7 @@ export function CreateWorkOrderPage() {
             </label>
 
             <label className="flex flex-col gap-2">
-              <span className="text-sm font-medium text-ink">Planowany odbiór</span>
+              <span className="text-sm font-medium text-ink">Termin odbioru *</span>
               <input
                 type="date"
                 value={formState.planned_pickup_date}

@@ -34,6 +34,7 @@ def _create(work_order_service, title: str, coating: CoatingType):
             paint_code="P-7016",
             paint_producer="AkzoNobel",
             received_date=date(2026, 5, 27),
+            planned_pickup_date=date(2026, 6, 3),
             total_area_m2=24.0,
             profiles_quantity=Q,
             accessories_quantity=0,

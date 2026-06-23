@@ -165,7 +165,7 @@ class WorkOrderCreate(BaseModel):
     work_order_kind: WorkOrderKind = WorkOrderKind.STANDARD
     is_ocynk: bool = False
     received_date: date
-    planned_pickup_date: date | None = None
+    planned_pickup_date: date
     total_area_m2: float = Field(gt=0)
     is_incomplete_on_arrival: bool = False
     profiles_quantity: int | None = Field(default=None, ge=0)

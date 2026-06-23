@@ -30,7 +30,7 @@ def _insert_valid_work_order(db_session: Session, *, order_number: str = "WO-202
         queue_namespace=QueueNamespace.MAIN,
         queue_position=None,
         received_date=date(2026, 5, 25),
-        planned_pickup_date=None,
+        planned_pickup_date=date(2026, 6, 1),
         total_area_m2=None,
         is_incomplete_on_arrival=False,
         profiles_quantity=None,
@@ -104,7 +104,7 @@ def test_profile_accessory_quantities_must_sum_to_total_when_known(db_session: S
         queue_namespace=QueueNamespace.MAIN,
         queue_position=None,
         received_date=date(2026, 5, 25),
-        planned_pickup_date=None,
+        planned_pickup_date=date(2026, 6, 1),
         total_area_m2=None,
         is_incomplete_on_arrival=False,
         profiles_quantity=4,
@@ -132,7 +132,7 @@ def test_profile_accessory_quantities_must_sum_to_total_when_known(db_session: S
         queue_namespace=QueueNamespace.MAIN,
         queue_position=None,
         received_date=date(2026, 5, 25),
-        planned_pickup_date=None,
+        planned_pickup_date=date(2026, 6, 1),
         total_area_m2=None,
         is_incomplete_on_arrival=False,
         profiles_quantity=5,
@@ -161,7 +161,7 @@ def test_profile_accessory_quantities_must_sum_to_total_when_known(db_session: S
             ) VALUES (
                 :order_number, :title, :total_quantity, :completed_quantity, NULL,
                 :is_correction, NULL, 'Customer', 'RAL 9005', 'Producer', 'RAL',
-                :production_type, :queue_namespace, :queue_position, '2026-05-25', NULL, NULL,
+                :production_type, :queue_namespace, :queue_position, '2026-05-25', '2026-06-01', NULL,
                 0, :profiles_quantity, 1, :accessories_quantity, 1,
                 NULL, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
             )
@@ -190,7 +190,7 @@ def test_profile_accessory_quantities_must_sum_to_total_when_known(db_session: S
             ) VALUES (
                 :order_number, :title, 10, 11, NULL,
                 0, NULL, 'Customer', 'RAL 9005', 'Producer', 'RAL',
-                NULL, 'MAIN', NULL, '2026-05-25', NULL, NULL,
+                NULL, 'MAIN', NULL, '2026-05-25', '2026-06-01', NULL,
                 0, NULL, 1, NULL, 1,
                 NULL, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
             )
@@ -208,7 +208,7 @@ def test_profile_accessory_quantities_must_sum_to_total_when_known(db_session: S
             ) VALUES (
                 :order_number, :title, 10, 0, NULL,
                 0, NULL, 'Customer', 'RAL 9005', 'Producer', 'RAL',
-                NULL, 'MAIN', 0, '2026-05-25', NULL, NULL,
+                NULL, 'MAIN', 0, '2026-05-25', '2026-06-01', NULL,
                 0, NULL, 1, NULL, 1,
                 NULL, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
             )
@@ -226,7 +226,7 @@ def test_profile_accessory_quantities_must_sum_to_total_when_known(db_session: S
             ) VALUES (
                 :order_number, :title, 10, 0, NULL,
                 0, NULL, 'Customer', 'RAL 9005', 'Producer', 'RAL',
-                'MANUAL', 'MAIN', NULL, '2026-05-25', NULL, NULL,
+                'MANUAL', 'MAIN', NULL, '2026-05-25', '2026-06-01', NULL,
                 0, NULL, 1, NULL, 1,
                 NULL, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
             )
@@ -244,7 +244,7 @@ def test_profile_accessory_quantities_must_sum_to_total_when_known(db_session: S
             ) VALUES (
                 9910, :order_number, :title, 10, 0, 9910,
                 0, NULL, 'Customer', 'RAL 9005', 'Producer', 'RAL',
-                NULL, 'MAIN', NULL, '2026-05-25', NULL, NULL,
+                NULL, 'MAIN', NULL, '2026-05-25', '2026-06-01', NULL,
                 0, NULL, 1, NULL, 1,
                 NULL, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
             )
@@ -262,7 +262,7 @@ def test_profile_accessory_quantities_must_sum_to_total_when_known(db_session: S
             ) VALUES (
                 :order_number, :title, 10, 0, NULL,
                 1, NULL, 'Customer', 'RAL 9005', 'Producer', 'RAL',
-                NULL, 'MAIN', NULL, '2026-05-25', NULL, NULL,
+                NULL, 'MAIN', NULL, '2026-05-25', '2026-06-01', NULL,
                 0, NULL, 1, NULL, 1,
                 NULL, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
             )
