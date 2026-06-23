@@ -565,8 +565,15 @@ stage's order is derived.
   optimising the **AUTOMATIC** line first by colour grouping → deadline → changeover, with a
   **configurable rule priority**. The manager overrides by drag / pin / "urgent"; re-running "Ułóż"
   re-optimises *around* pinned items. Live on screens — replaces the printed sheet.
-- **Surface preparation (feeder):** order **derived from the painting plan** (feed both lines' fronts);
-  display **line label + that line's position**, never a merged global "Poz.". Plan-driven (confirmed).
+- **Surface preparation (feeder):** ONE shared prep station feeds the TWO parallel booths, so prep is a
+  **single interleaved sequence** across both lines — two per-line lists do NOT answer "what's next"
+  (owner caught this 2026-06-23). The cross-line order is **derived by buffer** (owner decision
+  2026-06-23): prep next the line with the **smaller prepared-but-not-yet-painted buffer** (closest to
+  starving its booth); tie → automatic. Within a line, the candidate is the next un-prepped order in that
+  line's painting plan. Display = one list, each row line-labelled, top = do next (a "NASTĘPNE" marker).
+  Assumptions taken (revisit): buffer measured in **pieces** (not m²); the list may re-order live as
+  painting consumes. ⚠️ Does NOT yet account for przemalowanka (skips prep but still loads the booth) —
+  see sub-item below.
 - **Packing (drain):** order **derived from physical readiness** + the existing packing-slot model
   (automatic reserves packing at hanging start; manual may exceptionally open a second slot with the
   "X pieces incoming from automatic" warning). No manual position numbering; the manager may
@@ -581,6 +588,54 @@ stage's order is derived.
 - Covered by tests; `docs/WORKFLOW.md` (scheduling/queue semantics) and `docs/FACTORY_DOMAIN_MODEL.md`
   (physical grounding) updated when built.
 - NA33 is folded in as the painting-plan auto-scheduler sub-part (do not build it as a separate model).
+
+**Sub-items discovered in the 2026-06-23 logic review (gaps + convenience shortcuts).** Recorded so
+nothing is lost; severities are first-pass. The two headline gaps are NA49.A (time/capacity) and NA49.B
+(decoral as a second bottleneck).
+
+*Not addressed at all (gaps):*
+- **NA49.A — No notion of time / daily capacity (biggest gap).** What we built orders the queue; it is
+  **not** a capacity planner. We do not model per-order paint duration, daily m² capacity, working
+  hours, or day boundaries. Consequence: we cannot answer "will this make its deadline?", "is the day
+  full?", or honour the owner's original "don't drop below a daily m² floor" intent. Deadline is only a
+  sort key, never checked against capacity. Severity: **MEDIUM–HIGH** (it is the core of real planning).
+  Acceptance (when built): per-order time/throughput estimate + daily capacity, a "won't make deadline"
+  warning, and a day-fill view; decide unit (m²/day) with the owner.
+- **NA49.B — Decoral is a second bottleneck, ignored by the scheduler.** The decoral coat station has its
+  own changeover cost (**foil changes**, `WorkOrder.decoral_foil_id` from NA38) and its own packing.
+  Optimising only the base-coat automatic booth can just **push the bottleneck** to decoral. Severity:
+  **MEDIUM**. Acceptance: decoral sequence considered (group/limit foil changes), or an explicit decision
+  that decoral is not a constraint, with evidence.
+- **NA49.C — Scheduler ignores paint stock.** Colour grouping can propose a large run of a colour that is
+  **not in stock** (shortage warnings exist elsewhere but don't influence ordering). Severity: LOW–MEDIUM.
+  Acceptance: the proposal accounts for / flags paint availability for the colour it front-loads.
+- **NA49.D — Przemalowanka bypasses surface prep but still loads the booth.** The prep buffer rule (above)
+  won't "see" przemalowanka demand, so a line's booth load is under-counted. Severity: LOW. Acceptance:
+  the buffer/feed logic accounts for booth demand that skips prep.
+- **NA49.E — Where do returning corrections land in the auto-arranged plan?** A RAL correction resets to
+  planning; interplay with colour grouping/append is unspecified (does it rejoin its colour group?).
+  Severity: LOW. Acceptance: defined + tested placement of a returned correction in the scheduled line.
+- **NA49.F — Shared packing under simultaneous two-line load.** Both booths drain into one packing; the
+  slot model covers automatic reservation, but the manual+automatic interleave at packing under load is
+  not dialled in. Severity: LOW–MEDIUM (part of the packing-derivation build).
+- **NA49.G — Manual line has no auto-scheduler** (deliberately deferred). The hand painter also has
+  colour-changeover cost; the same mechanism should extend to MANUAL. Severity: LOW.
+
+*Done sub-optimally for speed (revisit when it matters):*
+- **NA49.H — "Maks. przerób" is a crude proxy, not real changeover optimisation.** "Largest colour run
+  first" (key `-group_m2`) does not minimise actual transition cost (e.g. light→dark sequencing, true
+  changeover count) and is near-inert at the default priority. A real optimiser would sequence colour
+  groups to minimise total changeover.
+- **NA49.I — Lexicographic independent sort keys, not multi-objective.** `colour` and `changeover` both
+  key on colour, so the configurable priority is partly illusory; chosen for a clean sort + simple UI.
+- **NA49.J — Suggestion banner counts only colour changeovers**, not deadline/m²-day improvement.
+- **NA49.K — No pin / urgent.** The agreed model wanted pinning; re-running "Ułóż" overwrites manual
+  tweaks (nothing can be locked and optimised around). Deferred for speed.
+- **NA49.L — Prep order reuses the painting plan's `queue_position`** rather than its own model, so prep
+  cannot deliberately diverge from the painting plan (e.g. prep a different order first because paint
+  isn't ready) — couples to NA49.C/D.
+- **NA49.M — Buffer measured in pieces, not m²** (m² would track booth consumption more faithfully since
+  automatic eats m² faster); config stored as a JSON blob with no per-rule parameters.
 
 ## New owner requests (2026-06-19) — scoped from owner chat
 
