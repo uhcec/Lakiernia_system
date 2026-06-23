@@ -1,4 +1,4 @@
-import type { ProductionTypeValue } from "./workOrders";
+import type { ProductionTypeValue, WorkOrder } from "./workOrders";
 
 export interface AssignWorkOrderPlanRequest {
   production_type: ProductionTypeValue;
@@ -111,4 +111,36 @@ export interface WipAgingStats {
   generated_at: string;
   items: WipAgingItem[];
   breakdown: WipAgingBreakdown;
+}
+
+export type ScheduleRuleKey = "colour" | "deadline" | "changeover";
+
+export interface ScheduleRuleConfigItem {
+  key: ScheduleRuleKey;
+  label: string;
+  description: string;
+  enabled: boolean;
+}
+
+export interface ScheduleRuleConfigRead {
+  production_type: ProductionTypeValue;
+  rules: ScheduleRuleConfigItem[];
+}
+
+export interface ScheduleRuleConfigUpdateItem {
+  key: ScheduleRuleKey;
+  enabled: boolean;
+}
+
+export interface ScheduleRuleConfigUpdate {
+  rules: ScheduleRuleConfigUpdateItem[];
+}
+
+export interface AutoScheduleProposal {
+  production_type: ProductionTypeValue;
+  queue_revision: string | null;
+  current_colour_changeovers: number;
+  proposed_colour_changeovers: number;
+  colour_changeover_reduction: number;
+  proposed_order: WorkOrder[];
 }

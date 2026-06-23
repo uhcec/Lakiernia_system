@@ -11,8 +11,11 @@ from app.audit.context import StationContext, get_station_context
 from app.database.session import get_db_session
 from app.manager.repository import ManagerRepository
 from app.manager.schemas import (
+    AutoScheduleProposal,
     CorrectionReasonReportItem,
     CycleTimeStats,
+    ScheduleRuleConfigRead,
+    ScheduleRuleConfigUpdate,
     ThroughputStats,
     WipAgingStats,
     WorkOrderPlanAssignRequest,
@@ -21,6 +24,7 @@ from app.manager.schemas import (
     WorkOrderQueueReorderBatchRequest,
 )
 from app.manager.service import ManagerService
+from app.process.enums import ProductionType
 from app.work_orders.schemas import WorkOrderRead
 
 router = APIRouter(prefix="/manager", tags=["manager-work-orders"])
@@ -124,6 +128,34 @@ def update_queue_position(
     station_context: Annotated[StationContext, Depends(get_station_context)],
 ) -> WorkOrderRead:
     return service.update_queue_position(work_order_id, payload, station_context=station_context)
+
+
+@router.get("/scheduler/config", response_model=ScheduleRuleConfigRead)
+def get_schedule_config(
+    service: Annotated[ManagerService, Depends(get_manager_service)],
+    station_context: Annotated[StationContext, Depends(get_station_context)],
+    production_type: Annotated[ProductionType, Query()] = ProductionType.AUTOMATIC,
+) -> ScheduleRuleConfigRead:
+    return service.get_schedule_config(production_type, station_context=station_context)
+
+
+@router.put("/scheduler/config", response_model=ScheduleRuleConfigRead)
+def update_schedule_config(
+    payload: ScheduleRuleConfigUpdate,
+    service: Annotated[ManagerService, Depends(get_manager_service)],
+    station_context: Annotated[StationContext, Depends(get_station_context)],
+    production_type: Annotated[ProductionType, Query()] = ProductionType.AUTOMATIC,
+) -> ScheduleRuleConfigRead:
+    return service.update_schedule_config(production_type, payload, station_context=station_context)
+
+
+@router.get("/scheduler/proposal", response_model=AutoScheduleProposal)
+def get_auto_schedule_proposal(
+    service: Annotated[ManagerService, Depends(get_manager_service)],
+    station_context: Annotated[StationContext, Depends(get_station_context)],
+    production_type: Annotated[ProductionType, Query()] = ProductionType.AUTOMATIC,
+) -> AutoScheduleProposal:
+    return service.propose_auto_schedule(production_type, station_context=station_context)
 
 
 @router.post("/queue/reorder", response_model=list[WorkOrderRead])

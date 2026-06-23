@@ -3,14 +3,21 @@ import { DragEvent, useEffect, useRef, useState } from "react";
 import { usePolling, STATION_POLL_INTERVAL_MS } from "../hooks/usePolling";
 import {
   assignWorkOrderPlan,
+  fetchAutoScheduleProposal,
   fetchCorrectionReasonReport,
   fetchPlannedWorkOrders,
+  fetchScheduleConfig,
   fetchUnplannedWorkOrders,
   getCorrectionReasonReportExportUrl,
   reorderWorkOrderQueue,
+  updateScheduleConfig,
   updateWorkOrderProductionType,
 } from "../api/managerApi";
-import type { CorrectionReasonReportItem } from "../types/manager";
+import type {
+  AutoScheduleProposal,
+  CorrectionReasonReportItem,
+  ScheduleRuleConfigItem,
+} from "../types/manager";
 import type { ProductionTypeValue, WorkOrder } from "../types/workOrders";
 import { isApiError } from "../api/apiError";
 import { getMutationErrorMessage } from "../utils/mutationError";
@@ -216,6 +223,11 @@ export function ManagerPanelPage() {
   const [showCompleted, setShowCompleted] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [editLine, setEditLine] = useState<ProductionTypeValue>("AUTOMATIC");
+  const [scheduleProposal, setScheduleProposal] = useState<AutoScheduleProposal | null>(null);
+  const [isAutoArranging, setIsAutoArranging] = useState(false);
+  const [scheduleRules, setScheduleRules] = useState<ScheduleRuleConfigItem[] | null>(null);
+  const [showRulesConfig, setShowRulesConfig] = useState(false);
+  const [isSavingRules, setIsSavingRules] = useState(false);
   const authoritativeQueueRef = useRef<AuthoritativeQueueSnapshot | null>(null);
 
   const isAllQueueFilter = queueFilter === "ALL";
@@ -395,6 +407,107 @@ export function ManagerPanelPage() {
     }
 
     await saveLineQueueOrder(lineActive, editLine);
+  }
+
+  // Painting auto-scheduler (NA33) — AUTOMATIC line only in v1. While the manager is idle on the
+  // automatic plan, refresh the rule config (once) and a non-committal proposal so the "lepsze
+  // ułożenie" suggestion banner can show. Skipped mid-edit so it never fights local drag/preview.
+  useEffect(() => {
+    if (!isEditing || editLine !== "AUTOMATIC") {
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        if (scheduleRules === null) {
+          const config = await fetchScheduleConfig("AUTOMATIC");
+          if (!cancelled) {
+            setScheduleRules(config.rules);
+          }
+        }
+        if (!hasPendingQueueChanges && !isSavingQueueOrder && !isLoading) {
+          const proposal = await fetchAutoScheduleProposal("AUTOMATIC");
+          if (!cancelled) {
+            setScheduleProposal(proposal);
+          }
+        }
+      } catch {
+        // The suggestion is best-effort; a failure must not break planning.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isEditing, editLine, hasPendingQueueChanges, isSavingQueueOrder, isLoading, activePlannedWorkOrders]);
+
+  async function handleAutoArrange() {
+    setIsAutoArranging(true);
+    setErrorMessage(null);
+    setSuccessMessage(null);
+    try {
+      const proposal = await fetchAutoScheduleProposal(editLine);
+      setScheduleProposal(proposal);
+      if (proposal.proposed_order.length === 0) {
+        setSuccessMessage("Brak zleceń do ułożenia na tej linii.");
+        return;
+      }
+      replaceLineActiveOrders(editLine, proposal.proposed_order);
+      setHasPendingQueueChanges(true);
+      const reduction = proposal.colour_changeover_reduction;
+      setSuccessMessage(
+        reduction > 0
+          ? `Proponowana kolejność: o ${reduction} mniej zmian koloru. Sprawdź i zapisz.`
+          : "Kolejność jest już optymalna — możesz zapisać bez zmian.",
+      );
+    } catch (error) {
+      setErrorMessage(getMutationErrorMessage(error, "Nie udało się ułożyć kolejności automatycznie."));
+    } finally {
+      setIsAutoArranging(false);
+    }
+  }
+
+  function handleMoveRule(index: number, direction: -1 | 1) {
+    setScheduleRules((current) => {
+      if (!current) {
+        return current;
+      }
+      const target = index + direction;
+      if (target < 0 || target >= current.length) {
+        return current;
+      }
+      const next = [...current];
+      [next[index], next[target]] = [next[target], next[index]];
+      return next;
+    });
+  }
+
+  function handleToggleRule(index: number) {
+    setScheduleRules((current) =>
+      current ? current.map((rule, i) => (i === index ? { ...rule, enabled: !rule.enabled } : rule)) : current,
+    );
+  }
+
+  async function handleSaveRules() {
+    if (!scheduleRules) {
+      return;
+    }
+    setIsSavingRules(true);
+    setErrorMessage(null);
+    setSuccessMessage(null);
+    try {
+      const updated = await updateScheduleConfig(editLine, {
+        rules: scheduleRules.map((rule) => ({ key: rule.key, enabled: rule.enabled })),
+      });
+      setScheduleRules(updated.rules);
+      setSuccessMessage("Reguły układania zapisane.");
+      const proposal = await fetchAutoScheduleProposal(editLine);
+      setScheduleProposal(proposal);
+    } catch (error) {
+      setErrorMessage(getMutationErrorMessage(error, "Nie udało się zapisać reguł układania."));
+    } finally {
+      setIsSavingRules(false);
+    }
   }
 
   function handleQueueDragStart(event: DragEvent<HTMLElement>, workOrderId: number) {
@@ -850,6 +963,80 @@ export function ManagerPanelPage() {
     );
   }
 
+  function renderRulesConfig() {
+    return (
+      <div className="mb-4 space-y-3 rounded-3xl border border-line/80 bg-mist/60 px-5 py-4">
+        <div>
+          <h4 className="text-base font-semibold text-ink">Reguły układania (Automat)</h4>
+          <p className="mt-1 text-xs text-steel">
+            Kolejność reguł = priorytet układania (od najważniejszej). Przestaw strzałkami i włącz/wyłącz.
+          </p>
+        </div>
+        {scheduleRules === null ? (
+          <p className="text-sm text-steel">Ładowanie reguł...</p>
+        ) : (
+          <>
+            <ol className="space-y-2">
+              {scheduleRules.map((rule, index) => (
+                <li
+                  key={rule.key}
+                  className="flex items-center gap-3 rounded-2xl border border-line bg-white px-4 py-3"
+                >
+                  <span className="text-sm font-semibold text-steel">{index + 1}.</span>
+                  <div className="min-w-0 flex-1">
+                    <p className={["text-sm font-semibold", rule.enabled ? "text-ink" : "text-slate-400"].join(" ")}>
+                      {rule.label}
+                    </p>
+                    <p className="text-xs text-steel">{rule.description}</p>
+                  </div>
+                  <label className="flex shrink-0 items-center gap-1.5 text-xs font-medium text-steel">
+                    <input
+                      type="checkbox"
+                      checked={rule.enabled}
+                      onChange={() => handleToggleRule(index)}
+                      aria-label={`Włącz regułę: ${rule.label}`}
+                    />
+                    {rule.enabled ? "Aktywna" : "Wyłączona"}
+                  </label>
+                  <div className="flex shrink-0 flex-col gap-1">
+                    <button
+                      type="button"
+                      disabled={index === 0}
+                      onClick={() => handleMoveRule(index, -1)}
+                      aria-label={`Wyżej: ${rule.label}`}
+                      className="rounded-lg border border-line px-2 text-xs text-steel transition hover:border-accent hover:text-accent disabled:cursor-not-allowed disabled:text-slate-300"
+                    >
+                      ▲
+                    </button>
+                    <button
+                      type="button"
+                      disabled={index === scheduleRules.length - 1}
+                      onClick={() => handleMoveRule(index, 1)}
+                      aria-label={`Niżej: ${rule.label}`}
+                      className="rounded-lg border border-line px-2 text-xs text-steel transition hover:border-accent hover:text-accent disabled:cursor-not-allowed disabled:text-slate-300"
+                    >
+                      ▼
+                    </button>
+                  </div>
+                </li>
+              ))}
+            </ol>
+            <div className="flex justify-end">
+              <button
+                type="button"
+                disabled={isSavingRules}
+                onClick={() => void handleSaveRules()}
+                className="inline-flex items-center justify-center rounded-full bg-accent px-4 py-2 text-sm font-semibold text-white transition hover:bg-brand-800 disabled:cursor-not-allowed disabled:bg-brand-100 disabled:text-brand-muted"
+              >
+                {isSavingRules ? "Zapisywanie..." : "Zapisz reguły"}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    );
+  }
+
   function renderPlannedColumn() {
     const lineActive = filterQueueByType(lineActiveOrders(editLine), queueFilter);
     const lineCompleted = filterQueueByType(lineCompletedOrders(editLine), queueFilter);
@@ -863,15 +1050,59 @@ export function ManagerPanelPage() {
             </h3>
             <p className="mt-1 text-sm text-steel">Przeciągnij zlecenia, aby ustawić kolejność. Zmiany zapisują się same.</p>
           </div>
-          <button
-            type="button"
-            disabled={isSavingQueueOrder || lineActiveOrders(editLine).length < 2 || !isAllQueueFilter}
-            onClick={() => void handleSaveQueueOrder()}
-            className="inline-flex items-center justify-center rounded-full border border-line bg-white px-4 py-2 text-sm font-medium text-steel transition hover:border-accent hover:text-accent disabled:cursor-not-allowed disabled:border-line disabled:text-slate-400"
-          >
-            {isSavingQueueOrder ? "Zapisywanie..." : hasPendingQueueChanges ? "Zapisz kolejność" : "Kolejność zapisana"}
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            {editLine === "AUTOMATIC" ? (
+              <>
+                <button
+                  type="button"
+                  disabled={isAutoArranging || isSavingQueueOrder || lineActiveOrders(editLine).length < 2 || !isAllQueueFilter}
+                  onClick={() => void handleAutoArrange()}
+                  className="inline-flex items-center justify-center rounded-full bg-accent px-4 py-2 text-sm font-semibold text-white transition hover:bg-brand-800 disabled:cursor-not-allowed disabled:bg-brand-100 disabled:text-brand-muted"
+                >
+                  {isAutoArranging ? "Układanie..." : "Ułóż automatycznie"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowRulesConfig((current) => !current)}
+                  className="inline-flex items-center justify-center rounded-full border border-line bg-white px-4 py-2 text-sm font-medium text-steel transition hover:border-accent hover:text-accent"
+                >
+                  {showRulesConfig ? "Ukryj reguły" : "Reguły układania"}
+                </button>
+              </>
+            ) : null}
+            <button
+              type="button"
+              disabled={isSavingQueueOrder || lineActiveOrders(editLine).length < 2 || !isAllQueueFilter}
+              onClick={() => void handleSaveQueueOrder()}
+              className="inline-flex items-center justify-center rounded-full border border-line bg-white px-4 py-2 text-sm font-medium text-steel transition hover:border-accent hover:text-accent disabled:cursor-not-allowed disabled:border-line disabled:text-slate-400"
+            >
+              {isSavingQueueOrder ? "Zapisywanie..." : hasPendingQueueChanges ? "Zapisz kolejność" : "Kolejność zapisana"}
+            </button>
+          </div>
         </div>
+
+        {editLine === "AUTOMATIC" &&
+        isAllQueueFilter &&
+        !hasPendingQueueChanges &&
+        scheduleProposal &&
+        scheduleProposal.colour_changeover_reduction > 0 ? (
+          <div className="mb-4 flex flex-col gap-2 rounded-3xl border border-amber-200 bg-amber-50 px-5 py-3 text-sm text-amber-800 sm:flex-row sm:items-center sm:justify-between">
+            <span>
+              Lepsze ułożenie dostępne — o {scheduleProposal.colour_changeover_reduction}{" "}
+              {scheduleProposal.colour_changeover_reduction === 1 ? "zmianę" : "zmian"} koloru mniej.
+            </span>
+            <button
+              type="button"
+              disabled={isAutoArranging}
+              onClick={() => void handleAutoArrange()}
+              className="inline-flex shrink-0 items-center justify-center rounded-full bg-amber-600 px-4 py-1.5 text-xs font-semibold text-white transition hover:bg-amber-700 disabled:cursor-not-allowed disabled:bg-amber-200"
+            >
+              Pokaż propozycję
+            </button>
+          </div>
+        ) : null}
+
+        {editLine === "AUTOMATIC" && showRulesConfig ? renderRulesConfig() : null}
 
         {!isAllQueueFilter ? (
           <div className="mb-4 rounded-3xl border border-dashed border-line bg-mist px-6 py-4 text-center text-sm text-steel">

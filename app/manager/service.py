@@ -15,12 +15,28 @@ from app.process.enums import CoatingType, ProcessDisplayStatus, ProductionType
 from app.process.models import StageTransitionEvent, WorkOrderStageState
 from app.process.repository import ProcessRepository
 from app.process.service import ProcessService
+from app.manager.enums import (
+    DEFAULT_RULE_ORDER,
+    SCHEDULE_RULE_DESCRIPTIONS,
+    SCHEDULE_RULE_LABELS,
+    ScheduleRuleKey,
+)
+from app.manager.models import AutoScheduleConfig
 from app.manager.repository import ManagerRepository
+from app.manager.scheduler import (
+    SchedulableOrder,
+    colour_changeovers_for_order_ids,
+    propose_sequence,
+)
 from app.manager.schemas import (
+    AutoScheduleProposal,
     CorrectionReasonReportItem,
     CycleTimeBreakdown,
     CycleTimeSegment,
     CycleTimeStats,
+    ScheduleRuleConfigItem,
+    ScheduleRuleConfigRead,
+    ScheduleRuleConfigUpdate,
     StageCycleTime,
     ThroughputPeriod,
     ThroughputStats,
@@ -1024,6 +1040,146 @@ class ManagerService:
                 raise
 
             return self.list_planned_work_orders()
+
+    # --- Painting auto-scheduler (NA33, the painting-plan sub-part of NA49) -----------------------
+
+    @staticmethod
+    def _order_colour_key(work_order: WorkOrder) -> str | None:
+        """Colour identity used to cluster orders of the same paint (None = order has no colour)."""
+        if not work_order.ral_code:
+            return None
+        return f"{work_order.ral_code}|{work_order.paint_producer or ''}|{work_order.paint_code or ''}"
+
+    def _resolve_rule_config(self, production_type: ProductionType) -> list[tuple[ScheduleRuleKey, bool]]:
+        """The stored (key, enabled) priority list for a line, falling back to the all-enabled default.
+
+        Unknown/duplicate stored keys are dropped and any catalog rule missing from storage is appended
+        enabled, so a stale or partial row never crashes scheduling and new rules light up by default."""
+        config = self.repository.get_auto_schedule_config(production_type)
+        if config is None:
+            return [(key, True) for key in DEFAULT_RULE_ORDER]
+
+        resolved: list[tuple[ScheduleRuleKey, bool]] = []
+        seen: set[ScheduleRuleKey] = set()
+        try:
+            stored = json.loads(config.rules_json)
+        except (TypeError, ValueError):
+            stored = []
+        for entry in stored if isinstance(stored, list) else []:
+            if not isinstance(entry, dict):
+                continue
+            try:
+                key = ScheduleRuleKey(entry.get("key"))
+            except ValueError:
+                continue
+            if key in seen:
+                continue
+            seen.add(key)
+            resolved.append((key, bool(entry.get("enabled", True))))
+        for key in DEFAULT_RULE_ORDER:
+            if key not in seen:
+                resolved.append((key, True))
+        return resolved
+
+    def _build_schedule_config_read(
+        self, production_type: ProductionType
+    ) -> ScheduleRuleConfigRead:
+        return ScheduleRuleConfigRead(
+            production_type=production_type,
+            rules=[
+                ScheduleRuleConfigItem(
+                    key=key,
+                    label=SCHEDULE_RULE_LABELS[key],
+                    description=SCHEDULE_RULE_DESCRIPTIONS[key],
+                    enabled=enabled,
+                )
+                for key, enabled in self._resolve_rule_config(production_type)
+            ],
+        )
+
+    def get_schedule_config(
+        self,
+        production_type: ProductionType,
+        station_context: StationContext | None = None,
+    ) -> ScheduleRuleConfigRead:
+        self._ensure_manager_station_action(station_context)
+        return self._build_schedule_config_read(production_type)
+
+    def update_schedule_config(
+        self,
+        production_type: ProductionType,
+        payload: ScheduleRuleConfigUpdate,
+        station_context: StationContext | None = None,
+    ) -> ScheduleRuleConfigRead:
+        self._ensure_manager_station_action(station_context)
+        rules_json = json.dumps(
+            [{"key": item.key.value, "enabled": item.enabled} for item in payload.rules],
+            separators=(",", ":"),
+        )
+        config = self.repository.get_auto_schedule_config(production_type)
+        if config is None:
+            config = self.repository.add_auto_schedule_config(
+                AutoScheduleConfig(production_type=production_type.value, rules_json=rules_json)
+            )
+        else:
+            config.rules_json = rules_json
+            config.updated_at = datetime.now(UTC)
+        self._record_audit_event(
+            event_type="manager.schedule_config_updated",
+            station_context=station_context,
+            work_order=None,
+            target_type="auto_schedule_config",
+            target_id=config.id,
+            summary=f"Updated auto-schedule rules for {production_type.value} line.",
+            details={"production_type": production_type.value, "rules": json.loads(rules_json)},
+        )
+        self.repository.commit()
+        return self._build_schedule_config_read(production_type)
+
+    def _active_planned_orders_for_line(self, production_type: ProductionType) -> list[WorkOrder]:
+        """Planned, not-yet-completed orders on a line, in current queue order (the schedulable set)."""
+        active = [
+            work_order
+            for work_order in self._planned_work_orders_for_line(production_type)
+            if self.process_service.get_display_status(work_order) != ProcessDisplayStatus.READY
+        ]
+        return sorted(active, key=lambda work_order: (work_order.queue_position or 0, work_order.id))
+
+    def propose_auto_schedule(
+        self,
+        production_type: ProductionType,
+        station_context: StationContext | None = None,
+    ) -> AutoScheduleProposal:
+        """Propose a painting order for a line without committing anything (manager applies via reorder)."""
+        self._ensure_manager_station_action(station_context)
+        active_orders = self._active_planned_orders_for_line(production_type)
+        orders_by_id = {work_order.id: work_order for work_order in active_orders}
+        colour_by_id = {work_order.id: self._order_colour_key(work_order) for work_order in active_orders}
+
+        enabled_rules = [key for key, enabled in self._resolve_rule_config(production_type) if enabled]
+        schedulable = [
+            SchedulableOrder(
+                work_order_id=work_order.id,
+                colour_key=colour_by_id[work_order.id],
+                planned_pickup_date=work_order.planned_pickup_date,
+                total_area_m2=work_order.total_area_m2,
+            )
+            for work_order in active_orders
+        ]
+        proposed_ids = propose_sequence(schedulable, enabled_rules)
+
+        current_ids = [work_order.id for work_order in active_orders]
+        current_changeovers = colour_changeovers_for_order_ids(current_ids, colour_by_id)
+        proposed_changeovers = colour_changeovers_for_order_ids(proposed_ids, colour_by_id)
+
+        return AutoScheduleProposal(
+            production_type=production_type,
+            queue_revision=self.repository.get_planned_queue_revision(production_type),
+            current_colour_changeovers=current_changeovers,
+            proposed_colour_changeovers=proposed_changeovers,
+            colour_changeover_reduction=current_changeovers - proposed_changeovers,
+            proposed_order=[self._to_read_model(orders_by_id[order_id]) for order_id in proposed_ids],
+        )
 
     @staticmethod
     def _ensure_manager_station_action(station_context: StationContext | None) -> None:

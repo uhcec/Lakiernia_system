@@ -17,11 +17,14 @@ import type { WorkOrder, WorkOrderRelationSummary } from "../src/types/workOrder
 
 vi.mock("../src/api/managerApi", () => ({
   assignWorkOrderPlan: vi.fn(),
+  fetchAutoScheduleProposal: vi.fn(),
   fetchCorrectionReasonReport: vi.fn(),
   fetchPlannedWorkOrders: vi.fn(),
+  fetchScheduleConfig: vi.fn(),
   fetchUnplannedWorkOrders: vi.fn(),
   getCorrectionReasonReportExportUrl: vi.fn(() => "/manager/corrections/reason-report/export.csv"),
   reorderWorkOrderQueue: vi.fn(),
+  updateScheduleConfig: vi.fn(),
 }));
 
 vi.mock("../src/api/auditApi", () => ({
@@ -125,6 +128,15 @@ const fetchWorkOrderMock = vi.mocked(workOrdersApi.fetchWorkOrder);
 const fetchWorkOrderAttachmentsMock = vi.mocked(workOrdersApi.fetchWorkOrderAttachments);
 const getWorkOrderAttachmentDownloadUrlMock = vi.mocked(workOrdersApi.getWorkOrderAttachmentDownloadUrl);
 const updateWorkOrderReleaseStatusMock = vi.mocked(workOrdersApi.updateWorkOrderReleaseStatus);
+const fetchScheduleConfigMock = vi.mocked(managerApi.fetchScheduleConfig);
+const fetchAutoScheduleProposalMock = vi.mocked(managerApi.fetchAutoScheduleProposal);
+const updateScheduleConfigMock = vi.mocked(managerApi.updateScheduleConfig);
+
+const DEFAULT_SCHEDULE_RULES = [
+  { key: "colour" as const, label: "Grupowanie kolorami", description: "Trzymaj kolory razem.", enabled: true },
+  { key: "deadline" as const, label: "Termin odbioru", description: "Najpierw najwcześniejszy termin.", enabled: true },
+  { key: "changeover" as const, label: "Minimalny przerób (m²/dzień)", description: "Największe runy najpierw.", enabled: true },
+];
 
 function buildWorkOrder(id: number, orderNumber: string, queuePosition: number, customerName = "Klient"): WorkOrder {
   return {
@@ -301,6 +313,19 @@ beforeEach(() => {
   getWorkOrderAttachmentDownloadUrlMock.mockReset();
   updateWorkOrderReleaseStatusMock.mockReset();
   fetchWorkOrderAttachmentsMock.mockResolvedValue([]);
+  fetchScheduleConfigMock.mockReset();
+  fetchScheduleConfigMock.mockResolvedValue({ production_type: "AUTOMATIC", rules: DEFAULT_SCHEDULE_RULES });
+  fetchAutoScheduleProposalMock.mockReset();
+  fetchAutoScheduleProposalMock.mockResolvedValue({
+    production_type: "AUTOMATIC",
+    queue_revision: null,
+    current_colour_changeovers: 0,
+    proposed_colour_changeovers: 0,
+    colour_changeover_reduction: 0,
+    proposed_order: [],
+  });
+  updateScheduleConfigMock.mockReset();
+  updateScheduleConfigMock.mockResolvedValue({ production_type: "AUTOMATIC", rules: DEFAULT_SCHEDULE_RULES });
   getWorkOrderAttachmentDownloadUrlMock.mockImplementation((workOrderId, attachmentId) => `/work-orders/${workOrderId}/attachments/${attachmentId}/download`);
 });
 
@@ -1841,6 +1866,43 @@ describe("frontend state consistency", () => {
     expect(dialog.getByText("Farby nie starczy na to zlecenie.")).toBeTruthy();
     expect(dialog.getByText(/Predykcja: 17 kg. Aktualny stan: 12 kg. Brakuje około 5 kg/i)).toBeTruthy();
     expect(dialog.getByText(/trzeba domówić farbę/i)).toBeTruthy();
+  });
+
+  it("proposes a colour-grouped order on the automatic line and applies it via reorder (NA33)", async () => {
+    const automatic = { value: "AUTOMATIC" as const, label: "Automat" };
+    const a1 = { ...buildWorkOrder(10, "WO-A1", 1, "Alpha"), production_type: automatic };
+    const b1 = { ...buildWorkOrder(11, "WO-B1", 2, "Beta"), production_type: automatic, ral_code: "RAL 1000", paint_code: "P-1000" };
+    const a2 = { ...buildWorkOrder(12, "WO-A2", 3, "Gamma"), production_type: automatic };
+    fetchUnplannedWorkOrdersMock.mockResolvedValue([]);
+    fetchPlannedWorkOrdersMock.mockResolvedValue([a1, b1, a2]);
+    fetchAutoScheduleProposalMock.mockResolvedValue({
+      production_type: "AUTOMATIC",
+      queue_revision: "2026-05-27T08:03:00Z",
+      current_colour_changeovers: 2,
+      proposed_colour_changeovers: 1,
+      colour_changeover_reduction: 1,
+      proposed_order: [a1, a2, b1],
+    });
+    reorderWorkOrderQueueMock.mockResolvedValue([]);
+
+    render(<ManagerPanelPage />);
+    const dialog = await openManagerPlanEditor();
+
+    // The background proposal drives the "lepsze ułożenie" suggestion banner on the automatic line.
+    await dialog.findByText(/Lepsze ułożenie dostępne/i);
+
+    // Applying the proposal previews it (arms save) without committing.
+    fireEvent.click(dialog.getByRole("button", { name: "Ułóż automatycznie" }));
+    await dialog.findByText(/Proponowana kolejność/i);
+    expect(fetchAutoScheduleProposalMock).toHaveBeenCalledWith("AUTOMATIC");
+    expect(reorderWorkOrderQueueMock).not.toHaveBeenCalled();
+
+    // Saving sends the proposed colour-grouped sequence through the existing reorder endpoint.
+    fireEvent.click(dialog.getByRole("button", { name: "Zapisz kolejność" }));
+    await waitFor(() => expect(reorderWorkOrderQueueMock).toHaveBeenCalled());
+    const payload = reorderWorkOrderQueueMock.mock.calls[0][0];
+    expect(payload.production_type).toBe("AUTOMATIC");
+    expect(payload.items.map((item) => item.work_order_id)).toEqual([10, 12, 11]);
   });
 
   it("renders completed correction quantity context from manager payload after decoral merge", async () => {

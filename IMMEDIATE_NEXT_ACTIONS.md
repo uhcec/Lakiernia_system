@@ -521,9 +521,10 @@ only. Five elements, top to bottom:
 ## System-wide ordering / scheduling model (owner design session 2026-06-23)
 
 ### NA49. Shared-stage ordering is undefined under the per-line queue — adopt "schedule the painting bottleneck, derive the rest"
-- Status: **OPEN** — target model agreed with owner 2026-06-23; **not yet implemented**. This is the
-  umbrella ordering model; **NA33** (auto work-scheduling + colour grouping) becomes its *painting-plan
-  auto-scheduler* sub-part and should be built under this model, not separately.
+- Status: **PARTIAL (2026-06-23)** — the **painting-plan auto-scheduler sub-part (NA33) is DONE** (AUTOMATIC
+  line: configurable rule priority, propose + suggestion banner, apply via reorder — see NA33). **Still OPEN:**
+  the shared-stage ordering defect below (surface-prep + packing still show ambiguous merged "Poz."), which is
+  the *derive-the-rest* half of this model. Target model agreed with owner 2026-06-23.
 - Severity: **MEDIUM** (operator-facing truth at shared stages + planning feature).
 
 **Confirmed defect (verified live 2026-06-23 by two sub-agents driving a seeded app):**
@@ -588,6 +589,30 @@ remaining open questions are flagged per item. Each needs a `docs/WORKFLOW.md` u
 workflow meaning. Severities are first-pass estimates.
 
 ### NA33. Configurable auto work-scheduling + colour grouping + (basic) statistics tidy
+- Status: **DONE — painting auto-scheduler shipped (2026-06-23).** Owner decisions captured this session:
+  AUTOMATIC line only (v1), configurable rule priority from v1, "minimalny przerób" = maximise m²/day, and
+  a propose-don't-auto-apply model with a non-nagging suggestion banner. Built:
+  - **Pure scheduler core** `app/manager/scheduler.py` (`propose_sequence` = lexicographic sort over the
+    enabled rules in priority order + `count_colour_changeovers`) and the rule catalog
+    `app/manager/enums.py` (`ScheduleRuleKey` COLOUR/DEADLINE/CHANGEOVER, default order colour→deadline→
+    changeover, Polish labels/descriptions). Fully unit-tested (`tests/test_scheduler.py`).
+  - **Per-line config** `auto_schedule_configs` table (`app/manager/models.py`, migration
+    `20260623_0038`) storing the manager's ordered/toggled rule list as JSON; absence = default.
+  - **Service + API** `ManagerService.get_schedule_config` / `update_schedule_config` /
+    `propose_auto_schedule` (manager-gated, audit event on config change); router
+    `GET/PUT /manager/scheduler/config`, `GET /manager/scheduler/proposal`. Apply reuses the existing
+    `POST /manager/queue/reorder` (no new mutate path; same stale-revision protection).
+  - **Frontend** (`ManagerPanelPage`, AUTOMATIC plan only): "Ułóż automatycznie" previews the proposal as
+    an editable draft (commit via the normal Save), a configurable "Reguły układania" panel (reorder +
+    enable/disable), and a "Lepsze ułożenie dostępne (−N zmian koloru)" banner shown only when it would
+    cut changeovers. New orders still append to the end (nothing reshuffles on arrival).
+  - Tests: `tests/test_scheduler.py` (7) + `tests/test_auto_scheduler_service.py` (config CRUD, validation,
+    proposal reduction, manager gating, off-line exclusion) + a frontend case in `uiStateConsistency.test.tsx`
+    (banner → preview → reorder payload colour-grouped). Full backend + frontend suites green; `alembic
+    check` clean; both builds green. Docs: `docs/WORKFLOW.md` "Painting auto-scheduler" section.
+  - **Deferred (not built, by design):** the statistics-tidy sub-part stays blocked on the colleague's
+    wishlist; MANUAL-line auto-scheduling reuses the same mechanism when wanted; surface-prep/packing
+    *derived* order is the remaining NA49 work (shared-stage display defect — see NA49).
 - **Now scoped under NA49** (the system-wide ordering model agreed 2026-06-23): this is the
   *painting-plan auto-scheduler* sub-part. Build it as the "Painting" piece of NA49 (optimise the
   automatic line first; surface-prep + packing order are derived, not separately scheduled).

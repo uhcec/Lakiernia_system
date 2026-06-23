@@ -316,6 +316,33 @@ Rules:
 14. When manager planning or queue-position updates need active slots, completed/READY rows should move to trailing queue positions after active planned work **on the same line**.
 15. A completed/READY row may keep a `queue_position` for manager sorting and historical visibility, but that value is not an immutable record of the row's original active priority.
 
+### Painting auto-scheduler (AUTOMATIC line — NA33, the painting-plan sub-part of NA49)
+
+The manager can ask the system to **propose** a painting order for the automatic line. The proposal is
+advisory and **never auto-applied**: the queue only changes when the manager commits it through the
+normal queue-reorder flow, so operators can always trust the posted order.
+
+- **Scope (v1):** the AUTOMATIC line only (it carries the throughput/cost/changeover majority — see
+  `docs/FACTORY_DOMAIN_MODEL.md` §1–§2). MANUAL reuses the same mechanism when needed later.
+- **Rules + priority:** the proposal is a lexicographic sort along a manager-configured, ordered list of
+  *enabled* rules. The catalog (with default order, owner decision 2026-06-23):
+  1. **Grupowanie kolorami (`colour`)** — keep identical colours adjacent (fewer colour changes).
+  2. **Termin odbioru (`deadline`)** — earliest planned pickup date first.
+  3. **Minimalny przerób (`changeover`)** — "maximise m²/day": do the largest single-colour runs first,
+     so the booth spends more time painting and less time being cleaned between colours.
+  The priority order is **user-configurable** (the manager reorders/toggles the rules); it is stored per
+  line in `auto_schedule_configs` and defaults to colour → deadline → changeover, all enabled. Absence of
+  a row means the default.
+- **Suggestion (no nagging):** new orders still **append to the end** of the line (nothing reshuffles on
+  arrival). While the manager is on the automatic plan, the system computes the proposal in the
+  background and shows a non-intrusive *"Lepsze ułożenie dostępne (−N zmian koloru)"* banner only when it
+  would reduce colour changeovers. Acting on it is always the manager's explicit choice.
+- **Apply path:** "Ułóż automatycznie" previews the proposed order as an editable draft (the manager may
+  still drag to tweak); committing goes through the existing per-line `reorder_queue` (same stale-revision
+  protection). Only *active* (non-READY) planned orders are scheduled; completed rows keep trailing.
+- The optimisation core is a pure function (`app/manager/scheduler.py`); the metric behind the banner is
+  the count of colour changes between consecutive orders.
+
 > **Known limitation + planned evolution (NA49, agreed with owner 2026-06-23).** The per-line split is
 > correct for *planning* the two parallel painting lines, but the two **shared** stages —
 > `SURFACE_PREPARATION` (entry) and `PACKING` (drain) — still list both lines merged and ordered by

@@ -1,8 +1,10 @@
 from datetime import date, datetime
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from app.manager.enums import DEFAULT_RULE_ORDER, ScheduleRuleKey
 from app.process.enums import CoatingType, ProcessStage, ProductionType
+from app.work_orders.schemas import WorkOrderRead
 
 
 class WorkOrderPlanAssignRequest(BaseModel):
@@ -153,3 +155,55 @@ class WipAgingStats(BaseModel):
     generated_at: datetime
     items: list[WipAgingItem]
     breakdown: WipAgingBreakdown = Field(default_factory=WipAgingBreakdown)
+
+
+class ScheduleRuleConfigItem(BaseModel):
+    """One rule in the manager's painting auto-scheduler priority list (NA33)."""
+
+    key: ScheduleRuleKey
+    label: str
+    description: str
+    enabled: bool
+
+
+class ScheduleRuleConfigRead(BaseModel):
+    production_type: ProductionType
+    rules: list[ScheduleRuleConfigItem]
+
+
+class ScheduleRuleConfigUpdateItem(BaseModel):
+    key: ScheduleRuleKey
+    enabled: bool
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class ScheduleRuleConfigUpdate(BaseModel):
+    # The full rule catalog, in the manager's chosen priority order, each toggled on/off. Must list
+    # every known rule exactly once so the stored order is unambiguous.
+    rules: list[ScheduleRuleConfigUpdateItem]
+
+    model_config = ConfigDict(extra="forbid")
+
+    @model_validator(mode="after")
+    def _require_each_rule_exactly_once(self) -> "ScheduleRuleConfigUpdate":
+        submitted = [item.key for item in self.rules]
+        if sorted(submitted, key=lambda key: key.value) != sorted(DEFAULT_RULE_ORDER, key=lambda key: key.value):
+            raise ValueError("Rules payload must list every scheduler rule exactly once.")
+        return self
+
+
+class AutoScheduleProposal(BaseModel):
+    """A non-committal proposed painting order plus the colour-changeover improvement (NA33).
+
+    The manager applies it (as-is or after editing) through the existing queue-reorder endpoint;
+    ``queue_revision`` is the per-line snapshot the proposal was built from. ``proposed_order`` lists
+    only the *active* planned orders on the line, in the proposed sequence."""
+
+    production_type: ProductionType
+    queue_revision: datetime | None
+    current_colour_changeovers: int
+    proposed_colour_changeovers: int
+    # current − proposed; > 0 means the proposal removes that many colour changes (drives the banner).
+    colour_changeover_reduction: int
+    proposed_order: list[WorkOrderRead]

@@ -2,15 +2,18 @@ import { createApiError } from "./apiError";
 import { getCurrentStationHeaders } from "./stationContext";
 import type {
   AssignWorkOrderPlanRequest,
+  AutoScheduleProposal,
   CorrectionReasonReportItem,
   CycleTimeStats,
   ReorderQueueRequest,
+  ScheduleRuleConfigRead,
+  ScheduleRuleConfigUpdate,
   ThroughputStats,
   UpdateProductionTypeRequest,
   UpdateQueuePositionRequest,
   WipAgingStats,
 } from "../types/manager";
-import type { WorkOrder } from "../types/workOrders";
+import type { ProductionTypeValue, WorkOrder } from "../types/workOrders";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL?.trim();
 
@@ -188,6 +191,60 @@ export async function updateWorkOrderQueuePosition(
   }
 
   return response.json() as Promise<WorkOrder>;
+}
+
+function schedulerConfigUrl(productionType: ProductionTypeValue): string {
+  const base = createApiUrl("/manager/scheduler/config");
+  return base.startsWith("http")
+    ? `${base}?production_type=${productionType}`
+    : `${base}?production_type=${productionType}`;
+}
+
+export async function fetchScheduleConfig(productionType: ProductionTypeValue): Promise<ScheduleRuleConfigRead> {
+  const response = await fetch(schedulerConfigUrl(productionType), {
+    headers: { Accept: "application/json", ...getCurrentStationHeaders() },
+  });
+
+  if (!response.ok) {
+    throw await createApiError(response, "Nie udało się pobrać reguł układania");
+  }
+
+  return response.json() as Promise<ScheduleRuleConfigRead>;
+}
+
+export async function updateScheduleConfig(
+  productionType: ProductionTypeValue,
+  payload: ScheduleRuleConfigUpdate,
+): Promise<ScheduleRuleConfigRead> {
+  const response = await fetch(schedulerConfigUrl(productionType), {
+    method: "PUT",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+      ...getCurrentStationHeaders(),
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    throw await createApiError(response, "Nie udało się zapisać reguł układania");
+  }
+
+  return response.json() as Promise<ScheduleRuleConfigRead>;
+}
+
+export async function fetchAutoScheduleProposal(productionType: ProductionTypeValue): Promise<AutoScheduleProposal> {
+  const base = createApiUrl("/manager/scheduler/proposal");
+  const finalUrl = `${base}?production_type=${productionType}`;
+  const response = await fetch(finalUrl, {
+    headers: { Accept: "application/json", ...getCurrentStationHeaders() },
+  });
+
+  if (!response.ok) {
+    throw await createApiError(response, "Nie udało się ułożyć kolejności automatycznie");
+  }
+
+  return response.json() as Promise<AutoScheduleProposal>;
 }
 
 export async function reorderWorkOrderQueue(

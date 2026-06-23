@@ -3,6 +3,7 @@ from collections.abc import Sequence
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
+from app.manager.models import AutoScheduleConfig
 from app.process.enums import ProductionType, QuantityBatchType
 from app.process.models import StatOnlyCorrection, WorkOrderQuantityBatch
 from app.work_orders.models import WorkOrder
@@ -152,6 +153,18 @@ class ManagerRepository:
         if production_type is not None:
             statement = statement.where(WorkOrder.production_type == production_type)
         return self.session.scalar(statement)
+
+    def get_auto_schedule_config(self, production_type: ProductionType) -> AutoScheduleConfig | None:
+        return self.session.scalar(
+            select(AutoScheduleConfig).where(
+                AutoScheduleConfig.production_type == production_type.value
+            )
+        )
+
+    def add_auto_schedule_config(self, config: AutoScheduleConfig) -> AutoScheduleConfig:
+        self.session.add(config)
+        self.session.flush()
+        return config
 
     def commit(self) -> None:
         self.session.commit()
