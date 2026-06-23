@@ -953,6 +953,34 @@ correctness defects. Severities reflect maintainability risk, not user-visible b
 
 ## Done
 
+- **Manual-test pass of the post-20.06 features + 3 bug fixes found and fixed (2026-06-23)** — Owner walked
+  through the new features (curated seeder `scripts/seed_new_features_walkthrough.py` + `WALKTHROUGH_NOWOSCI.md`,
+  commit `a1e2752`). Confirmed working: NA35 wheel, NA38 foil picker, NA36 attachment upload, NA44 labels,
+  NA34 "do zaplanowania" correction, NA32 cumulative paint. Three defects surfaced and were fixed:
+  - **Attachment view/download returned 401 "Nie jesteś zalogowany"** (commit `810d00e`). A bare `<a href>`
+    navigation bypasses the token-injecting `window.fetch` interceptor, so no `Authorization` header was sent.
+    Fix: `openWorkOrderAttachment` fetches the file as a blob (carrying the JWT) and opens it in a new tab;
+    used by the detail-page "Otwórz" button and the station-card drawing links. **Affected ALL attachment
+    downloads, not just NA36.**
+  - **Adding paint failed silently with an empty "Kod farby"** (commit `810d00e`). `paint_code` is required
+    (min_length=1, part of the paint identity) but the form sent `""` and showed a raw 422. Fix: client-side
+    validation of RAL + producer + code on the delivery/adjustment forms.
+  - **Adding/fetching foils failed with a generic "nie udało się… folii" — ROOT CAUSE: Vite dev proxy was
+    missing `/foils`** (commit `136f16a`). In dev the browser talks to the backend through
+    `frontend/vite.config.ts`'s per-prefix proxy allowlist; `/foils` was never added, so the browser hit
+    Vite's HTML 404, `response.json()` threw, and the UI showed its fallback. **NOT a DB/migration problem**
+    (direct backend/TestClient calls always worked — which is why it looked DB-shaped). Fix: add `/foils` to
+    the proxy **and** a guard test `tests/test_vite_proxy_covers_api.py` that fails if any backend router
+    prefix is missing from the proxy, so this class of "new feature breaks in dev" cannot silently recur.
+    Requires a Vite restart to take effect.
+  - **NA34 stat-only correction — owner decision: leave as is.** Verified it IS recorded (audit event on the
+    order + `stat_only_corrections` row) and IS counted in stats (reason report + throughput). Owner chose not
+    to add extra prominence (no separate stat counter, no order-detail badge). No further work.
+
+- **NA36 — Technical drawings as a typed attachment (2026-06-23, commit `6e4d27a`)** — see the NA36 entry above
+  for full detail (DONE note). PDF + PNG/JPG, structured `category` discriminator, surfaced on station cards +
+  detail page; migration `20260623_0037`.
+
 - **Automatic packing card is now an ACTIVE packing row from hanging-start, not a read-only "waiting for hanging" row (2026-06-18)** —
   follow-up to the NA22a change below; user-requested. Previously `_get_automatic_packing_display_stage`
   returned `HANGING` (so the packing panel showed a read-only "Czeka na koniec zawieszania" row) until
