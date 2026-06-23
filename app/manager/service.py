@@ -842,18 +842,35 @@ class ManagerService:
 
             previous_production_type = work_order.production_type
             previous_queue_position = work_order.queue_position
-            # Compute the append slot on the target line BEFORE mutating this order, so the
-            # position query doesn't autoflush it into the new line and collide on the
-            # per-line (production_type, queue_position) unique index.
-            target_position = self._next_active_queue_position_for_line(payload.production_type)
+            target_production_type = payload.production_type
+            # Compute the append slot on the target line and resolve any trailing-completed
+            # shuffle BEFORE mutating this order, so the position queries don't autoflush it
+            # into the new line and collide on the per-line (production_type, queue_position)
+            # unique index. The order still sits on the source line at this point.
+            target_position = self._next_active_queue_position_for_line(target_production_type)
             now = datetime.now(UTC)
-            work_order.production_type = payload.production_type
+            completed_work_orders_to_trail = self._get_completed_work_orders_requiring_trailing(
+                production_type=target_production_type,
+                reserved_queue_positions=[target_position],
+            )
+            self._temporarily_move_queue_rows_out_of_the_way(
+                completed_work_orders_to_trail,
+                production_type=target_production_type,
+                reserved_queue_positions=[target_position],
+                now=now,
+            )
+
+            work_order.production_type = target_production_type
             work_order.queue_position = target_position
             work_order.updated_at = now
             # Reconcile the stage-state rows to the (now-known) route FIRST, so correction replanning
             # below resets statuses on the rows the route actually has (NA42).
             self.process_service.reconcile_stage_states_to_route(work_order)
             self.process_service.prepare_correction_work_order_for_planning(work_order)
+            self.repository.session.flush()
+            self._trail_completed_work_orders(
+                completed_work_orders_to_trail, production_type=target_production_type, now=now
+            )
             self._record_audit_event(
                 event_type="manager.production_type_changed",
                 station_context=station_context,
@@ -863,13 +880,23 @@ class ManagerService:
                 summary=f"Changed production type for work order {work_order.order_number}.",
                 details={
                     "previous_production_type": previous_production_type.value if previous_production_type else None,
-                    "production_type": payload.production_type.value,
+                    "production_type": target_production_type.value,
                     "previous_queue_position": previous_queue_position,
                     "queue_position": target_position,
                 },
             )
 
-            self.repository.commit()
+            try:
+                self.repository.commit()
+            except IntegrityError as exc:
+                self.repository.rollback()
+                raise InvalidManagerPlanningError(
+                    f"Queue position {target_position} is already taken."
+                ) from exc
+            except Exception:
+                self.repository.rollback()
+                raise
+
             return self._to_read_model(work_order)
 
     def reorder_queue(

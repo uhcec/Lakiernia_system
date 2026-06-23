@@ -950,6 +950,20 @@ correctness defects. Severities reflect maintainability risk, not user-visible b
 
 ## Done
 
+- **NA48. `update_production_type` collided with a trailing completed order on the target line (2026-06-23)** —
+  Follow-up review of the colleague's per-line-queue merge (`c97d029`). `ManagerService.update_production_type`
+  (`app/manager/service.py`) re-slotted a moved order to `_next_active_queue_position_for_line(target)` but,
+  unlike `assign_plan`/`update_queue_position`, did **not** trail completed (READY) orders out of the way and
+  did **not** map `IntegrityError` → `InvalidManagerPlanningError`. So moving an order onto a line whose append
+  slot was occupied by a completed order parked there raised a raw `UNIQUE constraint failed` (HTTP 500) instead
+  of trailing the completed order. Fix: mirrored the `assign_plan` pattern — resolve the trailing-completed
+  shuffle (`_get_completed_work_orders_requiring_trailing` + `_temporarily_move_queue_rows_out_of_the_way`
+  before mutating, `_trail_completed_work_orders` after) and wrap the commit in the same
+  `IntegrityError → InvalidManagerPlanningError` guard. Regression test
+  `test_change_production_type_trails_completed_order_on_target_line` in `tests/test_manager_api.py` (red before
+  the fix with the IntegrityError, green after). Verified: `pytest tests/test_manager_api.py
+  tests/test_manager_service.py` green (47), `alembic check` clean.
+
 - **Two independent planning queues (Automat / Ręczna) + simpler manager planning flow (2026-06-20)** —
   owner-requested. The manager planning queue is now **per production line**: `queue_position` is unique
   within `production_type` (DB partial unique index swapped from `uq_work_orders_queue_position` on

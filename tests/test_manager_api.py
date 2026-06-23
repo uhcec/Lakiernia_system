@@ -1440,3 +1440,42 @@ def test_reorder_rejects_work_order_from_another_line(test_client: TestClient) -
 
     assert response.status_code == 409
     assert "production line" in response.json()["detail"]
+
+
+def test_change_production_type_trails_completed_order_on_target_line(test_client: TestClient) -> None:
+    # Target MANUAL line holds an active order at position 1 and a COMPLETED order parked at
+    # position 2 (the append slot). Moving an AUTOMATIC order onto MANUAL must trail the completed
+    # order out of the way instead of colliding with it on the per-line unique index.
+    manual_active = create_work_order(test_client, "Manual active blocker")
+    manual_completed = create_work_order(test_client, "Manual completed blocker")
+    automatic_order = create_work_order(test_client, "Automatic to reslot")
+
+    test_client.post(
+        f"/manager/work-orders/{manual_active['id']}/plan",
+        json={"production_type": "MANUAL", "queue_position": 1},
+    )
+    test_client.post(
+        f"/manager/work-orders/{manual_completed['id']}/plan",
+        json={"production_type": "MANUAL", "queue_position": 2},
+    )
+    complete_manual_ral_order(test_client, manual_completed["id"])
+    test_client.post(
+        f"/manager/work-orders/{automatic_order['id']}/plan",
+        json={"production_type": "AUTOMATIC", "queue_position": 1},
+    )
+
+    response = test_client.patch(
+        f"/manager/work-orders/{automatic_order['id']}/production-type",
+        json={"production_type": "MANUAL"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["production_type"]["value"] == "MANUAL"
+    # The moved order lands at the end of the active queue (position 2); the completed order is
+    # pushed to position 3.
+    assert response.json()["queue_position"] == 2
+    planned_by_id = {item["id"]: item for item in test_client.get("/manager/work-orders").json()}
+    assert planned_by_id[manual_active["id"]]["queue_position"] == 1
+    assert planned_by_id[automatic_order["id"]]["queue_position"] == 2
+    assert planned_by_id[manual_completed["id"]]["queue_position"] == 3
+    assert planned_by_id[manual_completed["id"]]["process_status"] == {"value": "READY", "label": "Gotowe"}
