@@ -1,4 +1,6 @@
-import { getWorkOrderAttachmentDownloadUrl } from "../api/workOrdersApi";
+import { useState } from "react";
+
+import { openWorkOrderAttachment } from "../api/workOrdersApi";
 import type { WorkOrderAttachmentSummary } from "../types/workOrders";
 
 interface TechnicalDrawingLinksProps {
@@ -12,8 +14,19 @@ interface TechnicalDrawingLinksProps {
  * Renders nothing when the order has no drawings.
  */
 export function TechnicalDrawingLinks({ workOrderId, drawings }: TechnicalDrawingLinksProps) {
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
   if (drawings.length === 0) {
     return null;
+  }
+
+  async function open(attachmentId: number) {
+    setErrorMessage(null);
+    try {
+      await openWorkOrderAttachment(workOrderId, attachmentId);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Nie udało się otworzyć rysunku");
+    }
   }
 
   return (
@@ -22,17 +35,17 @@ export function TechnicalDrawingLinks({ workOrderId, drawings }: TechnicalDrawin
       <ul className="space-y-1">
         {drawings.map((drawing) => (
           <li key={drawing.id}>
-            <a
-              href={getWorkOrderAttachmentDownloadUrl(workOrderId, drawing.id)}
-              target="_blank"
-              rel="noreferrer"
-              className="font-semibold text-accent underline decoration-dotted underline-offset-2 hover:text-accent/80"
+            <button
+              type="button"
+              onClick={() => void open(drawing.id)}
+              className="text-left font-semibold text-accent underline decoration-dotted underline-offset-2 hover:text-accent/80"
             >
               {drawing.original_filename}
-            </a>
+            </button>
           </li>
         ))}
       </ul>
+      {errorMessage ? <p className="text-rose-600">{errorMessage}</p> : null}
     </div>
   );
 }

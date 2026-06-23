@@ -213,6 +213,38 @@ export function getWorkOrderAttachmentDownloadUrl(workOrderId: number, attachmen
   return createApiUrl(`/work-orders/${workOrderId}/attachments/${attachmentId}/download`);
 }
 
+// Attachment download is auth-protected, but a plain <a href> browser navigation does not carry the
+// Authorization header (it bypasses the fetch interceptor) → 401 "Nie jesteś zalogowany". Fetch the
+// file as a blob (this fetch goes through the token-injecting window.fetch) and open it in a new tab so
+// PDFs/images are viewable. The tab is opened synchronously inside the click gesture to avoid popup
+// blockers, then pointed at the blob once it arrives.
+export async function openWorkOrderAttachment(workOrderId: number, attachmentId: number): Promise<void> {
+  const newTab = window.open("about:blank", "_blank");
+  try {
+    const response = await fetch(getWorkOrderAttachmentDownloadUrl(workOrderId, attachmentId), {
+      headers: { Accept: "*/*" },
+    });
+    if (!response.ok) {
+      newTab?.close();
+      throw await createApiError(response, "Nie udało się otworzyć załącznika");
+    }
+    const blobUrl = URL.createObjectURL(await response.blob());
+    if (newTab) {
+      newTab.location.href = blobUrl;
+    } else {
+      // Popup blocked — fall back to a direct download.
+      const anchor = document.createElement("a");
+      anchor.href = blobUrl;
+      anchor.download = "";
+      anchor.click();
+    }
+    setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
+  } catch (error) {
+    newTab?.close();
+    throw error;
+  }
+}
+
 export function getQualityControlDocumentUrl(workOrderId: number): string {
   return createApiUrl(`/work-orders/${workOrderId}/quality-control-document`);
 }

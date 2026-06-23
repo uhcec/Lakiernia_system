@@ -8,7 +8,7 @@ import {
   fetchWorkOrder,
   fetchWorkOrderAttachments,
   getQualityControlDocumentUrl,
-  getWorkOrderAttachmentDownloadUrl,
+  openWorkOrderAttachment,
   markWorkOrderCompleteArrival,
   updateWorkOrder,
   updateWorkOrderReleaseStatus,
@@ -528,6 +528,18 @@ export function WorkOrderDetailPage() {
       setUploadErrorMessage(error instanceof Error ? error.message : "Nie udało się przesłać załącznika");
     } finally {
       setIsUploadingAttachment(false);
+    }
+  }
+
+  async function handleAttachmentOpen(attachment: WorkOrderAttachment) {
+    if (!workOrder) {
+      return;
+    }
+    setAttachmentsErrorMessage(null);
+    try {
+      await openWorkOrderAttachment(workOrder.id, attachment.id);
+    } catch (error) {
+      setAttachmentsErrorMessage(error instanceof Error ? error.message : "Nie udało się otworzyć załącznika");
     }
   }
 
@@ -1079,12 +1091,13 @@ export function WorkOrderDetailPage() {
                           <td className="px-5 py-4 text-steel">{attachment.description ?? "-"}</td>
                           <td className="px-5 py-4">
                             <div className="flex justify-end gap-3">
-                              <a
-                                href={getWorkOrderAttachmentDownloadUrl(workOrder.id, attachment.id)}
+                              <button
+                                type="button"
+                                onClick={() => void handleAttachmentOpen(attachment)}
                                 className="inline-flex items-center justify-center rounded-full border border-line bg-white px-4 py-2 text-sm font-medium text-steel transition hover:border-accent hover:text-accent"
                               >
-                                Pobierz
-                              </a>
+                                Otwórz
+                              </button>
                               {canManageAttachments ? (
                                 <button
                                   type="button"

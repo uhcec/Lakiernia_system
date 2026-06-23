@@ -51,6 +51,7 @@ vi.mock("../src/api/workOrdersApi", () => ({
   fetchWorkOrder: vi.fn(),
   fetchWorkOrderAttachments: vi.fn(),
   getWorkOrderAttachmentDownloadUrl: vi.fn(),
+  openWorkOrderAttachment: vi.fn(),
   markWorkOrderCompleteArrival: vi.fn(),
   updateWorkOrderReleaseStatus: vi.fn(),
   uploadWorkOrderAttachment: vi.fn(),
@@ -116,6 +117,7 @@ const completePackingMock = vi.mocked(processApi.completePacking);
 const startPackingMock = vi.mocked(processApi.startPacking);
 const releasePackingMock = vi.mocked(processApi.releasePacking);
 const createWorkOrderMock = vi.mocked(workOrdersApi.createWorkOrder);
+const openWorkOrderAttachmentMock = vi.mocked(workOrdersApi.openWorkOrderAttachment);
 const fetchFoilsMock = vi.mocked(foilsApi.fetchFoils);
 const fetchWorkOrdersMock = vi.mocked(workOrdersApi.fetchWorkOrders);
 const fetchWorkOrderMock = vi.mocked(workOrdersApi.fetchWorkOrder);
@@ -642,6 +644,25 @@ describe("frontend state consistency", () => {
     });
   });
 
+  it("blocks a paint delivery with an empty paint code and shows a clear message", async () => {
+    fetchPaintsMock.mockResolvedValue({ items: [], total: 0, limit: 50, offset: 0 });
+
+    render(
+      <MemoryRouter>
+        <PaintInventoryPage />
+      </MemoryRouter>,
+    );
+
+    // Fill RAL + producer + quantity but leave "Kod farby" empty → must not hit the backend.
+    fireEvent.change(screen.getAllByPlaceholderText("RAL")[0], { target: { value: "RAL 7016" } });
+    fireEvent.change(screen.getAllByPlaceholderText("Producent farby")[0], { target: { value: "AkzoNobel" } });
+    fireEvent.change(screen.getByPlaceholderText("Ilość [kg]"), { target: { value: "15" } });
+    fireEvent.click(screen.getByRole("button", { name: "Zapisz dostawę" }));
+
+    expect(await screen.findByText("Podaj kod farby.")).toBeTruthy();
+    expect(recordPaintDeliveryMock).not.toHaveBeenCalled();
+  });
+
   it("resets manager reorder UI to backend state after save failure", async () => {
     fetchUnplannedWorkOrdersMock.mockResolvedValue([]);
     fetchPlannedWorkOrdersMock
@@ -865,9 +886,8 @@ describe("frontend state consistency", () => {
     );
 
     expect(await screen.findByText("Rysunki techniczne")).toBeTruthy();
-    expect(screen.getByRole("link", { name: "rysunek.png" }).getAttribute("href")).toBe(
-      "/work-orders/33/attachments/88/download",
-    );
+    fireEvent.click(screen.getByRole("button", { name: "rysunek.png" }));
+    expect(openWorkOrderAttachmentMock).toHaveBeenCalledWith(33, 88);
   });
 
   it("shows area and paint columns on production stations", async () => {
@@ -1907,9 +1927,9 @@ describe("frontend state consistency", () => {
     await screen.findByText("rysunek.pdf");
     // NA36: the structured category is rendered (not just the free-text type label).
     expect(screen.getByText("Rysunek techniczny")).toBeTruthy();
-    expect(screen.getByRole("link", { name: "Pobierz" }).getAttribute("href")).toBe(
-      "/work-orders/71/attachments/12/download",
-    );
+    // Download goes through the token-carrying fetch (not a bare <a href> that 401s).
+    fireEvent.click(screen.getByRole("button", { name: "Otwórz" }));
+    expect(openWorkOrderAttachmentMock).toHaveBeenCalledWith(71, 12);
     expect(screen.getByRole("link", { name: "Wróć do listy" }).getAttribute("href")).toBe("/pakowanie");
     expect(screen.queryByRole("button", { name: "Dodaj załącznik" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Usuń" })).toBeNull();

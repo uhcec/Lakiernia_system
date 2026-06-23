@@ -52,6 +52,15 @@ function parseNumber(value: string): number | undefined {
   return parsed;
 }
 
+// A paint is identified by RAL + producer + code (all required, DB-enforced). Validate them client-side
+// so an empty field gives a clear message instead of a raw 422 from the backend.
+function validatePaintIdentity(form: { ral_code: string; paint_producer: string; paint_code: string }): string | null {
+  if (!form.ral_code.trim()) return "Podaj kod RAL.";
+  if (!form.paint_producer.trim()) return "Podaj producenta farby.";
+  if (!form.paint_code.trim()) return "Podaj kod farby.";
+  return null;
+}
+
 function formatQuantity(quantity: number): string {
   return `${quantity} kg`;
 }
@@ -148,6 +157,11 @@ export function PaintInventoryPage() {
   async function handleDeliverySubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setDeliveryErrorMessage(null);
+    const identityError = validatePaintIdentity(deliveryFormState);
+    if (identityError) {
+      setDeliveryErrorMessage(identityError);
+      return;
+    }
     const quantityKg = parseNumber(deliveryFormState.quantity_kg);
     if (quantityKg === undefined || Number.isNaN(quantityKg) || quantityKg <= 0) {
       setDeliveryErrorMessage("Ilość dostawy musi być dodatnią liczbą.");
@@ -180,6 +194,11 @@ export function PaintInventoryPage() {
   async function handleAdjustmentSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setAdjustmentErrorMessage(null);
+    const identityError = validatePaintIdentity(adjustmentFormState);
+    if (identityError) {
+      setAdjustmentErrorMessage(identityError);
+      return;
+    }
     const quantityDeltaKg = parseNumber(adjustmentFormState.quantity_delta_kg);
     if (quantityDeltaKg === undefined || Number.isNaN(quantityDeltaKg) || quantityDeltaKg === 0) {
       setAdjustmentErrorMessage("Korekta musi być liczbą różną od zera.");
