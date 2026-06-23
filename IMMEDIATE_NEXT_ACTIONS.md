@@ -593,6 +593,17 @@ only. Five elements, top to bottom:
   cause of a missed norm). A colour series whose paint is not in stock **cannot be planned** (hard block,
   not just a warning); show a forward "paint suffices / runs out at order X" view. Acceptance: the planner
   refuses an out-of-stock colour series; forward paint view available.
+  - **Verified 2026-06-23 (data foundation is sound, accuracy is the risk):** `Paint.current_quantity_kg`
+    is a live balance with a `>= 0` CHECK (`app/paints/models.py:22`) backed by an append-only ledger
+    `PaintStockMovement` (resulting qty `>= 0`); per-order predicted demand exists
+    (`calculate_predicted_paint_quantity_kg`, m²/4 or /6 by the 100 m² threshold). So the planner has both
+    a stock number and a demand number. **But the number drifts from reality:** only
+    `record_automatic_consumption` (`app/paints/service.py:130`) deducts stock — **manual-line consumption
+    is not metered** (owner: "niewykrywalne"), so any colour also used on manual reads high; and the balance
+    is only as good as disciplined entry (exactly the "myśleli że jest a jej nie ma" failure). **Design
+    refinement:** hard-block on the **automatic** planned series (metered, trustworthy); pair with a quick
+    **stock recount at the booth**; treat colours heavily used on manual as lower-confidence (warn, don't
+    hard-block). Do not hard-block purely on a possibly-stale balance.
 - **N49-8 — Line-assignment lever.** The planner assigns/suggests a line per order: small m² +
   colour-orphan → **manual**; otherwise **automatic** (join a colour run / balance idle). Interacts with
   grouping. Acceptance: planner proposes a line per order by the rule; manager can override.
