@@ -21,6 +21,11 @@ from app.manager.enums import (
     SCHEDULE_RULE_LABELS,
     ScheduleRuleKey,
 )
+from app.manager.measurement import (
+    AutomaticPassObservation,
+    estimate_colour_changeover,
+    measure_automatic_rate,
+)
 from app.manager.models import AutoScheduleConfig
 from app.manager.repository import ManagerRepository
 from app.manager.scheduler import (
@@ -34,6 +39,7 @@ from app.manager.schemas import (
     CycleTimeBreakdown,
     CycleTimeSegment,
     CycleTimeStats,
+    LineMeasurementStats,
     ScheduleRuleConfigItem,
     ScheduleRuleConfigRead,
     ScheduleRuleConfigUpdate,
@@ -702,6 +708,80 @@ class ManagerService:
             by_coating=_wip_segments(_COATING_SEGMENTS, "coating_type"),
         )
         return WipAgingStats(generated_at=reference_now, items=items, breakdown=breakdown)
+
+    def get_line_measurements(
+        self,
+        date_from: date,
+        date_to: date,
+        production_type: ProductionType = ProductionType.AUTOMATIC,
+        station_context: StationContext | None = None,
+    ) -> LineMeasurementStats:
+        """Learned effective rate + colour-changeover cost for a line (N49-2, the planner's read-side).
+
+        Cohort: non-correction orders on ``production_type`` whose latest ``PACKING``->``DONE`` falls in
+        ``[date_from, date_to]`` and that carry a ``HANGING``->``IN_PROGRESS`` start — the two events
+        bracket the automatic pass (``docs/FACTORY_DOMAIN_MODEL.md`` §7). MANUAL has no HANGING stage,
+        so it yields no observations and always reports the seed (manual is the unmeasured overflow
+        valve). Pure derivation lives in ``app/manager/measurement.py``; this just supplies the brackets.
+        """
+        self._ensure_stats_viewer(station_context)
+        session = self.repository.session
+
+        hanging_started = (
+            select(
+                StageTransitionEvent.work_order_id,
+                func.min(StageTransitionEvent.occurred_at).label("hanging_started_at"),
+            )
+            .where(
+                StageTransitionEvent.stage == ProcessStage.HANGING,
+                StageTransitionEvent.status == StageStatus.IN_PROGRESS,
+            )
+            .group_by(StageTransitionEvent.work_order_id)
+            .subquery()
+        )
+        packing_done = (
+            select(
+                StageTransitionEvent.work_order_id,
+                func.max(StageTransitionEvent.occurred_at).label("packing_done_at"),
+            )
+            .where(
+                StageTransitionEvent.stage == ProcessStage.PACKING,
+                StageTransitionEvent.status == StageStatus.DONE,
+            )
+            .group_by(StageTransitionEvent.work_order_id)
+            .subquery()
+        )
+
+        rows = session.execute(
+            select(WorkOrder, hanging_started.c.hanging_started_at, packing_done.c.packing_done_at)
+            .join(packing_done, WorkOrder.id == packing_done.c.work_order_id)
+            .join(hanging_started, WorkOrder.id == hanging_started.c.work_order_id)
+            .where(
+                WorkOrder.production_type == production_type,
+                WorkOrder.is_correction == False,  # noqa: E712
+                func.date(packing_done.c.packing_done_at) >= date_from,
+                func.date(packing_done.c.packing_done_at) <= date_to,
+            )
+        ).all()
+
+        observations = [
+            AutomaticPassObservation(
+                work_order_id=work_order.id,
+                colour_key=self._order_colour_key(work_order),
+                total_area_m2=work_order.total_area_m2,
+                hanging_started_at=_as_naive_utc(hanging_started_at),
+                packing_done_at=_as_naive_utc(packing_done_at),
+            )
+            for work_order, hanging_started_at, packing_done_at in rows
+        ]
+
+        return LineMeasurementStats(
+            production_type=production_type,
+            date_from=date_from,
+            date_to=date_to,
+            rate=measure_automatic_rate(observations),
+            changeover=estimate_colour_changeover(observations),
+        )
 
     def assign_plan(
         self,

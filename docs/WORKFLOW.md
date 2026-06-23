@@ -389,11 +389,17 @@ special priority** and no special-case code.
 **Measurement & trust.** The system **learns the numbers** (real m²/h, colour-changeover cost) from the
 existing `StageTransitionEvent` signals — HANGING start → PACKING completion bracket the automatic pass,
 so **no booth tap is needed** — and applies **explicit, inspectable rules**, not a black box that
-imitates the manager. Trust is earned in three phases: (1) **observer** — manager plans manually, the
-system only shows day-fill vs floor/ceiling and the changeover count; (2) **suggester** — the system
-proposes the arrangement, the manager edits; (3) **trusted** — the system arrangement is the default and
-the manager overrides exceptions. The current NA33 lexicographic scheduler (above) is the reusable
-**within-day ordering core** of this model. *Not yet implemented — the sections above still document
+imitates the manager. The measurement read-side is **built** (N49-2): `app/manager/measurement.py`
+derives the effective automatic rate (total m² ÷ the union of the bracketed intervals — overlaps once,
+idle gaps excluded) and a statistical colour-changeover cost (extra inter-start gap when the colour
+changes), each seeded (≈57 m²/h; the confirmed 15/30-min bands) until enough passes accrue and flagged
+measured-vs-seed; surfaced at `GET /manager/stats/line-measurements`. The *capacity planner* that
+consumes these numbers (day floor/ceiling, deadline-feasible placement) is N49-3+ and not yet built.
+Trust is earned in three phases: (1) **observer** — manager plans manually, the system only shows
+day-fill vs floor/ceiling and the changeover count; (2) **suggester** — the system proposes the
+arrangement, the manager edits; (3) **trusted** — the system arrangement is the default and the manager
+overrides exceptions. The current NA33 lexicographic scheduler (above) is the reusable **within-day
+ordering core** of this model. *The planner is not yet implemented — the sections above still document
 current behavior.*
 
 ## Station Permissions

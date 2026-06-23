@@ -577,11 +577,33 @@ only. Five elements, top to bottom:
     `WorkOrderCreate` had `planned_pickup_date: date | None = None` (optional), while `total_area_m2`
     (`Field(gt=0)`) and `ral_code` were already required — so only the deadline wasn't. Acceptance: intake
     requires a pickup date; the planner can rely on every active order having one.
-- **N49-2 — Measurement engine ("learn the numbers").** Derive real automatic **m²/h** and a
-  **statistical colour-changeover cost** from `StageTransitionEvent` (HANGING-start → PACKING-done
-  brackets the automatic pass — **no booth tap**, owner: "na kabinie nie tapnie"). Seed ~55–60 m²/h.
-  Manual line stays unmeasured (overflow valve). Acceptance: per-line rate + changeover estimate computed
-  from the log and refining over time.
+- **N49-2 — Measurement engine ("learn the numbers"). DONE (2026-06-24).** A read-only engine derives
+  the planner's two real numbers from the existing `StageTransitionEvent` log — **no booth tap**. The
+  pure, DB-free core `app/manager/measurement.py` (mirrors `scheduler.py`) takes per-order
+  `AutomaticPassObservation`s (HANGING `IN_PROGRESS` start → PACKING `DONE`, which bracket the whole
+  automatic pass) and computes: (1) **effective m²/h** = total observed m² ÷ the **union** of the
+  bracketed intervals (overlaps counted once, overnight idle gaps fall out automatically → the
+  *effective* line rate the day-capacity model multiplies by shift length, ≈ floor ÷ shift, not the
+  60–100 instantaneous ceiling); (2) a **statistical colour-changeover cost** = avg inter-start gap when
+  the colour changed − when it stayed the same (clamped ≥ 0). Both **seed** when sparse: rate seed
+  `57.0` m²/h (≈ 800 m² / 14 h), changeover seed `20.0` min (midpoint of the confirmed 15/30-min bands,
+  which are exposed as structural `band_*` reference fields for the later N49-6 size-aware cost). Wired
+  as `ManagerService.get_line_measurements(date_from, date_to, production_type)` +
+  `GET /manager/stats/line-measurements` (manager-gated), defaulting to AUTOMATIC; MANUAL has no HANGING
+  stage so it yields no brackets and always reports the seed (the unmeasured overflow valve — exactly
+  right). Schemas `LineRateMeasurement` / `ColourChangeoverMeasurement` / `LineMeasurementStats` flag
+  measured-vs-seed (`is_measured`) so the planner/UI know the confidence; figures refine as passes
+  accrue. Tests: `tests/test_measurement.py` (9 pure: union vs sum, idle-gap exclusion, seed fallback,
+  bad-bracket/no-area skip, changeover residual + clamp) + `tests/test_line_measurements.py` (5
+  service/DB: rate from logged brackets, manual seed-only, changeover residual, manager gating). No
+  schema change (read-only over existing tables); `alembic check` stays clean. The two
+  hard-feasibility/capacity *consumers* land with the planner (N49-3/N49-4/N49-6); this delivered the
+  measurement foundation. Acceptance met: per-line rate + changeover estimate computed from the log,
+  refining over time.
+  - Original framing — Derive real automatic **m²/h** and a **statistical colour-changeover cost** from
+    `StageTransitionEvent` (HANGING-start → PACKING-done brackets the automatic pass — **no booth tap**,
+    owner: "na kabinie nie tapnie"). Seed ~55–60 m²/h. Manual line stays unmeasured (overflow valve).
+    Acceptance: per-line rate + changeover estimate computed from the log and refining over time.
 
 **Core planner (the heart — depends on the foundation):**
 - **N49-3 — Day capacity model: floor + ceiling.** Each working day is a bucket with a **floor** (800

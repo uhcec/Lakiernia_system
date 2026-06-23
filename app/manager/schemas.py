@@ -193,6 +193,52 @@ class ScheduleRuleConfigUpdate(BaseModel):
         return self
 
 
+class LineRateMeasurement(BaseModel):
+    """Effective automatic line throughput learned from the stage-transition log (N49-2).
+
+    ``effective_rate_m2_per_h`` is the number the day-capacity planner consumes: the measured rate once
+    enough passes are bracketed, otherwise the seed. ``measured_rate_m2_per_h`` is ``None`` until the
+    sample is large enough, and ``is_measured`` says which of the two ``effective`` reflects.
+    """
+
+    sample_order_count: int
+    observed_m2: float
+    # Wall-clock hours the line was occupied (union of the bracketed passes, overlaps counted once).
+    active_hours: float
+    measured_rate_m2_per_h: float | None
+    seed_rate_m2_per_h: float
+    effective_rate_m2_per_h: float
+    is_measured: bool
+
+
+class ColourChangeoverMeasurement(BaseModel):
+    """Statistical colour-changeover cost learned from the log, with the confirmed band seed (N49-2).
+
+    ``estimated_changeover_minutes`` is what the planner consumes (measured residual once enough pairs
+    are seen, else the seed midpoint). The structural ``band_*`` fields are the confirmed 15/30-min
+    bands keyed off the 100 m² odzysk threshold — reference for a size-aware cost model (N49-6)."""
+
+    same_colour_pair_count: int
+    changed_colour_pair_count: int
+    measured_changeover_minutes: float | None
+    seed_changeover_minutes: float
+    estimated_changeover_minutes: float
+    is_measured: bool
+    band_threshold_m2: float
+    band_small_minutes: float
+    band_large_minutes: float
+
+
+class LineMeasurementStats(BaseModel):
+    """The learned per-line numbers (rate + changeover) over a window — read-side of N49-2."""
+
+    production_type: ProductionType
+    date_from: date
+    date_to: date
+    rate: LineRateMeasurement
+    changeover: ColourChangeoverMeasurement
+
+
 class AutoScheduleProposal(BaseModel):
     """A non-committal proposed painting order plus the colour-changeover improvement (NA33).
 
