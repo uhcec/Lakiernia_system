@@ -218,6 +218,7 @@ function buildStageWorkOrder(
     queue_namespace: overrides.queue_namespace ?? { value: "MAIN", label: "Główna" },
     production_type: overrides.production_type ?? { value: "MANUAL", label: "Ręczna" },
     coating_type: overrides.coating_type ?? { value: "RAL", label: "RAL" },
+    technical_drawings: overrides.technical_drawings ?? [],
     batch_type: overrides.batch_type ?? "MAIN",
     batch_is_partial: overrides.batch_is_partial ?? false,
     is_being_packed: overrides.is_being_packed ?? false,
@@ -842,6 +843,31 @@ describe("frontend state consistency", () => {
     expect(screen.queryByText("Technologia")).toBeNull();
     expect(screen.queryByText("Typ produkcji")).toBeNull();
     expect(screen.queryByText("Partia")).toBeNull();
+  });
+
+  it("surfaces technical-drawing download links on the station card (NA36)", async () => {
+    fetchStageWorkOrdersMock.mockResolvedValueOnce([
+      buildStageWorkOrder({
+        id: 33,
+        order_number: "WO-DRAWING",
+        customer_name: "ACME",
+        technical_drawings: [{ id: 88, original_filename: "rysunek.png", content_type: "image/png" }],
+        stage_status: { stage: "SURFACE_PREPARATION", status: { value: "NOT_STARTED", label: "Nie rozpoczęto" } },
+      }),
+    ]);
+
+    render(
+      <StageWorkOrdersPage
+        stage="SURFACE_PREPARATION"
+        title="Przygotowanie"
+        emptyMessage="Brak zleceń"
+      />,
+    );
+
+    expect(await screen.findByText("Rysunki techniczne")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "rysunek.png" }).getAttribute("href")).toBe(
+      "/work-orders/33/attachments/88/download",
+    );
   });
 
   it("shows area and paint columns on production stations", async () => {
@@ -1869,6 +1895,7 @@ describe("frontend state consistency", () => {
         storage_path: "71/stored.pdf",
         content_type: "application/pdf",
         file_size: 1200,
+        category: "TECHNICAL_DRAWING",
         attachment_type: "RYSUNEK",
         description: null,
         uploaded_at: "2026-05-27T08:00:00Z",
@@ -1878,6 +1905,8 @@ describe("frontend state consistency", () => {
     renderWorkOrderDetail(71, "?station_context=PACKING");
 
     await screen.findByText("rysunek.pdf");
+    // NA36: the structured category is rendered (not just the free-text type label).
+    expect(screen.getByText("Rysunek techniczny")).toBeTruthy();
     expect(screen.getByRole("link", { name: "Pobierz" }).getAttribute("href")).toBe(
       "/work-orders/71/attachments/12/download",
     );

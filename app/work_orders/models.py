@@ -5,6 +5,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database.base import Base
 from app.process.enums import CoatingType, ProductionType
+from app.work_orders.enums import WorkOrderAttachmentCategory
 from app.shared.enums import QueueNamespace, WorkOrderKind
 
 
@@ -213,6 +214,12 @@ class WorkOrderAttachment(Base):
     storage_path: Mapped[str] = mapped_column(String(512), nullable=False)
     content_type: Mapped[str] = mapped_column(String(128), nullable=False)
     file_size: Mapped[int] = mapped_column(Integer(), nullable=False)
+    # Structured discriminator (NA36). Plain string validated at the app layer against
+    # WorkOrderAttachmentCategory; defaults to DOCUMENT so every pre-existing attachment is a document.
+    category: Mapped[str] = mapped_column(
+        String(32), nullable=False, default=WorkOrderAttachmentCategory.DOCUMENT.value
+    )
+    # Optional free-text human sub-label (legacy; orthogonal to `category`).
     attachment_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
     description: Mapped[str | None] = mapped_column(Text(), nullable=True)
     uploaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False)

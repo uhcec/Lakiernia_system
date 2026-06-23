@@ -1,6 +1,6 @@
 import { createApiError } from "./apiError";
 import { getCurrentStationHeaders } from "./stationContext";
-import type { CreateWorkOrderRequest, UpdateWorkOrderRequest, WorkOrder, WorkOrderAttachment, WorkOrdersListResponse } from "../types/workOrders";
+import type { CreateWorkOrderRequest, UpdateWorkOrderRequest, WorkOrder, WorkOrderAttachment, WorkOrderAttachmentCategory, WorkOrdersListResponse } from "../types/workOrders";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL?.trim();
 
@@ -165,10 +165,13 @@ export async function fetchWorkOrderAttachments(workOrderId: number): Promise<Wo
 
 export async function uploadWorkOrderAttachment(
   workOrderId: number,
-  payload: { file: File; attachmentType?: string; description?: string },
+  payload: { file: File; category?: WorkOrderAttachmentCategory; attachmentType?: string; description?: string },
 ): Promise<WorkOrderAttachment> {
   const formData = new FormData();
   formData.append("file", payload.file);
+  if (payload.category) {
+    formData.append("category", payload.category);
+  }
   if (payload.attachmentType?.trim()) {
     formData.append("attachment_type", payload.attachmentType.trim());
   }

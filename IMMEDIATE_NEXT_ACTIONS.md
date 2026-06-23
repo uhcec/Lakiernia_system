@@ -618,6 +618,24 @@ workflow meaning. Severities are first-pass estimates.
   the wheel still works; keyboard entry unaffected.
 
 ### NA36. Technical drawings on a work order — new attachment type
+- Status: **DONE (2026-06-23).** Owner decisions: file types = **PDF + images (PNG/JPG)**; viewing surface =
+  **station cards + detail page**; visibility = **all stations** (upload/delete stays office-only). Built on
+  the existing `WorkOrderAttachment` mechanism. New structured discriminator `WorkOrderAttachmentCategory`
+  (`app/work_orders/enums.py`: `DOCUMENT` default / `TECHNICAL_DRAWING`) stored as a plain `category` string
+  column (validated at the app layer, beside the legacy free-text `attachment_type`); migration
+  `20260623_0037` backfills existing rows to DOCUMENT. `upload_attachment` now accepts `category` and any of
+  PDF/PNG/JPEG — per-type magic-byte validation (`%PDF-`, PNG signature, JPEG `\xff\xd8\xff`) + stored
+  extension by type (`415` wrong type, `400` bad signature, `413` too large, `422` bad category). The station
+  read model gains `technical_drawings: list[WorkOrderAttachmentSummaryRead]` (only `TECHNICAL_DRAWING`
+  attachments), surfaced on all four production station cards via a shared `TechnicalDrawingLinks` component
+  (download links — the download endpoint is already open to every station). Office intake detail page: a
+  category `<select>` + PDF/image file picker + a "Kategoria" table column. Tests: backend
+  `tests/test_work_order_attachments_api.py` (PNG/JPEG accepted, default DOCUMENT, invalid category 422, image
+  bad-signature 400, drawing surfaced on the SP station card / document not); frontend (station-card drawing
+  link + category label on detail). Seed adds a sample drawing. `docs/WORKFLOW.md` new "Work Order Attachments
+  (incl. technical drawings)" section. **Full backend suite green; alembic check clean; 87 frontend tests +
+  both builds green.** Follow-up (deferred, not requested): CAD formats; feeding the drawing into any
+  per-product/template model.
 - Severity: MEDIUM (feature).
 - Request (verbatim): "Rysunki techniczne."
 - Decision (2026-06-19): implement as a **new attachment type extending the existing

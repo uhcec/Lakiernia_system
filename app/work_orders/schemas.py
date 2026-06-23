@@ -95,6 +95,7 @@ class WorkOrderAttachmentRead(BaseModel):
     storage_path: str
     content_type: str
     file_size: int
+    category: str
     attachment_type: str | None
     description: str | None
     uploaded_at: datetime
@@ -364,6 +365,7 @@ def build_work_order_attachment_read(attachment: "WorkOrderAttachment") -> WorkO
         storage_path=attachment.storage_path,
         content_type=attachment.content_type,
         file_size=attachment.file_size,
+        category=attachment.category,
         attachment_type=attachment.attachment_type,
         description=attachment.description,
         uploaded_at=attachment.uploaded_at,

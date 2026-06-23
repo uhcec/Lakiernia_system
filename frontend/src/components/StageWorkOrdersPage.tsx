@@ -5,6 +5,7 @@ import { getMutationErrorMessage } from "../utils/mutationError";
 import { buildWorkOrderDetailHref, getStationIdForLocation } from "../api/stationContext";
 import { NumberInput } from "./NumberInput";
 import { StationPresenceWidget } from "./StationPresenceWidget";
+import { TechnicalDrawingLinks } from "./TechnicalDrawingLinks";
 import { fetchStageWorkOrders, recordAutomaticPaintConsumption, transitionStage } from "../api/processApi";
 import type { ProcessStageValue, StageWorkOrder, StageStatusValue } from "../types/process";
 import type { ProductionTypeValue } from "../types/workOrders";
@@ -550,6 +551,8 @@ export function StageWorkOrdersPage({
                       <dd className="mt-1 font-semibold text-ink">{workOrder.operational_quantity} szt.</dd>
                     </div>
                   </dl>
+
+                  <TechnicalDrawingLinks workOrderId={workOrder.id} drawings={workOrder.technical_drawings} />
 
                   <div className="space-y-1 text-sm">
                     <p className="font-semibold text-ink">{status === "DONE" ? `Zakończono: ${title}` : title}</p>

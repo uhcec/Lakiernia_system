@@ -577,6 +577,24 @@ Open implementation design:
 - decide where the template file is stored and who may update it
 - confirm how manual/signature fields in the template should remain blank for printing
 
+## Work Order Attachments (incl. technical drawings)
+
+The office attaches files (PDF or PNG/JPG images) to a work order. Every attachment carries a structured
+**category** (`WorkOrderAttachmentCategory`): `DOCUMENT` (the default — any general file, e.g. a spec) or
+`TECHNICAL_DRAWING` (NA36). The category is the discriminator that distinguishes a technical drawing from
+other attachments; an optional free-text `attachment_type` may still carry a human sub-label.
+
+- **Upload/delete is office-only**; **viewing/downloading is open to every authenticated station** (the
+  download endpoint is not station-gated). Uploads are validated by content type **and** magic bytes
+  (`%PDF-`, the PNG signature, or the JPEG `\xff\xd8\xff` prefix) and capped by the configured max size; a
+  mismatch is rejected (`415` wrong type, `400` bad signature, `413` too large, `422` bad category).
+- **Technical drawings are surfaced on the production station cards** (surface preparation, production,
+  hanging, packing, decoral) as a "Rysunki techniczne" list of download links, so the operator can open the
+  drawing where they work — in addition to the work-order detail page. The station read model
+  (`ProcessStageWorkOrderRead.technical_drawings`) only includes attachments whose category is
+  `TECHNICAL_DRAWING`; plain documents are not listed on station cards.
+- One work order may hold many attachments (one drawing or several); there is no per-product/template model.
+
 ## Paint Inventory And Consumption
 
 The target paint slice uses an application-owned paint inventory plus historical work-order snapshots.

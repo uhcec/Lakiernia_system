@@ -65,6 +65,8 @@ export interface WorkOrderQuantityBatch {
   created_at: string;
 }
 
+export type WorkOrderAttachmentCategory = "DOCUMENT" | "TECHNICAL_DRAWING";
+
 export interface WorkOrderAttachment {
   id: number;
   work_order_id: number;
@@ -73,9 +75,16 @@ export interface WorkOrderAttachment {
   storage_path: string;
   content_type: string;
   file_size: number;
+  category: WorkOrderAttachmentCategory;
   attachment_type: string | null;
   description: string | null;
   uploaded_at: string;
+}
+
+export interface WorkOrderAttachmentSummary {
+  id: number;
+  original_filename: string;
+  content_type: string;
 }
 
 export interface WorkOrderRelationSummary {

@@ -115,12 +115,14 @@ async def upload_work_order_attachment(
 	service: Annotated[WorkOrderService, Depends(get_work_order_service)],
 	station_context: Annotated[StationContext, Depends(get_station_context)],
 	file: UploadFile = File(...),
+	category: Annotated[str | None, Form()] = None,
 	attachment_type: Annotated[str | None, Form()] = None,
 	description: Annotated[str | None, Form()] = None,
 ) -> WorkOrderAttachmentRead:
 	return await service.upload_attachment(
 		work_order_id,
 		file,
+		category=category,
 		attachment_type=attachment_type,
 		description=description,
 		station_context=station_context,

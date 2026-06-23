@@ -17,7 +17,13 @@ from app.process.enums import CoatingType, CorrectionKind, ProcessDisplayStatus,
 from app.process.models import StatOnlyCorrection, WorkOrderQuantityBatch, WorkOrderStageState
 from app.process.repository import ProcessRepository
 from app.foils.schemas import FoilSummaryRead
-from app.process.schemas import ProcessStageStatusRead, ProcessStageWorkOrderRead, StageStatusView
+from app.process.schemas import (
+    ProcessStageStatusRead,
+    ProcessStageWorkOrderRead,
+    StageStatusView,
+    WorkOrderAttachmentSummaryRead,
+)
+from app.work_orders.enums import WorkOrderAttachmentCategory
 from app.shared.enums import QueueNamespace, StationId, WorkOrderKind
 from app.shared.exceptions import InvalidPaintInventoryError, InvalidProcessStageTransitionError, ResourceNotFoundError
 from app.work_orders.number_allocator import WorkOrderNumberAllocator
@@ -2461,6 +2467,15 @@ class ProcessService:
                 if work_order.decoral_foil is not None
                 else None
             ),
+            technical_drawings=[
+                WorkOrderAttachmentSummaryRead(
+                    id=attachment.id,
+                    original_filename=attachment.original_filename,
+                    content_type=attachment.content_type,
+                )
+                for attachment in work_order.attachments
+                if attachment.category == WorkOrderAttachmentCategory.TECHNICAL_DRAWING.value
+            ],
             batch_type=batch_type,
             batch_is_partial=batch_is_partial,
             is_being_packed=is_being_packed,

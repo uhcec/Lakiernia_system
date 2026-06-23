@@ -21,6 +21,7 @@ from app.process.repository import ProcessRepository
 from app.process.service import ProcessService
 from app.shared.enums import StationId, WorkOrderStatus, get_work_order_status_label
 from app.shared.exceptions import InvalidAttachmentError, InvalidStatusTransitionError, InvalidWorkOrderDataError, ResourceNotFoundError
+from app.work_orders.enums import WorkOrderAttachmentCategory
 from app.work_orders.models import WorkOrder, WorkOrderAttachment
 from app.work_orders.number_allocator import WorkOrderNumberAllocator
 from app.work_orders.repository import WorkOrderRepository
@@ -144,8 +145,14 @@ def _get_excel_pdf_converter() -> _ExcelPdfConverter:
 
 
 class WorkOrderService:
-    ALLOWED_ATTACHMENT_CONTENT_TYPES = {"application/pdf"}
-    PDF_MAGIC_BYTES = b"%PDF-"
+    # Allowed attachment content types → (magic-byte prefix, stored file extension) (NA36: PDF + images).
+    ALLOWED_ATTACHMENT_TYPES: dict[str, tuple[bytes, str]] = {
+        "application/pdf": (b"%PDF-", ".pdf"),
+        "image/png": (b"\x89PNG\r\n\x1a\n", ".png"),
+        "image/jpeg": (b"\xff\xd8\xff", ".jpg"),
+    }
+    # Bytes sniffed from the file head to verify the magic prefix (longest prefix above is 8 bytes).
+    ATTACHMENT_HEADER_BYTES = 8
 
     def __init__(self, repository: WorkOrderRepository) -> None:
         self.repository = repository
@@ -477,35 +484,39 @@ class WorkOrderService:
         work_order_id: int,
         file: UploadFile,
         *,
+        category: str | None = None,
         attachment_type: str | None = None,
         description: str | None = None,
         station_context: StationContext | None = None,
     ) -> WorkOrderAttachmentRead:
         self._ensure_office_station_action(station_context, "office attachment actions")
         work_order = self._get_existing_work_order(work_order_id)
+        category_value = self._normalize_attachment_category(category)
         original_filename = Path(file.filename or "").name.strip()
         if not original_filename:
             raise InvalidAttachmentError("Plik musi mieć nazwę.")
-        if file.content_type not in self.ALLOWED_ATTACHMENT_CONTENT_TYPES:
-            raise InvalidAttachmentError("Dozwolone są tylko pliki PDF.", status_code=415)
+        allowed = self.ALLOWED_ATTACHMENT_TYPES.get(file.content_type or "")
+        if allowed is None:
+            raise InvalidAttachmentError("Dozwolone są tylko pliki PDF lub obrazy (PNG/JPG).", status_code=415)
+        magic_prefix, extension = allowed
 
         settings = get_settings()
         root_path = get_work_order_attachments_path()
         attachment_directory = root_path / str(work_order.id)
         attachment_directory.mkdir(parents=True, exist_ok=True)
 
-        stored_filename = f"{uuid4().hex}.pdf"
+        stored_filename = f"{uuid4().hex}{extension}"
         destination_path = attachment_directory / stored_filename
         relative_storage_path = destination_path.relative_to(root_path).as_posix()
 
         file_size = 0
         try:
             with destination_path.open("wb") as output_file:
-                header = await file.read(len(self.PDF_MAGIC_BYTES))
+                header = await file.read(self.ATTACHMENT_HEADER_BYTES)
                 if not header:
-                    raise InvalidAttachmentError("Nie można przesłać pustego pliku PDF.")
-                if header != self.PDF_MAGIC_BYTES:
-                    raise InvalidAttachmentError("Przesłany plik nie jest prawidłowym PDF.")
+                    raise InvalidAttachmentError("Nie można przesłać pustego pliku.")
+                if not header.startswith(magic_prefix):
+                    raise InvalidAttachmentError(self._invalid_signature_message(file.content_type))
 
                 file_size += len(header)
                 output_file.write(header)
@@ -526,6 +537,7 @@ class WorkOrderService:
                 storage_path=relative_storage_path,
                 content_type=file.content_type,
                 file_size=file_size,
+                category=category_value,
                 attachment_type=self._normalize_optional_text(attachment_type),
                 description=self._normalize_optional_text(description),
             )
@@ -671,6 +683,23 @@ class WorkOrderService:
         normalized = value.strip()
         return normalized or None
 
+    @staticmethod
+    def _normalize_attachment_category(value: str | None) -> str:
+        if value is None or not value.strip():
+            return WorkOrderAttachmentCategory.DOCUMENT.value
+        try:
+            return WorkOrderAttachmentCategory(value.strip().upper()).value
+        except ValueError as error:
+            raise InvalidAttachmentError(
+                f"Nieprawidłowa kategoria załącznika: {value}.", status_code=422
+            ) from error
+
+    @staticmethod
+    def _invalid_signature_message(content_type: str | None) -> str:
+        if content_type == "application/pdf":
+            return "Przesłany plik nie jest prawidłowym PDF."
+        return "Przesłany plik nie jest prawidłowym obrazem (PNG/JPG)."
+
     def _record_work_order_created(self, work_order: WorkOrder, station_context: StationContext | None) -> None:
         self._record_audit_event(
             event_type="work_order.created",
@@ -710,6 +739,7 @@ class WorkOrderService:
                 "stored_filename": attachment.stored_filename,
                 "content_type": attachment.content_type,
                 "file_size": attachment.file_size,
+                "category": attachment.category,
                 "attachment_type": attachment.attachment_type,
             },
         )

@@ -15,6 +15,14 @@ class ProcessStageStatusRead(BaseModel):
     status: StageStatusView
 
 
+class WorkOrderAttachmentSummaryRead(BaseModel):
+    """Minimal attachment descriptor surfaced on station cards (NA36 technical drawings)."""
+
+    id: int
+    original_filename: str
+    content_type: str
+
+
 class ProcessStageWorkOrderRead(BaseModel):
     id: int
     batch_id: int | None = None
@@ -53,6 +61,8 @@ class ProcessStageWorkOrderRead(BaseModel):
     production_type: ProductionTypeView | None
     coating_type: CoatingTypeView
     decoral_foil: FoilSummaryRead | None = None
+    # Technical drawings (NA36): office-attached PDFs/images the station operator can open while working.
+    technical_drawings: list[WorkOrderAttachmentSummaryRead] = Field(default_factory=list)
     batch_type: QuantityBatchType | None = None
     batch_is_partial: bool = False
     is_being_packed: bool = False

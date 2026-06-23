@@ -40,6 +40,7 @@ from app.process.models import (
 from app.process.repository import ProcessRepository
 from app.process.service import ProcessService
 from app.shared.enums import StationId, WorkOrderKind
+from app.work_orders.enums import WorkOrderAttachmentCategory
 from app.work_orders.models import WorkOrder, WorkOrderAttachment, WorkOrderNumberCounter
 from app.work_orders.repository import WorkOrderRepository
 from app.work_orders.schemas import WorkOrderCreate
@@ -47,6 +48,11 @@ from app.work_orders.service import WorkOrderService
 
 
 PDF_BYTES = b"%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\ntrailer\n<<>>\n%%EOF\n"
+# Minimal 1x1 PNG (valid signature + body) for a seeded technical drawing (NA36).
+PNG_BYTES = (
+    b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15\xc4"
+    b"\x89\x00\x00\x00\nIDATx\x9cc\x00\x01\x00\x00\x05\x00\x01\r\n-\xb4\x00\x00\x00\x00IEND\xaeB`\x82"
+)
 
 _PAINT_BY_RAL: dict[str, tuple[str, str]] = {
     "RAL 7016": ("TIG-7016-MA", "Tiger"),
@@ -1317,17 +1323,34 @@ def create_attachment(repository: WorkOrderRepository, work_order_id: int) -> No
     absolute_path = attachment_directory / stored_filename
     absolute_path.write_bytes(PDF_BYTES)
 
-    attachment = WorkOrderAttachment(
+    document = WorkOrderAttachment(
         work_order_id=work_order_id,
         original_filename="instrukcja-testowa.pdf",
         stored_filename=stored_filename,
         storage_path=absolute_path.relative_to(root_path).as_posix(),
         content_type="application/pdf",
         file_size=len(PDF_BYTES),
+        category=WorkOrderAttachmentCategory.DOCUMENT.value,
         attachment_type="SPEC",
         description="Przykladowy plik PDF do testow lokalnych.",
     )
-    repository.add_attachment(attachment)
+    repository.add_attachment(document)
+
+    # A technical drawing (NA36) so stations show the "Rysunki techniczne" link in dev.
+    drawing_filename = "seeded-drawing.png"
+    drawing_path = attachment_directory / drawing_filename
+    drawing_path.write_bytes(PNG_BYTES)
+    drawing = WorkOrderAttachment(
+        work_order_id=work_order_id,
+        original_filename="rysunek-techniczny.png",
+        stored_filename=drawing_filename,
+        storage_path=drawing_path.relative_to(root_path).as_posix(),
+        content_type="image/png",
+        file_size=len(PNG_BYTES),
+        category=WorkOrderAttachmentCategory.TECHNICAL_DRAWING.value,
+        description="Przykladowy rysunek techniczny do testow lokalnych.",
+    )
+    repository.add_attachment(drawing)
     repository.commit()
 
 

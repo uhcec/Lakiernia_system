@@ -5,6 +5,7 @@ import { getMutationErrorMessage } from "../utils/mutationError";
 import { buildWorkOrderDetailHref, getStationIdForLocation } from "../api/stationContext";
 import { NumberInput } from "./NumberInput";
 import { StationPresenceWidget } from "./StationPresenceWidget";
+import { TechnicalDrawingLinks } from "./TechnicalDrawingLinks";
 import { completeDecoralProduction, fetchStageWorkOrders, transitionStage } from "../api/processApi";
 import type { StageWorkOrder, StageStatusValue } from "../types/process";
 import { loadCorrectionContexts, type CorrectionContext } from "../utils/correctionContext";
@@ -410,6 +411,8 @@ export function DecoralWorkOrdersPage() {
                       <dd className="mt-1 font-semibold text-ink">{workOrder.operational_quantity} szt.</dd>
                     </div>
                   </dl>
+
+                  <TechnicalDrawingLinks workOrderId={workOrder.id} drawings={workOrder.technical_drawings} />
 
                   <div className="space-y-1 text-sm">
                     {showBatchProgress ? (

@@ -1,4 +1,4 @@
-import type { QueueNamespaceValue, WorkOrderKindValue, WorkOrderOption, ProductionTypeValue } from "./workOrders";
+import type { QueueNamespaceValue, WorkOrderKindValue, WorkOrderOption, ProductionTypeValue, WorkOrderAttachmentSummary } from "./workOrders";
 import type { FoilSummary } from "./foils";
 
 export type ProcessStageValue =
@@ -56,6 +56,7 @@ export interface StageWorkOrder {
   production_type: WorkOrderOption<ProductionTypeValue> | null;
   coating_type: WorkOrderOption<"RAL" | "DECORAL">;
   decoral_foil?: FoilSummary | null;
+  technical_drawings: WorkOrderAttachmentSummary[];
   batch_type: "MAIN" | "CORRECTION" | null;
   batch_is_partial: boolean;
   is_being_packed: boolean;
