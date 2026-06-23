@@ -625,9 +625,33 @@ only. Five elements, top to bottom:
   forced shift, per-line buckets, manager gating). No schema change (read-only); `alembic check` clean.
   `docs/WORKFLOW.md` "Target planning model" updated. The deadline-feasible **placement** that consumes this
   bucket is N49-4. Acceptance met: a day shows fill vs floor/ceiling; below-floor + over-ceiling flagged.
-- **N49-4 — Deadline-feasible multi-day placement.** Place orders across day-buckets in deadline order so
-  no hard pickup date is missed; surface a "won't make it" warning. Objective hierarchy: **deadline >
-  floor > grouping.** Acceptance: orders land on days respecting deadlines; infeasible deadlines warn.
+- **N49-4 — Deadline-feasible multi-day placement. DONE (2026-06-24).** A DB-free model
+  `app/manager/placement.py` (mirrors `scheduler.py` / `capacity.py` / `measurement.py`) lays a line's
+  active planned orders across a working-day calendar **earliest-deadline-first** into day buckets bounded
+  by each day's **net** ceiling (gross booth capacity minus the m² lost to that day's colour changes —
+  `changeover_loss_m2` was extracted from `capacity.py` and is now shared, so the single-day and multi-day
+  models never drift). Packing against the *net* ceiling keeps the deadline promise conservative; an order
+  larger than a whole day is still placed alone and flagged `over_ceiling` (a real signal, not an error).
+  Per order it returns whether the day it lands on still meets the hard pickup deadline (required since
+  N49-1) plus `days_late`, and the **"won't make it" set** `infeasible_order_ids` (scheduled past the
+  deadline *or* beyond the horizon). Within a day the EDF order is kept — the light→dark colour sweep and
+  line assignment are N49-5/N49-8 by design. The working-day calendar `working_days_from` skips Sat/Sun
+  (**Mon–Fri ASSUMPTION, revisit with owner**). Wired as
+  `ManagerService.get_multi_day_plan(production_type, horizon_working_days=10, shift_length=None)` +
+  `GET /manager/planner/multi-day` (manager-gated); shift length is advised from the available ready work
+  when omitted; the learned changeover cost (N49-2, 90-day window) feeds each day's net ceiling (the
+  trailing-window estimate was extracted into a shared `_learned_changeover` helper used by both
+  planner endpoints). No schema change (read-only over existing tables); `alembic check` clean. Tests:
+  `tests/test_placement.py` (10 pure: net-ceiling fill, EDF order, overflow split, missed-deadline +
+  beyond-horizon infeasibility, colour-change capacity loss, oversized order, weekend calendar) +
+  `tests/test_multi_day_plan_service.py` (6 service/DB: empty→short, ≥floor→long one-day, overflow→two
+  days, past-deadline infeasible, manager gating). `docs/WORKFLOW.md` "Target planning model" updated.
+  Acceptance met: orders land on days respecting deadlines; infeasible deadlines warn. The remaining
+  objective levels (N49-5 light→dark within-day, N49-6 size-aware changeover cost, N49-8 line assignment)
+  refine the *within-day* and *cost* model on top of this placement.
+  - Original framing — Place orders across day-buckets in deadline order so no hard pickup date is missed;
+    surface a "won't make it" warning. Objective hierarchy: **deadline > floor > grouping.** Acceptance:
+    orders land on days respecting deadlines; infeasible deadlines warn.
 - **N49-5 — Light→dark colour ordering** (replaces the crude "largest run first"). Group identical
   colours (zero changeover), then order remaining changes **light → dark** using RAL-code lightness;
   dark → light is the expensive reset to minimise. **Supersedes NA49.H** and the exact-identity-only

@@ -89,6 +89,23 @@ def floor_m2(shift_length: ShiftLength) -> float:
     return FLOOR_LONG_M2 if shift_length is ShiftLength.LONG else FLOOR_SHORT_M2
 
 
+def changeover_loss_m2(
+    changeover_count: int,
+    changeover_minutes: float,
+    ceiling_rate_m2_per_h: float = CEILING_BOOTH_RATE_M2_PER_H,
+) -> float:
+    """m² of physical ceiling consumed by colour changes (booth not painting during a change).
+
+    ``changeover_count`` × ``changeover_minutes`` of booth time, converted to m² at the booth rate.
+    Negative inputs are clamped to zero so a bad estimate never *adds* capacity. Shared by the
+    single-day model (``compute_day_capacity``) and the multi-day placement (``placement.py``), so the
+    two never drift in how a colour change costs capacity.
+    """
+    count = max(changeover_count, 0)
+    minutes = max(changeover_minutes, 0.0)
+    return (count * minutes / 60.0) * ceiling_rate_m2_per_h
+
+
 def advise_shift_length(available_ready_m2: float) -> ShiftLength:
     """Advise the shift length from the work available to run (``docs/FACTORY_DOMAIN_MODEL.md`` §7).
 
@@ -114,7 +131,7 @@ def compute_day_capacity(
     safe_changeover_count = max(changeover_count, 0)
     each_minutes = max(changeover_minutes, 0.0)
     changeover_minutes_total = safe_changeover_count * each_minutes
-    changeover_loss = (changeover_minutes_total / 60.0) * ceiling_rate_m2_per_h
+    changeover_loss = changeover_loss_m2(safe_changeover_count, each_minutes, ceiling_rate_m2_per_h)
     net_ceiling = max(gross_ceiling - changeover_loss, 0.0)
 
     placed_m2 = sum(max(order.total_area_m2 or 0.0, 0.0) for order in placed_orders)

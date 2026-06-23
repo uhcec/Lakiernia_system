@@ -32,6 +32,11 @@ from app.manager.measurement import (
     estimate_colour_changeover,
     measure_automatic_rate,
 )
+from app.manager.placement import (
+    PlaceableOrder,
+    place_orders,
+    working_days_from,
+)
 from app.manager.models import AutoScheduleConfig
 from app.manager.repository import ManagerRepository
 from app.manager.scheduler import (
@@ -47,6 +52,9 @@ from app.manager.schemas import (
     CycleTimeStats,
     DayCapacityRead,
     LineMeasurementStats,
+    MultiDayPlanRead,
+    OrderPlacementRead,
+    PlannedDayRead,
     ScheduleRuleConfigItem,
     ScheduleRuleConfigRead,
     ScheduleRuleConfigUpdate,
@@ -134,6 +142,9 @@ def _order_segment_keys(
 
 # Trailing window over which the day-capacity model learns the changeover cost (N49-3 reuses N49-2).
 _MEASUREMENT_WINDOW_DAYS = 90
+
+# Default rolling horizon (working days) the multi-day placement lays orders across (N49-4 / board N49-9).
+_DEFAULT_PLAN_HORIZON_WORKING_DAYS = 10
 
 
 def _as_naive_utc(value: datetime) -> datetime:
@@ -835,12 +846,7 @@ class ManagerService:
             [work_order.id for work_order in active_orders], colour_by_id
         )
 
-        today = datetime.now(UTC).date()
-        changeover = estimate_colour_changeover(
-            self._automatic_pass_observations(
-                today - timedelta(days=_MEASUREMENT_WINDOW_DAYS), today, production_type
-            )
-        )
+        changeover = self._learned_changeover(production_type)
 
         day = compute_day_capacity(
             resolved_shift,
@@ -869,6 +875,107 @@ class ManagerService:
             over_ceiling=day.over_ceiling,
             spill_m2=day.spill_m2,
             headroom_m2=day.headroom_m2,
+        )
+
+    def _learned_changeover(self, production_type: ProductionType):
+        """The colour-changeover estimate (N49-2) over the trailing window, for the capacity planner."""
+        today = datetime.now(UTC).date()
+        return estimate_colour_changeover(
+            self._automatic_pass_observations(
+                today - timedelta(days=_MEASUREMENT_WINDOW_DAYS), today, production_type
+            )
+        )
+
+    def get_multi_day_plan(
+        self,
+        production_type: ProductionType = ProductionType.AUTOMATIC,
+        horizon_working_days: int = _DEFAULT_PLAN_HORIZON_WORKING_DAYS,
+        shift_length: ShiftLength | None = None,
+        station_context: StationContext | None = None,
+    ) -> MultiDayPlanRead:
+        """Deadline-feasible multi-day placement of a line's planned work (N49-4, the planner heart).
+
+        Lays the line's active planned orders across the next ``horizon_working_days`` working days,
+        earliest-deadline-first, into net-ceiling-bounded day buckets (floor 800/500, gross booth
+        ceiling minus the m² lost to each day's colour changes — the learned changeover cost from
+        N49-2). When ``shift_length`` is omitted it is **advised** from the available ready work
+        (``docs/FACTORY_DOMAIN_MODEL.md`` §7). ``infeasible_order_ids`` is the "won't make it" set —
+        orders whose scheduled day is past their hard pickup deadline or beyond the horizon. Pure
+        placement arithmetic lives in ``app/manager/placement.py``.
+        """
+        self._ensure_manager_station_action(station_context)
+
+        active_orders = self._active_planned_orders_for_line(production_type)
+        orders_by_id = {work_order.id: work_order for work_order in active_orders}
+        available_m2 = sum(work_order.total_area_m2 or 0.0 for work_order in active_orders)
+
+        shift_advised = shift_length is None
+        resolved_shift = shift_length if shift_length is not None else advise_shift_length(available_m2)
+
+        placeable = [
+            PlaceableOrder(
+                work_order_id=work_order.id,
+                total_area_m2=work_order.total_area_m2,
+                planned_pickup_date=work_order.planned_pickup_date,
+                colour_key=self._order_colour_key(work_order),
+            )
+            for work_order in active_orders
+        ]
+        changeover = self._learned_changeover(production_type)
+        working_days = working_days_from(datetime.now(UTC).date(), horizon_working_days)
+
+        plan = place_orders(
+            placeable,
+            working_days=working_days,
+            shift_length=resolved_shift,
+            changeover_minutes=changeover.estimated_changeover_minutes,
+        )
+
+        placements_by_day: dict[int, list[OrderPlacementRead]] = {}
+        for placement in plan.placements:
+            work_order = orders_by_id[placement.work_order_id]
+            placements_by_day.setdefault(placement.day_index, []).append(
+                OrderPlacementRead(
+                    work_order_id=placement.work_order_id,
+                    order_number=work_order.order_number,
+                    customer_name=work_order.customer_name,
+                    ral_code=work_order.ral_code,
+                    total_area_m2=work_order.total_area_m2,
+                    day_index=placement.day_index,
+                    scheduled_date=placement.scheduled_date,
+                    planned_pickup_date=placement.planned_pickup_date,
+                    meets_deadline=placement.meets_deadline,
+                    days_late=placement.days_late,
+                )
+            )
+
+        days = [
+            PlannedDayRead(
+                day_index=day.day_index,
+                scheduled_date=day.scheduled_date,
+                shift_length=day.shift_length,
+                floor_m2=day.floor_m2,
+                gross_ceiling_m2=day.gross_ceiling_m2,
+                net_ceiling_m2=day.net_ceiling_m2,
+                changeover_count=day.changeover_count,
+                placed_order_count=len(day.placed_order_ids),
+                placed_m2=day.placed_m2,
+                below_floor=day.below_floor,
+                over_ceiling=day.over_ceiling,
+                placements=placements_by_day.get(day.day_index, []),
+            )
+            for day in plan.days
+        ]
+
+        return MultiDayPlanRead(
+            production_type=production_type,
+            shift_length=plan.shift_length,
+            shift_advised=shift_advised,
+            horizon_working_days=plan.horizon_working_days,
+            changeover_minutes=changeover.estimated_changeover_minutes,
+            changeover_is_measured=changeover.is_measured,
+            days=days,
+            infeasible_order_ids=plan.infeasible_order_ids,
         )
 
     def assign_plan(

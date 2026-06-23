@@ -270,6 +270,59 @@ class DayCapacityRead(BaseModel):
     headroom_m2: float
 
 
+class OrderPlacementRead(BaseModel):
+    """Where one order landed in the multi-day plan and whether that still ships it on time (N49-4)."""
+
+    work_order_id: int
+    order_number: str
+    customer_name: str
+    ral_code: str | None
+    total_area_m2: float | None
+    day_index: int
+    scheduled_date: date | None
+    planned_pickup_date: date
+    meets_deadline: bool
+    days_late: int
+
+
+class PlannedDayRead(BaseModel):
+    """One working day in the multi-day plan: its capacity bucket and the orders placed in it (N49-4)."""
+
+    day_index: int
+    scheduled_date: date | None
+    shift_length: ShiftLength
+    floor_m2: float
+    gross_ceiling_m2: float
+    net_ceiling_m2: float
+    changeover_count: int
+    placed_order_count: int
+    placed_m2: float
+    below_floor: bool
+    over_ceiling: bool
+    placements: list[OrderPlacementRead]
+
+
+class MultiDayPlanRead(BaseModel):
+    """Deadline-feasible multi-day placement of a line's planned orders (N49-4, the planner heart).
+
+    Lays the line's active planned orders across the next ``horizon_working_days`` working days,
+    earliest-deadline-first, into net-ceiling-bounded day buckets (``app/manager/placement.py``).
+    ``shift_advised`` is true when the shift length was derived from the available work rather than
+    supplied; ``changeover_minutes`` is the learned per-change cost (N49-2) folded into each day's net
+    ceiling. ``infeasible_order_ids`` is the "won't make it" set — orders whose scheduled day is past
+    their hard pickup deadline or beyond the horizon.
+    """
+
+    production_type: ProductionType
+    shift_length: ShiftLength
+    shift_advised: bool
+    horizon_working_days: int
+    changeover_minutes: float
+    changeover_is_measured: bool
+    days: list[PlannedDayRead]
+    infeasible_order_ids: list[int]
+
+
 class AutoScheduleProposal(BaseModel):
     """A non-committal proposed painting order plus the colour-changeover improvement (NA33).
 

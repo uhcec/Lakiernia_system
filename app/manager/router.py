@@ -17,6 +17,7 @@ from app.manager.schemas import (
     CycleTimeStats,
     DayCapacityRead,
     LineMeasurementStats,
+    MultiDayPlanRead,
     ScheduleRuleConfigRead,
     ScheduleRuleConfigUpdate,
     ThroughputStats,
@@ -103,6 +104,19 @@ def get_day_capacity(
 ) -> DayCapacityRead:
     return service.get_day_capacity(
         production_type, shift_length, station_context=station_context
+    )
+
+
+@router.get("/planner/multi-day", response_model=MultiDayPlanRead)
+def get_multi_day_plan(
+    station_context: Annotated[StationContext, Depends(get_station_context)],
+    production_type: Annotated[ProductionType, Query()] = ProductionType.AUTOMATIC,
+    horizon_working_days: Annotated[int, Query(ge=1, le=60)] = 10,
+    shift_length: Annotated[ShiftLength | None, Query()] = None,
+    service: Annotated[ManagerService, Depends(get_manager_service)] = ...,
+) -> MultiDayPlanRead:
+    return service.get_multi_day_plan(
+        production_type, horizon_working_days, shift_length, station_context=station_context
     )
 
 

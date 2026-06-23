@@ -400,9 +400,16 @@ seed 80 m²/h = midpoint of the confirmed 60–100 band, × shift hours), with e
 consuming capacity** (changeover minutes → m² of ceiling lost → a *net* ceiling). It also **advises the
 shift length** from the available ready work (≥ 800 → long, else short). `GET /manager/planner/day-capacity`
 buckets a line's currently-planned orders, flagging below-floor and over-ceiling (spill), using the
-learned changeover cost. The remaining *capacity planner* pieces that consume this foundation
-(deadline-feasible multi-day **placement**, light→dark ordering, paint hard-block, the capacity board)
-are N49-4+ and not yet built.
+learned changeover cost. **Deadline-feasible multi-day placement is also built** (N49-4):
+`app/manager/placement.py` lays a line's active planned orders across the next working days
+**earliest-deadline-first** into net-ceiling-bounded day buckets (a colour change shrinks the day's
+usable ceiling, so packing is conservative — `placement.changeover_loss_m2` is shared with the single-day
+model). It reports, per order, whether the day it lands on still meets its hard pickup deadline, and
+returns the **"won't make it" set** (orders scheduled past their deadline or beyond the horizon).
+`GET /manager/planner/multi-day` surfaces it (one day per column, each with its floor/ceiling and placed
+orders); the working-day calendar skips weekends (Mon–Fri assumption, revisit). The remaining *capacity
+planner* pieces that consume this foundation (light→dark ordering N49-5, the size-aware changeover cost
+N49-6, paint hard-block N49-7, line-assignment N49-8, the capacity board N49-9) are not yet built.
 Trust is earned in three phases: (1) **observer** — manager plans manually, the system only shows
 day-fill vs floor/ceiling and the changeover count; (2) **suggester** — the system proposes the
 arrangement, the manager edits; (3) **trusted** — the system arrangement is the default and the manager
