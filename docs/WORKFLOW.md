@@ -316,6 +316,18 @@ Rules:
 14. When manager planning or queue-position updates need active slots, completed/READY rows should move to trailing queue positions after active planned work **on the same line**.
 15. A completed/READY row may keep a `queue_position` for manager sorting and historical visibility, but that value is not an immutable record of the row's original active priority.
 
+> **Known limitation + planned evolution (NA49, agreed with owner 2026-06-23).** The per-line split is
+> correct for *planning* the two parallel painting lines, but the two **shared** stages —
+> `SURFACE_PREPARATION` (entry) and `PACKING` (drain) — still list both lines merged and ordered by
+> `queue_position` (which is no longer globally unique), so they show duplicate "Poz. N" labels and an
+> arbitrary cross-line interleave (verified live 2026-06-23). The agreed target model is **"schedule the
+> painting bottleneck, derive the rest"**: the manager schedules only the two painting sequences
+> (auto-arranged, manually overridable); surface-preparation order is *derived from the plan*
+> (plan-driven feeder), and packing order is *derived from physical readiness* plus the existing
+> packing-slot reservation model. Shared stages stop using the per-line position as a global rank. Full
+> design + acceptance criteria: **NA49** in `IMMEDIATE_NEXT_ACTIONS.md`; physical grounding in
+> `docs/FACTORY_DOMAIN_MODEL.md` §1. Not yet implemented — this section still documents current behavior.
+
 ## Station Permissions
 
 Authorization is derived from the authenticated user's role (`station_id`/`is_admin`). Station identity remains the audit context for "where/who performed the action".

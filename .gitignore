@@ -15,3 +15,5 @@ frontend/dist/
 frontend/*.tsbuildinfo
 storage/
 walkthrough_files/
+# Claude Code agent worktrees (transient, never commit)
+.claude/worktrees/

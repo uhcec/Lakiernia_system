@@ -91,6 +91,15 @@ time). They differ in how the paint is applied:
   painting booth. Because the lines are separate, a manual order and an automatic order can be in
   production simultaneously.
 
+**Cardinality and dominance (confirmed by owner 2026-06-23):**
+
+- There is **exactly one manual painting station and exactly one automatic spray booth** — so there
+  are **two parallel painting resources, one per method**. This is why the planning model has exactly
+  two line sequences (Automat / Ręczna): it mirrors two physical machines, not a stylistic choice.
+- The **automatic line carries the large majority** of the factory's throughput, cost, and profit.
+  The **colour-changeover cost is highest on the automatic booth**, so the automatic sequence is the
+  primary thing worth optimising (colour grouping matters most there).
+
 ### Curing / baking (out of system scope — confirmed)
 
 Parts are cured in an oven, physically located roughly at the packing area. **The system does not
@@ -141,6 +150,10 @@ Notes:
   is a **cleaning/preparation wash** before painting — a multi-step process with washing, an acid step,
   and several rinses; the exact chemistry is **not tracked by the system** and is low priority to
   document (owner, 2026-06-17). It is also where the **real received quantity is counted** (see §3).
+  Surface preparation is **processed in the manager's planned order** (a plan-driven feeder, not
+  driven by physical arrival of parts) and **stays ahead of painting** — it is not the bottleneck
+  (owner, 2026-06-23). Historically this order came from the manager's printed planning sheet; see the
+  scheduling model in `WORKFLOW.md` and item NA49 in `IMMEDIATE_NEXT_ACTIONS.md`.
 - The **automatic** path adds **hanging** (cranes/conveyors) before the automatic spray booth; the
   **manual** path has a painter applying paint by hand with no hanging.
 - The two production lines are physically separate and run **in parallel**.

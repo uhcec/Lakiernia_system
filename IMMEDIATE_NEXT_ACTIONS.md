@@ -518,6 +518,69 @@ only. Five elements, top to bottom:
 - Acceptance: throughput can show pieces split by both cross-sections, each partition summing to the
   pieces total; covered by tests.
 
+## System-wide ordering / scheduling model (owner design session 2026-06-23)
+
+### NA49. Shared-stage ordering is undefined under the per-line queue — adopt "schedule the painting bottleneck, derive the rest"
+- Status: **OPEN** — target model agreed with owner 2026-06-23; **not yet implemented**. This is the
+  umbrella ordering model; **NA33** (auto work-scheduling + colour grouping) becomes its *painting-plan
+  auto-scheduler* sub-part and should be built under this model, not separately.
+- Severity: **MEDIUM** (operator-facing truth at shared stages + planning feature).
+
+**Confirmed defect (verified live 2026-06-23 by two sub-agents driving a seeded app):**
+The per-line queue split (`queue_position` unique only within `production_type`) is correct for planning
+the two parallel lines, but the two **shared** stages — `SURFACE_PREPARATION` (entry) and `PACKING`
+(drain) — still list both lines merged and ordered by `queue_position ASC, id ASC` with **no
+`production_type` filter**:
+- `app/process/repository.py:58` — merged ordering by `(queue_position, id)`.
+- `frontend/src/components/StageWorkOrdersPage.tsx:173` (surface-prep fetch, no `production_type`) and
+  `:487` (renders `Poz. {queue_position}`).
+- `frontend/src/components/PackingWorkOrdersPage.tsx:227` (packing fetch, no `production_type`) and
+  `:541` (renders `Poz.`).
+Result: two physically different orders (one MANUAL, one AUTOMATIC) both show "Poz. 1" / "Poz. 2"; the
+cross-line interleave is decided by `id ASC` (insertion order) — no deliberate factory priority. At
+realistic scale nearly the whole shared-stage list shows duplicate position labels.
+
+**Confirmed NOT a defect (verified live 2026-06-23):** cross-line reassignment
+(`ManagerService.update_production_type`) is coherent across scenarios A–D — including reassigning
+**after** `SURFACE_PREPARATION` is DONE (counted quantity + route preserved; `HANGING` added/removed
+correctly), the production-started block (`409`, not `500`), and the NA48 completed-order trailing. No
+change needed there.
+
+**Physical grounding (owner-confirmed 2026-06-23 — see `docs/FACTORY_DOMAIN_MODEL.md` §1–§2):**
+- Exactly ONE manual painting station and ONE automatic spray booth → exactly two parallel painting
+  resources (one each); "two lists" is the right cardinality.
+- The automatic line carries the large majority of throughput, cost, and profit; colour-changeover cost
+  is highest on the automatic booth → automatic is the primary resource to optimise.
+- Surface preparation always ran in the manager's planned order (plan-driven feeder) and stays ahead of
+  painting (not a bottleneck).
+- Historically the manager kept an Excel of all orders, hand-sequenced + line-assigned, printed and
+  posted; reordering meant reprint + walk. Goal: the system auto-arranges well but preserves the
+  manager's expert override, and ordering changes are instant/live (no print).
+
+**Target model — "schedule the painting bottleneck, derive the rest":**
+The only stage the manager schedules is PAINTING (two sequences, one per physical resource). Every other
+stage's order is derived.
+- **Painting:** two ordered sequences (Automat / Ręczna). The auto-scheduler (NA33) proposes the order,
+  optimising the **AUTOMATIC** line first by colour grouping → deadline → changeover, with a
+  **configurable rule priority**. The manager overrides by drag / pin / "urgent"; re-running "Ułóż"
+  re-optimises *around* pinned items. Live on screens — replaces the printed sheet.
+- **Surface preparation (feeder):** order **derived from the painting plan** (feed both lines' fronts);
+  display **line label + that line's position**, never a merged global "Poz.". Plan-driven (confirmed).
+- **Packing (drain):** order **derived from physical readiness** + the existing packing-slot model
+  (automatic reserves packing at hanging start; manual may exceptionally open a second slot with the
+  "X pieces incoming from automatic" warning). No manual position numbering; the manager may
+  exceptionally bump one order.
+- **Decoral:** derived/arrival from base-coat packing, optionally grouped by foil.
+
+**Acceptance:**
+- No ambiguous duplicate "Poz." at shared stages; shared stages show a line label + a meaningful
+  (derived) order.
+- The manager schedules only the two painting sequences; surface-prep + packing order is system-derived.
+- Auto-suggest + manual override (drag / pin / urgent) on the painting plan; re-optimise respects pins.
+- Covered by tests; `docs/WORKFLOW.md` (scheduling/queue semantics) and `docs/FACTORY_DOMAIN_MODEL.md`
+  (physical grounding) updated when built.
+- NA33 is folded in as the painting-plan auto-scheduler sub-part (do not build it as a separate model).
+
 ## New owner requests (2026-06-19) — scoped from owner chat
 
 Source: owner chat 2026-06-19 (screenshot) + clarification Q&A same day. Core decisions captured below;
@@ -525,6 +588,9 @@ remaining open questions are flagged per item. Each needs a `docs/WORKFLOW.md` u
 workflow meaning. Severities are first-pass estimates.
 
 ### NA33. Configurable auto work-scheduling + colour grouping + (basic) statistics tidy
+- **Now scoped under NA49** (the system-wide ordering model agreed 2026-06-23): this is the
+  *painting-plan auto-scheduler* sub-part. Build it as the "Painting" piece of NA49 (optimise the
+  automatic line first; surface-prep + packing order are derived, not separately scheduled).
 - Severity: MEDIUM (planning/throughput feature). Largest of this batch.
 - Request (verbatim): "Grupowanie kolorami, statystyki uporządkować, logika automatycznego układania
   pracy (po kolorze, po terminie, minimalny przerób)."
