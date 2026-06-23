@@ -518,6 +518,31 @@ only. Five elements, top to bottom:
 - Acceptance: throughput can show pieces split by both cross-sections, each partition summing to the
   pieces total; covered by tests.
 
+### NA50. Statystyki measure volume/composition but are blind to the redefined "good day"
+- Status: **OPEN** — verification finding (clean-slate process session, 2026-06-23), confirmed in code.
+- Severity: **MEDIUM** (manager-facing truth — the stats answer the *old* question, not the one the
+  multi-day capacity model now defines as a good day).
+- Finding: `ThroughputPeriod` (`app/manager/schemas.py:54-67`) reports m² split by method + coating, the
+  decoral pass, and orders/correction counts; cycle-time + WIP-aging cover time-in-stage and stuck
+  orders. **None** of these expose what NA49 / `docs/FACTORY_DOMAIN_MODEL.md` §7 make the *definition* of
+  a good day:
+  1. **Daily m² vs the FLOOR (800/500)** — profitability; did we clear the minimum? (needs the day's
+     shift length → couples to N49-3.) MISSING.
+  2. **Automatic booth m²/h rate** — MISSING (this is also the N49-2 measurement engine; build once,
+     surface here).
+  3. **Colour-changeover loss** (count / time / m² of capacity lost) — exists only as a *planning
+     preview* (`app/manager/schemas.py:205-208`, scheduler proposal), **not** a historical stat. MISSING.
+  4. **On-time deadline %** (deadlines are hard) — MISSING entirely (no shipped-on-time vs late series).
+  5. **Booth idle / utilisation** ("fabryka nie stała") — MISSING.
+- Direction: the headline trio — **profitability vs floor, on-time %, changeover loss** — is
+  definitionally what the model calls a good day; add those. m²/h and idle are diagnostics. The long-tail
+  "what other stats does the colleague want" stays deferred (the NA33 stats sub-part), but these five are
+  **model-derived, not wishlist**, so they should not wait on him.
+- Depends on: N49-1 (deadline required → on-time), N49-2 (measurement engine → rate/changeover), N49-3
+  (shift length → the floor line). Build these stats as the read-side of those.
+- Acceptance: Statystyki can show, per day, m² vs the profitable floor, on-time %, and changeover loss,
+  each derivable from the stage-transition log; covered by tests; owner confirms the headline set.
+
 ## System-wide ordering / scheduling model (owner design session 2026-06-23)
 
 ### NA49. Multi-day capacity planner ("schedule the painting bottleneck, derive the rest")
