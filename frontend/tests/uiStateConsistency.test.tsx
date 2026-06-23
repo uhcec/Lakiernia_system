@@ -6,6 +6,7 @@ import { PackingWorkOrdersPage } from "../src/components/PackingWorkOrdersPage";
 import { StageWorkOrdersPage } from "../src/components/StageWorkOrdersPage";
 import { ApiError } from "../src/api/apiError";
 import { PaintInventoryPage } from "../src/pages/PaintInventoryPage";
+import { FoilsPage } from "../src/pages/FoilsPage";
 import { AutomaticProductionPage } from "../src/pages/AutomaticProductionPage";
 import { CreateWorkOrderPage } from "../src/pages/CreateWorkOrderPage";
 import { ManagerPanelPage } from "../src/pages/ManagerPanelPage";
@@ -642,6 +643,30 @@ describe("frontend state consistency", () => {
         }),
       );
     });
+  });
+
+  it("adds a foil from the registry page", async () => {
+    const createFoilMock = vi.mocked(foilsApi.createFoil);
+    fetchFoilsMock.mockResolvedValue({ items: [], total: 0, limit: 50, offset: 0 });
+    createFoilMock.mockResolvedValue({ id: 9, name: "Nowa", code: "FOIL-NEW", supplier: null, notes: null, usage_count: 0 } as never);
+
+    render(
+      <MemoryRouter>
+        <FoilsPage />
+      </MemoryRouter>,
+    );
+
+    await screen.findByText("Lista folii");
+    fireEvent.click(screen.getByRole("button", { name: /Dodaj nową folię/ }));
+    fireEvent.change(screen.getByPlaceholderText("Nazwa folii *"), { target: { value: "Nowa" } });
+    fireEvent.change(screen.getByPlaceholderText("Kod folii *"), { target: { value: "FOIL-NEW" } });
+    fireEvent.click(screen.getByRole("button", { name: "Zapisz folię" }));
+
+    await waitFor(() =>
+      expect(createFoilMock).toHaveBeenCalledWith(
+        expect.objectContaining({ name: "Nowa", code: "FOIL-NEW" }),
+      ),
+    );
   });
 
   it("blocks a paint delivery with an empty paint code and shows a clear message", async () => {
