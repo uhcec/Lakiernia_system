@@ -562,8 +562,11 @@ only. Five elements, top to bottom:
 - **N49-1 — Make `planned_pickup_date` a hard, required deadline.** It IS the hard "Termin odbioru"
   (always set at intake — owner confirmed), but the schema allows NULL and the scheduler treats it as a
   soft sort key. Require it at intake; treat it as a **hard feasibility constraint** in the planner. (No
-  new column needed; legacy `due_date` was dropped in migration `20260529_0014`.) Acceptance: intake
-  requires a pickup date; the planner can rely on every active order having one.
+  new column needed; legacy `due_date` was dropped in migration `20260529_0014`.) **Verified 2026-06-23:**
+  `WorkOrderCreate` (`app/work_orders/schemas.py:168`) has `planned_pickup_date: date | None = None`
+  (optional), while `total_area_m2` (`:169`, `Field(gt=0)`) and `ral_code` (`:160`) are **already
+  required** — so the planner's other inputs (m², colour) are forced; only the deadline isn't. Acceptance:
+  intake requires a pickup date; the planner can rely on every active order having one.
 - **N49-2 — Measurement engine ("learn the numbers").** Derive real automatic **m²/h** and a
   **statistical colour-changeover cost** from `StageTransitionEvent` (HANGING-start → PACKING-done
   brackets the automatic pass — **no booth tap**, owner: "na kabinie nie tapnie"). Seed ~55–60 m²/h.
