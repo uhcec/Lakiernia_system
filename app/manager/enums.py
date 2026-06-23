@@ -15,7 +15,7 @@ class ScheduleRuleKey(str, Enum):
     COLOUR = "colour"
     # Earlier planned pickup date first (urgency). Orders without a pickup date sort last.
     DEADLINE = "deadline"
-    # "Minimalny przerób" → maximise m² painted per day: do the largest single-colour runs first, so
+    # "Maksymalny przerób" → maximise m² painted per day: do the largest single-colour runs first, so
     # the booth spends more time painting and less time being cleaned between colours. The colour group
     # carrying the most m² leads; this also clusters identical colours (a group shares one key).
     CHANGEOVER = "changeover"
@@ -37,7 +37,7 @@ SCHEDULE_RULE_CATALOG: tuple[tuple[ScheduleRuleKey, str, str], ...] = (
     ),
     (
         ScheduleRuleKey.CHANGEOVER,
-        "Minimalny przerób (m²/dzień)",
+        "Maksymalny przerób (m²/dzień)",
         "Najpierw największe runy jednego koloru — kabina maluje więcej m² między myciami.",
     ),
 )

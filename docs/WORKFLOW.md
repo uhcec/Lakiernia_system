@@ -328,7 +328,7 @@ normal queue-reorder flow, so operators can always trust the posted order.
   *enabled* rules. The catalog (with default order, owner decision 2026-06-23):
   1. **Grupowanie kolorami (`colour`)** — keep identical colours adjacent (fewer colour changes).
   2. **Termin odbioru (`deadline`)** — earliest planned pickup date first.
-  3. **Minimalny przerób (`changeover`)** — "maximise m²/day": do the largest single-colour runs first,
+  3. **Maksymalny przerób (`changeover`)** — "maximise m²/day": do the largest single-colour runs first,
      so the booth spends more time painting and less time being cleaned between colours.
   The priority order is **user-configurable** (the manager reorders/toggles the rules); it is stored per
   line in `auto_schedule_configs` and defaults to colour → deadline → changeover, all enabled. Absence of

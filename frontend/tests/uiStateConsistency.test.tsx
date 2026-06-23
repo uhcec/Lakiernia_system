@@ -135,7 +135,7 @@ const updateScheduleConfigMock = vi.mocked(managerApi.updateScheduleConfig);
 const DEFAULT_SCHEDULE_RULES = [
   { key: "colour" as const, label: "Grupowanie kolorami", description: "Trzymaj kolory razem.", enabled: true },
   { key: "deadline" as const, label: "Termin odbioru", description: "Najpierw najwcześniejszy termin.", enabled: true },
-  { key: "changeover" as const, label: "Minimalny przerób (m²/dzień)", description: "Największe runy najpierw.", enabled: true },
+  { key: "changeover" as const, label: "Maksymalny przerób (m²/dzień)", description: "Największe runy najpierw.", enabled: true },
 ];
 
 function buildWorkOrder(id: number, orderNumber: string, queuePosition: number, customerName = "Klient"): WorkOrder {
