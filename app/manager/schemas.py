@@ -2,6 +2,7 @@ from datetime import date, datetime
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from app.manager.capacity import ShiftLength
 from app.manager.enums import DEFAULT_RULE_ORDER, ScheduleRuleKey
 from app.process.enums import CoatingType, ProcessStage, ProductionType
 from app.work_orders.schemas import WorkOrderRead
@@ -237,6 +238,36 @@ class LineMeasurementStats(BaseModel):
     date_to: date
     rate: LineRateMeasurement
     changeover: ColourChangeoverMeasurement
+
+
+class DayCapacityRead(BaseModel):
+    """One working day as a capacity bucket — floor + ceiling + how the line's planned work fills it.
+
+    Read-side of N49-3: the day-capacity foundation the multi-day placement (N49-4) and the capacity
+    board (N49-9) build on. ``shift_advised`` is true when the shift length was derived from the
+    available ready work rather than supplied by the caller. ``changeover_minutes`` is the learned
+    per-change cost (N49-2) folded into the net ceiling.
+    """
+
+    production_type: ProductionType
+    shift_length: ShiftLength
+    shift_advised: bool
+    shift_hours: float
+    floor_m2: float
+    ceiling_rate_m2_per_h: float
+    gross_ceiling_m2: float
+    net_ceiling_m2: float
+    changeover_count: int
+    changeover_minutes: float
+    changeover_minutes_total: float
+    changeover_loss_m2: float
+    changeover_is_measured: bool
+    placed_order_count: int
+    placed_m2: float
+    below_floor: bool
+    over_ceiling: bool
+    spill_m2: float
+    headroom_m2: float
 
 
 class AutoScheduleProposal(BaseModel):

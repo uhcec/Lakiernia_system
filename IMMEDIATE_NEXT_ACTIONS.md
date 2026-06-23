@@ -606,10 +606,25 @@ only. Five elements, top to bottom:
     Acceptance: per-line rate + changeover estimate computed from the log and refining over time.
 
 **Core planner (the heart — depends on the foundation):**
-- **N49-3 — Day capacity model: floor + ceiling.** Each working day is a bucket with a **floor** (800
-  long / 500 short m²) and a **ceiling** (measured booth capacity); a colour change **consumes
-  capacity**. Advise shift length from available ready work. Acceptance: a day shows fill vs floor/ceiling;
-  below-floor and over-ceiling (spill) are flagged.
+- **N49-3 — Day capacity model: floor + ceiling. DONE (2026-06-24).** A DB-free model
+  `app/manager/capacity.py` (mirrors `scheduler.py` / `measurement.py`) treats one working day as a
+  bucket: a **floor** (800 long / 500 short m² — fixed economic constants, `FLOOR_LONG_M2`/`FLOOR_SHORT_M2`)
+  and a **ceiling** = a **gross** booth rate (`CEILING_BOOTH_RATE_M2_PER_H = 80`, midpoint of the confirmed
+  60–100 band — deliberately distinct from N49-2's *effective* ~57, which already folds idle/changeover in)
+  × shift hours (14 long / 8 short). A **colour change consumes capacity**: `changeover_count ×
+  changeover_minutes` of booth time → m² of ceiling lost → a *net* ceiling, so "fill vs ceiling" already
+  accounts for the day's changes. `advise_shift_length(available_m2)` advises long iff ≥ the long-day floor.
+  Wired as `ManagerService.get_day_capacity(production_type, shift_length=None)` +
+  `GET /manager/planner/day-capacity` (manager-gated): buckets a line's active planned orders (queue order),
+  counts colour changeovers via `scheduler.colour_changeovers_for_order_ids`, pulls the per-change cost from
+  the N49-2 learned estimate over a 90-day trailing window (extracted `_automatic_pass_observations` helper,
+  shared with `get_line_measurements`), and returns `DayCapacityRead` flagging `below_floor` + `over_ceiling`
+  (spill). Shift length is **advised** from the available ready m² when the caller omits it (`shift_advised`).
+  Tests: `tests/test_capacity.py` (8 pure: floor/ceiling per shift, changeover loss, spill, clamps, advice,
+  seed) + `tests/test_day_capacity_service.py` (6 service/DB: empty→short, ≥floor→long, changeover count,
+  forced shift, per-line buckets, manager gating). No schema change (read-only); `alembic check` clean.
+  `docs/WORKFLOW.md` "Target planning model" updated. The deadline-feasible **placement** that consumes this
+  bucket is N49-4. Acceptance met: a day shows fill vs floor/ceiling; below-floor + over-ceiling flagged.
 - **N49-4 — Deadline-feasible multi-day placement.** Place orders across day-buckets in deadline order so
   no hard pickup date is missed; surface a "won't make it" warning. Objective hierarchy: **deadline >
   floor > grouping.** Acceptance: orders land on days respecting deadlines; infeasible deadlines warn.

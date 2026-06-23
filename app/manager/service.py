@@ -1,5 +1,5 @@
 import json
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Literal
 from threading import RLock
 
@@ -21,6 +21,12 @@ from app.manager.enums import (
     SCHEDULE_RULE_LABELS,
     ScheduleRuleKey,
 )
+from app.manager.capacity import (
+    PlacedOrder,
+    ShiftLength,
+    advise_shift_length,
+    compute_day_capacity,
+)
 from app.manager.measurement import (
     AutomaticPassObservation,
     estimate_colour_changeover,
@@ -39,6 +45,7 @@ from app.manager.schemas import (
     CycleTimeBreakdown,
     CycleTimeSegment,
     CycleTimeStats,
+    DayCapacityRead,
     LineMeasurementStats,
     ScheduleRuleConfigItem,
     ScheduleRuleConfigRead,
@@ -123,6 +130,10 @@ def _order_segment_keys(
         if coating_type == value:
             keys.append(key)
     return keys
+
+
+# Trailing window over which the day-capacity model learns the changeover cost (N49-3 reuses N49-2).
+_MEASUREMENT_WINDOW_DAYS = 90
 
 
 def _as_naive_utc(value: datetime) -> datetime:
@@ -725,6 +736,23 @@ class ManagerService:
         valve). Pure derivation lives in ``app/manager/measurement.py``; this just supplies the brackets.
         """
         self._ensure_stats_viewer(station_context)
+        observations = self._automatic_pass_observations(date_from, date_to, production_type)
+
+        return LineMeasurementStats(
+            production_type=production_type,
+            date_from=date_from,
+            date_to=date_to,
+            rate=measure_automatic_rate(observations),
+            changeover=estimate_colour_changeover(observations),
+        )
+
+    def _automatic_pass_observations(
+        self,
+        date_from: date,
+        date_to: date,
+        production_type: ProductionType,
+    ) -> list[AutomaticPassObservation]:
+        """Bracketed automatic passes (HANGING start → PACKING done) for the measurement engine (N49-2)."""
         session = self.repository.session
 
         hanging_started = (
@@ -764,7 +792,7 @@ class ManagerService:
             )
         ).all()
 
-        observations = [
+        return [
             AutomaticPassObservation(
                 work_order_id=work_order.id,
                 colour_key=self._order_colour_key(work_order),
@@ -775,12 +803,72 @@ class ManagerService:
             for work_order, hanging_started_at, packing_done_at in rows
         ]
 
-        return LineMeasurementStats(
+    def get_day_capacity(
+        self,
+        production_type: ProductionType = ProductionType.AUTOMATIC,
+        shift_length: ShiftLength | None = None,
+        station_context: StationContext | None = None,
+    ) -> DayCapacityRead:
+        """Day-capacity snapshot for a line's currently-planned work (N49-3, the planner foundation).
+
+        Buckets the line's active planned orders (in queue order) into one working day, showing fill
+        vs the floor (800/500 m²) and the net ceiling (physical booth capacity minus colour-changeover
+        loss). When ``shift_length`` is omitted it is **advised** from the available ready work (enough
+        to clear the long-day floor → long day, else short — ``docs/FACTORY_DOMAIN_MODEL.md`` §7). The
+        per-change cost is the learned changeover estimate (N49-2) over a trailing window; colour
+        changes are counted from the queue order. Pure arithmetic lives in ``app/manager/capacity.py``.
+        """
+        self._ensure_manager_station_action(station_context)
+
+        active_orders = self._active_planned_orders_for_line(production_type)
+        placed_orders = [
+            PlacedOrder(work_order_id=work_order.id, total_area_m2=work_order.total_area_m2)
+            for work_order in active_orders
+        ]
+        available_m2 = sum(work_order.total_area_m2 or 0.0 for work_order in active_orders)
+
+        shift_advised = shift_length is None
+        resolved_shift = shift_length if shift_length is not None else advise_shift_length(available_m2)
+
+        colour_by_id = {work_order.id: self._order_colour_key(work_order) for work_order in active_orders}
+        changeover_count = colour_changeovers_for_order_ids(
+            [work_order.id for work_order in active_orders], colour_by_id
+        )
+
+        today = datetime.now(UTC).date()
+        changeover = estimate_colour_changeover(
+            self._automatic_pass_observations(
+                today - timedelta(days=_MEASUREMENT_WINDOW_DAYS), today, production_type
+            )
+        )
+
+        day = compute_day_capacity(
+            resolved_shift,
+            placed_orders,
+            changeover_count=changeover_count,
+            changeover_minutes=changeover.estimated_changeover_minutes,
+        )
+
+        return DayCapacityRead(
             production_type=production_type,
-            date_from=date_from,
-            date_to=date_to,
-            rate=measure_automatic_rate(observations),
-            changeover=estimate_colour_changeover(observations),
+            shift_length=day.shift_length,
+            shift_advised=shift_advised,
+            shift_hours=day.shift_hours,
+            floor_m2=day.floor_m2,
+            ceiling_rate_m2_per_h=day.ceiling_rate_m2_per_h,
+            gross_ceiling_m2=day.gross_ceiling_m2,
+            net_ceiling_m2=day.net_ceiling_m2,
+            changeover_count=day.changeover_count,
+            changeover_minutes=day.changeover_minutes_each,
+            changeover_minutes_total=day.changeover_minutes_total,
+            changeover_loss_m2=day.changeover_loss_m2,
+            changeover_is_measured=changeover.is_measured,
+            placed_order_count=day.placed_order_count,
+            placed_m2=day.placed_m2,
+            below_floor=day.below_floor,
+            over_ceiling=day.over_ceiling,
+            spill_m2=day.spill_m2,
+            headroom_m2=day.headroom_m2,
         )
 
     def assign_plan(

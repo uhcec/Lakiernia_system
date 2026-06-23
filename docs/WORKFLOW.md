@@ -393,8 +393,16 @@ imitates the manager. The measurement read-side is **built** (N49-2): `app/manag
 derives the effective automatic rate (total m² ÷ the union of the bracketed intervals — overlaps once,
 idle gaps excluded) and a statistical colour-changeover cost (extra inter-start gap when the colour
 changes), each seeded (≈57 m²/h; the confirmed 15/30-min bands) until enough passes accrue and flagged
-measured-vs-seed; surfaced at `GET /manager/stats/line-measurements`. The *capacity planner* that
-consumes these numbers (day floor/ceiling, deadline-feasible placement) is N49-3+ and not yet built.
+measured-vs-seed; surfaced at `GET /manager/stats/line-measurements`. The **day-capacity foundation is
+also built** (N49-3): `app/manager/capacity.py` is a DB-free model of one working day as a bucket — a
+**floor** (800 long / 500 short m², fixed economic constants) and a **ceiling** (the gross booth rate,
+seed 80 m²/h = midpoint of the confirmed 60–100 band, × shift hours), with each **colour change
+consuming capacity** (changeover minutes → m² of ceiling lost → a *net* ceiling). It also **advises the
+shift length** from the available ready work (≥ 800 → long, else short). `GET /manager/planner/day-capacity`
+buckets a line's currently-planned orders, flagging below-floor and over-ceiling (spill), using the
+learned changeover cost. The remaining *capacity planner* pieces that consume this foundation
+(deadline-feasible multi-day **placement**, light→dark ordering, paint hard-block, the capacity board)
+are N49-4+ and not yet built.
 Trust is earned in three phases: (1) **observer** — manager plans manually, the system only shows
 day-fill vs floor/ceiling and the changeover count; (2) **suggester** — the system proposes the
 arrangement, the manager edits; (3) **trusted** — the system arrangement is the default and the manager

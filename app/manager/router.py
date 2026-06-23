@@ -10,10 +10,12 @@ from sqlalchemy.orm import Session
 from app.audit.context import StationContext, get_station_context
 from app.database.session import get_db_session
 from app.manager.repository import ManagerRepository
+from app.manager.capacity import ShiftLength
 from app.manager.schemas import (
     AutoScheduleProposal,
     CorrectionReasonReportItem,
     CycleTimeStats,
+    DayCapacityRead,
     LineMeasurementStats,
     ScheduleRuleConfigRead,
     ScheduleRuleConfigUpdate,
@@ -89,6 +91,18 @@ def get_line_measurements(
 ) -> LineMeasurementStats:
     return service.get_line_measurements(
         date_from, date_to, production_type, station_context=station_context
+    )
+
+
+@router.get("/planner/day-capacity", response_model=DayCapacityRead)
+def get_day_capacity(
+    station_context: Annotated[StationContext, Depends(get_station_context)],
+    production_type: Annotated[ProductionType, Query()] = ProductionType.AUTOMATIC,
+    shift_length: Annotated[ShiftLength | None, Query()] = None,
+    service: Annotated[ManagerService, Depends(get_manager_service)] = ...,
+) -> DayCapacityRead:
+    return service.get_day_capacity(
+        production_type, shift_length, station_context=station_context
     )
 
 
