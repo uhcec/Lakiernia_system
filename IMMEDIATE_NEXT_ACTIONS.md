@@ -594,12 +594,15 @@ reusable within-day ordering core.
 - **NA49.F / NA49.G (shared packing under load / manual auto-scheduler) — keep LOW/deferred.** Packing is
   "git" as-is; manual stays a fuzzy overflow valve.
 
-**Open questions for the colleague (gate full optimisation, not the foundation):**
-- **Deadline horizon (top)** — how far ahead are pickup dates (tight "for tomorrow" vs comfortable)?
-  Decides how much freedom grouping has under hard deadlines.
-- **Exact changeover magnitude/frequency** beyond the 15/30-min bands (the system will also learn this).
-- **Colour-similarity confirmation** — is RAL-lightness light→dark the right model, or do colour
-  "families" exist?
+**Open questions (mostly answered 2026-06-23; remaining gate full optimisation, not the foundation):**
+- **Deadline horizon — ANSWERED:** "definitely not for tomorrow" → comfortable, so the planner has real
+  freedom to reorder for colour grouping; tight deadlines are the exception. (Exact typical slack still
+  worth confirming.)
+- **Changeover — ANSWERED:** the **15/30-min bands are confirmed**; the *frequency* of colour changes is
+  day-mix-dependent (not a fixed number) and is learned from production data.
+- **Colour-similarity — STILL OPEN:** RAL-lightness light→dark is the working model (white→grey example);
+  owner couldn't confirm whether colour "families" override it — confirm with the colleague.
+- **Przemalowanka skips surface prep — reason unknown** ("bo tak"); parked, low priority.
 
 ---
 

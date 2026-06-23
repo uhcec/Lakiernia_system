@@ -350,8 +350,10 @@ while **dark → light** needs a full clean (residue would show). So the cheap d
 colours into runs (zero changeover) is the first lever; ordering the remaining changes light → dark is
 the second. **Colour lightness is derivable from the RAL code**, so the system can compute this.
 The exact minutes/frequency are not tracked by people — the system should **learn them from production
-data** (see §4) — but the grouping reward is large. ⚠️ *Colleague to confirm the RAL-lightness model and
-whether colour "families" exist.*
+data** (see §4) — but the grouping reward is large. The **15/30-min bands are confirmed**; the *frequency*
+of colour changes is **not a fixed number** — it depends on the day's order mix, so the system learns it.
+The RAL-lightness light→dark model is the working assumption (owner's white→grey example); the owner could
+not confirm whether colour "families" override it — ⚠️ *still to confirm with the colleague.*
 
 ### Line choice (manual vs automatic) is a real planning lever
 
@@ -372,8 +374,9 @@ Each order's **planned pickup date ("Termin odbioru", `planned_pickup_date`) is 
 **always agreed and entered at order creation**, and the order must ship by it. Hardness hierarchy for
 planning: **hard deadline > daily floor (strong economic target) > colour grouping (optimisation).** A
 small day carrying a hard deadline runs even below the floor (must ship), as an explicit exception.
-⚠️ *Colleague to confirm the typical deadline horizon (tight vs comfortable) — it sets how much freedom
-grouping has.*
+The deadline **horizon is comfortable — "definitely not for tomorrow"** (owner, 2026-06-23), so the
+planner has **real freedom to reorder for colour grouping** within the hard-deadline constraint; a tight
+deadline is the exception, not the rule. (Exact typical slack still worth confirming with the colleague.)
 
 ### Measurement signals available (no booth tap)
 
