@@ -437,7 +437,8 @@ only. Five elements, top to bottom:
   / permission matrix / correction categories) — currently consistent, convert restatements to
   references when next touched. NA24 otherwise complete; proceed to NA25.
 - **Regularized (2026-06-17):** the audit is now a repeatable command — **`/doc-audit`**
-  (`.claude/commands/doc-audit.md`), intended cadence **weekly**. Run it to re-reconcile the docs and
+  (`.claude/commands/doc-audit.md`), intended cadence **on-demand** (NA47, 2026-06-22 — superseded the
+  earlier "weekly"; not a standing schedule). Run it to re-reconcile the docs and
   refresh `docs/archive/DOC_COHERENCE_AUDIT.md`. (Auto-running it on a schedule would need the billable
   scheduled-agent path; not set up.)
 

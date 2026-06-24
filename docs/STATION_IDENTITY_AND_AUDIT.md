@@ -161,7 +161,7 @@ Done (2026-06-16):
 Confirmed permission direction:
 
 - `OFFICE`: individual login; create/update intake, enter external work-order number, enter paint identity plus the current stock snapshot fields required by the paint slice, later enter/select stock state once a shared inventory exists, view discrepancies, manage attachments, mark completed order as issued/released, generate WZ when implemented
-- `MANAGER`: assign production type, queue/reorder, view global queue and discrepancies, view paint/inventory warnings, view manager-only statistics
+- `MANAGER`: assign production type, queue/reorder, view the per-line planning queues (MANUAL / AUTOMATIC) and discrepancies, view paint/inventory warnings, view manager-only statistics
 - `SURFACE_PREPARATION`: start surface prep, enter counted quantity, finish surface prep after counted quantity exists (no separate discrepancy-confirmation step — see `WORKFLOW.md` / `FACTORY_USAGE_NOTES.md`)
 - `HANGING`: start/finish hanging
 - `AUTOMATIC_PRODUCTION`: enter paint consumption for automatic work according to the current paint slice implementation; no manual start/finish for automatic production unless separately decided

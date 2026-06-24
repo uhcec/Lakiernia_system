@@ -54,7 +54,7 @@ above). Each carries an `ARCHIVED — frozen historical snapshot` banner at the 
 | `docs/archive/OPERATOR_USABILITY_AUDIT_PL.md` | 2026-05-31 | Working usability audit. |
 | `docs/archive/UI_PASSIVE_REVIEW_PL.md` | 2026-05-31 | Passive UI review. |
 | `docs/archive/PAINT_SYSTEM_DEFINITION_DRAFT_PL.md` | 2026-06-02 | Paint slice definition. |
-| `docs/archive/DOC_COHERENCE_AUDIT.md` | 2026-06-17 | NA24 reconciliation report (point-in-time). |
+| `docs/archive/DOC_COHERENCE_AUDIT.md` | 2026-06-24 | Latest `/doc-audit` run (point-in-time; per-line queue reconciliation). |
 | `docs/archive/CODE_CONFORMANCE_AUDIT.md` | 2026-06-17 | NA25 docs-vs-code conformance report (point-in-time). |
 
 ## Convention

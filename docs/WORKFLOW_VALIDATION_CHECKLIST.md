@@ -199,7 +199,16 @@ Why this matters:
 
 ### 5. Global Queue Semantics
 
-Status: `CONFIRMED; completed rows trail out of active planning range`
+Status: `SUPERSEDED 2026-06-23 → per-line queues` (completed rows still trail out of active planning range)
+
+> **SUPERSEDED (2026-06-23, owner-confirmed clean-slate process session).** The "one shared global
+> queue, do not split by production type" rule below was the 2026-05-30 capture. The factory physically
+> runs **two parallel painting resources** (one manual booth, one automatic booth — see
+> `docs/FACTORY_DOMAIN_MODEL.md` §1), so the queue was rebuilt into **two independently numbered per-line
+> queues** (DB partial unique index `(production_type, queue_position)`; `reorder_queue` carries a
+> `production_type`). Current truth lives in `docs/WORKFLOW.md` "Per-Line Queue Rule". The
+> `Automat / Ręczna` switch selects which line's plan to edit, it does not merge them. The 2026-05-30
+> text below is retained as the historical capture.
 
 Confirmed factory policy from 2026-05-30:
 
@@ -313,10 +322,19 @@ Implementation decision needed:
 
 - No separate correction deadline field unless the factory later wants correction deadlines to diverge from the original order.
 - Keep the production-type control as assignment UI only; do not split the global queue by production type.
+  (**SUPERSEDED 2026-06-23** — the queue is now per-line; see §5's superseding note and `docs/WORKFLOW.md`
+  "Per-Line Queue Rule".)
 
 ### 8. Station List Information Architecture
 
 Status: `IMPLEMENTED for station table columns; details drawer still optional`
+
+> **Note (N49-10, 2026-06-24):** the **surface preparation** and **packing** rows below list "queue
+> position", but those two stages are **shared drains/feeders** across both lines, where the per-line
+> `queue_position` is not a valid global rank. They now render a **derived production-line label**
+> (Manualna / Automatyczna) + a "NASTĘPNE" marker instead of "Poz." (`shared_stage_line_label` /
+> `is_next_at_shared_stage`). The per-line `queue_position` is still shown at the painting stations
+> (manual production, hanging, automatic production, decoral). See `docs/WORKFLOW.md` "Shared-stage ordering".
 
 Confirmed direction from 2026-05-30:
 

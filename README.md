@@ -24,7 +24,7 @@ If business behavior is unclear, clarify it before implementation. Existing docs
 Implemented areas include:
 
 - office intake with validation for customer, coating, quantity, profiles, accessories, dates, notes, and incomplete-on-arrival handling
-- manager queue planning, queue reordering, stale queue revision protection, and global queue-position uniqueness
+- manager queue planning, queue reordering, stale queue revision protection, and per-line queue-position uniqueness (MANUAL and AUTOMATIC numbered independently)
 - process stages for surface preparation, hanging, production, packing, and decoral production
 - manual and automatic production paths, including automatic-line resource locking
 - packing quantity validation using persisted surface-preparation counted quantity
@@ -304,7 +304,7 @@ Work-order attachments are stored on the local filesystem under `WORK_ORDER_ATTA
 - `process_status` and backend read models are the source of truth for workflow display.
 - `status` remains as a compatibility/read-model field and should not drive new workflow logic.
 - Completed/history views must not display active batch progress or misleading live quantities.
-- Queue positions are globally unique for planned work orders.
+- Queue positions are unique **per production line** (MANUAL / AUTOMATIC numbered independently), not globally; see `docs/WORKFLOW.md` "Per-Line Queue Rule".
 - Correction orders are child work orders and join the same queue only after planning.
 - State-changing process actions must remain safe under retries, double clicks, and parallel users.
 - The quality-control document feature converts an Excel template to PDF and requires Windows + Excel + `pywin32`. The Excel COM worker is built lazily on the first `convert()` (NA5 closed), so importing `app/work_orders/service.py` has no side effects; off-Windows / missing `pywin32`, QC generation fails fast with a clear error. `pywin32` is a Windows-only dependency (NA2 closed), so `pip install` works on Linux/CI.

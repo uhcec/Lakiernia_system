@@ -1,226 +1,117 @@
-> ARCHIVED — frozen historical snapshot as of 2026-06-17. Living truth lives in docs/WORKFLOW.md / docs/FACTORY_DOMAIN_MODEL.md.
+> ARCHIVED — disposable scratch from the /doc-audit run dated **2026-06-24**. Living truth lives in
+> `docs/WORKFLOW.md` / `docs/FACTORY_DOMAIN_MODEL.md`. Durable conclusions from this run were folded into
+> the owning living docs (see "Applied" below); this snapshot is the spent artifact.
 
-# Documentation Coherence Audit (NA24)
+# Documentation Coherence Audit — run 2026-06-24
 
-Status: **DRAFT — findings pass complete 2026-06-17.** This is the written reconciliation deliverable
-for NA24 (`IMMEDIATE_NEXT_ACTIONS.md`). It reviews **all** repository documentation for internal
-consistency, single-ownership of each topic, staleness, and missing topics. It is doc-scope only;
-auditing the docs against the *code* is the separate task NA25 (a few code constants were checked here
-only to decide which doc is right).
+Scope: `CLAUDE.md`, `README.md`, `IMMEDIATE_NEXT_ACTIONS.md`, `HARDENING_BACKLOG.md`, and everything
+under `docs/` (incl. `docs/archive/`). Method: topic map across docs → record contradictions, duplicates,
+stale claims, missing topics → ground numeric/behavioural claims against code before judging. Doc-scope
+only; no code changed. Precedence: `FACTORY_DOMAIN_MODEL.md` → `WORKFLOW.md` → code → snapshots.
 
-Method: read every doc in scope, build the topic map below, and record each (1) contradiction between
-docs, (2) duplicate/overlapping statement without a single owner, (3) stale claim, and (4) topic that
-the coherent whole still lacks. Each item carries a proposed resolution and whether it needs an owner
-decision or is safe to apply.
+## Headline since the last run (2026-06-17)
 
-## Doc inventory and intended role
+The last audit reconciled the docs around a **single global queue** (its §C named the queue topic as
+consistent). Since then the system was **rebuilt to a per-line queue** (owner-confirmed 2026-06-23
+clean-slate process session: two parallel physical painting resources → two independently numbered plans;
+code: DB partial unique index `(production_type, queue_position)` = `uq_work_orders_line_queue_position`,
+`_next_active_queue_position_for_line`, `reorder_queue` carries a `production_type`). That rebuild updated
+`CLAUDE.md` and added `WORKFLOW.md` "Per-Line Queue Rule", **but the older "one global queue / do not
+split by production type" language was left untouched in five places** — including a self-contradiction
+inside `WORKFLOW.md` itself. This is the dominant drift this run; it is **safe to fix** (the per-line model
+is both owner-confirmed and code-confirmed, so no new owner question).
 
-| Doc | Role | Currency |
-|---|---|---|
-| `CLAUDE.md` | Agent entry point + architecture map + read-first hierarchy | Current (references FACTORY_DOMAIN_MODEL) |
-| `README.md` | Project overview, setup, scope | **Stale spots** (auth, Excel import, JWT default) |
-| `docs/FACTORY_DOMAIN_MODEL.md` | **Physical ground truth** (axes, line, measurement) | New (2026-06-17), DRAFT with `[TBD]`s |
-| `docs/WORKFLOW.md` | System workflow semantics (strongest behavioural SoT) | Mostly current |
-| `docs/WORKFLOW_VALIDATION_CHECKLIST.md` | Factory-policy interview/decision log | Current except #9 internal slip |
-| `docs/FACTORY_USAGE_NOTES.md` | 2026-05-30 factory-stakeholder capture, by panel | Dated capture; some items now superseded |
-| `docs/FACTORY_DECISION_IMPLEMENTATION_MAP_PL.md` | 2026-06-01 decisions→tasks snapshot | **Materially stale** (QC, packing, paint) |
-| `docs/PAINT_SYSTEM_DEFINITION_DRAFT_PL.md` | Paint slice definition | Stale on shortage warning |
-| `docs/STATION_IDENTITY_AND_AUDIT.md` | Station identity + audit layer | Updated for NA1; 2 internal slips |
-| `docs/AUTHZ_DESIGN_PROPOSAL.md` | NA1 design record | Current (marked IMPLEMENTED) |
-| `docs/OPERATOR_USABILITY_AUDIT_PL.md` | 2026-05-31 working usability audit | Dated; several "open/missing" now done |
-| `docs/UI_PASSIVE_REVIEW_PL.md` | 2026-05-31 passive UI review | Dated; several "open/missing" now done |
-| `docs/WORKING_CONTRACT.md` | How we collaborate; source-of-truth order | Current except hierarchy omits domain model |
-| `docs/DEVELOPMENT_RUNBOOK.md` | Setup/run/seed/verify | Current except JWT-default note |
-| `HARDENING_BACKLOG.md` | Closed hardening evidence | Current |
-| `IMMEDIATE_NEXT_ACTIONS.md` | Live open-work queue | Current |
+The N49 multi-day planner (N49-1…N49-10), NA50 good-day stats, and NA51–NA57 are all newly landed since
+the last run; their cross-references between `WORKFLOW.md` "Target planning model" and
+`FACTORY_DOMAIN_MODEL.md` §7 were checked and are coherent.
 
-## A. Contradictions between documents
+## A. Contradictions (incl. one internal)
 
-### A1. Paint-demand formula threshold: 100 m² vs 70 m² — NEEDS OWNER DECISION
-- `WORKFLOW.md:461`: `/4` below **100 m²**, `/6` at ≥100 m².
-- `FACTORY_DECISION_IMPLEMENTATION_MAP_PL.md:113`: below **70 m²** → `/4`, above 70 → `/6`.
-- `UI_PASSIVE_REVIEW_PL.md:125` and the paint open-questions repeatedly call out "dokładnie 70 m2 w formule".
-- **Code check:** `app/work_orders/schemas.py:315` uses `< 100`. So code + WORKFLOW agree on **100**.
-- *But* the decision map's 70 is a captured 2026-06-01 factory answer, so this may be a real policy gap
-  rather than a typo (anti-bias rule: code is not proof of correct policy).
-- **Resolution:** confirm the real threshold with the owner. If 100 is correct, fix the decision map
-  and UI-review mentions; if 70 is correct, this becomes an NA25 code defect. **Open question Q1.**
+### A1. Single global queue vs. per-line queue — STALE, SAFE TO FIX (code-grounded) — APPLIED
+The current model is **per-line** (`CLAUDE.md` "manager/", `WORKFLOW.md` "Per-Line Queue Rule"; code
+`app/work_orders/models.py:86` `uq_work_orders_line_queue_position`, `app/manager/service.py:1927`).
+Stale "global queue / do not split" claims found at:
+- **`WORKFLOW.md:232` — internal contradiction.** "A switch/segmented control … must not create separate
+  queues" directly contradicts the same doc's "Per-Line Queue Rule" ("two **independent** queues … the
+  manager UI presents the two plans as separate boards"). **Reworded** (the switch selects which line's
+  plan to edit; the lines are independently numbered).
+- `README.md:27` ("global queue-position uniqueness") and `README.md:307` ("Queue positions are globally
+  unique"). **Fixed → per-line.**
+- `WORKFLOW_VALIDATION_CHECKLIST.md` §5 ("one shared global queue … do not split by manual, automatic")
+  and §7a ("do not split the global queue by production type"). **Annotated SUPERSEDED** (historical
+  2026-05-30 capture retained, per the owner's standing choice for dated captures).
+- `FACTORY_USAGE_NOTES.md:37-38` ("one global queue for all planned work. Do not split it by manual,
+  automatic …"). **Annotated SUPERSEDED.**
+- `STATION_IDENTITY_AND_AUDIT.md:164` (MANAGER "view global queue"). **Reworded → per-line planning queues.**
+- `HARDENING_BACKLOG.md:201` mentions "one global queue" as a 2026-05-30 confirmed answer. Left as-is: it
+  is explicitly framed as a dated historical confirmation, not current policy (closed-evidence doc).
+- `docs/archive/CODE_CONFORMANCE_AUDIT.md:67` ("Global queue … CONFORMS") — frozen 2026-06-17 snapshot,
+  predates the rebuild; left frozen (carries an archive banner).
 
-### A2. Paint shortage warning: "required/works" vs "not in first slice" — SAFE TO FIX (code-verified)
-- Says it warns / is needed: `WORKFLOW.md:462`, `FACTORY_DECISION_IMPLEMENTATION_MAP_PL.md:112`.
-- Says it is deferred / not in first slice: `PAINT_SYSTEM_DEFINITION_DRAFT_PL.md:11`,
-  `FACTORY_USAGE_NOTES.md:25`, `WORKFLOW_VALIDATION_CHECKLIST.md:431`.
-- **Code check:** `calculate_paint_shortage_quantity_kg` + read-model fields
-  `paint_inventory_insufficient_for_prediction` / `paint_inventory_shortage_quantity_kg`
-  (`app/work_orders/schemas.py:319`, `service.py:757`) — the warning **is implemented**.
-- **Resolution:** the three "deferred" docs are stale. Update them to state the intake shortage warning
-  is implemented (predicted demand vs current stock). WORKFLOW is correct.
+### A2. Manager "types/inserts a queue position" vs. append-to-end — STALE, SAFE — APPLIED (partial)
+Per-line rule 12 (`WORKFLOW.md:343`) and the per-line UI: planning is a single "Zaplanuj" that **appends
+to the end of the line** (server-computed); the manager no longer types a position; reordering is
+drag-and-drop. Stale "propose/insert the next queue position" language remains at
+`FACTORY_USAGE_NOTES.md:42` and `WORKFLOW_VALIDATION_CHECKLIST.md` §5 bullet ("Manager planning should
+propose the next free active queue position"). **Folded into the FACTORY_USAGE_NOTES superseding note**
+(added an explicit "appends to the end / drag-and-drop" line); the checklist §5 bullet sits under the new
+SUPERSEDED banner so it reads as historical.
 
-### A3. README auth model is pre-NA1 (header-based) — SAFE TO FIX
-- `README.md:231-233`: "today the backend authorizes station actions from the `X-Station-Id` header …
-  not from the logged-in account's role — see NA1."
-- Contradicts `WORKFLOW.md:288-293`, `AUTHZ_DESIGN_PROPOSAL.md` (IMPLEMENTED),
-  `STATION_IDENTITY_AND_AUDIT.md:5`, `HARDENING_BACKLOG.md:206`, and NA1 (Done).
-- **Resolution:** rewrite the README login note: authorization is derived from the JWT user's role;
-  `X-Station-Id` is inert/audit-only.
+## B. Stale claims (non-queue)
 
-### A4. README Excel-import side-effect note is pre-NA5 — SAFE TO FIX
-- `README.md:308`: "importing `app/work_orders/service.py` currently starts an Excel worker thread."
-- Contradicts CLAUDE.md gotchas and NA5 (Done): the converter is lazy; import has no side effects.
-- **Resolution:** update to the lazy/fail-fast description.
+### B1. Shared-stage station columns still say "queue position" — STALE (N49-10), SAFE — APPLIED
+N49-10 replaced the per-line "Poz." at the two **shared** stages (surface preparation, packing) with a
+derived line label + "NASTĘPNE" (`WORKFLOW.md` "Shared-stage ordering"; read model
+`shared_stage_line_label` / `is_next_at_shared_stage`). The 2026-05-30 column lists in
+`WORKFLOW_VALIDATION_CHECKLIST.md` §8 and `FACTORY_USAGE_NOTES.md` (surface-prep + packing) still list
+"queue position" for those two stages. **Annotated** §8 with an N49-10 note (the painting stations still
+show the per-line position; only the two shared stages changed).
 
-### A5. JWT default-secret note is pre-NA12 — SAFE TO FIX
-- `README.md:113-114` and `DEVELOPMENT_RUNBOOK.md:74` say `JWT_SECRET` "has an insecure built-in
-  default" without qualification.
-- Post-NA12, the usable default is rejected outside development (fails fast). The note is misleading.
-- **Resolution:** qualify: a dev-only default exists; non-dev refuses to start with it.
+### B2. `/doc-audit` cadence "weekly" vs "on-demand" — STALE, SAFE — APPLIED
+`DOCUMENTATION_MAP.md` "Audit cadence policy" + the `/doc-audit` skill state **on-demand** (NA47,
+2026-06-22, owner-confirmed; explicitly not a standing weekly schedule). Two docs still say weekly:
+`IMMEDIATE_NEXT_ACTIONS.md:440` (NA24 closure note, "intended cadence weekly") — **fixed → on-demand**;
+and `ARCHITECTURE_AUDIT.md:233` (D4, "regenerate them weekly") — left as-is (it is a dated 2026-06-19
+review snapshot, and D4's own point was *questioning* the cadence that NA47 then resolved).
 
-### A6. QC document status: "not implemented" vs "implemented" — SAFE TO FIX
-- "Not implemented": `FACTORY_DECISION_IMPLEMENTATION_MAP_PL.md:78`,
-  `OPERATOR_USABILITY_AUDIT_PL.md:51`, `UI_PASSIVE_REVIEW_PL.md:129`.
-- Implemented: `WORKFLOW_VALIDATION_CHECKLIST.md` #10 (corrected 2026-06-17), `README.md:36`, code.
-- **Resolution:** update the three stale docs (it ships: Excel template → fill → PDF).
+### B3. `ARCHITECTURE_AUDIT.md` D1 ("move snapshots to docs/archive/") — already actioned, not stale-harmful
+D1 (2026-06-19) recommended archiving the frozen snapshots; that was done (NA45 — the six snapshots now
+live under `docs/archive/`, and `DOCUMENTATION_MAP.md`'s archive table matches the folder). The audit body
+still lists them as "in the active doc set", but it is a dated review snapshot and the NA39–NA47 items it
+seeds are tracked live. No edit (would be rewriting a historical snapshot); noted for awareness.
 
-### A7. Packing exclusivity: "no lock / open question" vs N-slot capacity — SAFE TO FIX
-- "Open / no lock / single exclusive resource": `FACTORY_DECISION_IMPLEMENTATION_MAP_PL.md:229`,
-  `UI_PASSIVE_REVIEW_PL.md:116-119`, `OPERATOR_USABILITY_AUDIT_PL.md:172`, `FACTORY_USAGE_NOTES.md:147`.
-- Implemented as **N configurable slots** (default 2, automatic reserves at HANGING start, manual
-  override): `WORKFLOW.md:237-243`, `WORKFLOW_VALIDATION_CHECKLIST.md` #9 (NA22), code.
-- **Resolution:** update the stale docs; note the model is now capacity (N slots), not strict single.
+## C. Duplication / single-owner (drift risk, currently consistent)
 
-### A8. Checklist #9 internal contradiction: default capacity 1 vs 2 — SAFE TO FIX
-- `WORKFLOW_VALIDATION_CHECKLIST.md:371`: "small **capacity** model (default **1**, manual can open a
-  2nd slot)."
-- Same doc `:373,:380` and `WORKFLOW.md:238`: `packing_max_concurrent_slots` **default 2**.
-- **Resolution:** correct line 371 to "default 2" (or describe behaviour as single-station exclusivity
-  by default with up to N via override), matching the implemented setting.
+- **Per-line queue rule** now has a clear owner (`WORKFLOW.md` "Per-Line Queue Rule"); the capture docs
+  were converted to references/superseding notes this run rather than restating it.
+- **Station columns** (`WORKFLOW.md` owner) are still restated in `FACTORY_USAGE_NOTES.md`,
+  `WORKFLOW_VALIDATION_CHECKLIST.md` §8, `STATION_IDENTITY_AND_AUDIT.md`. Consistent after the N49-10 note;
+  the standing recommendation (last run's §C, ARCHITECTURE_AUDIT D3) to convert restatements to references
+  when next touched still applies.
+- **Correction reason categories** / **permission matrix** — unchanged, still consistent, owner =
+  `WORKFLOW.md`.
 
-### A9. STATION_IDENTITY internal slips — SAFE TO FIX
-- `STATION_IDENTITY_AND_AUDIT.md:58-59` still describes accepting missing station as `UNKNOWN` during
-  rollout, while `:134` (and NA1) say the `UNKNOWN` allow-bypass was removed. Internal drift.
-- `:160` lists `SURFACE_PREPARATION: … confirm quantity discrepancy`, but the confirmed policy
-  (`WORKFLOW.md`, `FACTORY_USAGE_NOTES.md:55`, checklist #3) is **no separate discrepancy-confirmation
-  step**. Stale permission line.
-- **Resolution:** align both spots with the confirmed/closed state.
+## D. Missing topics — none new blocking
 
-## B. Stale dated snapshots (whole-doc currency) — NEEDS OWNER STEER (mark-historical vs update)
+The big new subsystems (multi-day planner, good-day stats) are documented in the two living docs and the
+NA backlog. The known open *decisions* (NA51 board-vs-queue reconciliation; NA52 inflated changeover cost;
+NA54 demand-aware paint block; NA56 working calendar) are already logged as NA items with owner questions —
+they are open *work*, not doc gaps. No new "should-be-documented-but-isn't" topic surfaced this run.
 
-These docs are explicitly dated working captures and self-declare as non-source-of-truth, but they now
-contain claims that contradict current truth (see A6/A7 above). They "compete with current truth"
-(WORKING_CONTRACT decision rule: fix or mark stale).
+## Applied this run (safe edits)
 
-- **`FACTORY_DECISION_IMPLEMENTATION_MAP_PL.md`** (2026-06-01): sections 3 (QC not implemented), 4
-  (paint demand 70 / "system ma wykrywać" already done), 8 (no PACKING lock) are outdated. Either add a
-  prominent "HISTORICAL SNAPSHOT — verify against WORKFLOW.md" banner, or update the few hard conflicts.
-- **`OPERATOR_USABILITY_AUDIT_PL.md`** & **`UI_PASSIVE_REVIEW_PL.md`** (2026-05-31): several "missing /
-  open" items now implemented (QC doc, packing exclusivity, automatic paint-consumption UI). Lower
-  priority (clearly dated audits); add a short "since this audit, X/Y/Z shipped" note or refresh lines.
+- `WORKFLOW.md:232` — reworded to the per-line model (kills the internal contradiction with "Per-Line
+  Queue Rule").
+- `README.md:27,307` — "global" queue uniqueness → **per-line**.
+- `WORKFLOW_VALIDATION_CHECKLIST.md` — §5 SUPERSEDED banner (per-line); §7a inline SUPERSEDED note; §8
+  N49-10 shared-stage-columns note.
+- `FACTORY_USAGE_NOTES.md` — global-queue capture struck through + SUPERSEDED note; added the
+  append-to-end / drag-and-drop planning line.
+- `STATION_IDENTITY_AND_AUDIT.md:164` — "view global queue" → per-line planning queues.
+- `IMMEDIATE_NEXT_ACTIONS.md:440` — `/doc-audit` cadence "weekly" → on-demand (NA47).
 
-**Open question Q2:** for the dated snapshot docs, prefer (a) edit in place to current truth, or
-(b) keep them frozen as history with a clear "superseded — see current docs" banner?
+## Owner questions
 
-## C. Duplication without a single owner (drift risk)
-
-- **Station list columns** are specified in `WORKFLOW.md:197-251`, `FACTORY_USAGE_NOTES.md` (per panel),
-  `WORKFLOW_VALIDATION_CHECKLIST.md` #8, and `STATION_IDENTITY_AND_AUDIT.md`. Currently consistent.
-  **Owner = `WORKFLOW.md`;** others should reference it, not restate.
-- **Role/permission matrix** appears in `WORKFLOW.md` (Station Permissions), `STATION_IDENTITY` (Permission
-  Direction), `AUTHZ_DESIGN_PROPOSAL` (table), checklist #4. Already drifted once (A9 `:160`).
-  **Owner = `WORKFLOW.md` Station Permissions** (+ AUTHZ as the closed design record); others reference.
-- **Correction reason categories** (`niedomalowanie`, `za grubo`, `wtrącenia`, `inne`) copied into ≥5
-  docs. Keep the canonical list in `WORKFLOW.md`; others reference.
-
-## D. Missing topics the coherent whole still needs
-
-### D1. The new physical-truth doc is not wired into every entry-point hierarchy
-- `CLAUDE.md` lists `FACTORY_DOMAIN_MODEL.md` as read-first, but `README.md` "Truth And Evidence" and
-  `WORKING_CONTRACT.md:21` "Source Of Truth Order" do **not** mention it. **Resolution:** add it to both
-  (physical truth → `WORKFLOW.md` → code), so all three entry points agree on one hierarchy.
-
-### D2. Throughput/decoral measurement is split and framed two ways
-- `WORKFLOW.md` "Throughput Reporting" frames decoral as "two coats, two separate work events";
-  `FACTORY_DOMAIN_MODEL.md` §4 frames the total as "one product, counted once, two cross-sections".
-  They are reconcilable but currently read as different stories. **Resolution:** make WORKFLOW's
-  Throughput section reference §4 as the canonical measurement model (NA23 will touch this section).
-
-### D3. Two-axis model not stated in WORKFLOW.md
-- WORKFLOW jumps to stage flows without stating production-method × coating as independent axes (now in
-  `FACTORY_DOMAIN_MODEL.md` §1). **Resolution:** add a one-line cross-reference at the top of WORKFLOW's
-  Stage Model.
-
-### D4. Decoral packing not noted as intentionally folded into DECORAL_PRODUCTION
-- `FACTORY_USAGE_NOTES.md:109` ("operators … pack the elements, then finish") and the physical reality
-  (separate decoral packing station) aren't reconciled in WORKFLOW's stage model, which ends DECORAL at
-  `DECORAL_PRODUCTION`. **Resolution:** note in WORKFLOW that decoral packing is folded into the
-  `DECORAL_PRODUCTION` completion (no separate tracked stage), per `FACTORY_DOMAIN_MODEL.md` §1.
-
-### D5. No glossary / single terminology table
-- Terms are scattered: element vs work order, profile vs accessory, RAL vs decoral, decoral *pass*
-  (przejazd) vs decoral *product*, przemalowanka, ocynk, incomplete-on-arrival, READY. **Resolution:**
-  add a single Glossary (likely in `FACTORY_DOMAIN_MODEL.md` or a new short `docs/GLOSSARY.md`).
-
-### D6. Physical meaning of several first-class concepts is undocumented
-- **Ocynk** — defined only as "a marker; station work differs"; never explained (galvanizing? where in
-  the line? why station work differs).
-- **Przemalowanka** — operational behaviour is documented; its physical meaning (repaint of existing
-  coated parts?) is not.
-- **Surface preparation** — `FACTORY_DOMAIN_MODEL.md` §2 leaves it as "shared entry"; usage notes imply
-  washing. What it physically is (wash? blast? degrease?) is undocumented.
-- **Incomplete-on-arrival** — used throughout code/WORKFLOW but never explained as a factory concept
-  (what it means operationally, who clears it, why).
-- **Resolution:** capture these in `FACTORY_DOMAIN_MODEL.md` (interview items; some already `[TBD]`).
-
-### D7. No documentation map / precedence page, and the two existing hierarchies disagree
-- `CLAUDE.md` and `WORKING_CONTRACT.md` each give a partial, now-divergent source-of-truth order (D1).
-  **Resolution:** one canonical "documentation map + precedence" (this audit's inventory table can seed
-  it), referenced from both entry points.
-
-## E. Proposed canonical hierarchy (to make explicit everywhere)
-
-1. `FACTORY_DOMAIN_MODEL.md` — physical reality (why).
-2. `WORKFLOW.md` — system behaviour/semantics (what the system does).
-3. Code + migrations + tests — implemented behaviour.
-4. `IMMEDIATE_NEXT_ACTIONS.md` — live open work; `HARDENING_BACKLOG.md` — closed evidence.
-5. Capture/snapshot docs (`FACTORY_USAGE_NOTES`, `FACTORY_DECISION_*`, audits) — historical evidence,
-   never override 1–2.
-6. `README.md` / `DEVELOPMENT_RUNBOOK.md` — setup only.
-
-## Owner decisions (2026-06-17)
-
-- **Q1 (A1): threshold = 100 m²** (code is correct). The 70 m² mentions are stale; handled via the
-  historical banners on the snapshot docs (no code change).
-- **Q2 (B): freeze the dated snapshots as history** with a "MIGAWKA HISTORYCZNA" banner (no body
-  rewrite). Applied to the decision map and the two PL audits.
-- **Q3 (scope): apply the safe edits now.** Done (see below).
-
-## Applied (2026-06-17)
-
-- **Banners (Q2/B):** `FACTORY_DECISION_IMPLEMENTATION_MAP_PL.md`, `OPERATOR_USABILITY_AUDIT_PL.md`,
-  `UI_PASSIVE_REVIEW_PL.md` now carry a historical-snapshot banner naming their known-stale points
-  (QC, packing, paint 70-vs-100, paint consumption).
-- **A2** (shortage warning is implemented): `PAINT_SYSTEM_DEFINITION_DRAFT_PL.md`,
-  `FACTORY_USAGE_NOTES.md`, `WORKFLOW_VALIDATION_CHECKLIST.md` #11 updated.
-- **A3/A4/A5** (README pre-NA1 auth, pre-NA5 Excel import, pre-NA12 JWT default) + **A5** RUNBOOK JWT
-  note: corrected.
-- **A8** checklist #9 "default 1" → single-station default + override up to N (default 2).
-- **A9** `STATION_IDENTITY_AND_AUDIT.md`: NA1 update note on the transport section; removed the stale
-  "confirm quantity discrepancy" permission line.
-- **D1** wired `FACTORY_DOMAIN_MODEL.md` into the hierarchy in `README.md` and `WORKING_CONTRACT.md`.
-- **D2/D3/D4** `WORKFLOW.md`: two-axis cross-ref + decoral-packing-folded note in Stage Model; canonical
-  measurement-model reference in Throughput Reporting.
-
-## Still open (follow-up, not in this safe-edit pass)
-
-- **D5 glossary**, **D6 undocumented physical concepts** (ocynk / przemalowanka / surface-prep /
-  incomplete-on-arrival), **D7 canonical doc-map page** — these need interview content or a larger
-  structural addition; capture them in `FACTORY_DOMAIN_MODEL.md` (some already `[TBD]`) as a separate
-  step.
-- **C (single-owner refactor)** of station-columns / permission-matrix / correction-categories
-  duplication — left as-is for now (currently consistent); convert restatements into references when
-  next touched.
-
-## Next steps
-
-- Findings pass + safe edits: **done**. Remaining: D5–D7 (interview/structural) and the optional C
-  refactor.
-- Then proceed to **NA25** (docs-vs-code conformance) using the reconciled docs as the spec.
+None new from this run. The per-line rebuild is owner-confirmed (2026-06-23) and code-confirmed, so the
+edits above are reconciliation, not policy. The open planner decisions remain tracked as NA51/NA52/NA54/
+NA56 (with their own owner questions) — out of scope for a doc-coherence pass.

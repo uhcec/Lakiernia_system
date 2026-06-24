@@ -229,7 +229,7 @@ Office/manager list grouping:
 - Future release flow should generate a WZ / issue document for completed orders; the WZ template, fields, storage, and print/download behavior still need separate design.
 
 Manager planning ergonomics:
-- Manager planning assigns `production_type` explicitly as manual or automatic production. A switch/segmented control is a UI affordance for that assignment; it must not create separate queues.
+- Manager planning assigns `production_type` explicitly as manual or automatic production. The manual and automatic plans are two **independently numbered per-line queues** (see "Per-Line Queue Rule" below); the top-of-screen `Automat / Ręczna` switch selects which line's plan the manager edits — it does not merge the two lines into one global queue, and it is not a single shared queue that the switch merely filters.
 - Correction work orders in manager planning must make the original/parent order easy to open.
 - Parent work-order details must make it easy to see which correction orders belong to the parent and where each correction currently is.
 - While planning a correction, the manager should see the original order's planned pickup date. Current correction orders mirror the original order's `planned_pickup_date`; if future policy allows separate correction deadlines, that must be a separate workflow decision.

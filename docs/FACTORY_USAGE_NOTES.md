@@ -34,8 +34,9 @@ Use `docs/WORKFLOW_VALIDATION_CHECKLIST.md` as the active checklist before chang
 - Assigns new work orders and correction work orders to manual or automatic production.
 - The manual/automatic control in planning is an assignment control, not a separate queue selector.
 - Inserts work orders into the queue.
-- Manages a global queue containing work from different completion stages and production areas.
-- Confirmed policy: there is one global queue for all planned work. Do not split it by manual, automatic, Decoral, corrections, or station.
+- Manages the planning queue containing work from different completion stages and production areas.
+- ~~Confirmed policy: there is one global queue for all planned work. Do not split it by manual, automatic, Decoral, corrections, or station.~~ **SUPERSEDED 2026-06-23:** the queue is now **per production line** — two independently numbered plans (MANUAL / AUTOMATIC), matching the two parallel physical painting resources. The manual/automatic control selects which line's plan to edit. Current truth: `docs/WORKFLOW.md` "Per-Line Queue Rule"; physical grounding: `docs/FACTORY_DOMAIN_MODEL.md` §1.
+- Planning no longer asks the manager to type a position: a new order **appends to the end of its line's plan** (server-computed), and reordering within a line is drag-and-drop.
 - Corrections do not automatically receive higher priority than normal work orders.
 - When planning a correction, the manager should be able to open the original work order and see the original planned pickup date. Correction orders currently mirror that original planned pickup date.
 - Parent work-order details should make linked correction orders and their current status/location easy to see.
