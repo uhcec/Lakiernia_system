@@ -771,7 +771,19 @@ only. Five elements, top to bottom:
 - **Owner decision (2026-06-24): keep Mon–Fri (make the weekend set configurable, no holiday list yet) and
   PRO-RATE today** — day 0's capacity is shrunk to the shift hours left when the plan is computed (a plan
   built at 16:00 of a shift ending 21:00 has ~5 h of day-0 capacity), instead of always assuming a full day.
-- Status: **OPEN — found 2026-06-24 (code review of the N49 series).** Flagged as an ASSUMPTION in code;
+- Status: **DONE (2026-06-24).** New pure `remaining_shift_hours(now, shift_length)` in
+  `app/manager/capacity.py` (shift starts 07:00; clamps to `[0, full shift]`). `place_orders` gained
+  `first_day_hours` which pro-rates **day 0 only** — its gross ceiling *and* floor scale by
+  `first_day_hours / full`, so a mid-shift plan doesn't promise a whole day today and the pro-rated floor
+  isn't spuriously failed; `None` = full day 0 (identical to before). `get_multi_day_plan` gained an
+  injectable `now` (defaults to the server clock) and passes the pro-rated day-0 hours. The Mon–Fri weekend
+  set is **confirmed** (no longer an open ASSUMPTION) and documented as the single configurable point via
+  `working_days_from`'s `weekend_weekdays` (holidays deferred). Tests: pure `remaining_shift_hours`
+  (pre-shift/mid/after, short shift), `place_orders` day-0 proration (ceiling+floor scale, later days full),
+  service mid-shift spill (`now=16:00` → second order spills to day 1); existing placement service tests
+  pass a fixed pre-shift `now` so they stay deterministic. 587 backend + 92 frontend pass; both builds
+  green; `alembic check` clean (no schema change). `docs/WORKFLOW.md` "Target planning model" updated.
+- Status (original): **OPEN — found 2026-06-24 (code review of the N49 series).** Flagged as an ASSUMPTION in code;
   needs owner confirmation.
 - Severity: **LOW** (placement is advisory/read-only; mis-dating only affects the forecast).
 - Problem: `working_days_from` skips Sat/Sun via the hardcoded `DEFAULT_WEEKEND_WEEKDAYS = {5, 6}`

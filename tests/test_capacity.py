@@ -4,17 +4,21 @@ Covers the DB-free arithmetic in ``app/manager/capacity.py``: shift floor/ceilin
 capacity loss, below-floor + over-ceiling (spill) flags, and the shift-length advice.
 """
 
+from datetime import datetime
+
 from app.manager.capacity import (
     CEILING_BOOTH_RATE_M2_PER_H,
     CHANGEOVER_BAND_LARGE_MINUTES,
     CHANGEOVER_BAND_SMALL_MINUTES,
     FLOOR_LONG_M2,
     FLOOR_SHORT_M2,
+    SHIFT_LONG_HOURS,
     PlacedOrder,
     ShiftLength,
     advise_shift_length,
     changeover_minutes_for_transition,
     compute_day_capacity,
+    remaining_shift_hours,
 )
 
 
@@ -105,6 +109,19 @@ def test_advise_shift_length_by_long_day_floor() -> None:
 def test_ceiling_rate_seed_is_the_band_midpoint() -> None:
     # The seed booth rate is the midpoint of the confirmed 60–100 m²/h band.
     assert CEILING_BOOTH_RATE_M2_PER_H == 80.0
+
+
+def test_remaining_shift_hours_prorates_today() -> None:
+    # Before the 07:00 start → the whole shift remains.
+    assert remaining_shift_hours(datetime(2026, 6, 24, 6, 0), ShiftLength.LONG) == SHIFT_LONG_HOURS
+    assert remaining_shift_hours(datetime(2026, 6, 24, 7, 0), ShiftLength.LONG) == SHIFT_LONG_HOURS
+    # Mid long-shift (16:00) → 21:00 − 16:00 = 5 h left.
+    assert remaining_shift_hours(datetime(2026, 6, 24, 16, 0), ShiftLength.LONG) == 5.0
+    assert remaining_shift_hours(datetime(2026, 6, 24, 16, 30), ShiftLength.LONG) == 4.5
+    # After the long shift end (21:00) → nothing remains.
+    assert remaining_shift_hours(datetime(2026, 6, 24, 22, 0), ShiftLength.LONG) == 0.0
+    # Short shift ends 15:00: at 13:00 → 2 h left.
+    assert remaining_shift_hours(datetime(2026, 6, 24, 13, 0), ShiftLength.SHORT) == 2.0
 
 
 def test_changeover_minutes_size_and_direction_band() -> None:

@@ -29,6 +29,7 @@ from app.manager.capacity import (
     ShiftLength,
     advise_shift_length,
     compute_day_capacity,
+    remaining_shift_hours,
 )
 from app.manager.good_day import (
     DayActivity,
@@ -1141,6 +1142,7 @@ class ManagerService:
         horizon_working_days: int = _DEFAULT_PLAN_HORIZON_WORKING_DAYS,
         shift_length: ShiftLength | None = None,
         station_context: StationContext | None = None,
+        now: datetime | None = None,
     ) -> MultiDayPlanRead:
         """Deadline-feasible multi-day placement of a line's planned work (N49-4, the planner heart).
 
@@ -1195,6 +1197,9 @@ class ManagerService:
             [orders_by_id[order_id] for order_id in line_swept_ids]
         )
         working_days = working_days_from(datetime.now(UTC).date(), horizon_working_days)
+        # Pro-rate day 0 to the hours left in today's shift (NA56) so a plan built mid-shift doesn't
+        # promise a whole day today. ``now`` is factory-local wall-clock (defaults to the server clock).
+        first_day_hours = remaining_shift_hours(now if now is not None else datetime.now(), resolved_shift)
 
         # Paint-stock feasibility (N49-7): per-order OK / WARNING / BLOCKED in execution order, so the
         # board can mark out-of-stock (metered) colours that the plan-time gate also refuses.
@@ -1206,6 +1211,7 @@ class ManagerService:
             working_days=working_days,
             shift_length=resolved_shift,
             changeover_minutes=line_avg_changeover_minutes,
+            first_day_hours=first_day_hours,
         )
 
         placement_by_id = {placement.work_order_id: placement for placement in plan.placements}

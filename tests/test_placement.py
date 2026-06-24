@@ -136,6 +136,29 @@ def test_oversized_order_placed_alone_and_flagged_over_ceiling() -> None:
     assert plan.days[0].placed_m2 == 1300.0
 
 
+def test_first_day_hours_prorates_day_zero_only() -> None:
+    # A 5 h day-0 gross ceiling = 80 × 5 = 400 m²; the second 400 m² order can't fit today and spills to
+    # day 1 (a full day). Day 0's floor is pro-rated too (800 × 5/14 ≈ 285.71), so 400 ≥ it → not below.
+    plan = place_orders(
+        [
+            _order(1, 400.0, date(2026, 7, 10)),
+            _order(2, 400.0, date(2026, 7, 10)),
+        ],
+        working_days=_WORKING_WEEK,
+        shift_length=ShiftLength.LONG,
+        changeover_minutes=20.0,
+        first_day_hours=5.0,
+    )
+    assert len(plan.days) == 2
+    assert plan.days[0].gross_ceiling_m2 == 400.0
+    assert plan.days[0].placed_m2 == 400.0
+    assert plan.days[0].floor_m2 == round(800.0 * 5.0 / 14.0, 2)
+    assert plan.days[0].below_floor is False
+    # Day 1 is a full working day again (gross 1120, floor 800).
+    assert plan.days[1].gross_ceiling_m2 == 1120.0
+    assert plan.days[1].floor_m2 == 800.0
+
+
 def test_beyond_horizon_orders_are_infeasible_with_no_date() -> None:
     # Horizon of one working day, two full days of work → the 2nd day has no date and is infeasible.
     one_day = working_days_from(_MON, 1)

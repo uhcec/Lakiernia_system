@@ -26,6 +26,8 @@ from app.work_orders.service import WorkOrderService
 MANAGER = StationContext(station_id=StationId.MANAGER)
 _TODAY = datetime.now(UTC).date()
 _COMFORTABLE = _TODAY + timedelta(days=60)  # safely beyond any near-term working day
+# A pre-shift "now" so day 0 is a full day (NA56 proration off) — keeps placement asserts deterministic.
+_MORNING = datetime(_TODAY.year, _TODAY.month, _TODAY.day, 6, 0)
 
 
 def _build(db_session: Session) -> tuple[WorkOrderService, ManagerService]:
@@ -71,7 +73,7 @@ def _plan_automatic(
 
 def test_empty_line_yields_no_days(db_session: Session) -> None:
     _, manager_service = _build(db_session)
-    plan = manager_service.get_multi_day_plan(station_context=MANAGER)
+    plan = manager_service.get_multi_day_plan(station_context=MANAGER, now=_MORNING)
     assert plan.production_type == ProductionType.AUTOMATIC
     assert plan.shift_advised is True
     assert plan.shift_length is ShiftLength.SHORT
@@ -84,7 +86,7 @@ def test_places_orders_on_one_day_and_advises_long(db_session: Session) -> None:
     _plan_automatic(work_order_service, manager_service, "A1", "RAL 9010", 500.0, _COMFORTABLE)
     _plan_automatic(work_order_service, manager_service, "A2", "RAL 9010", 400.0, _COMFORTABLE)
 
-    plan = manager_service.get_multi_day_plan(station_context=MANAGER)
+    plan = manager_service.get_multi_day_plan(station_context=MANAGER, now=_MORNING)
 
     assert plan.shift_length is ShiftLength.LONG  # 900 ≥ 800 long-day floor
     assert len(plan.days) == 1
@@ -102,7 +104,7 @@ def test_overflow_spills_to_second_day(db_session: Session) -> None:
         _plan_automatic(work_order_service, manager_service, f"A{i}", "RAL 9010", 500.0, _COMFORTABLE)
 
     plan = manager_service.get_multi_day_plan(
-        shift_length=ShiftLength.LONG, station_context=MANAGER
+        shift_length=ShiftLength.LONG, station_context=MANAGER, now=_MORNING
     )
 
     assert len(plan.days) == 2
@@ -118,12 +120,30 @@ def test_past_deadline_order_is_infeasible(db_session: Session) -> None:
         work_order_service, manager_service, "Late", "RAL 9010", 100.0, date(2020, 1, 1)
     )
 
-    plan = manager_service.get_multi_day_plan(station_context=MANAGER)
+    plan = manager_service.get_multi_day_plan(station_context=MANAGER, now=_MORNING)
 
     assert overdue_id in plan.infeasible_order_ids
     late = next(p for day in plan.days for p in day.placements if p.work_order_id == overdue_id)
     assert late.meets_deadline is False
     assert late.days_late > 0
+
+
+def test_day_zero_is_prorated_when_planned_mid_shift(db_session: Session) -> None:
+    work_order_service, manager_service = _build(db_session)
+    # Two 400 m² same-colour orders would fit one full long day (gross 1120), but planned at 16:00 today
+    # has only ~5 h of day-0 capacity (80 × 5 = 400 m²), so the second spills to a full day 1 (NA56).
+    _plan_automatic(work_order_service, manager_service, "A1", "RAL 9010", 400.0, _COMFORTABLE)
+    _plan_automatic(work_order_service, manager_service, "A2", "RAL 9010", 400.0, _COMFORTABLE)
+    afternoon = datetime(_TODAY.year, _TODAY.month, _TODAY.day, 16, 0)
+
+    plan = manager_service.get_multi_day_plan(
+        shift_length=ShiftLength.LONG, station_context=MANAGER, now=afternoon
+    )
+
+    assert len(plan.days) == 2
+    assert plan.days[0].gross_ceiling_m2 == 400.0
+    assert plan.days[0].placed_m2 == 400.0
+    assert plan.days[1].gross_ceiling_m2 == 1120.0
 
 
 def test_multi_day_plan_requires_manager(db_session: Session) -> None:

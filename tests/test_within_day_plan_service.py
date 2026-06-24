@@ -25,6 +25,8 @@ from app.work_orders.service import WorkOrderService
 MANAGER = StationContext(station_id=StationId.MANAGER)
 _TODAY = datetime.now(UTC).date()
 _COMFORTABLE = _TODAY + timedelta(days=60)
+# Pre-shift "now" so day 0 is a full day (NA56 proration off) — keeps single-day placement deterministic.
+_MORNING = datetime(_TODAY.year, _TODAY.month, _TODAY.day, 6, 0)
 
 
 def _build(db_session: Session) -> tuple[WorkOrderService, ManagerService]:
@@ -76,7 +78,7 @@ def test_day_is_ordered_light_to_dark_with_colours_grouped(db_session: Session) 
     grey = _plan(work_order_service, manager_service, "Grey", "RAL 7035", 100.0)
     white2 = _plan(work_order_service, manager_service, "White2", "RAL 9010", 100.0)
 
-    plan = manager_service.get_multi_day_plan(station_context=MANAGER)
+    plan = manager_service.get_multi_day_plan(station_context=MANAGER, now=_MORNING)
     placements = [p for day in plan.days for p in day.placements]
     by_position = sorted(placements, key=lambda p: (p.day_index, p.sequence_position))
     ordered_ids = [p.work_order_id for p in by_position]
@@ -95,7 +97,7 @@ def test_grouping_lowers_day_changeover_count(db_session: Session) -> None:
     _plan(work_order_service, manager_service, "A2", "RAL 1000", 100.0)
     _plan(work_order_service, manager_service, "B2", "RAL 5005", 100.0)
 
-    plan = manager_service.get_multi_day_plan(shift_length=None, station_context=MANAGER)
+    plan = manager_service.get_multi_day_plan(shift_length=None, station_context=MANAGER, now=_MORNING)
     assert len(plan.days) == 1
     assert plan.days[0].changeover_count == 1
     # Size+direction-aware cost (N49-6): one change, both small (≤100 m²) → at most the 15-min band.
@@ -109,7 +111,7 @@ def test_large_orders_incur_changeover_cost(db_session: Session) -> None:
     _plan(work_order_service, manager_service, "BigWhite", "RAL 9010", 300.0)
     _plan(work_order_service, manager_service, "BigBlack", "RAL 9005", 300.0)
 
-    plan = manager_service.get_multi_day_plan(shift_length=None, station_context=MANAGER)
+    plan = manager_service.get_multi_day_plan(shift_length=None, station_context=MANAGER, now=_MORNING)
     day = next(d for d in plan.days if d.changeover_count == 1)
     # Large band 30 min × light→dark factor 0.5 = 15 min.
     assert day.changeover_minutes == 15.0
@@ -122,7 +124,7 @@ def test_small_colour_orphan_is_suggested_manual(db_session: Session) -> None:
     _plan(work_order_service, manager_service, "Grp1", "RAL 9010", 40.0)
     _plan(work_order_service, manager_service, "Grp2", "RAL 9010", 40.0)
 
-    plan = manager_service.get_multi_day_plan(station_context=MANAGER)
+    plan = manager_service.get_multi_day_plan(station_context=MANAGER, now=_MORNING)
     by_id = {p.work_order_id: p for day in plan.days for p in day.placements}
 
     assert by_id[orphan].suggested_production_type is ProductionType.MANUAL
@@ -137,7 +139,7 @@ def test_large_colour_orphan_stays_automatic(db_session: Session) -> None:
     work_order_service, manager_service = _build(db_session)
     big = _plan(work_order_service, manager_service, "BigOrphan", "RAL 3000", 500.0)
 
-    plan = manager_service.get_multi_day_plan(station_context=MANAGER)
+    plan = manager_service.get_multi_day_plan(station_context=MANAGER, now=_MORNING)
     by_id = {p.work_order_id: p for day in plan.days for p in day.placements}
     assert by_id[big].suggested_production_type is ProductionType.AUTOMATIC
     assert by_id[big].suggested_line_is_small is False

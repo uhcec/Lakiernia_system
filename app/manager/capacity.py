@@ -25,6 +25,7 @@ so the arithmetic is fully unit-testable and the service layer only supplies the
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import datetime
 from enum import Enum
 
 # Economic floors (minimum profitable m²) and shift lengths — confirmed 2026-06-23
@@ -33,6 +34,8 @@ FLOOR_LONG_M2 = 800.0
 FLOOR_SHORT_M2 = 500.0
 SHIFT_LONG_HOURS = 14.0
 SHIFT_SHORT_HOURS = 8.0
+# Wall-clock hour the working shift starts (both shift lengths begin at 07:00); the end is start + hours.
+SHIFT_START_HOUR = 7.0
 
 # Physical (gross, instantaneous) automatic-booth painting rate — the confirmed 60–100 m²/h band;
 # seed = the band midpoint. Used for the physical ceiling and for costing changeover capacity loss.
@@ -142,6 +145,21 @@ def changeover_minutes_for_transition(
     band = band_large_minutes if area > threshold_m2 else band_small_minutes
     factor = max(min(light_to_dark_factor, 1.0), 0.0) if light_to_dark else 1.0
     return max(band, 0.0) * factor
+
+
+def remaining_shift_hours(now: datetime, shift_length: ShiftLength) -> float:
+    """Hours left in *today's* shift from the wall-clock ``now`` (NA56), clamped to ``[0, full shift]``.
+
+    The planner's first horizon day is today, so a plan computed mid-shift cannot promise a whole day's
+    capacity (``docs/FACTORY_DOMAIN_MODEL.md`` §7): a long-day plan built at 16:00 has only ~5 h left. Before
+    the 07:00 start the full shift remains; after the shift end nothing remains. ``now`` is interpreted in
+    its own clock (the caller passes factory-local time), using only its hour-of-day.
+    """
+    full = shift_hours(shift_length)
+    current_hour = now.hour + now.minute / 60.0
+    if current_hour <= SHIFT_START_HOUR:
+        return full
+    return max(min(SHIFT_START_HOUR + full - current_hour, full), 0.0)
 
 
 def advise_shift_length(available_ready_m2: float) -> ShiftLength:

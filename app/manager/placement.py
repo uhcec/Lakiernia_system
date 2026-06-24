@@ -37,9 +37,11 @@ from app.manager.capacity import (
 )
 from app.manager.scheduler import count_colour_changeovers
 
-# Working-day calendar: Saturday (5) and Sunday (6) are non-working by default. ASSUMPTION (revisit
-# with the owner): the shop runs Mon–Fri. Deadlines are plain calendar dates, so a part due on a
-# weekend is simply met by the preceding working day (placed date ≤ pickup date still holds).
+# Working-day calendar: Saturday (5) and Sunday (6) are non-working. CONFIRMED 2026-06-24 (NA56): the
+# shop runs Mon–Fri; a holiday list is deferred (none modelled yet). This is the single configurable
+# point — ``working_days_from(..., weekend_weekdays=...)`` overrides it, so a future shop-specific
+# calendar passes its own set here rather than editing the module. Deadlines are plain calendar dates, so
+# a part due on a weekend is simply met by the preceding working day (placed date ≤ pickup date holds).
 DEFAULT_WEEKEND_WEEKDAYS: frozenset[int] = frozenset({5, 6})
 
 
@@ -136,6 +138,7 @@ def place_orders(
     shift_length: ShiftLength,
     changeover_minutes: float,
     ceiling_rate_m2_per_h: float = CEILING_BOOTH_RATE_M2_PER_H,
+    first_day_hours: float | None = None,
 ) -> MultiDayPlan:
     """Place orders earliest-deadline-first into net-ceiling-bounded working days.
 
@@ -146,14 +149,27 @@ def place_orders(
     spans more than a day — a real signal for the manager, not an error). Day index ``i`` maps to
     ``working_days[i]``; orders past the supplied horizon get ``scheduled_date=None`` and count as
     infeasible.
-    """
-    hours = shift_hours(shift_length)
-    floor = floor_m2(shift_length)
-    gross_ceiling = ceiling_rate_m2_per_h * hours
 
-    def net_ceiling(changeover_count: int) -> float:
+    ``first_day_hours`` (NA56) pro-rates **day 0 only** to the hours left in today's shift: its gross
+    ceiling and floor scale by ``first_day_hours / full shift hours`` (so a plan built mid-shift doesn't
+    promise a whole day today). ``None`` (the default) means a full day 0 — identical to the prior model.
+    """
+    full_hours = shift_hours(shift_length)
+    floor = floor_m2(shift_length)
+    # Day 0 may be a partial day (planned mid-shift); every later day is a full working day.
+    day0_hours = first_day_hours if first_day_hours is not None else full_hours
+    day0_fraction = day0_hours / full_hours if full_hours > 0 else 1.0
+
+    def gross_ceiling_for(day_index: int) -> float:
+        hours = day0_hours if day_index == 0 else full_hours
+        return ceiling_rate_m2_per_h * hours
+
+    def floor_for(day_index: int) -> float:
+        return floor * day0_fraction if day_index == 0 else floor
+
+    def net_ceiling(day_index: int, changeover_count: int) -> float:
         loss = changeover_loss_m2(changeover_count, changeover_minutes, ceiling_rate_m2_per_h)
-        return max(gross_ceiling - loss, 0.0)
+        return max(gross_ceiling_for(day_index) - loss, 0.0)
 
     ordered = sorted(orders, key=lambda order: (order.planned_pickup_date, order.work_order_id))
 
@@ -162,7 +178,7 @@ def place_orders(
     for order in ordered:
         area = max(order.total_area_m2 or 0.0, 0.0)
         tentative_changeovers = count_colour_changeovers(current.colours + [order.colour_key])
-        if current.order_ids and current.placed_m2 + area > net_ceiling(tentative_changeovers):
+        if current.order_ids and current.placed_m2 + area > net_ceiling(len(closed_days), tentative_changeovers):
             closed_days.append(current)
             current = _OpenDay()
         current.colours.append(order.colour_key)
@@ -175,7 +191,8 @@ def place_orders(
     placement_day: dict[int, int] = {}
     for day_index, open_day in enumerate(closed_days):
         changeover_count = count_colour_changeovers(open_day.colours)
-        net = net_ceiling(changeover_count)
+        net = net_ceiling(day_index, changeover_count)
+        day_floor = floor_for(day_index)
         scheduled_date = working_days[day_index] if day_index < len(working_days) else None
         for order_id in open_day.order_ids:
             placement_day[order_id] = day_index
@@ -184,13 +201,13 @@ def place_orders(
                 day_index=day_index,
                 scheduled_date=scheduled_date,
                 shift_length=shift_length,
-                floor_m2=round(floor, 2),
-                gross_ceiling_m2=round(gross_ceiling, 2),
+                floor_m2=round(day_floor, 2),
+                gross_ceiling_m2=round(gross_ceiling_for(day_index), 2),
                 net_ceiling_m2=round(net, 2),
                 changeover_count=changeover_count,
                 placed_order_ids=list(open_day.order_ids),
                 placed_m2=round(open_day.placed_m2, 2),
-                below_floor=open_day.placed_m2 < floor,
+                below_floor=open_day.placed_m2 < day_floor,
                 over_ceiling=open_day.placed_m2 > net,
             )
         )

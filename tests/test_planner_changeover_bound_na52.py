@@ -28,6 +28,8 @@ from app.work_orders.service import WorkOrderService
 MANAGER = StationContext(station_id=StationId.MANAGER)
 _TODAY = datetime.now(UTC).date()
 _COMFORTABLE = _TODAY + timedelta(days=60)
+# Pre-shift "now" so day 0 is a full day (NA56 proration off), keeping the placement assertion stable.
+_MORNING = datetime(_TODAY.year, _TODAY.month, _TODAY.day, 6, 0)
 
 
 def _build(db_session: Session) -> tuple[WorkOrderService, ManagerService]:
@@ -130,7 +132,7 @@ def test_learned_estimate_is_inflated_but_plan_uses_the_bounded_cost(db_session:
             station_context=MANAGER,
         )
 
-    plan = manager_service.get_multi_day_plan(station_context=MANAGER)
+    plan = manager_service.get_multi_day_plan(station_context=MANAGER, now=_MORNING)
 
     # The headline + the cost that sized the plan stays within the bounded band, NOT the ≈inflated value.
     assert plan.changeover_minutes <= CHANGEOVER_BAND_LARGE_MINUTES
