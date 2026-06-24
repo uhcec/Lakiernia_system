@@ -241,7 +241,8 @@ Surface preparation list columns:
 - profile pieces to verify
 - accessory pieces to verify
 - company/customer
-- queue position
+- **production-line label + a "NASTĘPNE" marker on the head** (a *derived* shared-stage order — NOT the
+  per-line queue position; see "Shared-stage ordering" below)
 
 Manual production list columns:
 - work-order number
@@ -273,8 +274,31 @@ Packing list columns:
 - accessory pieces to verify
 - paint
 - company/customer
-- queue position
+- **production-line label** (a *derived* shared-stage order — NOT a position number; see "Shared-stage
+  ordering" below)
 - active automatic orders as live packing rows from `HANGING` start (count form active, completion gated)
+
+Shared-stage ordering (N49-10):
+- The painting plan is scheduled **per line** (`queue_position` is unique only within a `production_type`),
+  which is correct for the two parallel painting resources. But `SURFACE_PREPARATION` (the shared entry
+  feeder) and `PACKING` (the shared drain) merge both lines, so the per-line `queue_position` is **not** a
+  valid global rank there — two physically different orders (one MANUAL, one AUTOMATIC) would otherwise
+  both render "Poz. 1" and the interleave would be decided by insertion order, not factory priority.
+- The backend now **derives** the order for these two stages and exposes it on the read model
+  (`ProcessStageWorkOrderRead.shared_stage_line_label` + `is_next_at_shared_stage`); the frontend renders
+  the **line label** (Manualna / Automatyczna) instead of `Poz.`, and a **"NASTĘPNE"** marker on the
+  surface-prep head. Frontends must not read the raw `queue_position` as a rank at these stages.
+- **Surface preparation** = one interleaved sequence across both lines, derived by the **smaller-buffer**
+  rule: prep next for the line with the smaller *prepared-but-not-yet-painted* buffer (closest to starving
+  its booth); ties → **automatic** (the primary resource). Within a line the candidate is the next
+  un-prepped order in that line's painting plan. Buffer is measured in **pieces** (owner assumption,
+  revisit); the buffer is the per-line set of orders already past surface prep but not yet finished
+  painting, so the list may re-order live as painting consumes. (Does **not** yet account for
+  *przemalowanka*, which skips prep but still loads the booth — see NA49.D.) Logic:
+  `app/process/shared_stage.py`; wired in `ProcessService.list_stage_work_orders`.
+- **Packing** = order derived from **physical readiness** + the existing packing-slot model (slot holders
+  / orders already at the packing station sort ahead of orders still waiting on the line), with **no manual
+  position numbering**.
 
 Packing capacity / slots (`PACKING:1..N` resource locks — NA16 + NA22):
 - Packing has **N configurable slots** (`packing_max_concurrent_slots`, default 2), each a backend resource lock `PACKING:i` (same machinery as `HANGING`/`AUTOMATIC_LINE`), so occupancy survives across requests and is not frontend-inferred. The default behavior is single-station exclusivity; the extra slots are opened only by an explicit manual override.

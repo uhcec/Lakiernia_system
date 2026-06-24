@@ -231,20 +231,25 @@ def test_list_stage_work_orders_returns_only_visible_planned_orders(test_client:
 
     assert response.status_code == 200
     stage_rows = response.json()
-    assert [item["id"] for item in stage_rows] == [completed["id"], visible["id"]]
-    assert stage_rows[0]["stage_status"] == {
+    # N49-10: the shared-prep feeder lists the still-to-prep (active) order first and the already-DONE
+    # one at the tail (it has left the feeder), regardless of per-line queue position.
+    assert [item["id"] for item in stage_rows] == [visible["id"], completed["id"]]
+    assert stage_rows[1]["stage_status"] == {
         "stage": "SURFACE_PREPARATION",
         "status": {"value": "DONE", "label": "Zakończone"},
     }
-    assert stage_rows[1]["stage_status"] == {
+    assert stage_rows[0]["stage_status"] == {
         "stage": "SURFACE_PREPARATION",
         "status": {"value": "NOT_STARTED", "label": "Nie rozpoczęte"},
     }
-    assert stage_rows[1]["paint_producer"] == "AkzoNobel"
-    assert stage_rows[1]["profiles_to_count"] is True
-    assert stage_rows[1]["profiles_quantity"] is None
-    assert stage_rows[1]["accessories_to_count"] is True
-    assert stage_rows[1]["accessories_quantity"] is None
+    # The active (not-yet-prepped) head carries the derived shared-stage line label + the NASTĘPNE marker.
+    assert stage_rows[0]["shared_stage_line_label"] == "Manualna"
+    assert stage_rows[0]["is_next_at_shared_stage"] is True
+    assert stage_rows[0]["paint_producer"] == "AkzoNobel"
+    assert stage_rows[0]["profiles_to_count"] is True
+    assert stage_rows[0]["profiles_quantity"] is None
+    assert stage_rows[0]["accessories_to_count"] is True
+    assert stage_rows[0]["accessories_quantity"] is None
     assert unplanned["id"] not in [item["id"] for item in stage_rows]
 
 

@@ -13,9 +13,10 @@ from app.process.audit_writer import ProcessAuditWriter
 from app.process.resource_locks import ResourceLockManager
 from app.paints.repository import PaintRepository
 from app.paints.service import PaintService
-from app.process.enums import CoatingType, CorrectionKind, ProcessDisplayStatus, ProcessStage, ProductionType, QuantityBatchType, StageStatus
+from app.process.enums import CoatingType, CorrectionKind, ProcessDisplayStatus, ProcessStage, ProductionType, QuantityBatchType, StageStatus, get_production_type_label
 from app.process.models import StatOnlyCorrection, WorkOrderQuantityBatch, WorkOrderStageState
 from app.process.repository import ProcessRepository
+from app.process.shared_stage import PrepCandidate, derive_surface_preparation_order
 from app.foils.schemas import FoilSummaryRead
 from app.process.schemas import (
     ProcessStageStatusRead,
@@ -274,7 +275,113 @@ class ProcessService:
             if self.is_visible_in_stage(work_order, stage, production_type, include_done=True):
                 items.append(self._to_stage_work_order_read(work_order, stage))
 
+        # N49-10: the two physically shared stages must NOT use the per-line `queue_position` as a global
+        # rank (it makes a MANUAL and an AUTOMATIC order collide on the same "Poz. N"). Re-derive a single
+        # cross-line order and stamp a line label so the frontend renders the label, not the position.
+        if stage == ProcessStage.SURFACE_PREPARATION:
+            return self._apply_surface_preparation_derivation(items)
+        if stage == ProcessStage.PACKING:
+            return self._apply_packing_derivation(items)
+
         return items
+
+    def _apply_surface_preparation_derivation(
+        self,
+        items: list[ProcessStageWorkOrderRead],
+    ) -> list[ProcessStageWorkOrderRead]:
+        """Re-order + label the SURFACE_PREPARATION feeder (N49-10).
+
+        One shared prep station feeds both booths, so the order is a single interleaved sequence derived
+        by the smaller-buffer rule (see ``app/process/shared_stage.py``). The active (not-yet-prepped)
+        rows are interleaved and the head is marked "NASTĘPNE"; rows already DONE keep their relative
+        order at the tail. Every row is line-labelled; nothing reads its per-line ``queue_position``.
+        """
+        active_items = [item for item in items if item.stage_status.status.value != StageStatus.DONE]
+        done_items = [item for item in items if item.stage_status.status.value == StageStatus.DONE]
+
+        candidates = [
+            PrepCandidate(
+                work_order_id=item.id,
+                production_type=ProductionType(item.production_type.value),
+                plan_rank=(item.queue_position is None, item.queue_position or 0),
+                pieces=item.operational_quantity,
+            )
+            for item in active_items
+            if item.production_type is not None
+        ]
+        initial_buffer_pieces = self._prepared_not_yet_painted_buffer_pieces()
+        ordered_ids = derive_surface_preparation_order(candidates, initial_buffer_pieces)
+
+        by_id = {item.id: item for item in active_items}
+        # Rows without a production line (should not happen for planned orders) keep their original order
+        # at the tail so nothing is dropped.
+        ordered_active = [by_id[order_id] for order_id in ordered_ids if order_id in by_id]
+        ordered_active += [item for item in active_items if item.id not in set(ordered_ids)]
+
+        for position, item in enumerate(ordered_active):
+            item.shared_stage_line_label = self._shared_stage_line_label(item)
+            item.is_next_at_shared_stage = position == 0
+        for item in done_items:
+            item.shared_stage_line_label = self._shared_stage_line_label(item)
+
+        return ordered_active + done_items
+
+    def _apply_packing_derivation(
+        self,
+        items: list[ProcessStageWorkOrderRead],
+    ) -> list[ProcessStageWorkOrderRead]:
+        """Re-order + label the PACKING drain by physical readiness (N49-10).
+
+        Packing has no manual position numbering: the order follows physical readiness plus the existing
+        packing-slot reservation. Active rows sort by (1) currently being packed / holding a slot, (2)
+        already at the packing station vs still waiting on the line (HANGING), (3) the order can actually
+        be completed now; a stable id tie-break keeps it deterministic. Every row is line-labelled so the
+        frontend never shows an ambiguous "Poz.".
+        """
+        active_items = [item for item in items if item.stage_status.status.value != StageStatus.DONE]
+        done_items = [item for item in items if item.stage_status.status.value == StageStatus.DONE]
+
+        def readiness_key(item: ProcessStageWorkOrderRead) -> tuple:
+            at_packing = item.stage_status.stage == ProcessStage.PACKING
+            return (
+                not item.holds_packing_slot,  # slot holders (incl. being packed) first
+                not at_packing,               # physically at packing before still-on-line (HANGING)
+                not item.can_complete_packing,  # ready-to-finish before blocked
+                item.id,                       # deterministic tie-break
+            )
+
+        ordered_active = sorted(active_items, key=readiness_key)
+        for item in ordered_active + done_items:
+            item.shared_stage_line_label = self._shared_stage_line_label(item)
+
+        return ordered_active + done_items
+
+    @staticmethod
+    def _shared_stage_line_label(item: ProcessStageWorkOrderRead) -> str | None:
+        if item.production_type is None:
+            return None
+        return get_production_type_label(ProductionType(item.production_type.value))
+
+    def _prepared_not_yet_painted_buffer_pieces(self) -> dict[ProductionType, int]:
+        """Per-line buffer (pieces) of orders already prepped but not yet painted — seeds the surface-prep
+        interleave so the line closest to starving its booth is fed first.
+
+        An order visible at the painting stage (PRODUCTION for MANUAL, the HANGING/line view for
+        AUTOMATIC) has passed surface prep and not yet finished painting — exactly the prepared-but-not-
+        yet-painted buffer. Buffer is measured in pieces (owner assumption, N49-10).
+        """
+        buffer: dict[ProductionType, int] = {}
+        for line in (ProductionType.MANUAL, ProductionType.AUTOMATIC):
+            painting_orders = self.list_visible_work_orders(
+                ProcessStage.PRODUCTION,
+                production_type=line,
+                include_done=False,
+            )
+            buffer[line] = sum(
+                (self._get_surface_preparation_actual_quantity(work_order) or work_order.current_active_quantity)
+                for work_order in painting_orders
+            )
+        return buffer
 
     def start_stage(
         self,

@@ -242,6 +242,8 @@ function buildStageWorkOrder(
     accessories_quantity: overrides.accessories_quantity ?? null,
     accessories_to_count: overrides.accessories_to_count ?? false,
     queue_position: overrides.queue_position ?? 1,
+    shared_stage_line_label: overrides.shared_stage_line_label ?? null,
+    is_next_at_shared_stage: overrides.is_next_at_shared_stage ?? false,
     queue_namespace: overrides.queue_namespace ?? { value: "MAIN", label: "Główna" },
     production_type: overrides.production_type ?? { value: "MANUAL", label: "Ręczna" },
     coating_type: overrides.coating_type ?? { value: "RAL", label: "RAL" },
@@ -931,6 +933,45 @@ describe("frontend state consistency", () => {
     expect(screen.queryByText("Technologia")).toBeNull();
     expect(screen.queryByText("Typ produkcji")).toBeNull();
     expect(screen.queryByText("Partia")).toBeNull();
+  });
+
+  it("renders line labels + a NASTĘPNE marker at the shared surface-prep stage, never a duplicate Poz. (N49-10)", async () => {
+    fetchStageWorkOrdersMock.mockResolvedValueOnce([
+      buildStageWorkOrder({
+        id: 51,
+        order_number: "WO-AUTO",
+        customer_name: "ACME",
+        production_type: { value: "AUTOMATIC", label: "Automatyczna" },
+        shared_stage_line_label: "Automatyczna",
+        is_next_at_shared_stage: true,
+        stage_status: { stage: "SURFACE_PREPARATION", status: { value: "NOT_STARTED", label: "Nie rozpoczęto" } },
+      }),
+      buildStageWorkOrder({
+        id: 52,
+        order_number: "WO-MANUAL",
+        customer_name: "ACME",
+        production_type: { value: "MANUAL", label: "Manualna" },
+        shared_stage_line_label: "Manualna",
+        is_next_at_shared_stage: false,
+        stage_status: { stage: "SURFACE_PREPARATION", status: { value: "NOT_STARTED", label: "Nie rozpoczęto" } },
+      }),
+    ]);
+
+    render(
+      <StageWorkOrdersPage
+        stage="SURFACE_PREPARATION"
+        title="Przygotowanie"
+        emptyMessage="Brak zleceń"
+      />,
+    );
+
+    expect(await screen.findByText("WO-AUTO :: ACME")).toBeTruthy();
+    // Both cross-line orders show their line label, not the colliding "Poz. 1".
+    expect(screen.getByText("Automatyczna")).toBeTruthy();
+    expect(screen.getByText("Manualna")).toBeTruthy();
+    expect(screen.queryByText(/^Poz\./)).toBeNull();
+    // Exactly the head (automatic) is marked NASTĘPNE.
+    expect(screen.getAllByText("NASTĘPNE")).toHaveLength(1);
   });
 
   it("surfaces technical-drawing download links on the station card (NA36)", async () => {

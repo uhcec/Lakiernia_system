@@ -537,8 +537,9 @@ export function PackingWorkOrdersPage() {
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                     <div className="min-w-0 space-y-2">
                       <div className="flex flex-wrap items-center gap-2">
+                        {/* N49-10: packing is a shared drain — show the line label, never an ambiguous per-line "Poz." */}
                         <span className="inline-flex rounded-full bg-mist px-3 py-1 text-xs font-semibold text-steel">
-                          Poz. {workOrder.queue_position ?? "-"}
+                          {workOrder.shared_stage_line_label ?? `Poz. ${workOrder.queue_position ?? "-"}`}
                         </span>
                         <span className={`text-lg font-semibold ${workOrder.completed_quantity > 0 && workOrder.completed_quantity < workOrder.total_quantity ? "text-amber-700" : "text-ink"}`}>
                           {workOrder.is_decoral_incomplete ? `N${workOrder.order_number}` : !workOrder.order_number.startsWith("P") && workOrder.completed_quantity > 0 && workOrder.completed_quantity < workOrder.total_quantity ? `P${workOrder.order_number}` : workOrder.order_number}

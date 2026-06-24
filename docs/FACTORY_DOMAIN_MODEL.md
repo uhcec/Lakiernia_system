@@ -150,10 +150,16 @@ Notes:
   is a **cleaning/preparation wash** before painting — a multi-step process with washing, an acid step,
   and several rinses; the exact chemistry is **not tracked by the system** and is low priority to
   document (owner, 2026-06-17). It is also where the **real received quantity is counted** (see §3).
-  Surface preparation is **processed in the manager's planned order** (a plan-driven feeder, not
-  driven by physical arrival of parts) and **stays ahead of painting** — it is not the bottleneck
-  (owner, 2026-06-23). Historically this order came from the manager's printed planning sheet; see the
-  scheduling model in `WORKFLOW.md` and item NA49 in `IMMEDIATE_NEXT_ACTIONS.md`.
+  Surface preparation is a **plan-driven feeder** (not driven by physical arrival of parts) and
+  **stays ahead of painting** — it is not the bottleneck (owner, 2026-06-23). Historically the order
+  came from the manager's printed planning sheet.
+  Because these two stages are **single shared resources** feeding/draining the two parallel painting
+  lines, their order is **not** the per-line painting queue position (that number is only meaningful
+  within one line). It is **derived** (N49-10): surface preparation interleaves the two lines, feeding
+  next the line with the **smaller prepared-but-not-yet-painted buffer** (the line closest to starving
+  its booth; ties → automatic), buffer measured in **pieces**; packing follows **physical readiness** +
+  the packing-slot reservation, with **no position numbering**. See the scheduling model in
+  `WORKFLOW.md` → "Target planning model" and item NA49 in `IMMEDIATE_NEXT_ACTIONS.md`.
 - The **automatic** path adds **hanging** (cranes/conveyors) before the automatic spray booth; the
   **manual** path has a painter applying paint by hand with no hanging.
 - The two production lines are physically separate and run **in parallel**.

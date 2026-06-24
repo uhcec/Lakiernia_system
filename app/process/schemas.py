@@ -57,6 +57,14 @@ class ProcessStageWorkOrderRead(BaseModel):
     accessories_quantity: int | None = None
     accessories_to_count: bool = False
     queue_position: int | None
+    # Shared-stage derivation (N49-10). At the two physically shared stages — SURFACE_PREPARATION and
+    # PACKING — both lines are merged, so the per-line `queue_position` is NOT a valid global rank (two
+    # different orders would otherwise collide on the same "Poz. N"). At those stages the backend derives
+    # a single order and stamps a line label here; the frontend renders that label (not `Poz.`).
+    # `is_next_at_shared_stage` marks the head of the surface-prep feeder ("NASTĘPNE"). Both stay unset /
+    # False at the per-line painting stages, where `queue_position` remains the correct rank.
+    shared_stage_line_label: str | None = None
+    is_next_at_shared_stage: bool = False
     queue_namespace: QueueNamespaceView
     production_type: ProductionTypeView | None
     coating_type: CoatingTypeView

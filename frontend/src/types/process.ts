@@ -52,6 +52,10 @@ export interface StageWorkOrder {
   accessories_quantity: number | null;
   accessories_to_count: boolean;
   queue_position: number | null;
+  // Shared-stage derivation (N49-10): at SURFACE_PREPARATION and PACKING the backend supplies a line
+  // label + derived order, so the frontend renders the label instead of the ambiguous per-line `Poz.`.
+  shared_stage_line_label: string | null;
+  is_next_at_shared_stage: boolean;
   queue_namespace: WorkOrderOption<QueueNamespaceValue>;
   production_type: WorkOrderOption<ProductionTypeValue> | null;
   coating_type: WorkOrderOption<"RAL" | "DECORAL">;
