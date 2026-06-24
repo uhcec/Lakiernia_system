@@ -636,6 +636,102 @@ only. Five elements, top to bottom:
 - Related: **N49-2** (the measurement engine that produces the figure), **N49-3/N49-4** (the capacity /
   placement consumers it distorts), **NA50** (good-day stats also surface a `changeover_loss_m2` from the
   same source — likely inflated there too; check when fixing).
+- **Sharpened 2026-06-24 (code review of the N49 series) — the two planner endpoints cost a colour change
+  from two DIFFERENT sources, which both pinpoints the root cause and reveals an internal inconsistency:**
+  - `get_day_capacity` (single-day view) costs changeovers with the **N49-6 size+direction model**
+    (`ManagerService._day_changeover_minutes` → bounded 15/30-min bands), passed as `changeover_minutes`
+    to `compute_day_capacity` (`app/manager/service.py:1071,1078`). This view is sane.
+  - `get_multi_day_plan` (the board) instead feeds `place_orders` the **N49-2 statistical learned**
+    estimate `changeover.estimated_changeover_minutes` (the contaminated ≈254 min) to size each day's
+    *net ceiling* (`app/manager/service.py:1163`), and surfaces that same inflated number as the
+    top-level `MultiDayPlanRead.changeover_minutes` (`:1258`) — while the **per-day** `changeover_minutes`
+    it displays uses the bounded N49-6 value (`:1199,1244`). So the board fragments days as if each change
+    cost ≈254 min but shows "~20 min" per day: a self-contradiction the manager sees directly. The
+    `capacity.py` / `placement.py` docstrings claim the two "never drift" because they share
+    `changeover_loss_m2` — true only for the *formula*, NOT for the *minutes input*, which is exactly where
+    they drift.
+  - **Cleanest fix (supersedes the "bound/clamp the statistical estimate" option above):** feed
+    `place_orders` the same bounded **N49-6 size+direction cost** the single-day view already uses, and
+    demote the N49-2 statistical estimate to a *diagnostic* (do not let it drive the capacity model or the
+    headline figure). This removes the idle/overnight contamination from the model entirely instead of
+    trying to clean it, and makes "what you see" (per-day cost) equal "what placed the orders" (net
+    ceiling).
+- **#2 CONFIRMED 2026-06-24 — the good-day stats inherit the same inflation (NA50).**
+  `get_good_day_stats` multiplies each day's colour-change count by the period-wide learned
+  `changeover.estimated_changeover_minutes` (`app/manager/service.py:898,936`). A 3-change day reports
+  ≈1000 m² of "changeover loss" — which can exceed the day's actual output, making the headline good-day
+  metric misleading too. The NA52 fix MUST cover this call site (use the same bounded N49-6 cost).
+
+### NA53. Good-day per-day "effective booth rate" is almost always the seed (dead diagnostic)
+- Status: **OPEN — found 2026-06-24 (code review of the N49 series).**
+- Severity: **LOW** (a diagnostic that silently shows a constant, not a defect in the headline metrics).
+- Problem: `get_good_day_stats` computes the per-day rate with `measure_automatic_rate(day_passes)`
+  (`app/manager/service.py:885`), which only reports a *measured* rate once it has `MIN_RATE_SAMPLE_ORDERS = 3`
+  bracketed passes (`app/manager/measurement.py:37,106`). A single day rarely has ≥3 completed automatic
+  passes, so `rate_is_measured` is almost always `False` and the "effective booth rate" column shows the
+  57.0 m²/h seed regardless of what the line actually did that day. The diagnostic is effectively constant
+  per-day.
+- Required fix (decide with owner): either drop the per-day rate and surface it only as a *period* figure
+  (where ≥3 passes is realistic), or lower the per-day sample floor with an explicit "low confidence"
+  marker. Don't show a seed dressed as a measurement.
+- Acceptance: the rate shown per day is either genuinely measured or clearly flagged as the seed; covered
+  by a test asserting a low-volume day is not presented as measured.
+
+### NA54. Paint hard-block is binary on starting stock, not demand-aware
+- Status: **OPEN — found 2026-06-24 (code review of the N49 series).** Possibly intentional — confirm with
+  owner.
+- Severity: **LOW** (the WARNING still fires; this is about which signal the gate trusts as *hard*).
+- Problem: `colour_series_blocked` hard-blocks a colour series only when `current_stock_kg <= 0`
+  (`app/manager/paint_feasibility.py:88`). A tracked, metered colour with e.g. 5 kg in stock but 100 kg of
+  planned demand is only **WARNING**, never **BLOCKED** — so the "hard block" that exists to stop the
+  missed-norm "myśleli że jest, a jej nie ma" case will *not* refuse an order that plainly cannot be
+  painted from the existing stock; it only refuses a colour already at zero.
+- Required fix (decide with owner): confirm whether the hard block should fire when the *first* order's
+  demand already exceeds available stock (demand-aware block) or stay a pure out-of-stock (≤0) gate with
+  the shortfall left as a WARNING. Document the decision in `docs/WORKFLOW.md` "Target planning model".
+- Acceptance: the block/warn boundary matches the agreed rule; covered by a test for the
+  "some stock, not enough for the first order" case.
+
+### NA55. CapacityBoard is AUTOMATIC-only and fetches once on mount (no line toggle, no refresh)
+- Status: **OPEN — found 2026-06-24 (code review of the N49 series).** Documented as a "first cut"
+  (N49-9), logged so it isn't lost; partly subsumed by NA51.
+- Severity: **LOW** (the read-only board is correct for what it shows; this is missing reach).
+- Problem: `CapacityBoard.tsx` hardcodes `fetchMultiDayPlan("AUTOMATIC", 10)` in a mount-only effect
+  (`frontend/src/components/CapacityBoard.tsx:109`) — no line toggle (the MANUAL line is never shown) and
+  no polling/refresh, so the board can drift from the live queue between page loads. Reinforces NA51: the
+  board can't even display the manual line the manager also plans.
+- Required fix: add a line toggle (MANUAL / AUTOMATIC) and refresh the board on the manager panel's
+  existing poll cadence; fold into the NA51 decision (what the board *is*).
+- Acceptance: the board can show either line and stays current with the planning queue; covered by a UI
+  test.
+
+### NA56. Planner working-day calendar is a hardcoded Mon–Fri assumption, and day 0 is always treated as a full day
+- Status: **OPEN — found 2026-06-24 (code review of the N49 series).** Flagged as an ASSUMPTION in code;
+  needs owner confirmation.
+- Severity: **LOW** (placement is advisory/read-only; mis-dating only affects the forecast).
+- Problem: `working_days_from` skips Sat/Sun via the hardcoded `DEFAULT_WEEKEND_WEEKDAYS = {5, 6}`
+  (`app/manager/placement.py:43,105`) — no holidays, no shop-specific schedule — and always starts the
+  calendar at `datetime.now(UTC).date()` with a *full* day-0 capacity (`app/manager/service.py:1152`), so
+  a plan computed at 16:00 still assumes a whole long-day's net ceiling remains today. Both inflate
+  near-term feasibility.
+- Required fix (decide with owner): confirm the real working calendar (weekend days + holidays) and
+  whether day 0 should be pro-rated by the remaining shift hours (or simply start the horizon at the next
+  full working day). Make the weekend set configurable rather than a module constant.
+- Acceptance: the calendar matches the shop's real working days; day-0 capacity reflects the time left in
+  the shift (or starts next day); covered by a test.
+
+### NA57. Multi-day plan applies one advised shift length uniformly to every day
+- Status: **OPEN — found 2026-06-24 (code review of the N49 series).**
+- Severity: **LOW** (cosmetic/labelling; interacts with the below-floor flag).
+- Problem: `get_multi_day_plan` advises the shift length once from the *total* available m²
+  (`advise_shift_length(available_m2)`, `app/manager/service.py:1140`) and `place_orders` stamps that one
+  `shift_length` onto every placed day (`app/manager/placement.py:150,183-195`). With e.g. 900 m² total,
+  every day is labelled LONG (and carries the 800 m² floor) even though only day 0 holds real work — so
+  near-empty later days are flagged `below_floor` against a floor they were never meant to clear.
+- Required fix: advise the shift length **per day** from that day's placed m² (a near-empty day is a short
+  day, or simply not a working day), so the floor flag is meaningful per day.
+- Acceptance: each planned day's shift length + floor reflect that day's own load; later near-empty days
+  aren't spuriously flagged below the long-day floor; covered by a test.
 
 ## System-wide ordering / scheduling model (owner design session 2026-06-23)
 
