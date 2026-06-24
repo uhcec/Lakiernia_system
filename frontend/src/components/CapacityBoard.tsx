@@ -106,7 +106,7 @@ export function CapacityBoard() {
 
   useEffect(() => {
     let cancelled = false;
-    fetchMultiDayPlan("AUTOMATIC", 10)
+    fetchMultiDayPlan("AUTOMATIC", 3)
       .then((result) => {
         if (!cancelled) setPlan(result);
       })

@@ -29,7 +29,11 @@ from app.manager.schemas import (
     WorkOrderQueuePositionUpdateRequest,
     WorkOrderQueueReorderBatchRequest,
 )
-from app.manager.service import ManagerService
+from app.manager.service import (
+    _DEFAULT_PLAN_HORIZON_WORKING_DAYS,
+    _MAX_PLAN_HORIZON_WORKING_DAYS,
+    ManagerService,
+)
 from app.process.enums import ProductionType
 from app.work_orders.schemas import WorkOrderRead
 
@@ -126,7 +130,9 @@ def get_day_capacity(
 def get_multi_day_plan(
     station_context: Annotated[StationContext, Depends(get_station_context)],
     production_type: Annotated[ProductionType, Query()] = ProductionType.AUTOMATIC,
-    horizon_working_days: Annotated[int, Query(ge=1, le=60)] = 10,
+    horizon_working_days: Annotated[
+        int, Query(ge=1, le=_MAX_PLAN_HORIZON_WORKING_DAYS)
+    ] = _DEFAULT_PLAN_HORIZON_WORKING_DAYS,
     shift_length: Annotated[ShiftLength | None, Query()] = None,
     service: Annotated[ManagerService, Depends(get_manager_service)] = ...,
 ) -> MultiDayPlanRead:

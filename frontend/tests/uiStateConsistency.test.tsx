@@ -24,7 +24,7 @@ vi.mock("../src/api/managerApi", () => ({
       production_type: "AUTOMATIC",
       shift_length: "SHORT",
       shift_advised: true,
-      horizon_working_days: 10,
+      horizon_working_days: 3,
       changeover_minutes: 0,
       changeover_is_measured: false,
       days: [],

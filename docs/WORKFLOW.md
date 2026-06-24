@@ -390,8 +390,11 @@ is **painting** (two sequences, one per physical line: Automat / Ręczna). Every
 
 **The planner is a multi-day capacity planner, not a single-list sorter.** Because deadlines are hard and
 one large order can fill a whole day:
-- The manager sees a **rolling multi-day board** (about a week; only days whose parts are physically
-  present are firmly planned — the rest is forecast that re-flows as parts arrive).
+- The manager sees a **rolling multi-day board** capped at a **3-working-day horizon** — today plus the
+  next two working days. **You cannot plan more than 3 working days ahead** (owner policy, 2026-06-24):
+  the planner endpoint rejects a larger horizon and the board never forecasts further out. Within those
+  three days, only days whose parts are physically present are firmly planned — the rest is forecast that
+  re-flows as parts arrive.
 - Each day is a **capacity bucket with two lines**: a **floor** (the daily norm — 800 long / 500 short
   m² — below which the day is unprofitable → warn) and a **ceiling** (physical booth capacity → overflow
   spills to the next day). A **colour change consumes day capacity** (a ~30-min wash ≈ ~30 m² of lost
@@ -431,7 +434,9 @@ usable ceiling, so packing is conservative — `placement.changeover_loss_m2` is
 model). It reports, per order, whether the day it lands on still meets its hard pickup deadline, and
 returns the **"won't make it" set** (orders scheduled past their deadline or beyond the horizon).
 `GET /manager/planner/multi-day` surfaces it (one day per column, each with its floor/ceiling and placed
-orders); the working-day calendar skips weekends (Mon–Fri assumption, revisit). **Within-day light→dark
+orders); the working-day calendar skips weekends (Mon–Fri assumption, revisit). The horizon is **capped
+at 3 working days** (`horizon_working_days` default and max = 3; owner policy 2026-06-24 — no planning
+further than today + the next two working days). **Within-day light→dark
 ordering, the size + direction changeover cost, and the line-assignment lever are also built**
 (N49-5/6/8). The EDF day-to-day placement stays as-is; *within* each placed day `app/manager/colour.py`
 reorders the orders into a **light → dark colour sweep** — identical colours grouped first (a same-colour

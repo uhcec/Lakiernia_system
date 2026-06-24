@@ -120,7 +120,7 @@ export async function fetchCycleTimeStats(dateFrom: string, dateTo: string): Pro
 
 export async function fetchMultiDayPlan(
   productionType: ProductionTypeValue,
-  horizonWorkingDays = 10,
+  horizonWorkingDays = 3,
 ): Promise<MultiDayPlan> {
   const url = new URL(createApiUrl("/manager/planner/multi-day"), window.location.origin);
   url.searchParams.set("production_type", productionType);

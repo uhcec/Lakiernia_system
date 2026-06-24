@@ -388,6 +388,11 @@ The deadline **horizon is comfortable — "definitely not for tomorrow"** (owner
 planner has **real freedom to reorder for colour grouping** within the hard-deadline constraint; a tight
 deadline is the exception, not the rule. (Exact typical slack still worth confirming with the colleague.)
 
+**Planning horizon is capped at 3 working days** (owner, 2026-06-24): the manager **cannot plan more than
+3 working days ahead** — today plus the next two working days. Parts further out are not yet firm enough
+to schedule against, so the rolling board and the multi-day placement never look past that window
+(enforced at `GET /manager/planner/multi-day`, default and max `horizon_working_days = 3`).
+
 ### Measurement signals available (no booth tap)
 
 Operators do **not** tap the booth itself. The automatic line emits, per order, a **HANGING start**

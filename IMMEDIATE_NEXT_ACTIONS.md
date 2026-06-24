@@ -1550,6 +1550,18 @@ correctness defects. Severities reflect maintainability risk, not user-visible b
 
 ## Done
 
+- **Planning horizon capped at 3 working days (owner policy, 2026-06-24)** — the manager cannot plan
+  more than 3 working days ahead (today + the next two working days). Applied as both the default and the
+  hard cap on `GET /manager/planner/multi-day`: `_DEFAULT_PLAN_HORIZON_WORKING_DAYS = 3` +
+  `_MAX_PLAN_HORIZON_WORKING_DAYS = 3` (`app/manager/service.py`), the router `Query(ge=1, le=3) = 3`
+  bound now sourced from those constants (`app/manager/router.py`), and the board/API default dropped
+  10 → 3 (`frontend/src/api/managerApi.ts`, `CapacityBoard.tsx`). Docs: `docs/WORKFLOW.md` "Target
+  planning model" (rolling board + multi-day endpoint notes) and `docs/FACTORY_DOMAIN_MODEL.md` §7
+  (Deadlines are HARD) now state the 3-working-day cap. Tests: planner backend suite + alembic clean
+  (no schema change); frontend mocks updated to `horizon_working_days: 3`; 91 frontend tests + build
+  green. Note for NA56 (hardcoded Mon–Fri calendar / day-0-full): the smaller horizon makes day-0
+  pro-rating more material, but that fix stays under NA56.
+
 - **NA48. `update_production_type` collided with a trailing completed order on the target line (2026-06-23)** —
   Follow-up review of the colleague's per-line-queue merge (`c97d029`). `ManagerService.update_production_type`
   (`app/manager/service.py`) re-slotted a moved order to `_next_active_queue_position_for_line(target)` but,

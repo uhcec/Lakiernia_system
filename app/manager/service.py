@@ -173,8 +173,11 @@ def _order_segment_keys(
 # Trailing window over which the day-capacity model learns the changeover cost (N49-3 reuses N49-2).
 _MEASUREMENT_WINDOW_DAYS = 90
 
-# Default rolling horizon (working days) the multi-day placement lays orders across (N49-4 / board N49-9).
-_DEFAULT_PLAN_HORIZON_WORKING_DAYS = 10
+# Rolling horizon (working days) the multi-day placement lays orders across (N49-4 / board N49-9).
+# Owner policy (2026-06-24): you cannot plan more than 3 working days ahead — today plus the next two
+# working days. This is both the default and the hard cap (see the ``le=3`` Query bound in router.py).
+_DEFAULT_PLAN_HORIZON_WORKING_DAYS = 3
+_MAX_PLAN_HORIZON_WORKING_DAYS = 3
 
 
 def _as_naive_utc(value: datetime) -> datetime:
