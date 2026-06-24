@@ -61,9 +61,12 @@ Logins: `biuro`, `kierownik`, `przygotowanie`, `zawieszanie`, `produkcja-reczna`
 
 ## Phases
 
-- **Phase 0** — one short day, 1–2 orders: prove the seed → clock → tick → audit → friction loop.
-- **Phase 1** — one full light day (~3–5 orders), all stations live.
+- **Phase 0** — one short day, 1–2 orders: prove the seed → clock → tick → audit → friction loop. *(done)*
+- **Phase 1** — one full light day (~3–5 orders), all stations live. Needs paint stock seeded into the
+  baseline for AUTOMATIC/DECORAL paint-consumption.
 - **Phase 2** — the full three days.
-- **Later** — a browser-driven persona layer that acts through the React UI while the backend stays the
-  oracle (catches the "faithful renderer" bug class the API-only sim can't see); automatic/decoral phases
-  need paint stock seeded into the baseline.
+- **Phase 3 — browser-driven (committed milestone, not optional).** Personas act through the **real React
+  UI** (Playwright: log in, click each station screen like an operator) while the backend stays the oracle
+  for invariants. This is the phase that catches the "faithful renderer" bug class and screen-shaped friction
+  the API-only phases are blind to — and it is the part the owner cares most about. The API-driven phases
+  above are the near-term path; the frontend phase **must** follow.
