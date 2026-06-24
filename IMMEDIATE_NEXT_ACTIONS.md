@@ -601,6 +601,42 @@ only. Five elements, top to bottom:
 - Related: **NA49.K** (drag/pin/urgent — deferred), **NA49.H/I** (NA33 scheduler is a crude lexicographic
   proxy, distinct from the board's light→dark sweep), **N49-9** (the read-only board first cut).
 
+### NA52. Learned colour-changeover cost is wildly inflated (≈254 min/change) — it absorbs idle/overnight gaps, collapsing the capacity plan
+- Status: **OPEN — found 2026-06-24** while explaining NA51 on the live planner walkthrough DB. Confirmed
+  in code + data: the planner's day-capacity math is being driven by a changeover cost an order of
+  magnitude above the confirmed 15/30-min bands.
+- Severity: **MEDIUM–HIGH** (it makes the headline planner feature — the multi-day board, day-floor, and
+  the "won't make it" set — misleading; not data corruption since the planner is still advisory/read-only).
+- Evidence (live, AUTOMATIC line, `seed_n49_planner_walkthrough` DB, today 2026-06-24):
+  - `get_multi_day_plan(...).changeover_minutes = 254.2`, `changeover_is_measured = True` (so it's the
+    *learned* value, not the 20-min seed).
+  - `capacity.changeover_loss_m2` turns that into **338.9 m² of booth ceiling lost per single colour
+    change** (gross ceiling LONG = 80 m²/h × 14 h = 1120 m²; net after 1 change = 781, after 2 = 442,
+    after 3 = **103**). So ~3 colours nearly zero out a 14-hour day.
+  - Consequence: the board fragments and **every day reads below the 800 m² floor** — e.g. day 0 = 540 m²
+    (2 orders), day 1 = **43 m²** (3 tiny orders, 2 changes), day 2 = 480 m². EDF can't fill a day to the
+    ceiling because adding any new colour collapses the net ceiling below what's already placed.
+- Root cause (hypothesis, strong): the N49-2 measurement engine estimates the changeover cost as the
+  *extra* average inter-start gap when the colour changes vs. when it stays the same
+  (`app/manager/measurement.py`, HANGING-start → next HANGING-start residual). When automatic passes are
+  spread across days (as in any realistic log / this seed), the inter-start gap for a colour change is
+  dominated by **overnight / idle time**, not the actual booth wash — so the engine learns idle time as
+  "changeover cost". The residual is only clamped ≥ 0, never bounded to a plausible within-shift wash
+  window, and never sanity-capped against the confirmed 15/30-min bands.
+- Required fix (decide with owner): bound the changeover measurement to **consecutive same-shift/same-day
+  passes** (exclude gaps that cross an idle threshold / a day boundary) so it measures wash time, not
+  downtime; and/or **clamp the learned value to a sane band** (e.g. ≤ the 30-min "z odzysku" band, or the
+  N49-6 size-aware band) so a contaminated estimate can't dominate the capacity model; fall back to the
+  seed (20 min) until enough *clean* same-shift colour-change samples exist. Add a regression test with a
+  spread-across-days log asserting the estimate stays within the band.
+- Acceptance: the learned changeover cost stays within a physically plausible band regardless of idle gaps
+  in the log; a day's net ceiling is no longer collapsed by 1–3 colour changes; the multi-day board fills
+  days toward the floor instead of fragmenting. Covered by tests; `docs/WORKFLOW.md` "Target planning
+  model" / `FACTORY_DOMAIN_MODEL.md` §7 updated if the measurement definition changes.
+- Related: **N49-2** (the measurement engine that produces the figure), **N49-3/N49-4** (the capacity /
+  placement consumers it distorts), **NA50** (good-day stats also surface a `changeover_loss_m2` from the
+  same source — likely inflated there too; check when fixing).
+
 ## System-wide ordering / scheduling model (owner design session 2026-06-23)
 
 ### NA49. Multi-day capacity planner ("schedule the painting bottleneck, derive the rest")
