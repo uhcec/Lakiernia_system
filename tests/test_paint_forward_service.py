@@ -92,6 +92,16 @@ def test_plan_blocked_when_automatic_colour_out_of_stock(db_session: Session) ->
         _assign(manager_service, order_id, ProductionType.AUTOMATIC)
 
 
+def test_plan_blocked_when_first_order_demand_exceeds_stock(db_session: Session) -> None:
+    # Some stock (5 kg) but the first order plainly needs more than that → demand-aware hard block (NA54).
+    work_order_service, manager_service = _build(db_session)
+    _deliver(manager_service, "RAL 9005", 5.0)  # tracked, but only 5 kg
+    order_id = _create(work_order_service, "A1", "RAL 9005", 100.0)  # demand ≫ 5 kg
+
+    with pytest.raises(InvalidManagerPlanningError):
+        _assign(manager_service, order_id, ProductionType.AUTOMATIC)
+
+
 def test_plan_allowed_when_paint_in_stock(db_session: Session) -> None:
     work_order_service, manager_service = _build(db_session)
     _deliver(manager_service, "RAL 9005", 100.0)

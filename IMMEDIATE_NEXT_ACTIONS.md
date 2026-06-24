@@ -718,7 +718,18 @@ only. Five elements, top to bottom:
   predicted demand already exceeds available stock (the "myśleli że jest, a jej nie ma" case), not only
   when the colour is already at ≤ 0 kg. Keep the manual-used-colour low-confidence caveat (warn, never
   hard-block there).
-- Status: **OPEN — found 2026-06-24 (code review of the N49 series).** Possibly intentional — confirm with
+- Status: **DONE (2026-06-24).** `colour_series_blocked` (`app/manager/paint_feasibility.py`) gained a
+  keyword `first_order_demand_kg`: a tracked, metered colour is BLOCKED when it's out of stock (≤ 0)
+  **or** the first order's demand exceeds the available stock. `build_forward_view` passes the demand only
+  for the **first** order on each colour series (a later overrun stays a WARNING — deliver before the line
+  reaches it). The plan-time gate `_assert_paint_available_for_automatic` mirrors this: it blocks an
+  AUTOMATIC order when no already-planned automatic order shares its colour (so it's the series' first) and
+  its predicted demand exceeds stock; the error now reads "out of stock or insufficient". Manual-used /
+  untracked escapes unchanged. Tests: pure (first-order demand>stock → BLOCKED; first fits then second
+  overruns → WARNING; predicate truth-table incl. demand-aware + manual/untracked escapes) +
+  service (`test_plan_blocked_when_first_order_demand_exceeds_stock`). 583 backend tests pass; `alembic
+  check` clean (no schema change). `docs/WORKFLOW.md` "Target planning model" paint section updated.
+- Status (original): **OPEN — found 2026-06-24 (code review of the N49 series).** Possibly intentional — confirm with
   owner.
 - Severity: **LOW** (the WARNING still fires; this is about which signal the gate trusts as *hard*).
 - Problem: `colour_series_blocked` hard-blocks a colour series only when `current_stock_kg <= 0`

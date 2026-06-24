@@ -1412,10 +1412,13 @@ class ManagerService:
         )
 
     def _assert_paint_available_for_automatic(self, work_order: WorkOrder) -> None:
-        """Hard block (N49-7): refuse to plan an AUTOMATIC order whose metered colour is out of stock.
+        """Hard block (N49-7 + NA54): refuse to plan an AUTOMATIC order whose metered colour can't paint it.
 
-        Only a *tracked* paint at ≤ 0 kg that is **not** also used on the manual line blocks — we never
-        hard-block on a possibly-stale balance (manual-used colours warn instead, in the forward view).
+        Blocks a *tracked*, **not** manual-used paint that is either out of stock (≤ 0 kg) or — when this
+        order is the **first** planned on its colour series — whose predicted demand already exceeds the
+        available stock (demand-aware). A later order on a colour that already carries planned work is not
+        blocked here (it would only *run short* partway down — a WARNING in the forward view); and we never
+        hard-block on a possibly-stale manual-used balance.
         """
         colour_key = self._order_colour_key(work_order)
         if colour_key is None:
@@ -1435,11 +1438,21 @@ class ManagerService:
             is_tracked=self._paint_has_stock_history(lookup.paint_id),
             manual_used=False,
         )
-        if colour_series_blocked(stock):
+        # This order is the series' "first" (demand-aware) only when no already-planned automatic order
+        # shares its colour; otherwise the earlier order carries the first-order block and this one can at
+        # most run short later (a WARNING, not a block).
+        already_planned_on_colour = any(
+            self._order_colour_key(other) == colour_key
+            for other in self._active_planned_orders_for_line(ProductionType.AUTOMATIC)
+        )
+        demand_kg = calculate_predicted_paint_quantity_kg(work_order.total_area_m2) or 0.0
+        first_order_demand_kg = 0.0 if already_planned_on_colour else demand_kg
+        if colour_series_blocked(stock, first_order_demand_kg=first_order_demand_kg):
             raise InvalidManagerPlanningError(
                 f"Cannot plan automatic order {work_order.order_number}: paint "
                 f"{work_order.ral_code} / {work_order.paint_producer} / {work_order.paint_code} "
-                "is out of stock. Deliver paint or recount at the booth before planning."
+                "is out of stock or insufficient for this order. Deliver paint or recount at the booth "
+                "before planning."
             )
 
     def assign_plan(

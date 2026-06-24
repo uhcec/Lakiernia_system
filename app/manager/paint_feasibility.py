@@ -6,12 +6,15 @@ the pure, DB-free arithmetic behind that rule: given the line's planned orders (
 their per-order predicted paint demand, the starting stock per colour series, and which colours are
 *also* painted on the unmetered manual line, it walks the sequence and decides, per order:
 
-* **BLOCKED** — a *metered* colour series (automatic-only, so its balance is trustworthy) that is
-  **out of stock** (a tracked paint at ≤ 0 kg). This is the hard block: the planner refuses it.
-* **WARNING** — either the series has *some* stock but the cumulative demand runs it dry partway down
-  the sequence (the forward "runs out at order X" signal), or the colour is **manual-used** so its
-  balance is low-confidence (the manual line consumes paint without metering it — owner: "niewykrywalne").
-  A manual-used colour is **never** hard-blocked, only warned: we do not block on a possibly-stale balance.
+* **BLOCKED** — a *metered* colour series (automatic-only, so its balance is trustworthy) that cannot
+  paint its **first** planned order from stock: either **out of stock** (a tracked paint at ≤ 0 kg) or the
+  first order's predicted demand already **exceeds** the available stock (demand-aware block, NA54 — the
+  "myśleli że jest, a jej nie ma" case). This is the hard block: the planner refuses it.
+* **WARNING** — either the series covers its first order but the *cumulative* demand runs it dry partway
+  down the sequence (the forward "runs out at order X" signal — deliver more before then), or the colour
+  is **manual-used** so its balance is low-confidence (the manual line consumes paint without metering it
+  — owner: "niewykrywalne"). A manual-used colour is **never** hard-blocked, only warned: we do not block
+  on a possibly-stale balance.
 * **OK** — covered by stock, or an untracked colour the inventory simply isn't following.
 
 Like ``capacity.py`` / ``placement.py`` / ``measurement.py`` this is deliberately DB-free so the
@@ -79,13 +82,20 @@ class PaintForwardView:
     warning_order_ids: list[int]
 
 
-def colour_series_blocked(stock: PaintColourStock) -> bool:
-    """Whether a colour series is hard-blocked: tracked, metered (not manual-used), and out of stock.
+def colour_series_blocked(stock: PaintColourStock, *, first_order_demand_kg: float = 0.0) -> bool:
+    """Whether a colour series is hard-blocked for its first order (NA54): tracked, metered, and either
+    out of stock (≤ 0 kg) **or** the first planned order's demand exceeds the available stock.
 
     This is the single predicate the planner's plan-time gate and the forward view share, so the
-    interactive "refuse to plan" and the board's blocked marker can never disagree.
+    interactive "refuse to plan" and the board's blocked marker can never disagree. ``first_order_demand_kg``
+    is the demand of the **first** order on the series (0.0 for a later order — a later overrun is a
+    WARNING, not a block, since paint can be delivered before the line reaches it).
     """
-    return stock.is_tracked and not stock.manual_used and stock.current_stock_kg <= 0.0
+    if not (stock.is_tracked and not stock.manual_used):
+        return False
+    if stock.current_stock_kg <= 0.0:
+        return True
+    return first_order_demand_kg > stock.current_stock_kg
 
 
 def build_forward_view(
@@ -123,11 +133,14 @@ def build_forward_view(
             )
             continue
 
+        # The first order on a colour series carries the demand-aware block (NA54); a later order on the
+        # same series passes 0.0 so its overrun is a WARNING, not a block.
+        is_first_on_series = order.colour_key not in cumulative
         running = cumulative.get(order.colour_key, 0.0) + demand
         cumulative[order.colour_key] = running
         remaining = stock.current_stock_kg - running
 
-        if colour_series_blocked(stock):
+        if colour_series_blocked(stock, first_order_demand_kg=demand if is_first_on_series else 0.0):
             status = PaintFeasibilityStatus.BLOCKED
         elif stock.manual_used and remaining < 0.0:
             status = PaintFeasibilityStatus.WARNING
