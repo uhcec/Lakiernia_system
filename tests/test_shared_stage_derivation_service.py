@@ -52,6 +52,7 @@ def _create(work_order_service: WorkOrderService, title: str, *, total_quantity:
             paint_code="P-7016",
             paint_producer="AkzoNobel",
             received_date="2026-05-25",
+            planned_pickup_date="2026-06-30",
             total_area_m2=24.0,
             profiles_to_count=True,
             accessories_to_count=True,

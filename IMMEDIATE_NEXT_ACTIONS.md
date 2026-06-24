@@ -711,7 +711,18 @@ only. Five elements, top to bottom:
   board shows days with floor/ceiling + the derived shared-stage order, and supports drag + pin.
 
 **Shared-stage derivation (the original NA49 defect):**
-- **N49-10 — Derive shared-stage order; kill duplicate "Poz."** Surface-prep order derived from the
+- **N49-10 — Derive shared-stage order; kill duplicate "Poz." DONE (2026-06-24).** Backend owns the
+  shared-stage order: new pure `app/process/shared_stage.py` (surface-prep interleave by the
+  smaller-buffer rule — feed the line closest to starving its booth, tie → automatic, buffer in pieces)
+  wired into `ProcessService.list_stage_work_orders`; packing ordered by physical readiness + the slot
+  model (no position numbering). Read model gains `shared_stage_line_label` + `is_next_at_shared_stage`;
+  `StageWorkOrdersPage`/`PackingWorkOrdersPage` render the line label + "NASTĘPNE" instead of the
+  colliding `Poz.`. No schema change. Tests: `tests/test_shared_stage.py` (6),
+  `tests/test_shared_stage_derivation_service.py` (4), updated `test_process_api` ordering, + a frontend
+  no-duplicate-Poz case. Integrated to main via cherry-pick `0e17d41` (built in parallel with N49-5/6/8;
+  one doc conflict reconciled). Assumptions flagged: buffer-in-pieces, live re-order, przemalowanka
+  (NA49.D) not yet counted; the manager's exceptional packing bump not implemented (out of scope).
+  - Original framing — Surface-prep order derived from the
   painting plan (one line-labelled list + "NASTĘPNE"); packing order derived from physical readiness +
   the slot model. Shared stages stop using the per-line `queue_position` as a global rank. Fixes
   `app/process/repository.py:58`, `frontend/src/components/StageWorkOrdersPage.tsx`,
