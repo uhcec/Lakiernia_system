@@ -46,6 +46,13 @@ from app.manager.placement import (
     place_orders,
     working_days_from,
 )
+from app.manager.paint_feasibility import (
+    PaintColourStock,
+    PaintFeasibilityStatus,
+    PlannedPaintOrder,
+    build_forward_view,
+    colour_series_blocked,
+)
 from app.manager.models import AutoScheduleConfig
 from app.manager.repository import ManagerRepository
 from app.manager.scheduler import (
@@ -62,7 +69,9 @@ from app.manager.schemas import (
     DayCapacityRead,
     LineMeasurementStats,
     MultiDayPlanRead,
+    OrderPaintFeasibilityRead,
     OrderPlacementRead,
+    PaintForwardViewRead,
     PlannedDayRead,
     ScheduleRuleConfigItem,
     ScheduleRuleConfigRead,
@@ -955,6 +964,11 @@ class ManagerService:
         changeover = self._learned_changeover(production_type)
         working_days = working_days_from(datetime.now(UTC).date(), horizon_working_days)
 
+        # Paint-stock feasibility (N49-7): per-order OK / WARNING / BLOCKED in execution order, so the
+        # board can mark out-of-stock (metered) colours that the plan-time gate also refuses.
+        paint_view = self._build_paint_forward_view(production_type, active_orders)
+        paint_by_id = {feasibility.work_order_id: feasibility for feasibility in paint_view.orders}
+
         plan = place_orders(
             placeable,
             working_days=working_days,
@@ -1007,6 +1021,7 @@ class ManagerService:
             for position, work_order in enumerate(swept_orders):
                 placement = placement_by_id[work_order.id]
                 suggestion = _line_suggestion(work_order)
+                paint = paint_by_id.get(work_order.id)
                 placements.append(
                     OrderPlacementRead(
                         work_order_id=work_order.id,
@@ -1023,6 +1038,10 @@ class ManagerService:
                         suggested_production_type=ProductionType(suggestion.suggested_production_type),
                         suggested_line_is_colour_orphan=suggestion.is_colour_orphan,
                         suggested_line_is_small=suggestion.is_small,
+                        paint_status=paint.status if paint else PaintFeasibilityStatus.OK,
+                        paint_remaining_kg=(
+                            paint.remaining_after_kg if (paint and paint.is_tracked) else None
+                        ),
                     )
                 )
 
@@ -1055,6 +1074,139 @@ class ManagerService:
             infeasible_order_ids=plan.infeasible_order_ids,
         )
 
+    def _manual_used_colour_keys(self) -> set[str]:
+        """Colour identities currently planned on the unmetered MANUAL line (low-confidence stock).
+
+        Manual paint consumption is not metered (owner: "niewykrywalne"), so a colour also used on the
+        manual line reads high in inventory — we warn on it but never hard-block (N49-7).
+        """
+        return {
+            colour_key
+            for work_order in self._active_planned_orders_for_line(ProductionType.MANUAL)
+            if (colour_key := self._order_colour_key(work_order)) is not None
+        }
+
+    def _paint_stock_by_colour(
+        self, work_orders: list[WorkOrder], manual_used_keys: set[str]
+    ) -> dict[str, PaintColourStock]:
+        """Starting paint position per distinct colour series among the given orders (N49-7)."""
+        stock_by_colour: dict[str, PaintColourStock] = {}
+        for work_order in work_orders:
+            colour_key = self._order_colour_key(work_order)
+            if colour_key is None or colour_key in stock_by_colour:
+                continue
+            if not (work_order.ral_code and work_order.paint_producer and work_order.paint_code):
+                continue
+            lookup = self.paint_service.lookup_current_stock(
+                ral_code=work_order.ral_code,
+                paint_producer=work_order.paint_producer,
+                paint_code=work_order.paint_code,
+            )
+            stock_by_colour[colour_key] = PaintColourStock(
+                colour_key=colour_key,
+                current_stock_kg=lookup.current_quantity_kg,
+                is_tracked=self._paint_has_stock_history(lookup.paint_id),
+                manual_used=colour_key in manual_used_keys,
+            )
+        return stock_by_colour
+
+    def _paint_has_stock_history(self, paint_id: int | None) -> bool:
+        """Whether a colour was genuinely stocked (real movements), not the auto-created 0 placeholder."""
+        return paint_id is not None and self.paint_service.has_stock_history(paint_id)
+
+    def _build_paint_forward_view(
+        self, production_type: ProductionType, active_orders: list[WorkOrder]
+    ):
+        """The pure paint forward view over a line's planned orders, in execution (queue) order (N49-7)."""
+        if production_type is ProductionType.AUTOMATIC:
+            manual_used_keys = self._manual_used_colour_keys()
+        else:
+            # The whole manual line is unmetered, so every colour on it is a low-confidence balance.
+            manual_used_keys = {
+                colour_key
+                for work_order in active_orders
+                if (colour_key := self._order_colour_key(work_order)) is not None
+            }
+        stock_by_colour = self._paint_stock_by_colour(active_orders, manual_used_keys)
+        planned = [
+            PlannedPaintOrder(
+                work_order_id=work_order.id,
+                colour_key=self._order_colour_key(work_order),
+                demand_kg=calculate_predicted_paint_quantity_kg(work_order.total_area_m2) or 0.0,
+            )
+            for work_order in active_orders
+        ]
+        return build_forward_view(planned, stock_by_colour)
+
+    def get_paint_forward_view(
+        self,
+        production_type: ProductionType = ProductionType.AUTOMATIC,
+        station_context: StationContext | None = None,
+    ) -> PaintForwardViewRead:
+        """Forward "paint suffices / runs out at order X" view for a line's planned work (N49-7).
+
+        Walks the line's active planned orders in execution order, costing each colour series down
+        against its current stock: BLOCKED = a metered colour out of stock (the hard block); WARNING =
+        runs short partway down, or a manual-used low-confidence balance; OK otherwise.
+        """
+        self._ensure_manager_station_action(station_context)
+        active_orders = self._active_planned_orders_for_line(production_type)
+        orders_by_id = {work_order.id: work_order for work_order in active_orders}
+        view = self._build_paint_forward_view(production_type, active_orders)
+        return PaintForwardViewRead(
+            production_type=production_type,
+            orders=[
+                OrderPaintFeasibilityRead(
+                    work_order_id=feasibility.work_order_id,
+                    order_number=orders_by_id[feasibility.work_order_id].order_number,
+                    customer_name=orders_by_id[feasibility.work_order_id].customer_name,
+                    ral_code=orders_by_id[feasibility.work_order_id].ral_code,
+                    colour_key=feasibility.colour_key,
+                    demand_kg=feasibility.demand_kg,
+                    available_stock_kg=feasibility.available_stock_kg,
+                    cumulative_demand_kg=feasibility.cumulative_demand_kg,
+                    remaining_after_kg=feasibility.remaining_after_kg,
+                    is_tracked=feasibility.is_tracked,
+                    manual_used=feasibility.manual_used,
+                    status=feasibility.status,
+                )
+                for feasibility in view.orders
+            ],
+            blocked_order_ids=view.blocked_order_ids,
+            warning_order_ids=view.warning_order_ids,
+        )
+
+    def _assert_paint_available_for_automatic(self, work_order: WorkOrder) -> None:
+        """Hard block (N49-7): refuse to plan an AUTOMATIC order whose metered colour is out of stock.
+
+        Only a *tracked* paint at ≤ 0 kg that is **not** also used on the manual line blocks — we never
+        hard-block on a possibly-stale balance (manual-used colours warn instead, in the forward view).
+        """
+        colour_key = self._order_colour_key(work_order)
+        if colour_key is None:
+            return
+        if not (work_order.ral_code and work_order.paint_producer and work_order.paint_code):
+            return
+        if colour_key in self._manual_used_colour_keys():
+            return
+        lookup = self.paint_service.lookup_current_stock(
+            ral_code=work_order.ral_code,
+            paint_producer=work_order.paint_producer,
+            paint_code=work_order.paint_code,
+        )
+        stock = PaintColourStock(
+            colour_key=colour_key,
+            current_stock_kg=lookup.current_quantity_kg,
+            is_tracked=self._paint_has_stock_history(lookup.paint_id),
+            manual_used=False,
+        )
+        if colour_series_blocked(stock):
+            raise InvalidManagerPlanningError(
+                f"Cannot plan automatic order {work_order.order_number}: paint "
+                f"{work_order.ral_code} / {work_order.paint_producer} / {work_order.paint_code} "
+                "is out of stock. Deliver paint or recount at the booth before planning."
+            )
+
     def assign_plan(
         self,
         work_order_id: int,
@@ -1070,6 +1222,10 @@ class ManagerService:
                 raise InvalidManagerPlanningError("Cannot plan incomplete order. Mark as complete first.")
 
             production_type = payload.production_type
+            # Paint hard block (N49-7): an out-of-stock metered colour cannot be planned on the
+            # automatic line (out-of-stock paint is a leading cause of a missed daily norm).
+            if production_type is ProductionType.AUTOMATIC:
+                self._assert_paint_available_for_automatic(work_order)
             # No explicit position → append to the end of this line's active queue. An explicit
             # position is still honoured (seeds/tests), validated within the line.
             if payload.queue_position is not None:

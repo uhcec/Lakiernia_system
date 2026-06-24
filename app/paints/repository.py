@@ -58,6 +58,14 @@ class PaintRepository:
         )
         return self.session.scalars(statement).all()
 
+    def has_stock_movements(self, paint_id: int) -> bool:
+        # Whether a paint has any stock movement history. A paint row is auto-created at 0 kg when a work
+        # order snapshots its colour, so mere existence is not "stocked"; a real delivery/adjustment/
+        # consumption movement is. The planner's hard block uses this to tell a *known-depleted* colour
+        # from a never-stocked placeholder (N49-7).
+        statement = select(PaintStockMovement.id).where(PaintStockMovement.paint_id == paint_id).limit(1)
+        return self.session.scalar(statement) is not None
+
     def sum_automatic_consumption_kg(self, work_order_ids: Sequence[int]) -> float:
         # Cumulative automatic paint consumption (positive kg) across the given work orders, read from
         # the durable movement log so it survives correction-round resets that zero the per-round

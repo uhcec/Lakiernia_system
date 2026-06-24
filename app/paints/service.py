@@ -152,6 +152,12 @@ class PaintService:
             station_context=station_context,
         )
 
+    def has_stock_history(self, paint_id: int) -> bool:
+        # True when a paint has real stock movement history (delivered/adjusted/consumed), as opposed to
+        # the 0-kg placeholder row auto-created when a work order snapshots its colour. The planner's
+        # paint hard block (N49-7) treats only a colour with history + ≤ 0 balance as known-depleted.
+        return self.repository.has_stock_movements(paint_id)
+
     def get_consumed_paint_kg_for_work_orders(self, work_order_ids) -> float:
         # Cumulative automatic paint consumption (kg) across the given work orders, computed from the
         # durable movement log (NA32). Used by read models so a corrected order reports the total kg of

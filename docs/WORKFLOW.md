@@ -447,8 +447,20 @@ the full band), replacing the flat per-change count; the per-day cost flows thro
 **manager-overridable suggested line** (N49-8): a **small-m² colour-orphan** (no same-colour neighbour to
 group with) is suggested **manual**; everything else **automatic** (join a colour run / keep the booth
 fed). `GET /manager/planner/multi-day` returns the swept order (`sequence_position`), the per-day
-size+direction changeover minutes, and the suggested line per order. The remaining *capacity planner*
-pieces (paint hard-block N49-7, the capacity board N49-9) are not yet built.
+size+direction changeover minutes, and the suggested line per order.
+**Paint-stock hard block (N49-7, `app/manager/paint_feasibility.py`):** out-of-stock paint is a leading
+cause of a missed daily norm, so a colour series that is **out of stock cannot be planned on the
+automatic line** — `assign_plan` refuses an AUTOMATIC order whose colour is *known-depleted* (a paint
+with real stock-movement history sitting at ≤ 0 kg) and *metered* (not also used on the manual line),
+with a clear "deliver or recount at the booth" error. The block is deliberately narrow: a never-stocked
+new colour (a 0-kg placeholder row with no movement history) is **not** blocked, and a colour also
+painted on the **unmetered manual line** is treated as a low-confidence balance — **warned, never
+hard-blocked** (manual consumption is invisible, so the automatic balance reads high). A forward
+"paint suffices / runs out at order X" view (`GET /manager/planner/paint-forward`) walks the line in
+execution order, costing each colour series down against its stock: **BLOCKED** (metered, out of stock),
+**WARNING** (runs short partway, or manual-used low-confidence), or **OK**. The same per-order status is
+attached to each `multi-day` placement, so an order planned while in stock surfaces as BLOCKED once its
+colour later depletes. The remaining *capacity planner* piece (the capacity board N49-9) is not yet built.
 Trust is earned in three phases: (1) **observer** — manager plans manually, the system only shows
 day-fill vs floor/ceiling and the changeover count; (2) **suggester** — the system proposes the
 arrangement, the manager edits; (3) **trusted** — the system arrangement is the default and the manager

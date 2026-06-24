@@ -677,8 +677,29 @@ only. Five elements, top to bottom:
   per-day size+direction `changeover_minutes`. Tests: `tests/test_colour.py` + `tests/test_capacity.py`
   (size band, light→dark < dark→light, missing-size = large band) + service assertions. No schema change;
   `alembic check` clean. Acceptance met: changeover cost reflects size + direction, not a flat count.
-- **N49-7 — Paint-stock HARD block** (was NA49.C, **upgraded to core** — out-of-stock paint is a leading
-  cause of a missed norm). A colour series whose paint is not in stock **cannot be planned** (hard block,
+- **N49-7 — Paint-stock HARD block. DONE (2026-06-24).** Pure DB-free core
+  `app/manager/paint_feasibility.py` (`build_forward_view` / `colour_series_blocked`) decides per planned
+  order, in execution order: **BLOCKED** = a *metered* colour (not also on the manual line) that is
+  *known-depleted* (a paint with real stock-movement history at ≤ 0 kg); **WARNING** = runs short partway
+  down the sequence, or a manual-used low-confidence balance; **OK** otherwise. `assign_plan` calls a
+  focused gate (`_assert_paint_available_for_automatic`) that **refuses to plan an out-of-stock metered
+  colour on the AUTOMATIC line** with a "deliver or recount at the booth" error. The block is deliberately
+  narrow to avoid breaking real planning: a never-stocked new colour is the 0-kg placeholder row that work
+  order creation auto-snapshots, so it has **no movement history** → not blocked (the new
+  `PaintRepository.has_stock_movements` / `PaintService.has_stock_history` distinguishes known-depleted
+  from never-stocked); a manual-used colour is **warned, never blocked** (manual consumption is unmetered,
+  owner "niewykrywalne"). Forward view `GET /manager/planner/paint-forward` (manager-gated) gives the
+  "suffices / runs out at order X" walk; the same `paint_status` + `paint_remaining_kg` ride on each
+  `multi-day` placement, so an order planned while in stock surfaces BLOCKED once its colour later depletes.
+  No schema change (read-only over the existing balance + ledger); `alembic check` clean. Tests:
+  `tests/test_paint_feasibility.py` (8 pure: OK/WARNING/BLOCKED, partial shortfall runs-out point,
+  untracked no-claim, manual-used warn, two-series independence, predicate truth table) +
+  `tests/test_paint_forward_service.py` (7 service/DB: hard block at plan time, in-stock allowed, untracked
+  allowed, manual-used warns-not-blocks, forward runs-out, deplete-after-planning → BLOCKED in multi-day,
+  manager gating). `docs/WORKFLOW.md` "Target planning model" updated. 567 backend tests pass.
+  Follow-up (not built, out of scope): gating `update_production_type` (manual→automatic) on the same rule;
+  a stock-recount prompt at the booth.
+  - Original framing — A colour series whose paint is not in stock **cannot be planned** (hard block,
   not just a warning); show a forward "paint suffices / runs out at order X" view. Acceptance: the planner
   refuses an out-of-stock colour series; forward paint view available.
   - **Verified 2026-06-23 (data foundation is sound, accuracy is the risk):** `Paint.current_quantity_kg`

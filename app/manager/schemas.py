@@ -4,6 +4,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.manager.capacity import ShiftLength
 from app.manager.enums import DEFAULT_RULE_ORDER, ScheduleRuleKey
+from app.manager.paint_feasibility import PaintFeasibilityStatus
 from app.process.enums import CoatingType, ProcessStage, ProductionType
 from app.work_orders.schemas import WorkOrderRead
 
@@ -297,6 +298,11 @@ class OrderPlacementRead(BaseModel):
     suggested_production_type: ProductionType
     suggested_line_is_colour_orphan: bool
     suggested_line_is_small: bool
+    # Paint-stock feasibility (N49-7): OK / WARNING (runs short or manual-used low-confidence) /
+    # BLOCKED (metered colour out of stock — a hard block). ``paint_remaining_kg`` is the series stock
+    # left after this order's cumulative demand (negative once overrun); None for an untracked colour.
+    paint_status: PaintFeasibilityStatus = PaintFeasibilityStatus.OK
+    paint_remaining_kg: float | None = None
 
 
 class PlannedDayRead(BaseModel):
@@ -342,6 +348,39 @@ class MultiDayPlanRead(BaseModel):
     changeover_is_measured: bool
     days: list[PlannedDayRead]
     infeasible_order_ids: list[int]
+
+
+class OrderPaintFeasibilityRead(BaseModel):
+    """One planned automatic order's paint-stock outlook in execution order (N49-7)."""
+
+    work_order_id: int
+    order_number: str
+    customer_name: str
+    ral_code: str | None
+    colour_key: str | None
+    demand_kg: float
+    available_stock_kg: float
+    cumulative_demand_kg: float
+    # Series stock left after this order (negative once the series is overrun — "runs out here").
+    remaining_after_kg: float
+    is_tracked: bool
+    # Colour also painted on the unmetered manual line → low-confidence balance (warn, never block).
+    manual_used: bool
+    status: PaintFeasibilityStatus
+
+
+class PaintForwardViewRead(BaseModel):
+    """Forward "paint suffices / runs out at order X" view for a line's planned work (N49-7).
+
+    Orders are listed in execution (queue) order — the point at which a colour series runs dry is
+    sequence-dependent. ``blocked_order_ids`` is the hard-block set (metered colour out of stock);
+    ``warning_order_ids`` is the runs-short / manual-used low-confidence set.
+    """
+
+    production_type: ProductionType
+    orders: list[OrderPaintFeasibilityRead]
+    blocked_order_ids: list[int]
+    warning_order_ids: list[int]
 
 
 class AutoScheduleProposal(BaseModel):

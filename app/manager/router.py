@@ -18,6 +18,7 @@ from app.manager.schemas import (
     DayCapacityRead,
     LineMeasurementStats,
     MultiDayPlanRead,
+    PaintForwardViewRead,
     ScheduleRuleConfigRead,
     ScheduleRuleConfigUpdate,
     ThroughputStats,
@@ -118,6 +119,15 @@ def get_multi_day_plan(
     return service.get_multi_day_plan(
         production_type, horizon_working_days, shift_length, station_context=station_context
     )
+
+
+@router.get("/planner/paint-forward", response_model=PaintForwardViewRead)
+def get_paint_forward_view(
+    station_context: Annotated[StationContext, Depends(get_station_context)],
+    production_type: Annotated[ProductionType, Query()] = ProductionType.AUTOMATIC,
+    service: Annotated[ManagerService, Depends(get_manager_service)] = ...,
+) -> PaintForwardViewRead:
+    return service.get_paint_forward_view(production_type, station_context=station_context)
 
 
 @router.get("/corrections/reason-report", response_model=list[CorrectionReasonReportItem])
