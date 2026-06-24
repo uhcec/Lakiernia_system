@@ -16,6 +16,7 @@ from app.manager.schemas import (
     CorrectionReasonReportItem,
     CycleTimeStats,
     DayCapacityRead,
+    GoodDayStats,
     LineMeasurementStats,
     MultiDayPlanRead,
     PaintForwardViewRead,
@@ -92,6 +93,19 @@ def get_line_measurements(
     service: Annotated[ManagerService, Depends(get_manager_service)] = ...,
 ) -> LineMeasurementStats:
     return service.get_line_measurements(
+        date_from, date_to, production_type, station_context=station_context
+    )
+
+
+@router.get("/stats/good-day", response_model=GoodDayStats)
+def get_good_day_stats(
+    date_from: Annotated[date, Query()],
+    date_to: Annotated[date, Query()],
+    station_context: Annotated[StationContext, Depends(get_station_context)],
+    production_type: Annotated[ProductionType, Query()] = ProductionType.AUTOMATIC,
+    service: Annotated[ManagerService, Depends(get_manager_service)] = ...,
+) -> GoodDayStats:
+    return service.get_good_day_stats(
         date_from, date_to, production_type, station_context=station_context
     )
 

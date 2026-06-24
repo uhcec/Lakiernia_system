@@ -22,10 +22,18 @@ from app.manager.enums import (
     ScheduleRuleKey,
 )
 from app.manager.capacity import (
+    CEILING_BOOTH_RATE_M2_PER_H,
+    FLOOR_LONG_M2,
+    SHIFT_LONG_HOURS,
     PlacedOrder,
     ShiftLength,
     advise_shift_length,
     compute_day_capacity,
+)
+from app.manager.good_day import (
+    DayActivity,
+    summarize_day,
+    summarize_period,
 )
 from app.manager.colour import (
     ColourOrderable,
@@ -58,6 +66,7 @@ from app.manager.repository import ManagerRepository
 from app.manager.scheduler import (
     SchedulableOrder,
     colour_changeovers_for_order_ids,
+    count_colour_changeovers,
     propose_sequence,
 )
 from app.manager.schemas import (
@@ -67,6 +76,9 @@ from app.manager.schemas import (
     CycleTimeSegment,
     CycleTimeStats,
     DayCapacityRead,
+    GoodDayMetricsRead,
+    GoodDayStats,
+    GoodDayTotalsRead,
     LineMeasurementStats,
     MultiDayPlanRead,
     OrderPaintFeasibilityRead,
@@ -773,6 +785,181 @@ class ManagerService:
             date_to=date_to,
             rate=measure_automatic_rate(observations),
             changeover=estimate_colour_changeover(observations),
+        )
+
+    def get_good_day_stats(
+        self,
+        date_from: date,
+        date_to: date,
+        production_type: ProductionType = ProductionType.AUTOMATIC,
+        station_context: StationContext | None = None,
+    ) -> GoodDayStats:
+        """Per-day "good day" metrics for a line — floor, on-time %, changeover loss + rate/idle (NA50).
+
+        The capacity model (``docs/FACTORY_DOMAIN_MODEL.md`` §7) defines a good day as one that clears the
+        profitable m² floor, ships on time (deadlines are hard), and loses little capacity to colour
+        changes. This reads those off the append-only stage-transition log: per day, the output m² + the
+        on-time completions from that day's ``PACKING`` completions, and the colour-change count +
+        booth-active hours + effective rate from that day's bracketed automatic passes (HANGING start →
+        PACKING done). Pure arithmetic lives in ``app/manager/good_day.py``.
+
+        ASSUMPTION (documented): the actual shift length run on a *past* day is not persisted, so every day
+        is measured against the long-day full-shift bar (800 m² floor over 14 h). The per-change colour
+        cost is the learned estimate (N49-2) over the period's passes (seed when sparse). On-time and the
+        booth metrics are scoped to the requested line's completions.
+        """
+        self._ensure_stats_viewer(station_context)
+        session = self.repository.session
+
+        packing_done_events = (
+            select(
+                StageTransitionEvent.work_order_id,
+                func.max(StageTransitionEvent.occurred_at).label("event_done_at"),
+            )
+            .where(
+                StageTransitionEvent.stage == ProcessStage.PACKING,
+                StageTransitionEvent.status == StageStatus.DONE,
+            )
+            .group_by(StageTransitionEvent.work_order_id)
+            .subquery()
+        )
+        packing_done = (
+            select(
+                WorkOrderStageState.work_order_id,
+                func.coalesce(
+                    packing_done_events.c.event_done_at,
+                    WorkOrderStageState.updated_at,
+                ).label("packing_done_at"),
+            )
+            .join(
+                packing_done_events,
+                packing_done_events.c.work_order_id == WorkOrderStageState.work_order_id,
+                isouter=True,
+            )
+            .where(
+                WorkOrderStageState.stage == ProcessStage.PACKING,
+                WorkOrderStageState.status == StageStatus.DONE,
+            )
+            .subquery()
+        )
+        day_expr = func.date(packing_done.c.packing_done_at)
+
+        # Per-day output m², completions, and on-time completions (PACKING done ≤ hard pickup date).
+        rows = session.execute(
+            select(
+                day_expr.label("day"),
+                func.sum(func.coalesce(WorkOrder.total_area_m2, 0.0)).label("output_m2"),
+                func.count(WorkOrder.id).label("completed"),
+                func.sum(
+                    case((day_expr <= WorkOrder.planned_pickup_date, 1), else_=0)
+                ).label("on_time"),
+            )
+            .join(packing_done, WorkOrder.id == packing_done.c.work_order_id)
+            .where(
+                WorkOrder.production_type == production_type,
+                WorkOrder.is_correction == False,  # noqa: E712
+                day_expr >= date_from,
+                day_expr <= date_to,
+            )
+            .group_by(day_expr)
+            .order_by(day_expr)
+        ).all()
+
+        # Bracketed automatic passes for the same window, grouped by completion day for changeover +
+        # booth-active hours + effective rate. The learned per-change cost values the changeover loss.
+        observations = self._automatic_pass_observations(date_from, date_to, production_type)
+        changeover = estimate_colour_changeover(observations)
+        passes_by_day: dict[date, list[AutomaticPassObservation]] = {}
+        for observation in observations:
+            passes_by_day.setdefault(observation.packing_done_at.date(), []).append(observation)
+
+        day_metrics: list[GoodDayMetricsRead] = []
+        for row in rows:
+            day = date.fromisoformat(row.day)
+            day_passes = sorted(
+                passes_by_day.get(day, []), key=lambda observation: observation.hanging_started_at
+            )
+            changeover_count = count_colour_changeovers(
+                [observation.colour_key for observation in day_passes]
+            )
+            rate = measure_automatic_rate(day_passes)
+
+            metrics = summarize_day(
+                DayActivity(
+                    day=day,
+                    output_m2=float(row.output_m2 or 0.0),
+                    orders_completed=int(row.completed or 0),
+                    orders_on_time=int(row.on_time or 0),
+                    changeover_count=changeover_count,
+                    active_hours=rate.active_hours,
+                ),
+                floor_m2=FLOOR_LONG_M2,
+                shift_hours=SHIFT_LONG_HOURS,
+                changeover_minutes_each=changeover.estimated_changeover_minutes,
+                ceiling_rate_m2_per_h=CEILING_BOOTH_RATE_M2_PER_H,
+            )
+            day_metrics.append(
+                GoodDayMetricsRead(
+                    day=metrics.day,
+                    output_m2=metrics.output_m2,
+                    floor_m2=metrics.floor_m2,
+                    met_floor=metrics.met_floor,
+                    floor_shortfall_m2=metrics.floor_shortfall_m2,
+                    orders_completed=metrics.orders_completed,
+                    orders_on_time=metrics.orders_on_time,
+                    on_time_pct=metrics.on_time_pct,
+                    changeover_count=metrics.changeover_count,
+                    changeover_minutes_total=metrics.changeover_minutes_total,
+                    changeover_loss_m2=metrics.changeover_loss_m2,
+                    shift_hours=metrics.shift_hours,
+                    active_hours=metrics.active_hours,
+                    idle_hours=metrics.idle_hours,
+                    utilisation_pct=metrics.utilisation_pct,
+                    rate_m2_per_h=rate.effective_rate_m2_per_h,
+                    rate_is_measured=rate.is_measured,
+                )
+            )
+
+        totals = summarize_period(
+            [
+                summarize_day(
+                    DayActivity(
+                        day=metric.day,
+                        output_m2=metric.output_m2,
+                        orders_completed=metric.orders_completed,
+                        orders_on_time=metric.orders_on_time,
+                        changeover_count=metric.changeover_count,
+                        active_hours=metric.active_hours,
+                    ),
+                    floor_m2=FLOOR_LONG_M2,
+                    shift_hours=SHIFT_LONG_HOURS,
+                    changeover_minutes_each=changeover.estimated_changeover_minutes,
+                    ceiling_rate_m2_per_h=CEILING_BOOTH_RATE_M2_PER_H,
+                )
+                for metric in day_metrics
+            ]
+        )
+
+        return GoodDayStats(
+            production_type=production_type,
+            date_from=date_from,
+            date_to=date_to,
+            floor_m2=FLOOR_LONG_M2,
+            shift_hours=SHIFT_LONG_HOURS,
+            changeover_minutes_each=changeover.estimated_changeover_minutes,
+            changeover_is_measured=changeover.is_measured,
+            days=day_metrics,
+            totals=GoodDayTotalsRead(
+                days_count=totals.days_count,
+                days_met_floor=totals.days_met_floor,
+                total_output_m2=totals.total_output_m2,
+                orders_completed=totals.orders_completed,
+                orders_on_time=totals.orders_on_time,
+                on_time_pct=totals.on_time_pct,
+                total_changeover_count=totals.total_changeover_count,
+                total_changeover_loss_m2=totals.total_changeover_loss_m2,
+                avg_utilisation_pct=totals.avg_utilisation_pct,
+            ),
         )
 
     def _automatic_pass_observations(

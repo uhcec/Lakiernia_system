@@ -1,9 +1,15 @@
 import { useEffect, useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import { fetchCycleTimeStats, fetchThroughputStats, fetchWipAging } from "../api/managerApi";
+import {
+  fetchCycleTimeStats,
+  fetchGoodDayStats,
+  fetchThroughputStats,
+  fetchWipAging,
+} from "../api/managerApi";
 import type {
   CycleTimeBreakdown,
   CycleTimeStats,
+  GoodDayStats,
   ThroughputPeriod,
   ThroughputStats,
   WipAgingStats,
@@ -42,6 +48,10 @@ function isoParts(iso: string): { y: number; m: number; d: number } {
 function formatDayLabel(iso: string): string {
   const { y, m, d } = isoParts(iso);
   return `${String(d).padStart(2, "0")}.${String(m).padStart(2, "0")}.${y}`;
+}
+
+function formatPercent(value: number | null): string {
+  return value == null ? "—" : `${value}%`;
 }
 
 function eachDay(from: string, to: string): string[] {
@@ -272,6 +282,7 @@ export function StatystykiPage() {
   const [anchor, setAnchor] = useState<MonthAnchor>(currentMonthAnchor);
   const [throughputStats, setThroughputStats] = useState<ThroughputStats | null>(null);
   const [cycleTimeStats, setCycleTimeStats] = useState<CycleTimeStats | null>(null);
+  const [goodDayStats, setGoodDayStats] = useState<GoodDayStats | null>(null);
   const [wipAging, setWipAging] = useState<WipAgingStats | null>(null);
   const [loadedParams, setLoadedParams] = useState<LoadedParams | null>(null);
   const [breakdownAxis, setBreakdownAxis] = useState<CrossSection>("method");
@@ -288,11 +299,16 @@ export function StatystykiPage() {
     let cancelled = false;
     setIsLoading(true);
     setErrorMessage(null);
-    Promise.all([fetchThroughputStats(from, to, "day"), fetchCycleTimeStats(from, to)])
-      .then(([throughput, cycleTime]) => {
+    Promise.all([
+      fetchThroughputStats(from, to, "day"),
+      fetchCycleTimeStats(from, to),
+      fetchGoodDayStats(from, to),
+    ])
+      .then(([throughput, cycleTime, goodDay]) => {
         if (cancelled) return;
         setThroughputStats(throughput);
         setCycleTimeStats(cycleTime);
+        setGoodDayStats(goodDay);
         setLoadedParams({ from, to, groupBy: "day" });
       })
       .catch((error) => {
@@ -381,6 +397,77 @@ export function StatystykiPage() {
                     </tr>
                   );
                 })}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      ) : null}
+
+      {goodDayStats && goodDayStats.days.length > 0 ? (
+        <section className="rounded-[2rem] border border-white/70 bg-white/80 p-6 shadow-panel backdrop-blur sm:p-8">
+          <div className="mb-4">
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">Automat</p>
+            <h2 className="mt-1 text-3xl font-semibold text-ink sm:text-4xl">Dobry dzień</h2>
+            <p className="mt-2 text-sm text-steel">
+              Czy dzień był dobry: m² ponad progiem zysku ({goodDayStats.floor_m2} m²), terminowość
+              (termin to twarda granica) i ile mocy zjadły zmiany koloru. Próg liczony względem dnia
+              długiego (zmiana {goodDayStats.shift_hours} h) — historyczna długość zmiany nie jest zapisywana.
+            </p>
+          </div>
+          <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <div className="rounded-2xl border border-line bg-white p-4">
+              <p className="text-xs uppercase tracking-wide text-steel">Dni ponad progiem</p>
+              <p className="mt-1 text-2xl font-semibold text-ink">
+                {goodDayStats.totals.days_met_floor} / {goodDayStats.totals.days_count}
+              </p>
+            </div>
+            <div className="rounded-2xl border border-line bg-white p-4">
+              <p className="text-xs uppercase tracking-wide text-steel">Terminowość</p>
+              <p className="mt-1 text-2xl font-semibold text-ink">
+                {formatPercent(goodDayStats.totals.on_time_pct)}
+              </p>
+            </div>
+            <div className="rounded-2xl border border-line bg-white p-4">
+              <p className="text-xs uppercase tracking-wide text-steel">Strata na zmianach koloru</p>
+              <p className="mt-1 text-2xl font-semibold text-ink">
+                {Math.round(goodDayStats.totals.total_changeover_loss_m2)} m²
+              </p>
+            </div>
+            <div className="rounded-2xl border border-line bg-white p-4">
+              <p className="text-xs uppercase tracking-wide text-steel">Śr. wykorzystanie</p>
+              <p className="mt-1 text-2xl font-semibold text-ink">
+                {formatPercent(goodDayStats.totals.avg_utilisation_pct)}
+              </p>
+            </div>
+          </div>
+          <div className="overflow-x-auto rounded-3xl border border-line bg-white">
+            <table className="w-full min-w-[720px] text-sm">
+              <thead>
+                <tr className="border-b border-line bg-mist text-xs font-semibold uppercase tracking-[0.1em] text-steel">
+                  <th className="px-5 py-3 text-left">Dzień</th>
+                  <th className="px-4 py-3 text-right">m² / próg</th>
+                  <th className="px-4 py-3 text-right">Terminowość</th>
+                  <th className="px-4 py-3 text-right">Zmiany koloru</th>
+                  <th className="px-4 py-3 text-right">Strata m²</th>
+                  <th className="px-4 py-3 text-right">Wykorzystanie</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-line">
+                {goodDayStats.days.map((day) => (
+                  <tr key={day.day} className={day.met_floor ? "text-ink hover:bg-mist/40" : "bg-amber-50/70 text-ink"}>
+                    <td className="px-5 py-3 font-medium">{formatDayLabel(day.day)}</td>
+                    <td className="px-4 py-3 text-right">
+                      <span className={day.met_floor ? "font-semibold text-emerald-700" : "font-semibold text-amber-700"}>
+                        {Math.round(day.output_m2)}
+                      </span>
+                      <span className="text-steel"> / {Math.round(day.floor_m2)}</span>
+                    </td>
+                    <td className="px-4 py-3 text-right">{formatPercent(day.on_time_pct)}</td>
+                    <td className="px-4 py-3 text-right text-steel">{day.changeover_count}</td>
+                    <td className="px-4 py-3 text-right text-steel">{Math.round(day.changeover_loss_m2)}</td>
+                    <td className="px-4 py-3 text-right text-steel">{formatPercent(day.utilisation_pct)}</td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>

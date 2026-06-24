@@ -690,6 +690,29 @@ first time-in-stage read off the log. Definitions:
   plus a wait-before-stage chart, a headline lead-time figure, and a table whose per-segment columns
   follow the chosen view. This is bottleneck visibility only; it never changes workflow or queue behavior.
 
+### "Good day" stats (NA50)
+
+`ManagerService.get_good_day_stats` (manager/admin only, `GET /manager/stats/good-day`, AUTOMATIC line by
+default) is the **read-side of the capacity model** — the volume/composition stats above answer "how much,
+split how", but not whether the day was *good* as the multi-day capacity model defines it
+(`FACTORY_DOMAIN_MODEL` §7). Per day, off the stage-transition log:
+
+- **m² vs the profitable floor** — output m² (the day's `PACKING`-done area) against the floor, with
+  `met_floor` + the shortfall. **Assumption:** the actual shift length run on a past day is not persisted,
+  so every day is measured against the **long-day full-shift bar** (800 m² over 14 h); when historical
+  shift length is recorded this can become per-day.
+- **On-time %** — of the day's completions, the share whose `PACKING`-done date is on/before the hard
+  `planned_pickup_date` (required since N49-1). Scoped to the requested line's completions.
+- **Colour-changeover loss** — the day's colour-change count × the learned per-change cost (N49-2),
+  expressed as m² of booth capacity burned (the same `changeover_loss_m2` arithmetic the planner uses) —
+  now a *historical* stat, not only a planning preview.
+- **Diagnostics:** the day's effective booth **rate** (m²/h, from that day's bracketed passes) and
+  **utilisation / idle** (booth-active hours vs the shift — "fabryka nie stała").
+
+Period totals roll these up (days met floor, overall on-time %, total changeover loss, avg utilisation).
+Pure arithmetic lives in `app/manager/good_day.py`; the Statystyki page renders a "Dobry dzień" section
+(headline cards + a per-day table, below-floor days highlighted). Read-only; never changes workflow.
+
 ### Live WIP-aging ("stuck orders")
 
 `ManagerService.get_work_in_progress_aging` (manager/admin only, `GET /manager/stats/wip-aging`) is a

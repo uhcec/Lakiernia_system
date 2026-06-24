@@ -5,6 +5,7 @@ import type {
   AutoScheduleProposal,
   CorrectionReasonReportItem,
   CycleTimeStats,
+  GoodDayStats,
   ReorderQueueRequest,
   ScheduleRuleConfigRead,
   ScheduleRuleConfigUpdate,
@@ -114,6 +115,25 @@ export async function fetchCycleTimeStats(dateFrom: string, dateTo: string): Pro
   }
 
   return response.json() as Promise<CycleTimeStats>;
+}
+
+export async function fetchGoodDayStats(dateFrom: string, dateTo: string): Promise<GoodDayStats> {
+  const url = new URL(createApiUrl("/manager/stats/good-day"), window.location.origin);
+  url.searchParams.set("date_from", dateFrom);
+  url.searchParams.set("date_to", dateTo);
+  const finalUrl = createApiUrl("/manager/stats/good-day").startsWith("http")
+    ? url.toString()
+    : `${url.pathname}${url.search}`;
+
+  const response = await fetch(finalUrl, {
+    headers: { Accept: "application/json", ...getCurrentStationHeaders() },
+  });
+
+  if (!response.ok) {
+    throw await createApiError(response, "Nie udało się pobrać statystyk dobrego dnia");
+  }
+
+  return response.json() as Promise<GoodDayStats>;
 }
 
 export async function fetchWipAging(): Promise<WipAgingStats> {

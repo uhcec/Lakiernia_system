@@ -144,3 +144,48 @@ export interface AutoScheduleProposal {
   colour_changeover_reduction: number;
   proposed_order: WorkOrder[];
 }
+
+// Good-day stats (NA50): the capacity model's definition of a good day.
+export interface GoodDayMetrics {
+  day: string;
+  output_m2: number;
+  floor_m2: number;
+  met_floor: boolean;
+  floor_shortfall_m2: number;
+  orders_completed: number;
+  orders_on_time: number;
+  on_time_pct: number | null;
+  changeover_count: number;
+  changeover_minutes_total: number;
+  changeover_loss_m2: number;
+  shift_hours: number;
+  active_hours: number;
+  idle_hours: number;
+  utilisation_pct: number | null;
+  rate_m2_per_h: number;
+  rate_is_measured: boolean;
+}
+
+export interface GoodDayTotals {
+  days_count: number;
+  days_met_floor: number;
+  total_output_m2: number;
+  orders_completed: number;
+  orders_on_time: number;
+  on_time_pct: number | null;
+  total_changeover_count: number;
+  total_changeover_loss_m2: number;
+  avg_utilisation_pct: number | null;
+}
+
+export interface GoodDayStats {
+  production_type: ProductionTypeValue;
+  date_from: string;
+  date_to: string;
+  floor_m2: number;
+  shift_hours: number;
+  changeover_minutes_each: number;
+  changeover_is_measured: boolean;
+  days: GoodDayMetrics[];
+  totals: GoodDayTotals;
+}

@@ -519,7 +519,24 @@ only. Five elements, top to bottom:
   pieces total; covered by tests.
 
 ### NA50. Statystyki measure volume/composition but are blind to the redefined "good day"
-- Status: **OPEN** — verification finding (clean-slate process session, 2026-06-23), confirmed in code.
+- Status: **DONE (2026-06-24).** New read-side of the capacity model: pure DB-free core
+  `app/manager/good_day.py` (`summarize_day` / `summarize_period`) + `ManagerService.get_good_day_stats`
+  (manager-gated, `GET /manager/stats/good-day`, AUTOMATIC default) computes, **per day off the
+  stage-transition log**, the headline trio — **m² vs the profitable floor** (`met_floor` + shortfall),
+  **on-time %** (PACKING-done ≤ the hard `planned_pickup_date` from N49-1), and **colour-changeover
+  loss** (the day's change count × the learned N49-2 per-change cost → m² of booth capacity, the shared
+  `changeover_loss_m2`) — plus the two diagnostics, **effective booth rate** (m²/h from the day's
+  bracketed passes) and **utilisation / idle** ("fabryka nie stała"). Period totals roll up days-met-floor,
+  overall on-time %, total loss, avg utilisation. Frontend: a "Dobry dzień" section on `StatystykiPage`
+  (headline cards + per-day table, below-floor days highlighted). **Assumption flagged:** historical shift
+  length isn't persisted, so every day is measured against the long-day full-shift bar (800 m² / 14 h);
+  on-time + booth metrics are line-scoped. No schema change (read-only over existing tables); `alembic
+  check` clean. Tests: `tests/test_good_day.py` (5 pure: floor/on-time/changeover-loss/idle, period
+  roll-up, empty) + `tests/test_good_day_service.py` (4 service/DB: floor+on-time, below-floor flag,
+  changeover loss counts colour changes, manager gating). 576 backend + 90 frontend pass; both builds green.
+  Owner to confirm: the headline set, whether on-time should be **factory-wide** (both lines) rather than
+  per-line, and whether the floor should use a recorded per-day shift length once that is captured.
+  - Original framing — verification finding (clean-slate process session, 2026-06-23), confirmed in code.
 - Severity: **MEDIUM** (manager-facing truth — the stats answer the *old* question, not the one the
   multi-day capacity model now defines as a good day).
 - Finding: `ThroughputPeriod` (`app/manager/schemas.py:54-67`) reports m² split by method + coating, the

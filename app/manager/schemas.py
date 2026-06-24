@@ -241,6 +241,65 @@ class LineMeasurementStats(BaseModel):
     changeover: ColourChangeoverMeasurement
 
 
+class GoodDayMetricsRead(BaseModel):
+    """One day measured against the capacity model's definition of a good day (NA50).
+
+    Headline trio: ``output_m2`` vs the profitable ``floor_m2`` (``met_floor``), ``on_time_pct``
+    (deadlines are hard), and the colour-``changeover_loss_m2`` capacity burned. Diagnostics:
+    ``rate_m2_per_h`` (effective booth speed that day) and ``utilisation_pct`` / ``idle_hours``
+    ("fabryka nie stała").
+    """
+
+    day: date
+    output_m2: float
+    floor_m2: float
+    met_floor: bool
+    floor_shortfall_m2: float
+    orders_completed: int
+    orders_on_time: int
+    on_time_pct: float | None
+    changeover_count: int
+    changeover_minutes_total: float
+    changeover_loss_m2: float
+    shift_hours: float
+    active_hours: float
+    idle_hours: float
+    utilisation_pct: float | None
+    rate_m2_per_h: float
+    rate_is_measured: bool
+
+
+class GoodDayTotalsRead(BaseModel):
+    days_count: int
+    days_met_floor: int
+    total_output_m2: float
+    orders_completed: int
+    orders_on_time: int
+    on_time_pct: float | None
+    total_changeover_count: int
+    total_changeover_loss_m2: float
+    avg_utilisation_pct: float | None
+
+
+class GoodDayStats(BaseModel):
+    """Per-day good-day metrics for a line over a window, plus the period roll-up (NA50).
+
+    ``floor_m2`` / ``shift_hours`` are the bar each day is measured against (the long-day full-shift
+    constants — historical shift length is not yet persisted, see the service note);
+    ``changeover_minutes_each`` is the learned per-change cost (N49-2) used to value the changeover loss.
+    """
+
+    production_type: ProductionType
+    date_from: date
+    date_to: date
+    floor_m2: float
+    shift_hours: float
+    changeover_minutes_each: float
+    changeover_is_measured: bool
+    days: list[GoodDayMetricsRead]
+    totals: GoodDayTotalsRead
+
+
 class DayCapacityRead(BaseModel):
     """One working day as a capacity bucket — floor + ceiling + how the line's planned work fills it.
 
