@@ -562,6 +562,12 @@ only. Five elements, top to bottom:
   each derivable from the stage-transition log; covered by tests; owner confirms the headline set.
 
 ### NA51. The multi-day board and the real queue are two decoupled orderings, with no way to reconcile them
+- **Owner decision (2026-06-24): BLEND (show both)** — the board shows the manager's *actual* queue order
+  AND the system's *suggested* (EDF + light→dark) order side by side, with an **"Zastosuj" (Apply to queue)**
+  action that writes the suggested order back to `queue_position`. Resolves the confusion (the manager can
+  always see what the line really runs) while keeping the optimisation available on demand. Pin/urgent stays
+  the deferred NA49.K. Needs a backend mutate (apply derived order → `queue_position`, reusing
+  `reorder_queue`) + the suggested order surfaced per line + the two-column UI.
 - Status: **OPEN — owner-surfaced 2026-06-24** while looking at the live planner: the multi-day board
   showed orders 0114/0115 "today", but those two are **not** the first orders worked today per the actual
   line queue. Owner: "trochę nie rozumiem czy to tak specjalnie czy co." It is partly intentional (the
@@ -681,7 +687,19 @@ only. Five elements, top to bottom:
   directly. Covered by `tests/test_planner_changeover_bound_na52.py`.
 
 ### NA53. Good-day per-day "effective booth rate" is almost always the seed (dead diagnostic)
-- Status: **OPEN — found 2026-06-24 (code review of the N49 series).**
+- **Owner decision (2026-06-24): PERIOD FIGURE ONLY** — drop the per-day rate; show booth rate as a
+  period total (where ≥3 passes is realistic). Don't show a seed dressed as a per-day measurement.
+- Status: **DONE (2026-06-24).** Removed the per-day `rate_m2_per_h` / `rate_is_measured` from
+  `GoodDayMetricsRead` (they were declared but never even rendered) and added them to `GoodDayTotalsRead`
+  as a **period** figure: `get_good_day_stats` computes `measure_automatic_rate(observations)` once over
+  the whole window (idle gaps fall out of the union) — measured once ≥ 3 passes are bracketed, else the
+  57 m²/h seed flagged `rate_is_measured=False`. Per-day `active_hours` (for utilisation/idle) is still
+  derived per day. Frontend: dropped the unused per-day fields from the `GoodDayMetrics` type, added a
+  "Tempo kabiny (okres)" headline card on `StatystykiPage` with a zmierzone / "szacunkowo (za mało
+  przejazdów)" marker (grid widened to 5). Tests: `tests/test_good_day_service.py` gains
+  measured-with-≥3-passes (600 m²/h) and seed-when-sparse cases. 580 backend + 92 frontend pass; both
+  builds green; `alembic check` clean (no schema change). `docs/WORKFLOW.md` good-day diagnostics updated.
+- Status (original): **OPEN — found 2026-06-24 (code review of the N49 series).**
 - Severity: **LOW** (a diagnostic that silently shows a constant, not a defect in the headline metrics).
 - Problem: `get_good_day_stats` computes the per-day rate with `measure_automatic_rate(day_passes)`
   (`app/manager/service.py:885`), which only reports a *measured* rate once it has `MIN_RATE_SAMPLE_ORDERS = 3`
@@ -696,6 +714,10 @@ only. Five elements, top to bottom:
   by a test asserting a low-volume day is not presented as measured.
 
 ### NA54. Paint hard-block is binary on starting stock, not demand-aware
+- **Owner decision (2026-06-24): DEMAND-AWARE BLOCK** — hard-block when the *first* planned order's
+  predicted demand already exceeds available stock (the "myśleli że jest, a jej nie ma" case), not only
+  when the colour is already at ≤ 0 kg. Keep the manual-used-colour low-confidence caveat (warn, never
+  hard-block there).
 - Status: **OPEN — found 2026-06-24 (code review of the N49 series).** Possibly intentional — confirm with
   owner.
 - Severity: **LOW** (the WARNING still fires; this is about which signal the gate trusts as *hard*).
@@ -735,6 +757,9 @@ only. Five elements, top to bottom:
   test.
 
 ### NA56. Planner working-day calendar is a hardcoded Mon–Fri assumption, and day 0 is always treated as a full day
+- **Owner decision (2026-06-24): keep Mon–Fri (make the weekend set configurable, no holiday list yet) and
+  PRO-RATE today** — day 0's capacity is shrunk to the shift hours left when the plan is computed (a plan
+  built at 16:00 of a shift ending 21:00 has ~5 h of day-0 capacity), instead of always assuming a full day.
 - Status: **OPEN — found 2026-06-24 (code review of the N49 series).** Flagged as an ASSUMPTION in code;
   needs owner confirmation.
 - Severity: **LOW** (placement is advisory/read-only; mis-dating only affects the forecast).

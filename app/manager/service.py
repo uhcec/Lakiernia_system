@@ -901,7 +901,9 @@ class ManagerService:
                     for observation in day_passes
                 ]
             )
-            rate = measure_automatic_rate(day_passes)
+            # The day's booth-active hours (union of its passes) drive utilisation/idle; the *rate* is a
+            # period figure (NA53), so we only need active_hours here, not the per-day effective rate.
+            day_active_hours = measure_automatic_rate(day_passes).active_hours
 
             metrics = summarize_day(
                 DayActivity(
@@ -910,7 +912,7 @@ class ManagerService:
                     orders_completed=int(row.completed or 0),
                     orders_on_time=int(row.on_time or 0),
                     changeover_count=changeover_count,
-                    active_hours=rate.active_hours,
+                    active_hours=day_active_hours,
                 ),
                 floor_m2=FLOOR_LONG_M2,
                 shift_hours=SHIFT_LONG_HOURS,
@@ -935,8 +937,6 @@ class ManagerService:
                     active_hours=metrics.active_hours,
                     idle_hours=metrics.idle_hours,
                     utilisation_pct=metrics.utilisation_pct,
-                    rate_m2_per_h=rate.effective_rate_m2_per_h,
-                    rate_is_measured=rate.is_measured,
                 )
             )
 
@@ -958,6 +958,10 @@ class ManagerService:
                 )
             ]
         )
+        # Effective booth rate is a PERIOD figure (NA53): one day rarely has the ≥ 3 bracketed passes
+        # needed to measure it, so the whole window's passes give a real rate (idle gaps fall out of the
+        # union) instead of a per-day column that just echoes the seed.
+        period_rate = measure_automatic_rate(observations)
 
         return GoodDayStats(
             production_type=production_type,
@@ -978,6 +982,8 @@ class ManagerService:
                 total_changeover_count=totals.total_changeover_count,
                 total_changeover_loss_m2=totals.total_changeover_loss_m2,
                 avg_utilisation_pct=totals.avg_utilisation_pct,
+                rate_m2_per_h=period_rate.effective_rate_m2_per_h,
+                rate_is_measured=period_rate.is_measured,
             ),
         )
 

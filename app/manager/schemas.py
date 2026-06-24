@@ -245,9 +245,10 @@ class GoodDayMetricsRead(BaseModel):
     """One day measured against the capacity model's definition of a good day (NA50).
 
     Headline trio: ``output_m2`` vs the profitable ``floor_m2`` (``met_floor``), ``on_time_pct``
-    (deadlines are hard), and the colour-``changeover_loss_m2`` capacity burned. Diagnostics:
-    ``rate_m2_per_h`` (effective booth speed that day) and ``utilisation_pct`` / ``idle_hours``
-    ("fabryka nie stała").
+    (deadlines are hard), and the colour-``changeover_loss_m2`` capacity burned. Diagnostic:
+    ``utilisation_pct`` / ``idle_hours`` ("fabryka nie stała"). The effective booth **rate** is a
+    *period* figure (``GoodDayTotalsRead.rate_m2_per_h``), not per-day — a single day rarely has the
+    ≥ 3 bracketed passes needed to measure it, so a per-day rate would just echo the seed (NA53).
     """
 
     day: date
@@ -265,8 +266,6 @@ class GoodDayMetricsRead(BaseModel):
     active_hours: float
     idle_hours: float
     utilisation_pct: float | None
-    rate_m2_per_h: float
-    rate_is_measured: bool
 
 
 class GoodDayTotalsRead(BaseModel):
@@ -279,6 +278,10 @@ class GoodDayTotalsRead(BaseModel):
     total_changeover_count: int
     total_changeover_loss_m2: float
     avg_utilisation_pct: float | None
+    # Effective booth rate over the whole period (measured once ≥ 3 passes are bracketed, else the seed) —
+    # a period figure because a single day rarely has enough passes to measure it (NA53).
+    rate_m2_per_h: float
+    rate_is_measured: bool
 
 
 class GoodDayStats(BaseModel):

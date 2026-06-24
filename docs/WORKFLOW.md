@@ -726,8 +726,10 @@ split how", but not whether the day was *good* as the multi-day capacity model d
   `changeover_loss_m2` arithmetic the planner uses) — now a *historical* stat, not only a planning
   preview. (Uses the bounded cost, **not** the N49-2 statistical estimate — that estimate is inflated by
   overnight/idle gaps and would report a loss larger than the day's output; NA52.)
-- **Diagnostics:** the day's effective booth **rate** (m²/h, from that day's bracketed passes) and
-  **utilisation / idle** (booth-active hours vs the shift — "fabryka nie stała").
+- **Diagnostics:** **utilisation / idle** per day (booth-active hours vs the shift — "fabryka nie stała"),
+  and the effective booth **rate** as a **period** figure (m²/h over the whole window) — not per-day,
+  since one day rarely has the ≥ 3 bracketed passes needed to measure a rate, so a per-day column would
+  just echo the seed (NA53).
 
 Period totals roll these up (days met floor, overall on-time %, total changeover loss, avg utilisation).
 Pure arithmetic lives in `app/manager/good_day.py`; the Statystyki page renders a "Dobry dzień" section

@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.audit.context import StationContext
 from app.manager.capacity import FLOOR_LONG_M2
+from app.manager.measurement import SEED_AUTOMATIC_RATE_M2_PER_H
 from app.manager.repository import ManagerRepository
 from app.manager.service import ManagerService
 from app.process.enums import CoatingType, ProcessStage, ProductionType, StageStatus
@@ -137,6 +138,34 @@ def test_changeover_loss_counts_colour_changes(db_session: Session) -> None:
     assert day.changeover_minutes_total > 0.0
     assert day.changeover_loss_m2 > 0.0
     assert day.active_hours > 0.0
+
+
+def test_period_booth_rate_is_measured_with_enough_passes(db_session: Session) -> None:
+    work_order_service, manager_service = _build(db_session)
+    t0 = datetime(2026, 6, 11, 7, 0, tzinfo=UTC)
+    # Three overlapping 1 h passes of 200 m² each (same colour) → union 1 h, 600 m² → 600 m²/h period rate.
+    for i in range(3):
+        order = _create(work_order_service, f"A{i}", m2=200.0)
+        _complete_pass(db_session, order.id, hang_at=t0, pack_at=t0 + timedelta(hours=1))
+
+    stats = manager_service.get_good_day_stats(date(2026, 6, 11), date(2026, 6, 11), station_context=MANAGER)
+
+    # The booth rate is a PERIOD figure on the totals, not per-day (NA53); with ≥ 3 passes it's measured.
+    assert stats.totals.rate_is_measured is True
+    assert stats.totals.rate_m2_per_h == 600.0
+
+
+def test_period_booth_rate_falls_back_to_seed_when_sparse(db_session: Session) -> None:
+    work_order_service, manager_service = _build(db_session)
+    t0 = datetime(2026, 6, 11, 7, 0, tzinfo=UTC)
+    # A single pass → below the 3-pass floor → the period rate reports the seed, flagged unmeasured.
+    order = _create(work_order_service, "A1", m2=200.0)
+    _complete_pass(db_session, order.id, hang_at=t0, pack_at=t0 + timedelta(hours=1))
+
+    stats = manager_service.get_good_day_stats(date(2026, 6, 11), date(2026, 6, 11), station_context=MANAGER)
+
+    assert stats.totals.rate_is_measured is False
+    assert stats.totals.rate_m2_per_h == SEED_AUTOMATIC_RATE_M2_PER_H
 
 
 def test_good_day_stats_requires_manager(db_session: Session) -> None:

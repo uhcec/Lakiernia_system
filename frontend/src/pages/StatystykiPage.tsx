@@ -414,7 +414,7 @@ export function StatystykiPage() {
               długiego (zmiana {goodDayStats.shift_hours} h) — historyczna długość zmiany nie jest zapisywana.
             </p>
           </div>
-          <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
             <div className="rounded-2xl border border-line bg-white p-4">
               <p className="text-xs uppercase tracking-wide text-steel">Dni ponad progiem</p>
               <p className="mt-1 text-2xl font-semibold text-ink">
@@ -437,6 +437,15 @@ export function StatystykiPage() {
               <p className="text-xs uppercase tracking-wide text-steel">Śr. wykorzystanie</p>
               <p className="mt-1 text-2xl font-semibold text-ink">
                 {formatPercent(goodDayStats.totals.avg_utilisation_pct)}
+              </p>
+            </div>
+            <div className="rounded-2xl border border-line bg-white p-4">
+              <p className="text-xs uppercase tracking-wide text-steel">Tempo kabiny (okres)</p>
+              <p className="mt-1 text-2xl font-semibold text-ink">
+                {Math.round(goodDayStats.totals.rate_m2_per_h)} m²/h
+              </p>
+              <p className="mt-0.5 text-[11px] text-steel">
+                {goodDayStats.totals.rate_is_measured ? "zmierzone" : "szacunkowo (za mało przejazdów)"}
               </p>
             </div>
           </div>
