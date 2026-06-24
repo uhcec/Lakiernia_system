@@ -1,20 +1,58 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { fetchMultiDayPlan } from "../api/managerApi";
+import { fetchMultiDayPlan, reorderWorkOrderQueue } from "../api/managerApi";
 import { STATION_POLL_INTERVAL_MS, usePolling } from "../hooks/usePolling";
 import type { MultiDayPlan, OrderPlacement, PlannedDay } from "../types/manager";
 import type { ProductionTypeValue } from "../types/workOrders";
 
-// Read-only multi-day capacity board (N49-9): a line's planned work laid across the next working days —
-// each day a column filling toward its floor/ceiling, orders in the backend's light→dark sweep order,
-// with below-floor / at-risk-deadline / paint flags. The line is selectable (MANUAL / AUTOMATIC, NA55)
-// and the board refreshes on the station poll cadence so it tracks work planned on other devices.
-// Drag-between-days and pin/urgent (NA49.K) are a deliberate follow-up (they need a backend mutate +
-// migration); this surface renders what the planner derives so the manager sees the shape of the week.
+// Multi-day capacity board (N49-9): a line's planned work laid across the next working days — each day a
+// column filling toward its floor/ceiling, orders in the backend's light→dark sweep order, with
+// below-floor / at-risk-deadline / paint flags. The line is selectable (MANUAL / AUTOMATIC, NA55) and the
+// board refreshes on the station poll cadence. The columns show the system's *suggested* order; a
+// comparison strip (NA51) shows the manager's *actual* queue order beside it with an "Zastosuj plan"
+// action that writes the suggested order back to the live queue (reusing the queue-reorder endpoint).
+// Drag-between-days and pin/urgent (NA49.K) remain a deliberate follow-up.
 
 const LINE_OPTIONS: { value: ProductionTypeValue; label: string }[] = [
   { value: "AUTOMATIC", label: "Automat" },
   { value: "MANUAL", label: "Ręczna" },
 ];
+
+/** All placements across days, in the plan's *suggested* execution order (by day, then sweep slot). */
+function suggestedOrder(plan: MultiDayPlan): OrderPlacement[] {
+  return plan.days
+    .flatMap((day) => day.placements)
+    .sort((a, b) => a.day_index - b.day_index || a.sequence_position - b.sequence_position);
+}
+
+/** The same orders in the manager's *current* live queue order (by queue_position). */
+function currentQueueOrder(plan: MultiDayPlan): OrderPlacement[] {
+  return plan.days
+    .flatMap((day) => day.placements)
+    .sort(
+      (a, b) =>
+        (a.queue_position ?? Number.MAX_SAFE_INTEGER) - (b.queue_position ?? Number.MAX_SAFE_INTEGER) ||
+        a.work_order_id - b.work_order_id,
+    );
+}
+
+function sameOrder(a: OrderPlacement[], b: OrderPlacement[]): boolean {
+  return a.length === b.length && a.every((placement, index) => placement.work_order_id === b[index].work_order_id);
+}
+
+function OrderChips({ placements }: { placements: OrderPlacement[] }) {
+  return (
+    <div className="flex flex-wrap items-center gap-1">
+      {placements.map((placement, index) => (
+        <span key={placement.work_order_id} className="flex items-center gap-1">
+          {index > 0 ? <span className="text-steel/60">→</span> : null}
+          <span className="rounded-full bg-white px-2 py-0.5 text-[11px] font-semibold text-ink">
+            {placement.order_number}
+          </span>
+        </span>
+      ))}
+    </div>
+  );
+}
 
 function formatDayHeader(scheduledDate: string | null, dayIndex: number): string {
   if (!scheduledDate) return `Dzień ${dayIndex + 1}`;
@@ -112,6 +150,8 @@ export function CapacityBoard() {
   const [line, setLine] = useState<ProductionTypeValue>("AUTOMATIC");
   const [plan, setPlan] = useState<MultiDayPlan | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [applying, setApplying] = useState(false);
+  const [applyError, setApplyError] = useState<string | null>(null);
   // The line currently requested, so a response that arrives after the manager switched lines is ignored.
   const lineRef = useRef(line);
   lineRef.current = line;
@@ -134,14 +174,45 @@ export function CapacityBoard() {
   useEffect(() => {
     setPlan(null);
     setError(null);
+    setApplyError(null);
     load();
   }, [line, load]);
 
   // Keep the board current with work planned on other devices (same cadence as the station boards).
   usePolling(load, STATION_POLL_INTERVAL_MS);
 
+  // Apply the suggested order to the live queue (NA51): write the placements' day→sweep order back as
+  // queue positions via the existing queue-reorder endpoint, with the plan's revision for stale-write
+  // protection, then refetch so the "current" order matches the suggestion.
+  const applySuggestedOrder = useCallback(async () => {
+    if (!plan || plan.queue_revision == null) return;
+    const ordered = suggestedOrder(plan);
+    setApplying(true);
+    setApplyError(null);
+    try {
+      await reorderWorkOrderQueue({
+        production_type: plan.production_type,
+        queue_revision: plan.queue_revision,
+        items: ordered.map((placement, index) => ({
+          work_order_id: placement.work_order_id,
+          queue_position: index + 1,
+        })),
+      });
+      load();
+    } catch (caught) {
+      setApplyError(caught instanceof Error ? caught.message : "Nie udało się zastosować planu");
+      load();
+    } finally {
+      setApplying(false);
+    }
+  }, [plan, load]);
+
   const hasWork = plan?.days.some((day) => day.placements.length > 0) ?? false;
   const lineLabel = LINE_OPTIONS.find((option) => option.value === line)?.label ?? "";
+  const suggested = plan ? suggestedOrder(plan) : [];
+  const current = plan ? currentQueueOrder(plan) : [];
+  const orderMatches = sameOrder(current, suggested);
+  const canApply = plan != null && plan.queue_revision != null && !orderMatches;
 
   return (
     <section className="rounded-[2rem] border border-white/70 bg-white/80 p-6 shadow-panel backdrop-blur sm:p-8">
@@ -179,6 +250,45 @@ export function CapacityBoard() {
           </p>
         ) : null}
       </div>
+      {plan && !error && hasWork ? (
+        <div className="mb-4 rounded-2xl border border-line bg-mist/40 p-4">
+          {orderMatches ? (
+            <p className="text-sm font-medium text-emerald-700">
+              Kolejność na linii jest zgodna z planem.
+            </p>
+          ) : (
+            <div className="flex flex-col gap-3">
+              <p className="text-sm text-steel">
+                Plan kolumnowy poniżej to <span className="font-semibold text-ink">sugerowana</span>{" "}
+                kolejność; linia pracuje teraz w <span className="font-semibold text-ink">twojej</span>{" "}
+                kolejności. Zastosuj plan, aby zapisać go do kolejki.
+              </p>
+              <div className="grid gap-2 sm:grid-cols-[7rem_1fr] sm:items-center">
+                <p className="text-[11px] uppercase tracking-wide text-steel">Twoja kolejność</p>
+                <OrderChips placements={current} />
+                <p className="text-[11px] uppercase tracking-wide text-steel">Sugerowana</p>
+                <OrderChips placements={suggested} />
+              </div>
+              <div className="flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  onClick={applySuggestedOrder}
+                  disabled={applying || !canApply}
+                  className={[
+                    "rounded-full px-5 py-1.5 text-sm font-semibold transition",
+                    applying || !canApply
+                      ? "cursor-not-allowed bg-line text-steel"
+                      : "bg-accent text-white hover:opacity-90",
+                  ].join(" ")}
+                >
+                  {applying ? "Zapisywanie…" : "Zastosuj plan"}
+                </button>
+                {applyError ? <span className="text-sm font-medium text-rose-700">{applyError}</span> : null}
+              </div>
+            </div>
+          )}
+        </div>
+      ) : null}
       {error ? (
         <div className="rounded-2xl border border-rose-200 bg-rose-50 px-5 py-4 text-sm text-rose-700">{error}</div>
       ) : !plan ? null : hasWork ? (

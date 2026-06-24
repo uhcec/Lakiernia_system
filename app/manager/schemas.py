@@ -349,6 +349,9 @@ class OrderPlacementRead(BaseModel):
     customer_name: str
     ral_code: str | None
     total_area_m2: float | None
+    # The order's CURRENT live queue position on its line (NA51) — lets the board show the manager's
+    # actual running order alongside the suggested plan order, and apply the suggestion back to the queue.
+    queue_position: int | None
     day_index: int
     # 0-based position within the day's light→dark sweep (N49-5).
     sequence_position: int
@@ -410,6 +413,9 @@ class MultiDayPlanRead(BaseModel):
     changeover_is_measured: bool
     days: list[PlannedDayRead]
     infeasible_order_ids: list[int]
+    # The line's queue snapshot the plan was built from (NA51) — the board echoes it back to
+    # ``/manager/queue/reorder`` when the manager applies the suggested order, for stale-write protection.
+    queue_revision: datetime | None
 
 
 class OrderPaintFeasibilityRead(BaseModel):

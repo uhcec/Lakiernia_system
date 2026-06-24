@@ -477,14 +477,21 @@ line in execution order, costing each colour series down against its stock: **BL
 stock, or the first order exceeds stock), **WARNING** (runs short partway, or manual-used low-confidence),
 or **OK**. The same per-order status is attached to each `multi-day` placement, so an order planned while
 in stock surfaces as BLOCKED once its colour later depletes.
-**Capacity board (N49-9, `frontend/src/components/CapacityBoard.tsx`):** a read-only multi-day board on
-the manager panel renders `GET /manager/planner/multi-day` for the automatic line — each working day a
-column filling toward its floor/net-ceiling (a fill bar with the floor marked), orders listed in the
-backend's light→dark sweep order, with the derived flags surfaced (below-floor / over-ceiling per day;
-per-order at-risk-deadline + days-late, and the N49-7 paint BLOCKED / WARNING markers), plus a banner for
-the "won't make it" `infeasible_order_ids` set. The board only **renders** what the planner derives — it
-never recomputes capacity/deadline/paint meaning locally. Drag-between-days and pin/urgent (the deferred
-**NA49.K**) are a follow-up: they need a backend mutate + schema, so the first cut is read-only.
+**Capacity board (N49-9, `frontend/src/components/CapacityBoard.tsx`):** a multi-day board on the manager
+panel renders `GET /manager/planner/multi-day` — each working day a column filling toward its
+floor/net-ceiling (a fill bar with the floor marked), orders listed in the backend's light→dark sweep
+order, with the derived flags surfaced (below-floor / over-ceiling per day; per-order at-risk-deadline +
+days-late, and the N49-7 paint BLOCKED / WARNING markers), plus a banner for the "won't make it"
+`infeasible_order_ids` set. The board only **renders** what the planner derives — it never recomputes
+capacity/deadline/paint meaning locally. A **line toggle** (MANUAL / AUTOMATIC) selects which line is
+shown and it **refreshes on the station poll cadence** (NA55). **Plan vs queue (the "blend", NA51):** the
+day columns are the system's *suggested* order; the board also shows the manager's *current* queue order
+(each placement carries its live `queue_position`) beside it, and an **"Zastosuj plan"** action writes the
+suggested order back to the live queue — it reuses `POST /manager/queue/reorder` with the plan's
+`queue_revision` for stale-write protection (no new mutate/schema), so "what you see" can become "what the
+line runs". When the live order already equals the suggestion the board says so and hides the action.
+Drag-between-days and pin/urgent (the deferred **NA49.K**) remain a follow-up: they need a persisted
+pin/urgent flag the re-optimise respects.
 Trust is earned in three phases: (1) **observer** — manager plans manually, the system only shows
 day-fill vs floor/ceiling and the changeover count; (2) **suggester** — the system proposes the
 arrangement, the manager edits; (3) **trusted** — the system arrangement is the default and the manager

@@ -14,7 +14,11 @@ from sqlalchemy.orm import Session
 from app.audit.context import StationContext
 from app.manager.capacity import ShiftLength
 from app.manager.repository import ManagerRepository
-from app.manager.schemas import WorkOrderPlanAssignRequest
+from app.manager.schemas import (
+    WorkOrderPlanAssignRequest,
+    WorkOrderQueueReorderBatchRequest,
+    WorkOrderQueueReorderRequest,
+)
 from app.manager.service import ManagerService
 from app.process.enums import CoatingType, ProductionType
 from app.shared.enums import StationId
@@ -144,6 +148,56 @@ def test_day_zero_is_prorated_when_planned_mid_shift(db_session: Session) -> Non
     assert plan.days[0].gross_ceiling_m2 == 400.0
     assert plan.days[0].placed_m2 == 400.0
     assert plan.days[1].gross_ceiling_m2 == 1120.0
+
+
+def test_plan_carries_queue_position_and_revision_for_the_blend(db_session: Session) -> None:
+    work_order_service, manager_service = _build(db_session)
+    _plan_automatic(work_order_service, manager_service, "A1", "RAL 9010", 200.0, _COMFORTABLE)
+    _plan_automatic(work_order_service, manager_service, "A2", "RAL 9010", 200.0, _COMFORTABLE)
+
+    plan = manager_service.get_multi_day_plan(station_context=MANAGER, now=_MORNING)
+
+    # NA51: the board needs each order's live queue position + the line's revision to show "your order"
+    # vs the suggestion and apply it back to the queue.
+    assert plan.queue_revision is not None
+    placements = [p for day in plan.days for p in day.placements]
+    assert all(p.queue_position is not None for p in placements)
+
+
+def test_suggested_order_applies_back_via_reorder_queue(db_session: Session) -> None:
+    # Plan dark→light→mid (queue order A,B,C); the suggested sweep is light→dark = B, C, A. Applying that
+    # order through the existing reorder endpoint (the board's "Zastosuj plan") must rewrite the queue.
+    work_order_service, manager_service = _build(db_session)
+    a_dark = _plan_automatic(work_order_service, manager_service, "A", "RAL 9005", 100.0, _COMFORTABLE)
+    b_light = _plan_automatic(work_order_service, manager_service, "B", "RAL 9010", 100.0, _COMFORTABLE)
+    c_mid = _plan_automatic(work_order_service, manager_service, "C", "RAL 7035", 100.0, _COMFORTABLE)
+
+    plan = manager_service.get_multi_day_plan(station_context=MANAGER, now=_MORNING)
+    suggested = sorted(
+        (p for day in plan.days for p in day.placements),
+        key=lambda p: (p.day_index, p.sequence_position),
+    )
+    assert [p.work_order_id for p in suggested] == [b_light, c_mid, a_dark]
+
+    manager_service.reorder_queue(
+        WorkOrderQueueReorderBatchRequest(
+            production_type=ProductionType.AUTOMATIC,
+            queue_revision=plan.queue_revision,
+            items=[
+                WorkOrderQueueReorderRequest(work_order_id=p.work_order_id, queue_position=index + 1)
+                for index, p in enumerate(suggested)
+            ],
+        ),
+        station_context=MANAGER,
+    )
+
+    # After applying, the live queue order matches the suggestion (current == suggested).
+    after = manager_service.get_multi_day_plan(station_context=MANAGER, now=_MORNING)
+    by_queue = sorted(
+        (p for day in after.days for p in day.placements),
+        key=lambda p: p.queue_position,
+    )
+    assert [p.work_order_id for p in by_queue] == [b_light, c_mid, a_dark]
 
 
 def test_multi_day_plan_requires_manager(db_session: Session) -> None:

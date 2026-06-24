@@ -566,9 +566,23 @@ only. Five elements, top to bottom:
   AND the system's *suggested* (EDF + light→dark) order side by side, with an **"Zastosuj" (Apply to queue)**
   action that writes the suggested order back to `queue_position`. Resolves the confusion (the manager can
   always see what the line really runs) while keeping the optimisation available on demand. Pin/urgent stays
-  the deferred NA49.K. Needs a backend mutate (apply derived order → `queue_position`, reusing
-  `reorder_queue`) + the suggested order surfaced per line + the two-column UI.
-- Status: **OPEN — owner-surfaced 2026-06-24** while looking at the live planner: the multi-day board
+  the deferred NA49.K.
+- Status: **DONE (2026-06-24).** No new mutate/schema — the apply **reuses `POST /manager/queue/reorder`**.
+  Backend: `OrderPlacementRead` gained the order's live `queue_position` and `MultiDayPlanRead` gained the
+  line's `queue_revision` (`app/manager/{schemas,service}.py`), so the board has both orderings + the
+  stale-write token from one payload. Frontend (`CapacityBoard.tsx`): the day columns remain the
+  *suggested* order; a comparison strip shows **Twoja kolejność** (placements by `queue_position`) vs
+  **Sugerowana** (by `day_index`, `sequence_position`) and a **"Zastosuj plan"** button that rebuilds the
+  reorder payload (suggested ids → positions 1..n) with the plan's `queue_revision` and calls
+  `reorderWorkOrderQueue`, then refetches; when the live order already equals the suggestion it shows
+  "Kolejność na linii jest zgodna z planem" and hides the button. Works for either line via the NA55
+  toggle. Tests: backend `test_plan_carries_queue_position_and_revision_for_the_blend` +
+  `test_suggested_order_applies_back_via_reorder_queue` (drives a real plan's suggested order through
+  `reorder_queue` and asserts the live queue is rewritten); frontend capacityBoard "applies the suggested
+  order…" (asserts the reorder payload) + the matching-order "zgodna z planem / no button" case. 589
+  backend + 93 frontend pass; both builds green; `alembic check` clean (no schema change). `docs/WORKFLOW.md`
+  capacity-board section updated. NA49.K (drag / pin / urgent) stays deferred (needs a persisted flag).
+- Status (original): **OPEN — owner-surfaced 2026-06-24** while looking at the live planner: the multi-day board
   showed orders 0114/0115 "today", but those two are **not** the first orders worked today per the actual
   line queue. Owner: "trochę nie rozumiem czy to tak specjalnie czy co." It is partly intentional (the
   board sorts by deadline, see below) but exposes a real half-built state, hence this item.

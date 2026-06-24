@@ -1267,6 +1267,7 @@ class ManagerService:
                         customer_name=work_order.customer_name,
                         ral_code=work_order.ral_code,
                         total_area_m2=work_order.total_area_m2,
+                        queue_position=work_order.queue_position,
                         day_index=placement.day_index,
                         sequence_position=position,
                         scheduled_date=placement.scheduled_date,
@@ -1313,6 +1314,7 @@ class ManagerService:
             changeover_is_measured=True,
             days=days,
             infeasible_order_ids=plan.infeasible_order_ids,
+            queue_revision=self.repository.get_planned_queue_revision(production_type),
         )
 
     def _manual_used_colour_keys(self) -> set[str]:

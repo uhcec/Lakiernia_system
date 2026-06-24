@@ -154,6 +154,8 @@ export interface OrderPlacement {
   customer_name: string;
   ral_code: string | null;
   total_area_m2: number | null;
+  // Current live queue position on the line (NA51) — null when not yet positioned.
+  queue_position: number | null;
   day_index: number;
   sequence_position: number;
   scheduled_date: string | null;
@@ -192,6 +194,8 @@ export interface MultiDayPlan {
   changeover_is_measured: boolean;
   days: PlannedDay[];
   infeasible_order_ids: number[];
+  // Queue snapshot the plan was built from (NA51) — echoed back when applying the suggested order.
+  queue_revision: string | null;
 }
 
 // Good-day stats (NA50): the capacity model's definition of a good day.
