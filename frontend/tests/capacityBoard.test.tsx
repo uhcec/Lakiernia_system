@@ -1,12 +1,13 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 // The board fetches the multi-day plan on mount; mock it with a populated plan covering the flag paths
-// (below-floor day, an at-risk-deadline order, a paint-blocked order).
+// (below-floor day, an at-risk-deadline order, a paint-blocked order). The mock echoes the requested
+// production_type so the toggle test can assert which line was fetched.
 vi.mock("../src/api/managerApi", () => ({
-  fetchMultiDayPlan: vi.fn(() =>
+  fetchMultiDayPlan: vi.fn((productionType: "MANUAL" | "AUTOMATIC") =>
     Promise.resolve({
-      production_type: "AUTOMATIC",
+      production_type: productionType,
       shift_length: "LONG",
       shift_advised: true,
       horizon_working_days: 3,
@@ -71,6 +72,7 @@ vi.mock("../src/api/managerApi", () => ({
   ),
 }));
 
+import { fetchMultiDayPlan } from "../src/api/managerApi";
 import { CapacityBoard } from "../src/components/CapacityBoard";
 
 describe("CapacityBoard (N49-9)", () => {
@@ -78,6 +80,8 @@ describe("CapacityBoard (N49-9)", () => {
     render(<CapacityBoard />);
 
     expect(await screen.findByText("Plan wielodniowy")).toBeTruthy();
+    // Defaults to the AUTOMATIC line.
+    expect(fetchMultiDayPlan).toHaveBeenCalledWith("AUTOMATIC", 3);
     // Both orders show in the day column, in sweep order.
     expect(screen.getByText("WO-1")).toBeTruthy();
     expect(screen.getByText("WO-2")).toBeTruthy();
@@ -87,5 +91,15 @@ describe("CapacityBoard (N49-9)", () => {
     expect(screen.getByText("po terminie +1 dn.")).toBeTruthy();
     // The "won't make it" set drives the warning banner.
     expect(screen.getByText(/nie zdąży na termin/)).toBeTruthy();
+  });
+
+  it("switches the line and refetches when the MANUAL toggle is pressed (NA55)", async () => {
+    render(<CapacityBoard />);
+    await screen.findByText("Plan wielodniowy");
+
+    fireEvent.click(screen.getByRole("button", { name: "Ręczna" }));
+
+    await waitFor(() => expect(fetchMultiDayPlan).toHaveBeenCalledWith("MANUAL", 3));
+    expect(screen.getByRole("button", { name: "Ręczna" }).getAttribute("aria-pressed")).toBe("true");
   });
 });

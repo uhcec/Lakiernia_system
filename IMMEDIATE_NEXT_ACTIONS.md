@@ -711,7 +711,18 @@ only. Five elements, top to bottom:
   "some stock, not enough for the first order" case.
 
 ### NA55. CapacityBoard is AUTOMATIC-only and fetches once on mount (no line toggle, no refresh)
-- Status: **OPEN — found 2026-06-24 (code review of the N49 series).** Documented as a "first cut"
+- Status: **DONE (2026-06-24).** `frontend/src/components/CapacityBoard.tsx` now has a **MANUAL / AUTOMATIC
+  line toggle** (segmented control, AUTOMATIC default) and **refreshes on the station poll cadence**
+  (`usePolling` @ `STATION_POLL_INTERVAL_MS`) so it tracks work planned on other devices. The loader
+  guards against a late response for a previously-selected line (`lineRef` compare), drops the old plan on
+  a line switch, and the error/empty states render inside the section so the toggle stays visible. Eyebrow
+  label + empty/description copy are line-agnostic. Frontend-only; no backend change (the
+  `/manager/planner/multi-day` endpoint already accepts `production_type`). Tests:
+  `frontend/tests/capacityBoard.test.tsx` gains a toggle case (pressing "Ręczna" refetches with `MANUAL`
+  and flips `aria-pressed`); the default case now asserts the initial `AUTOMATIC` fetch. 92 frontend tests
+  pass; build (+tsc) green. The board's deeper *nature* (forecast vs recommendation+apply) is still the
+  NA51 owner decision — this only gave the existing read-only board its missing reach.
+- Status (original): **OPEN — found 2026-06-24 (code review of the N49 series).** Documented as a "first cut"
   (N49-9), logged so it isn't lost; partly subsumed by NA51.
 - Severity: **LOW** (the read-only board is correct for what it shows; this is missing reach).
 - Problem: `CapacityBoard.tsx` hardcodes `fetchMultiDayPlan("AUTOMATIC", 10)` in a mount-only effect

@@ -1,12 +1,20 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { fetchMultiDayPlan } from "../api/managerApi";
+import { STATION_POLL_INTERVAL_MS, usePolling } from "../hooks/usePolling";
 import type { MultiDayPlan, OrderPlacement, PlannedDay } from "../types/manager";
+import type { ProductionTypeValue } from "../types/workOrders";
 
-// Read-only multi-day capacity board (N49-9, first cut): the AUTOMATIC line's planned work laid across
-// the next working days — each day a column filling toward its floor/ceiling, orders in the backend's
-// light→dark sweep order, with below-floor / at-risk-deadline / paint flags. Drag-between-days and
-// pin/urgent (NA49.K) are a deliberate follow-up (they need a backend mutate + migration); this surface
-// renders what the planner derives so the manager can see the shape of the week at a glance.
+// Read-only multi-day capacity board (N49-9): a line's planned work laid across the next working days —
+// each day a column filling toward its floor/ceiling, orders in the backend's light→dark sweep order,
+// with below-floor / at-risk-deadline / paint flags. The line is selectable (MANUAL / AUTOMATIC, NA55)
+// and the board refreshes on the station poll cadence so it tracks work planned on other devices.
+// Drag-between-days and pin/urgent (NA49.K) are a deliberate follow-up (they need a backend mutate +
+// migration); this surface renders what the planner derives so the manager sees the shape of the week.
+
+const LINE_OPTIONS: { value: ProductionTypeValue; label: string }[] = [
+  { value: "AUTOMATIC", label: "Automat" },
+  { value: "MANUAL", label: "Ręczna" },
+];
 
 function formatDayHeader(scheduledDate: string | null, dayIndex: number): string {
   if (!scheduledDate) return `Dzień ${dayIndex + 1}`;
@@ -101,49 +109,79 @@ function DayColumn({ day }: { day: PlannedDay }) {
 }
 
 export function CapacityBoard() {
+  const [line, setLine] = useState<ProductionTypeValue>("AUTOMATIC");
   const [plan, setPlan] = useState<MultiDayPlan | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // The line currently requested, so a response that arrives after the manager switched lines is ignored.
+  const lineRef = useRef(line);
+  lineRef.current = line;
 
-  useEffect(() => {
-    let cancelled = false;
-    fetchMultiDayPlan("AUTOMATIC", 3)
+  const load = useCallback(() => {
+    const requested = lineRef.current;
+    fetchMultiDayPlan(requested, 3)
       .then((result) => {
-        if (!cancelled) setPlan(result);
+        if (lineRef.current !== requested) return;
+        setPlan(result);
+        setError(null);
       })
       .catch((caught) => {
-        if (!cancelled) setError(caught instanceof Error ? caught.message : "Nie udało się pobrać planu");
+        if (lineRef.current !== requested) return;
+        setError(caught instanceof Error ? caught.message : "Nie udało się pobrać planu");
       });
-    return () => {
-      cancelled = true;
-    };
   }, []);
 
-  if (error) {
-    return (
-      <section className="rounded-2xl border border-rose-200 bg-rose-50 px-5 py-4 text-sm text-rose-700">{error}</section>
-    );
-  }
-  if (!plan) return null;
+  // Fetch immediately when the selected line changes (drop the old plan so stale data never shows).
+  useEffect(() => {
+    setPlan(null);
+    setError(null);
+    load();
+  }, [line, load]);
 
-  const hasWork = plan.days.some((day) => day.placements.length > 0);
+  // Keep the board current with work planned on other devices (same cadence as the station boards).
+  usePolling(load, STATION_POLL_INTERVAL_MS);
+
+  const hasWork = plan?.days.some((day) => day.placements.length > 0) ?? false;
+  const lineLabel = LINE_OPTIONS.find((option) => option.value === line)?.label ?? "";
 
   return (
     <section className="rounded-[2rem] border border-white/70 bg-white/80 p-6 shadow-panel backdrop-blur sm:p-8">
       <div className="mb-4">
-        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">Automat</p>
-        <h3 className="mt-1 text-2xl font-semibold text-ink">Plan wielodniowy</h3>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">{lineLabel}</p>
+            <h3 className="mt-1 text-2xl font-semibold text-ink">Plan wielodniowy</h3>
+          </div>
+          <div className="inline-flex rounded-full border border-line bg-mist p-1" role="group" aria-label="Linia">
+            {LINE_OPTIONS.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => setLine(option.value)}
+                aria-pressed={line === option.value}
+                className={[
+                  "rounded-full px-4 py-1 text-sm font-semibold transition",
+                  line === option.value ? "bg-white text-ink shadow-sm" : "text-steel hover:text-ink",
+                ].join(" ")}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        </div>
         <p className="mt-2 text-sm text-steel">
-          Zaplanowana praca automatu rozłożona na kolejne dni robocze — każda kolumna wypełnia się do
-          progu zysku i limitu kabiny, w kolejności od jasnych do ciemnych kolorów. Terminy są twarde:
-          zlecenia po terminie i z brakiem farby są oznaczone na czerwono.
+          Zaplanowana praca linii rozłożona na kolejne dni robocze — każda kolumna wypełnia się do progu
+          zysku i limitu kabiny, w kolejności od jasnych do ciemnych kolorów. Terminy są twarde: zlecenia
+          po terminie i z brakiem farby są oznaczone na czerwono.
         </p>
-        {plan.infeasible_order_ids.length > 0 ? (
+        {plan && plan.infeasible_order_ids.length > 0 ? (
           <p className="mt-2 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-700">
             {plan.infeasible_order_ids.length} zleceń nie zdąży na termin w tym oknie planowania.
           </p>
         ) : null}
       </div>
-      {hasWork ? (
+      {error ? (
+        <div className="rounded-2xl border border-rose-200 bg-rose-50 px-5 py-4 text-sm text-rose-700">{error}</div>
+      ) : !plan ? null : hasWork ? (
         <div className="flex gap-3 overflow-x-auto pb-2">
           {plan.days.map((day) => (
             <DayColumn key={day.day_index} day={day} />
@@ -151,7 +189,7 @@ export function CapacityBoard() {
         </div>
       ) : (
         <div className="rounded-3xl border border-dashed border-line bg-mist px-6 py-10 text-center text-sm text-steel">
-          Brak zaplanowanej pracy na automacie.
+          Brak zaplanowanej pracy na tej linii.
         </div>
       )}
     </section>
