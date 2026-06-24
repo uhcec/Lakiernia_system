@@ -1210,8 +1210,22 @@ nothing is lost; severities are first-pass. The two headline gaps are NA49.A (ti
 - **NA49.I — Lexicographic independent sort keys, not multi-objective.** `colour` and `changeover` both
   key on colour, so the configurable priority is partly illusory; chosen for a clean sort + simple UI.
 - **NA49.J — Suggestion banner counts only colour changeovers**, not deadline/m²-day improvement.
-- **NA49.K — No pin / urgent.** The agreed model wanted pinning; re-running "Ułóż" overwrites manual
-  tweaks (nothing can be locked and optimised around). Deferred for speed.
+- **NA49.K — Pin / urgent. DONE (2026-06-24, pin+urgent; drag-between-days still deferred).** Owner
+  decisions: pin = **lock to the queue slot** (optimiser arranges others around it); build **pin + urgent**
+  now. A persisted `WorkOrder.planning_priority` (`PlanningPriority` enum PINNED/URGENT, nullable, partial
+  CHECK `planning_priority_requires_planned`, migration `20260624_0040`) the painting auto-scheduler
+  respects: pure `scheduler.arrange_with_locks` re-arranges the `propose_sequence` order so URGENT leads
+  (optimiser order among urgents), PINNED holds its index among the non-urgent current queue, and the rest
+  fill the remaining slots in optimiser order — so re-running "Ułóż" no longer overwrites the manager's
+  tweaks. Mutate `PATCH /manager/work-orders/{id}/planning-priority` (`ManagerService.set_planning_priority`,
+  manager-gated, audited, planned+active only); the lock is **cleared automatically** on leaving the queue
+  (`_reset_to_correction_planning`) and on a line move (`update_production_type`). Surfaced on `WorkOrderRead`
+  + `OrderPlacementRead`; manager queue cards get "Przypnij"/"Pilne" toggles + a badge, the capacity board
+  shows a przypięte/pilne badge. Tests: pure `arrange_with_locks` (5 in `test_scheduler.py`), service
+  `test_planning_priority_na49k.py` (6: pin keeps slot, urgent to front, set/clear+audit, requires planned,
+  manager gating, line-move clears), frontend pin/unpin toggle case. Full backend + frontend suites green;
+  `alembic check` clean. `docs/WORKFLOW.md` "Planning locks" added. **Still deferred:** drag-between-days on
+  the board (needs a board-level cross-day mutate) — the only remaining piece of the old NA49.K.
 - **NA49.L — Prep order reuses the painting plan's `queue_position`** rather than its own model, so prep
   cannot deliberately diverge from the painting plan (e.g. prep a different order first because paint
   isn't ready) — couples to NA49.C/D.

@@ -36,6 +36,7 @@ vi.mock("../src/api/managerApi", () => ({
   fetchUnplannedWorkOrders: vi.fn(),
   getCorrectionReasonReportExportUrl: vi.fn(() => "/manager/corrections/reason-report/export.csv"),
   reorderWorkOrderQueue: vi.fn(),
+  setWorkOrderPlanningPriority: vi.fn(),
   updateScheduleConfig: vi.fn(),
 }));
 
@@ -126,6 +127,7 @@ const recordPaintDeliveryMock = vi.mocked(paintsApi.recordPaintDelivery);
 const recordPaintAdjustmentMock = vi.mocked(paintsApi.recordPaintAdjustment);
 const assignWorkOrderPlanMock = vi.mocked(managerApi.assignWorkOrderPlan);
 const reorderWorkOrderQueueMock = vi.mocked(managerApi.reorderWorkOrderQueue);
+const setWorkOrderPlanningPriorityMock = vi.mocked(managerApi.setWorkOrderPlanningPriority);
 const fetchStageWorkOrdersMock = vi.mocked(processApi.fetchStageWorkOrders);
 const recordAutomaticPaintConsumptionMock = vi.mocked(processApi.recordAutomaticPaintConsumption);
 const transitionStageMock = vi.mocked(processApi.transitionStage);
@@ -189,6 +191,7 @@ function buildWorkOrder(id: number, orderNumber: string, queuePosition: number, 
     production_type: { value: "MANUAL", label: "Ręczna" },
     queue_namespace: { value: "MAIN", label: "Główna" },
     queue_position: queuePosition,
+    planning_priority: null,
     stage_states: [],
     batches: [],
     received_date: "2026-05-27",
@@ -307,6 +310,7 @@ beforeEach(() => {
   fetchPlannedWorkOrdersMock.mockReset();
   assignWorkOrderPlanMock.mockReset();
   reorderWorkOrderQueueMock.mockReset();
+  setWorkOrderPlanningPriorityMock.mockReset();
   fetchStageWorkOrdersMock.mockReset();
   recordAutomaticPaintConsumptionMock.mockReset();
   transitionStageMock.mockReset();
@@ -1959,6 +1963,28 @@ describe("frontend state consistency", () => {
     const payload = reorderWorkOrderQueueMock.mock.calls[0][0];
     expect(payload.production_type).toBe("AUTOMATIC");
     expect(payload.items.map((item) => item.work_order_id)).toEqual([10, 12, 11]);
+  });
+
+  it("pins and unpins a planned order via the planning-priority control (NA49.K)", async () => {
+    const automatic = { value: "AUTOMATIC" as const, label: "Automat" };
+    const a1 = { ...buildWorkOrder(10, "WO-A1", 1, "Alpha"), production_type: automatic };
+    const pinned = { ...a1, planning_priority: "PINNED" as const };
+    fetchUnplannedWorkOrdersMock.mockResolvedValue([]);
+    // Initial load shows the order unpinned; after pinning, reloads reflect the PINNED lock.
+    fetchPlannedWorkOrdersMock.mockResolvedValueOnce([a1]).mockResolvedValue([pinned]);
+    setWorkOrderPlanningPriorityMock.mockResolvedValue(pinned);
+
+    render(<ManagerPanelPage />);
+    const dialog = await openManagerPlanEditor("Automat");
+
+    // Pinning calls the mutate with PINNED.
+    fireEvent.click(await dialog.findByRole("button", { name: "Przypnij" }));
+    await waitFor(() => expect(setWorkOrderPlanningPriorityMock).toHaveBeenCalledWith(10, { planning_priority: "PINNED" }));
+
+    // After the reload the order shows as pinned; the same button now clears the lock (null).
+    setWorkOrderPlanningPriorityMock.mockClear();
+    fireEvent.click(await dialog.findByRole("button", { name: /Przypięte/ }));
+    await waitFor(() => expect(setWorkOrderPlanningPriorityMock).toHaveBeenCalledWith(10, { planning_priority: null }));
   });
 
   it("renders completed correction quantity context from manager payload after decoral merge", async () => {

@@ -10,6 +10,7 @@ import type {
   ReorderQueueRequest,
   ScheduleRuleConfigRead,
   ScheduleRuleConfigUpdate,
+  SetPlanningPriorityRequest,
   ThroughputStats,
   UpdateProductionTypeRequest,
   UpdateQueuePositionRequest,
@@ -231,6 +232,27 @@ export async function updateWorkOrderQueuePosition(
 
   if (!response.ok) {
     throw await createApiError(response, "Nie udało się zmienić kolejności");
+  }
+
+  return response.json() as Promise<WorkOrder>;
+}
+
+export async function setWorkOrderPlanningPriority(
+  workOrderId: number,
+  payload: SetPlanningPriorityRequest,
+): Promise<WorkOrder> {
+  const response = await fetch(createApiUrl(`/manager/work-orders/${workOrderId}/planning-priority`), {
+    method: "PATCH",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+      ...getCurrentStationHeaders(),
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    throw await createApiError(response, "Nie udało się zmienić priorytetu planowania");
   }
 
   return response.json() as Promise<WorkOrder>;

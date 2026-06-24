@@ -18,7 +18,7 @@ from app.process.enums import (
     get_stage_status_label,
 )
 from app.foils.schemas import FoilSummaryRead
-from app.shared.enums import WorkOrderStatus
+from app.shared.enums import PlanningPriority, WorkOrderStatus
 from app.shared.enums import QueueNamespace, WorkOrderKind, get_queue_namespace_label, get_work_order_kind_label
 
 
@@ -251,6 +251,8 @@ class WorkOrderRead(BaseModel):
     production_type: ProductionTypeView | None
     queue_namespace: QueueNamespaceView
     queue_position: int | None
+    # Manager planning lock (NA49.K): PINNED / URGENT / None. Only set on planned, active orders.
+    planning_priority: PlanningPriority | None = None
     stage_states: list[WorkOrderStageStateRead]
     batches: list[WorkOrderQuantityBatchRead]
     received_date: date

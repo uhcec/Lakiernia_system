@@ -6,6 +6,8 @@ export type CoatingTypeValue = "RAL" | "DECORAL";
 export type WorkOrderKindValue = "STANDARD" | "PRZEMALOWANKA";
 export type QuantityBatchTypeValue = "MAIN" | "CORRECTION";
 export type QueueNamespaceValue = "MAIN" | "CORRECTIONS";
+// Manager planning lock (NA49.K): PINNED keeps a queue slot, URGENT forces to the front of the line.
+export type PlanningPriorityValue = "PINNED" | "URGENT";
 export type ProcessStatusValue =
   | "TO_BE_PLANNED"
   | "INCOMPLETE"
@@ -151,6 +153,7 @@ export interface WorkOrder {
   production_type: WorkOrderOption<ProductionTypeValue> | null;
   queue_namespace: WorkOrderOption<QueueNamespaceValue>;
   queue_position: number | null;
+  planning_priority: PlanningPriorityValue | null;
   stage_states: WorkOrderStageState[];
   batches: WorkOrderQuantityBatch[];
   received_date: string;

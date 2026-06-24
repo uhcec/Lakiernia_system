@@ -67,6 +67,7 @@ from app.manager.models import AutoScheduleConfig
 from app.manager.repository import ManagerRepository
 from app.manager.scheduler import (
     SchedulableOrder,
+    arrange_with_locks,
     colour_changeovers_for_order_ids,
     count_colour_changeovers,
     propose_sequence,
@@ -99,12 +100,13 @@ from app.manager.schemas import (
     WipAgingStats,
     WorkOrderPlanAssignRequest,
     WorkOrderProductionTypeUpdateRequest,
+    WorkOrderPlanningPriorityUpdateRequest,
     WorkOrderQueuePositionUpdateRequest,
     WorkOrderQueueReorderBatchRequest,
     WorkOrderQueueReorderRequest,
 )
 from app.process.enums import ProcessStage, QuantityBatchType, StageStatus
-from app.shared.enums import StationId
+from app.shared.enums import PlanningPriority, StationId
 from app.shared.exceptions import InvalidManagerPlanningError, ResourceNotFoundError
 from app.work_orders.models import WorkOrder
 from app.work_orders.schemas import WorkOrderRead
@@ -1281,6 +1283,7 @@ class ManagerService:
                         paint_remaining_kg=(
                             paint.remaining_after_kg if (paint and paint.is_tracked) else None
                         ),
+                        planning_priority=work_order.planning_priority,
                     )
                 )
 
@@ -1605,6 +1608,52 @@ class ManagerService:
 
             return self._to_read_model(work_order)
 
+    def set_planning_priority(
+        self,
+        work_order_id: int,
+        payload: WorkOrderPlanningPriorityUpdateRequest,
+        station_context: StationContext | None = None,
+    ) -> WorkOrderRead:
+        """Set/clear a planned order's manager planning lock (pin/urgent, NA49.K).
+
+        The lock is honoured the next time the painting auto-scheduler proposes an order
+        (``propose_auto_schedule`` → ``arrange_with_locks``). It only applies to a planned,
+        not-yet-completed order (a completed order is no longer in the schedulable set).
+        """
+        self._ensure_manager_station_action(station_context)
+        with _QUEUE_MUTATION_LOCK:
+            work_order = self._get_existing_work_order(work_order_id)
+            if not self._is_planned(work_order):
+                raise InvalidManagerPlanningError(
+                    f"Work order {work_order_id} must be planned before setting a planning priority."
+                )
+            if self.process_service.get_display_status(work_order) == ProcessDisplayStatus.READY:
+                raise InvalidManagerPlanningError(
+                    "Completed work orders cannot be pinned or marked urgent."
+                )
+
+            previous_priority = work_order.planning_priority
+            work_order.planning_priority = payload.planning_priority
+            work_order.updated_at = datetime.now(UTC)
+            self._record_audit_event(
+                event_type="manager.planning_priority_set",
+                station_context=station_context,
+                work_order=work_order,
+                target_type="work_order",
+                target_id=work_order.id,
+                summary=f"Set planning priority for work order {work_order.order_number}.",
+                details={
+                    "previous_planning_priority": (
+                        previous_priority.value if previous_priority else None
+                    ),
+                    "planning_priority": (
+                        payload.planning_priority.value if payload.planning_priority else None
+                    ),
+                },
+            )
+            self.repository.commit()
+            return self._to_read_model(work_order)
+
     def update_production_type(
         self,
         work_order_id: int,
@@ -1642,6 +1691,9 @@ class ManagerService:
 
             work_order.production_type = target_production_type
             work_order.queue_position = target_position
+            # A pin/urgent lock is a slot on the source line; moving lines re-appends at the end, so the
+            # lock no longer means anything — clear it (NA49.K).
+            work_order.planning_priority = None
             work_order.updated_at = now
             # Reconcile the stage-state rows to the (now-known) route FIRST, so correction replanning
             # below resets statuses on the rows the route actually has (NA42).
@@ -1932,7 +1984,13 @@ class ManagerService:
         production_type: ProductionType,
         station_context: StationContext | None = None,
     ) -> AutoScheduleProposal:
-        """Propose a painting order for a line without committing anything (manager applies via reorder)."""
+        """Propose a painting order for a line without committing anything (manager applies via reorder).
+
+        The optimiser order from ``propose_sequence`` is then re-arranged around the manager's planning
+        locks (NA49.K, ``arrange_with_locks``): URGENT orders are forced to the front and PINNED orders
+        keep their queue slot, so pressing "Ułóż automatycznie" optimises only the free orders instead of
+        overwriting manual tweaks.
+        """
         self._ensure_manager_station_action(station_context)
         active_orders = self._active_planned_orders_for_line(production_type)
         orders_by_id = {work_order.id: work_order for work_order in active_orders}
@@ -1948,9 +2006,23 @@ class ManagerService:
             )
             for work_order in active_orders
         ]
-        proposed_ids = propose_sequence(schedulable, enabled_rules)
-
+        # ``active_orders`` is already in current queue order, so this is the line's live executable order.
         current_ids = [work_order.id for work_order in active_orders]
+        proposed_ids = arrange_with_locks(
+            propose_sequence(schedulable, enabled_rules),
+            current_ids,
+            pinned_ids={
+                work_order.id
+                for work_order in active_orders
+                if work_order.planning_priority is PlanningPriority.PINNED
+            },
+            urgent_ids={
+                work_order.id
+                for work_order in active_orders
+                if work_order.planning_priority is PlanningPriority.URGENT
+            },
+        )
+
         current_changeovers = colour_changeovers_for_order_ids(current_ids, colour_by_id)
         proposed_changeovers = colour_changeovers_for_order_ids(proposed_ids, colour_by_id)
 
@@ -2204,6 +2276,7 @@ class ManagerService:
             ),
             queue_namespace=build_queue_namespace_view(work_order.queue_namespace),
             queue_position=work_order.queue_position,
+            planning_priority=work_order.planning_priority,
             stage_states=[
                 WorkOrderStageStateRead(
                     stage=build_process_stage_view(stage_state.stage),

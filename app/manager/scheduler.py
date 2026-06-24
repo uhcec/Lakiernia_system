@@ -10,7 +10,7 @@ order id. Each rule contributes one independent per-order sort key, so the prior
 lever and the parts compose predictably.
 """
 
-from collections.abc import Iterable, Sequence
+from collections.abc import Collection, Iterable, Sequence
 from dataclasses import dataclass
 from datetime import date
 
@@ -77,6 +77,47 @@ def propose_sequence(
         return key + (order.work_order_id,)
 
     return [order.work_order_id for order in sorted(orders, key=composite_key)]
+
+
+def arrange_with_locks(
+    optimised_ids: Sequence[int],
+    current_order_ids: Sequence[int],
+    *,
+    pinned_ids: Collection[int],
+    urgent_ids: Collection[int],
+) -> list[int]:
+    """Re-apply the manager's planning locks on top of an optimiser proposal (NA49.K).
+
+    Without locks, pressing "Ułóż automatycznie" overwrites every manual tweak. This honours two locks
+    so the optimiser arranges only the *free* orders around the ones the manager fixed:
+
+    - ``urgent`` orders are forced to the very front of the line (kept in optimiser-preferred order
+      among themselves);
+    - ``pinned`` orders keep their **slot in the non-urgent sequence** — their index among the orders
+      in ``current_order_ids`` (the line's live queue order) once urgents are removed — so they do not
+      move when the rest is re-optimised;
+    - every other order flows into the remaining slots in ``optimised_ids`` order.
+
+    ``optimised_ids`` and ``current_order_ids`` are expected to cover the same set of ids (the line's
+    active planned orders); a pin/urgent id is assumed to be in both. Urgent wins if an id is somehow in
+    both lock sets.
+    """
+    urgent = set(urgent_ids)
+    pinned = set(pinned_ids) - urgent
+
+    front = [order_id for order_id in optimised_ids if order_id in urgent]
+    # Non-urgent orders in their current queue order; pinned ones are fixed anchors at their index here.
+    non_urgent_current = [order_id for order_id in current_order_ids if order_id not in urgent]
+    free_optimised = iter(
+        order_id
+        for order_id in optimised_ids
+        if order_id not in urgent and order_id not in pinned
+    )
+    tail = [
+        order_id if order_id in pinned else next(free_optimised)
+        for order_id in non_urgent_current
+    ]
+    return front + tail
 
 
 def count_colour_changeovers(colour_sequence: Sequence[str | None]) -> int:

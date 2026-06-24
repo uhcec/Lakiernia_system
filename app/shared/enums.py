@@ -19,6 +19,11 @@ WORK_ORDER_KIND_LABELS_PL = {
     "PRZEMALOWANKA": "Przemalowanka",
 }
 
+PLANNING_PRIORITY_LABELS_PL = {
+    "PINNED": "Przypięte",
+    "URGENT": "Pilne",
+}
+
 PAINT_STOCK_MOVEMENT_TYPE_LABELS_PL = {
     "OPENING_BALANCE": "Saldo otwarcia",
     "DELIVERY": "Dostawa",
@@ -68,6 +73,23 @@ class WorkOrderKind(StrEnum):
     @property
     def polish_label(self) -> str:
         return WORK_ORDER_KIND_LABELS_PL[self.value]
+
+
+class PlanningPriority(StrEnum):
+    """Manager lock on a planned order, respected when the painting auto-scheduler re-optimises (NA49.K).
+
+    Mutually exclusive per order: ``PINNED`` locks an order to its current queue slot (the optimiser
+    arranges the other orders around it); ``URGENT`` forces it to the very front of its line. Absence
+    (``None``) means the order is freely re-orderable. Only meaningful on a planned, not-yet-completed
+    order.
+    """
+
+    PINNED = "PINNED"
+    URGENT = "URGENT"
+
+    @property
+    def polish_label(self) -> str:
+        return PLANNING_PRIORITY_LABELS_PL[self.value]
 
 
 class PaintStockMovementType(StrEnum):

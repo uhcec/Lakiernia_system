@@ -5,6 +5,7 @@ from datetime import date
 from app.manager.enums import ScheduleRuleKey
 from app.manager.scheduler import (
     SchedulableOrder,
+    arrange_with_locks,
     count_colour_changeovers,
     propose_sequence,
 )
@@ -69,6 +70,46 @@ def test_count_colour_changeovers() -> None:
     assert count_colour_changeovers([]) == 0
     # None is a distinct "no colour" bucket.
     assert count_colour_changeovers(["A", None, None, "A"]) == 2
+
+
+def test_arrange_with_locks_no_locks_returns_optimised_order() -> None:
+    # With no pins/urgents the arranged order is exactly the optimiser's order (NA49.K).
+    optimised = [3, 1, 2]
+    current = [1, 2, 3]
+    assert arrange_with_locks(optimised, current, pinned_ids=set(), urgent_ids=set()) == [3, 1, 2]
+
+
+def test_arrange_with_locks_pinned_keeps_its_queue_slot() -> None:
+    # Order 2 is pinned at its current slot (index 1 of the queue); the free orders (optimised 4,3,1)
+    # fill the other slots in optimiser order, around the fixed pin.
+    optimised = [4, 3, 1, 2]
+    current = [1, 2, 3, 4]
+    arranged = arrange_with_locks(optimised, current, pinned_ids={2}, urgent_ids=set())
+    assert arranged == [4, 2, 3, 1]
+    assert arranged.index(2) == current.index(2)  # pin did not move from its slot
+
+
+def test_arrange_with_locks_urgent_jumps_to_front() -> None:
+    # Order 3 is urgent → forced to the very front; everything else keeps the optimiser order.
+    optimised = [1, 2, 3, 4]
+    current = [1, 2, 3, 4]
+    assert arrange_with_locks(optimised, current, pinned_ids=set(), urgent_ids={3}) == [3, 1, 2, 4]
+
+
+def test_arrange_with_locks_urgent_and_pin_together() -> None:
+    # Urgent (5) leads; pinned (2) holds its slot among the non-urgent orders; the rest optimise around.
+    optimised = [5, 4, 3, 2, 1]
+    current = [1, 2, 3, 4, 5]
+    arranged = arrange_with_locks(optimised, current, pinned_ids={2}, urgent_ids={5})
+    assert arranged[0] == 5  # urgent first
+    # Non-urgent current order is [1,2,3,4]; pin 2 keeps index 1; free optimised [4,3,1] fill the gaps.
+    assert arranged == [5, 4, 2, 3, 1]
+
+
+def test_arrange_with_locks_urgent_wins_when_both_flags_collide() -> None:
+    # Defensive: an id in both lock sets is treated as urgent (front), not pinned.
+    arranged = arrange_with_locks([1, 2], [1, 2], pinned_ids={1}, urgent_ids={1})
+    assert arranged == [1, 2]
 
 
 def test_proposal_reduces_changeovers_versus_interleaved_input() -> None:

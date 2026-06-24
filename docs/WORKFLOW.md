@@ -369,6 +369,20 @@ normal queue-reorder flow, so operators can always trust the posted order.
 - **Apply path:** "Ułóż automatycznie" previews the proposed order as an editable draft (the manager may
   still drag to tweak); committing goes through the existing per-line `reorder_queue` (same stale-revision
   protection). Only *active* (non-READY) planned orders are scheduled; completed rows keep trailing.
+- **Planning locks (pin / urgent — NA49.K):** the manager can lock individual orders so re-running "Ułóż"
+  does **not** overwrite manual tweaks. Each planned order carries a `planning_priority`
+  (`PlanningPriority`, mutually exclusive, nullable on `WorkOrder`):
+  - **PINNED** ("Przypnij") — the order keeps its current queue slot; the optimiser arranges only the
+    *free* orders around the fixed pins.
+  - **URGENT** ("Pilne") — the order is forced to the very front of the line, above the colour/deadline
+    rules.
+  The proposal applies these on top of the optimiser order (`scheduler.arrange_with_locks`): urgents lead
+  in optimiser order, pinned orders hold their index among the non-urgent orders, and the rest fill the
+  remaining slots in optimiser order. The lock is set/cleared via
+  `PATCH /manager/work-orders/{id}/planning-priority` (manager-gated, audited); it only applies to a
+  planned, active order and is **cleared automatically** when the order leaves the queue (correction
+  return) or moves to the other line. It is displayed as a badge on the manager queue card and on the
+  capacity board.
 - The optimisation core is a pure function (`app/manager/scheduler.py`); the metric behind the banner is
   the count of colour changes between consecutive orders.
 
@@ -501,8 +515,10 @@ day columns are the system's *suggested* order; the board also shows the manager
 suggested order back to the live queue — it reuses `POST /manager/queue/reorder` with the plan's
 `queue_revision` for stale-write protection (no new mutate/schema), so "what you see" can become "what the
 line runs". When the live order already equals the suggestion the board says so and hides the action.
-Drag-between-days and pin/urgent (the deferred **NA49.K**) remain a follow-up: they need a persisted
-pin/urgent flag the re-optimise respects.
+**Pin / urgent** (part of **NA49.K**) is now built — see "Planning locks" under the painting
+auto-scheduler above: a persisted `planning_priority` the auto-scheduler re-optimise respects, shown as a
+badge on the board. **Drag-between-days** on the board remains the follow-up (it needs a board-level
+mutate that moves an order across capacity days).
 Trust is earned in three phases: (1) **observer** — manager plans manually, the system only shows
 day-fill vs floor/ceiling and the changeover count; (2) **suggester** — the system proposes the
 arrangement, the manager edits; (3) **trusted** — the system arrangement is the default and the manager

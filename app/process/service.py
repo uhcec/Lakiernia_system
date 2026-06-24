@@ -2235,6 +2235,8 @@ class ProcessService:
 
         work_order.production_type = None
         work_order.queue_position = None
+        # Leaving the queue clears any manager planning lock (pin/urgent, NA49.K) — the slot is gone.
+        work_order.planning_priority = None
         work_order.consumed_paint_quantity_kg = 0
 
         self.audit.record_audit_event(

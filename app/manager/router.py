@@ -25,6 +25,7 @@ from app.manager.schemas import (
     ThroughputStats,
     WipAgingStats,
     WorkOrderPlanAssignRequest,
+    WorkOrderPlanningPriorityUpdateRequest,
     WorkOrderProductionTypeUpdateRequest,
     WorkOrderQueuePositionUpdateRequest,
     WorkOrderQueueReorderBatchRequest,
@@ -200,6 +201,16 @@ def update_queue_position(
     station_context: Annotated[StationContext, Depends(get_station_context)],
 ) -> WorkOrderRead:
     return service.update_queue_position(work_order_id, payload, station_context=station_context)
+
+
+@router.patch("/work-orders/{work_order_id}/planning-priority", response_model=WorkOrderRead)
+def set_planning_priority(
+    work_order_id: int,
+    payload: WorkOrderPlanningPriorityUpdateRequest,
+    service: Annotated[ManagerService, Depends(get_manager_service)],
+    station_context: Annotated[StationContext, Depends(get_station_context)],
+) -> WorkOrderRead:
+    return service.set_planning_priority(work_order_id, payload, station_context=station_context)
 
 
 @router.get("/scheduler/config", response_model=ScheduleRuleConfigRead)

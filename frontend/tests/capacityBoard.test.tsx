@@ -48,6 +48,7 @@ function makePlan(productionType: "MANUAL" | "AUTOMATIC", queuePositions: [numbe
             suggested_line_is_small: false,
             paint_status: "BLOCKED",
             paint_remaining_kg: -5,
+            planning_priority: null,
           },
           {
             work_order_id: 2,
@@ -67,6 +68,7 @@ function makePlan(productionType: "MANUAL" | "AUTOMATIC", queuePositions: [numbe
             suggested_line_is_small: true,
             paint_status: "OK",
             paint_remaining_kg: 20,
+            planning_priority: null,
           },
         ],
       },

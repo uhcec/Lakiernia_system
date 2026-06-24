@@ -6,7 +6,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database.base import Base
 from app.process.enums import CoatingType, ProductionType
 from app.work_orders.enums import WorkOrderAttachmentCategory
-from app.shared.enums import QueueNamespace, WorkOrderKind
+from app.shared.enums import PlanningPriority, QueueNamespace, WorkOrderKind
 
 
 coating_type_enum = Enum(
@@ -37,6 +37,13 @@ work_order_kind_enum = Enum(
     values_callable=lambda kinds: [kind.value for kind in kinds],
 )
 
+planning_priority_enum = Enum(
+    PlanningPriority,
+    name="planning_priority",
+    native_enum=False,
+    values_callable=lambda priorities: [priority.value for priority in priorities],
+)
+
 
 class WorkOrder(Base):
     __tablename__ = "work_orders"
@@ -57,6 +64,12 @@ class WorkOrder(Base):
         CheckConstraint(
             "queue_position IS NULL OR is_incomplete_on_arrival = 0",
             name="incomplete_requires_unplanned",
+        ),
+        # A planning lock (pin/urgent, NA49.K) is only meaningful on a planned order — it locks a queue
+        # slot — so it must be cleared whenever the order leaves the queue (queue_position → NULL).
+        CheckConstraint(
+            "planning_priority IS NULL OR queue_position IS NOT NULL",
+            name="planning_priority_requires_planned",
         ),
         CheckConstraint(
             "profiles_quantity IS NULL OR (profiles_quantity >= 0 AND profiles_quantity <= total_quantity)",
@@ -125,6 +138,9 @@ class WorkOrder(Base):
         index=True,
     )
     queue_position: Mapped[int | None] = mapped_column(Integer(), nullable=True, index=True)
+    # Manager planning lock respected by the painting auto-scheduler re-optimise (NA49.K). NULL = freely
+    # re-orderable; PINNED = keep its queue slot; URGENT = force to the front of the line.
+    planning_priority: Mapped[PlanningPriority | None] = mapped_column(planning_priority_enum, nullable=True)
     received_date: Mapped[date] = mapped_column(Date(), nullable=False)
     planned_pickup_date: Mapped[date] = mapped_column(Date(), nullable=False)
     released_to_client_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

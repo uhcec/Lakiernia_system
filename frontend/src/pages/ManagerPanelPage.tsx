@@ -10,6 +10,7 @@ import {
   fetchUnplannedWorkOrders,
   getCorrectionReasonReportExportUrl,
   reorderWorkOrderQueue,
+  setWorkOrderPlanningPriority,
   updateScheduleConfig,
   updateWorkOrderProductionType,
 } from "../api/managerApi";
@@ -18,7 +19,7 @@ import type {
   CorrectionReasonReportItem,
   ScheduleRuleConfigItem,
 } from "../types/manager";
-import type { ProductionTypeValue, WorkOrder } from "../types/workOrders";
+import type { PlanningPriorityValue, ProductionTypeValue, WorkOrder } from "../types/workOrders";
 import { isApiError } from "../api/apiError";
 import { getMutationErrorMessage } from "../utils/mutationError";
 import {
@@ -221,6 +222,7 @@ export function ManagerPanelPage() {
   const [hasPendingQueueChanges, setHasPendingQueueChanges] = useState(false);
   const [draggedWorkOrderId, setDraggedWorkOrderId] = useState<number | null>(null);
   const [changingProductionTypeId, setChangingProductionTypeId] = useState<number | null>(null);
+  const [changingPriorityId, setChangingPriorityId] = useState<number | null>(null);
   const [showCompleted, setShowCompleted] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [editLine, setEditLine] = useState<ProductionTypeValue>("AUTOMATIC");
@@ -596,6 +598,75 @@ export function ManagerPanelPage() {
     }
   }
 
+  async function handleSetPlanningPriority(
+    workOrderId: number,
+    priority: PlanningPriorityValue | null,
+  ) {
+    setChangingPriorityId(workOrderId);
+    setErrorMessage(null);
+    setSuccessMessage(null);
+
+    try {
+      await setWorkOrderPlanningPriority(workOrderId, { planning_priority: priority });
+      await loadManagerData();
+      setSuccessMessage(
+        priority === "PINNED"
+          ? "Zlecenie przypięte — układanie automatyczne nie ruszy go z miejsca"
+          : priority === "URGENT"
+            ? "Zlecenie oznaczone jako pilne — trafi na początek linii"
+            : "Zdjęto blokadę planowania",
+      );
+    } catch (error) {
+      const message = getMutationErrorMessage(error, "Nie udało się zmienić priorytetu planowania");
+      await loadManagerData({ preserveErrorMessage: true });
+      setErrorMessage(message);
+    } finally {
+      setChangingPriorityId(null);
+    }
+  }
+
+  function renderPlanningPriorityControls(workOrder: WorkOrder) {
+    const current = workOrder.planning_priority;
+    const isChanging = changingPriorityId === workOrder.id;
+    const toggles: { value: PlanningPriorityValue; label: string; activeLabel: string }[] = [
+      { value: "PINNED", label: "Przypnij", activeLabel: "Przypięte" },
+      { value: "URGENT", label: "Pilne", activeLabel: "Pilne" },
+    ];
+    return (
+      <div className="inline-flex items-center gap-1">
+        {toggles.map((toggle) => {
+          const isActive = current === toggle.value;
+          return (
+            <button
+              key={toggle.value}
+              type="button"
+              disabled={isChanging}
+              aria-pressed={isActive}
+              onClick={() =>
+                void handleSetPlanningPriority(workOrder.id, isActive ? null : toggle.value)
+              }
+              className={[
+                "rounded-full border px-3 py-1 text-xs font-semibold transition disabled:cursor-not-allowed",
+                isActive
+                  ? toggle.value === "URGENT"
+                    ? "border-rose-300 bg-rose-100 text-rose-800"
+                    : "border-accent/40 bg-accent/10 text-accent"
+                  : "border-line bg-white text-steel hover:border-accent/40 hover:text-accent",
+              ].join(" ")}
+              title={
+                toggle.value === "PINNED"
+                  ? "Zablokuj zlecenie na bieżącej pozycji — „Ułóż automatycznie” go nie ruszy"
+                  : "Wymuś zlecenie na początek linii"
+              }
+            >
+              {isChanging ? "..." : isActive ? `✓ ${toggle.activeLabel}` : toggle.label}
+            </button>
+          );
+        })}
+      </div>
+    );
+  }
+
   function renderActiveQueue(workOrders: WorkOrder[]) {
     return (
       <div className="space-y-2">
@@ -629,6 +700,15 @@ export function ManagerPanelPage() {
                     {workOrder.is_correction ? (
                       <span className="inline-flex rounded-full bg-amber-100 px-2 py-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-amber-800">
                         POPRAWKA
+                      </span>
+                    ) : null}
+                    {workOrder.planning_priority === "URGENT" ? (
+                      <span className="inline-flex rounded-full bg-rose-100 px-2 py-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-rose-800">
+                        PILNE
+                      </span>
+                    ) : workOrder.planning_priority === "PINNED" ? (
+                      <span className="inline-flex rounded-full bg-accent/10 px-2 py-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-accent">
+                        PRZYPIĘTE
                       </span>
                     ) : null}
                     <span className="inline-flex rounded-full bg-white px-2 py-1 text-[11px] font-semibold text-steel shadow-sm">
@@ -708,6 +788,7 @@ export function ManagerPanelPage() {
                     {getProductionTypeLabel(workOrder.production_type?.value)}
                   </span>
                 )}
+                {renderPlanningPriorityControls(workOrder)}
                 <a
                   href={buildWorkOrderDetailHref(workOrder.id, "MANAGER")}
                   className="inline-flex rounded-full border border-line bg-white px-3 py-1 font-medium text-accent transition hover:border-accent/50"

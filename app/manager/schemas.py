@@ -6,6 +6,7 @@ from app.manager.capacity import ShiftLength
 from app.manager.enums import DEFAULT_RULE_ORDER, ScheduleRuleKey
 from app.manager.paint_feasibility import PaintFeasibilityStatus
 from app.process.enums import CoatingType, ProcessStage, ProductionType
+from app.shared.enums import PlanningPriority
 from app.work_orders.schemas import WorkOrderRead
 
 
@@ -26,6 +27,14 @@ class WorkOrderProductionTypeUpdateRequest(BaseModel):
 
 class WorkOrderQueuePositionUpdateRequest(BaseModel):
     queue_position: int = Field(ge=1)
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class WorkOrderPlanningPriorityUpdateRequest(BaseModel):
+    # The manager planning lock to set, or None to clear it (NA49.K). PINNED keeps the order in its
+    # current queue slot when the auto-scheduler re-optimises; URGENT forces it to the front of the line.
+    planning_priority: PlanningPriority | None = None
 
     model_config = ConfigDict(extra="forbid")
 
@@ -368,6 +377,9 @@ class OrderPlacementRead(BaseModel):
     # left after this order's cumulative demand (negative once overrun); None for an untracked colour.
     paint_status: PaintFeasibilityStatus = PaintFeasibilityStatus.OK
     paint_remaining_kg: float | None = None
+    # Manager planning lock (NA49.K): PINNED / URGENT / None — surfaced so the board shows which orders
+    # the manager has locked, since the auto-scheduler re-optimise respects them.
+    planning_priority: PlanningPriority | None = None
 
 
 class PlannedDayRead(BaseModel):

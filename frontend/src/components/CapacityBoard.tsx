@@ -87,6 +87,11 @@ function PlacementRow({ placement }: { placement: OrderPlacement }) {
       </div>
       <div className="mt-0.5 truncate text-steel">{placement.ral_code ?? "—"} · {placement.customer_name}</div>
       <div className="mt-1 flex flex-wrap gap-1">
+        {placement.planning_priority === "URGENT" ? (
+          <span className="rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-semibold text-rose-700">pilne</span>
+        ) : placement.planning_priority === "PINNED" ? (
+          <span className="rounded-full bg-accent/10 px-2 py-0.5 text-[10px] font-semibold text-accent">przypięte</span>
+        ) : null}
         {atRisk ? (
           <span className="rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-semibold text-rose-700">
             {placement.days_late > 0 ? `po terminie +${placement.days_late} dn.` : "po terminie"}

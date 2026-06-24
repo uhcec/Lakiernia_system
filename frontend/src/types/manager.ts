@@ -1,4 +1,9 @@
-import type { ProductionTypeValue, WorkOrder } from "./workOrders";
+import type { PlanningPriorityValue, ProductionTypeValue, WorkOrder } from "./workOrders";
+
+export interface SetPlanningPriorityRequest {
+  // The lock to set, or null to clear it (NA49.K).
+  planning_priority: PlanningPriorityValue | null;
+}
 
 export interface AssignWorkOrderPlanRequest {
   production_type: ProductionTypeValue;
@@ -167,6 +172,8 @@ export interface OrderPlacement {
   suggested_line_is_small: boolean;
   paint_status: PaintFeasibilityStatus;
   paint_remaining_kg: number | null;
+  // Manager planning lock (NA49.K): PINNED / URGENT / null.
+  planning_priority: PlanningPriorityValue | null;
 }
 
 export interface PlannedDay {
