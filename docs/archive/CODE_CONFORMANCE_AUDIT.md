@@ -1,146 +1,149 @@
-> ARCHIVED — frozen historical snapshot as of 2026-06-17. Living truth lives in docs/WORKFLOW.md / docs/FACTORY_DOMAIN_MODEL.md.
+> ARCHIVED — frozen historical snapshot as of 2026-06-24. Living truth lives in docs/WORKFLOW.md /
+> docs/FACTORY_DOMAIN_MODEL.md. This is a disposable scratch artifact (cadence policy:
+> docs/DOCUMENTATION_MAP.md "Audit cadence policy"). Actionable divergences live in
+> IMMEDIATE_NEXT_ACTIONS.md as NA* items, not here.
 
-# Code Conformance Audit (NA25)
+# Code Conformance Audit (the NA25 process)
 
-Status: **DONE — 2026-06-17.** Full read-only pass auditing the **code** against the reconciled
-documentation (the NA24 "coherent whole"). For each documented topic: a verdict + `file:line`
-evidence. No code was changed. Divergences are logged as actionable items (here + `IMMEDIATE_NEXT_ACTIONS.md`).
+Run date: **2026-06-24.** Read-only pass auditing the **code** against the reconciled documentation.
+Per documented topic: a verdict + `file:line` evidence. **No code was changed.**
+
+This run deliberately focuses on everything the docs gained **since the prior snapshot (2026-06-17)** —
+the entire **NA49 multi-day capacity planner family** (N49-1…N49-10) and the **NA50 "good day" stats** —
+because the stable pre-planner core was already audited in the 2026-06-17 pass and is now pinned by the
+deterministic guardian + the scenario-matrix tests (see "Relied-on-evidence" below).
 
 Verdict legend: **CONFORMS** (code matches docs, read directly) · **DIVERGES** (code contradicts docs)
-· **DOC-UNDERSTATES** (code is correct/broader; a doc is narrower/stale) · **RELIED-ON-EVIDENCE**
-(not re-read line-by-line this pass; trusted closed HARDENING items + tests, noted as such).
+· **DOC-UNDERSTATES / DOC-STALE** (code correct/broader; a doc narrower/stale) · **RELIED-ON-EVIDENCE**
+(not re-read line-by-line this pass; trusted closed items + green tests, noted as such).
+
+## Baseline (this run)
+
+- `tests/test_documented_invariants.py` (fast guardian) — **5 passed.** No pinned constant has drifted
+  (paint threshold/divisors, packing slot default, JWT expiry, bcrypt limit, JWT-secret guard).
+- Full backend suite — **576 passed** (~5m19s). `alembic check` — clean ("No new upgrade operations").
 
 ## Summary
 
-- **1 real divergence: NA26** — downstream stations displayed the **ordered** quantity, not the
-  **actual received (counted)** quantity (operator-truth gap). Confirmed in code below.
-  **FIXED 2026-06-17** (added `operational_quantity` to the station read model; stations now show the
-  counted operational quantity, validation/READY untouched).
-- **1 doc-understatement: NA27** — WORKFLOW "Station Permissions" listed only 2 stats endpoints as
-  manager-gated; code gates all 4. **FIXED 2026-06-17** (WORKFLOW line broadened).
-- Everything else audited **conforms**.
+- **No NEW actionable divergences.** Every documented planner/measurement topic the code implements
+  **conforms** to its owning doc; the divergences that exist were already found by the 2026-06-24 N49
+  code review and are logged as **NA51–NA57** (and confirmed again in code below — not re-logged).
+- The pure planner core (`measurement.py`, `capacity.py`, `colour.py`, `placement.py`, `good_day.py`,
+  `paint_feasibility.py`, `shared_stage.py`) is DB-free and matches `docs/WORKFLOW.md` "Target planning
+  model" + `docs/FACTORY_DOMAIN_MODEL.md` §7 line-for-line.
+- **NA42** (AUTOMATIC has no `PRODUCTION` stage row, reconciled at planning) is implemented as the doc
+  now describes — this *reverses* the prior snapshot's "PRODUCTION present as a non-actionable preview"
+  wording, which predated NA42.
+- One **minor, non-actionable observation** (residual NA42 preview-stage guards) recorded below; not
+  worth an NA item.
 
-## Topic-by-topic
+## Topic-by-topic (this run's focus: the planner family)
 
-### Stage model & sequences — CONFORMS
-`get_stage_sequence_for_configuration` (`app/process/service.py:64-77`): MANUAL = SP→PRODUCTION→PACKING,
-AUTOMATIC adds HANGING, DECORAL adds DECORAL_PRODUCTION; PRODUCTION present for automatic only as a
-non-actionable preview (`_is_automatic_production_preview_stage`, `get_actionable_stage_sequence…:1295`).
-Matches `WORKFLOW.md` "Stage Model" / Main Flows. Enums match docs (`app/process/enums.py`).
+### N49-2 measurement engine — CONFORMS
+`app/manager/measurement.py`: effective rate = total m² ÷ **union** of `[hanging_start, packing_done]`
+intervals (`_union_seconds:66`, `measure_automatic_rate:86`), seed `57.0` m²/h until
+`MIN_RATE_SAMPLE_ORDERS = 3` passes (`:35-37`); statistical changeover = avg changed-colour inter-start
+gap − same-colour gap, clamped ≥ 0, seed `20.0` min, confirmed `15/30`-min bands exposed as `band_*`
+(`estimate_colour_changeover:121`, `:39-47`). Matches WORKFLOW "Target planning model" (N49-2) +
+FACTORY_DOMAIN_MODEL §7 "Measurement signals".
 
-### `process_status` derivation & READY — CONFORMS
-`get_display_status` (`:988-1020`) derives at read time (incomplete → READY → to-be-planned → tracked
-batches → waiting-for-corrections → stage); never stored. READY via `_is_complete_for_display`
-(`:2306-2311`: completed==total, active==0, no open corrections) + `_has_incomplete_marker` (`:2303`).
-Matches `WORKFLOW.md` "READY Rules". Finalize chain `_finalize_completion_chain_if_ready` (`:2244-2279`)
-with the NA19 quantity-gap warning (`:2258-2264`).
+### N49-3 day capacity (floor + ceiling) — CONFORMS
+`app/manager/capacity.py`: floors `800/500` (`FLOOR_LONG/SHORT_M2:32-33`), **gross** booth ceiling
+`80` m²/h × `14/8` h (`CEILING_BOOTH_RATE_M2_PER_H:40`), colour change → m² of net ceiling lost
+(`changeover_loss_m2:107`, `compute_day_capacity:156`), `advise_shift_length:147` long iff ≥ long floor.
+The gross-vs-effective-rate distinction (80 here vs ≈57 in measurement) is documented in both the code
+docstring and WORKFLOW. Matches FACTORY_DOMAIN_MODEL §7 "daily norm is a FLOOR".
 
-### Reopen finished tracked batch → 409 — CONFORMS
-`_reopen_tracked_batch_stage` (`:1565-1566`) raises on DONE batches; `reopen_stage` rejects when no
-active quantity (`:363`). Matches `WORKFLOW.md` "Tracked batch reopen rule".
+### N49-4 deadline-feasible placement — CONFORMS
+`app/manager/placement.py`: EDF `sorted((planned_pickup_date, work_order_id)):158`, greedy fill to the
+day's **net** ceiling (`net_ceiling:154`), oversized order placed alone + `over_ceiling`, per-order
+`meets_deadline`/`days_late` + `infeasible_order_ids` (`:200-227`). Working-day calendar skips Sat/Sun
+(`DEFAULT_WEEKEND_WEEKDAYS:43`, flagged ASSUMPTION). Matches WORKFLOW (N49-4). *(Mon–Fri assumption =
+already-logged NA56.)*
 
-### Corrections (RAL batch reset vs DECORAL child) — CONFORMS
-Reason required + category split enforced in the request model (`app/process/schemas.py:76-93`,
-`:106-125`) and service (`_validate_correction_reason`, `_validate_correction_category_split`).
-RAL in-place reset (`_reset_to_correction_planning:1890`), DECORAL child + flat-root model
-(`_create_correction_work_order:1821`, `_place_returned_pieces_on_root_decoral:1754`,
-`_resolve_root_order:1745`). Matches `WORKFLOW.md` "Corrections Behavior" + S01–S12.
+### N49-5 light→dark sweep + N49-6 size+direction changeover cost — CONFORMS
+`app/manager/colour.py`: `ral_lightness:88` (single documented helper, group map + full-code anchors;
+the flagged open colour-family question), `light_to_dark_order:118` groups identical colours then sweeps
+lightest→darkest, `sequence_changeover_minutes:157` / `average_changeover_minutes:178` walk the swept
+sequence (same colour = 0). N49-6 `changeover_minutes_for_transition` (`capacity.py:124`): ≤100 m² → 15
+min band, >100 → 30 min, `light_to_dark_factor 0.5` else full band. Matches FACTORY_DOMAIN_MODEL §7
+"Colour-changeover economics".
 
-### Resource locks & packing capacity — CONFORMS
-HANGING/AUTOMATIC_LINE exclusivity + PACKING N-slot model; automatic reserves a slot at HANGING start
-(`_reserve_packing_for_automatic_hanging`, called `:170`); `packing_max_concurrent_slots` default **2**,
-`ge=1` (`app/core/config.py:45-53`). Manual override + `start_packing`/`release_packing` present
-(`:379`, `:459`). Matches `WORKFLOW.md` "Packing capacity / slots" (NA22).
+### N49-7 paint-stock hard block + forward view — CONFORMS (block boundary = logged NA54)
+`app/manager/paint_feasibility.py`: `colour_series_blocked:82` = tracked **and** not manual-used **and**
+`current_stock_kg <= 0`; `build_forward_view:91` walks demand down per colour series → OK / WARNING
+(partial shortfall or manual-used low-confidence) / BLOCKED. Plan-time gate
+`_assert_paint_available_for_automatic` refuses an out-of-stock metered colour on AUTOMATIC; never-stocked
+placeholder (no movement history) not blocked (`_paint_has_stock_history:1300`). Matches WORKFLOW (N49-7).
+The "block is binary on starting stock, not demand-aware" design choice is already raised as **NA54**.
 
-### Authorization (NA1) — CONFORMS
-`ensure_station_allowed` (`app/audit/context.py:49-67`): trusts `None`/`SYSTEM`, admin bypass, no
-`UNKNOWN` allow-bypass; context derived from JWT user (`get_station_context:39-46`), not the header.
-Matches `WORKFLOW.md` "Station Permissions", `AUTHZ_DESIGN_PROPOSAL.md`, `STATION_IDENTITY_AND_AUDIT.md`.
+### N49-8 line-assignment lever — CONFORMS
+`app/manager/colour.py::suggest_line:214`: small (≤100 m²) **and** colour-orphan → MANUAL, else
+AUTOMATIC; missing m² → not-small (AUTOMATIC default). Orphan decided across the whole line
+(`colour_neighbour_counts:194`, wired `service.py:1170-1181`). Suggestion only; manager overrides via
+the existing planning endpoints. Matches FACTORY_DOMAIN_MODEL §7 "Line choice".
 
-### Manager statistics gating — DOC-UNDERSTATES (code is correct/broader)
-`_ensure_stats_viewer` gates **all** stats: throughput (`app/manager/service.py:112`), corrections
-report (`:356`), cycle-time (`:129`), wip-aging (`:508`). `WORKFLOW.md` "Station Permissions → Current
-enforcement" names only `/stats/throughput` + `/corrections/reason-report` as gated — it predates
-cycle-time/wip-aging. **Fix:** broaden that WORKFLOW line to "all `/manager/stats/*`". (Low severity;
-code is safe.)
+### N49-10 shared-stage derivation (surface prep / packing) — CONFORMS
+`app/process/shared_stage.py::derive_surface_preparation_order:49`: interleave by **smaller
+prepared-but-not-yet-painted buffer**, tie → AUTOMATIC (`min(... line is not AUTOMATIC):80-83`), buffer
+in pieces (flagged assumption). Read model exposes `shared_stage_line_label` + `is_next_at_shared_stage`
+(`app/process/schemas.py`), rendered as the line label + "NASTĘPNE" (frontend `StageWorkOrdersPage.tsx`
+/ `PackingWorkOrdersPage.tsx`) instead of a colliding `Poz.`. Matches WORKFLOW "Shared-stage ordering".
 
-### Global queue (uniqueness + stale-revision) — CONFORMS
-`reorder_queue` checks `queue_revision` and rejects stale payloads (`app/manager/service.py:733-735`);
-uniqueness collisions normalized to controlled conflicts (HARDENING #3/#4, closed). Matches
-`WORKFLOW.md` "Shared Queue Rule".
+### NA50 "good day" stats — CONFORMS to its own spec; inherits the logged NA52/NA53 cost defects
+`app/manager/good_day.py` (`summarize_day:73` / `summarize_period:119`) computes m² vs floor + `met_floor`
++ shortfall, on-time %, changeover loss (shared `changeover_loss_m2`), utilisation/idle, period roll-up —
+all matching WORKFLOW "Good day stats". Two **already-logged** wiring defects confirmed in the service:
+the per-day rate uses `measure_automatic_rate(day_passes)` which almost always falls back to the seed
+(**NA53**, `service.py:885`), and the changeover loss is valued with the inflated learned
+`estimated_changeover_minutes` (**NA52 #2**, `service.py:898,936`).
 
-### Throughput / cycle-time / WIP-aging — CONFORMS
-m² split by production type with `m2_manual + m2_automatic = m2_total` (`:183-201`), decoral pass a
-separate non-summed series (`decoral_by_period`, `:293-318`), corrections from both sources
-(`:214-256`), ISO weeks `%G-%V` (`:134`). Cycle-time/WIP off the stage-transition log. Matches
-`WORKFLOW.md` "Throughput Reporting" (and the canonical model in `FACTORY_DOMAIN_MODEL.md` §4).
+### NA42 — AUTOMATIC has no PRODUCTION stage row — CONFORMS (reverses the 2026-06-17 wording)
+`reconcile_stage_states_to_route` (`app/process/service.py:136`) trims rows to the actionable route once
+the method is known (AUTOMATIC drops `PRODUCTION`, MANUAL drops `HANGING`); called at planning
+(`manager/service.py:1441,1579`). `get_actionable_stage_sequence_for_work_order:1449` excludes
+`PRODUCTION` for AUTOMATIC. Matches the WORKFLOW NA42 note. The prior snapshot's "PRODUCTION present as a
+non-actionable preview" was pre-NA42 and is now superseded.
 
-### Paint inventory & consumption — CONFORMS
-Predicted demand `/4` below **100 m²**, `/6` from 100 (`app/work_orders/schemas.py:315`) — confirms the
-threshold is 100 (NA24 A1). Intake shortage warning present (`calculate_paint_shortage_quantity_kg:319`,
-read-model fields `service.py:755-797`). Automatic packing blocked until consumption recorded
-(`_ensure_automatic_paint_consumption_recorded_before_packing`, `app/process/service.py:1192-1196`).
-Stock cannot go below zero (`PaintService._apply_movement` raises `InvalidPaintInventoryError`,
-`app/paints/service.py:198`). Consumption is one-shot, not editable (`:723`). Matches `WORKFLOW.md`
-"Paint Inventory And Consumption".
+## Divergences (this run)
 
-### Additional work types (Przemalowanka / Ocynk) — CONFORMS
-`work_order_kind` enum + `is_ocynk` + `released_to_client_at` columns
-(`app/work_orders/models.py:114-130`); `is_ocynk` is a non-routing marker; PRZEMALOWANKA skips surface
-prep (`_omits_surface_preparation_stage`/`_skips_surface_preparation`, `app/process/service.py:1306-1313`).
-Matches `WORKFLOW.md` "Additional Work Types" + `FACTORY_DOMAIN_MODEL.md` §5.
+**None newly found.** The planner's known divergences were swept by the 2026-06-24 N49 code review and
+are confirmed in code above; they remain open as already-logged items — do **not** double-log:
 
-### External order number — CONFORMS
-`external_order_number` nullable, no unique constraint (`app/work_orders/models.py:96`). Matches
-`WORKFLOW.md` intake (optional, non-unique, duplicates allowed).
-
-### Completed release — CONFORMS (column + office-only per docs)
-`released_to_client_at` nullable (`app/work_orders/models.py:130`); office-only / READY-only enforcement
-per `WORKFLOW.md` "Office/manager list grouping". (Enforcement path relied on station-action checks +
-existing tests.)
-
-### JWT secret / expiry, bcrypt, SQLite pragmas, number allocator — CONFORMS / RELIED-ON-EVIDENCE
-JWT default rejected outside dev (`app/core/config.py:61-67`, NA12 verified). `jwt_expiry_minutes`
-default 12h (`:39-43`, NA6). bcrypt 72-byte (NA10), SQLite pragmas (NA9), atomic number allocator
-(HARDENING #5) — **RELIED-ON-EVIDENCE** (closed items + tests; not re-read this pass).
-
-### Idempotency / concurrency, attachments, audit, frontend historical display — RELIED-ON-EVIDENCE
-Idempotency/concurrency (HARDENING #1/#2 + chaos suite), attachment PDF magic-byte + path containment
-(HARDENING #12), audit events (`STATION_IDENTITY_AND_AUDIT.md` "Current Implementation"), and
-historical-correction display via `is_historical_correction` (field present, `process/schemas.py:22`;
-frontend consumes it) — trusted from closed evidence/tests, not line-audited here.
-
-### QC document generation — RELIED-ON-EVIDENCE
-Excel template → fill (order no `A4`, customer `D5`, paint `D6`) → PDF, lazy COM worker, print-only
-(`WORKFLOW_VALIDATION_CHECKLIST.md` #10, README). Cell mapping not re-verified against the template
-this pass.
-
-## Divergences (actionable)
-
-### NA26 — stations display ordered quantity, not actual received (CONFIRMED) — see `IMMEDIATE_NEXT_ACTIONS.md` NA26
-Evidence:
-- Surface-prep counting stores `counted_quantity` **only** on the SP stage state; it does **not** update
-  the active batch / `current_active_quantity` (`_store_surface_preparation_counted_quantity`,
-  `app/process/service.py:2339-2355`).
-- The operational display quantity therefore stays at the ordered value: `_get_stage_display_quantity`
-  returns `current_active_quantity` (=`total_quantity`) / `total_quantity` (`:2479-2492`);
-  `_get_stage_planned_quantity` returns `total_quantity` for the active main batch (`:2495-2511`).
-- Station cards render `planned_quantity` and category "to verify" counts derived from the operational
-  quantity (`frontend/.../StageWorkOrdersPage.tsx:524`, `PackingWorkOrdersPage.tsx:560`;
-  `_derive_category_fields_for_operational_quantity:2190`).
-- By contrast, **validation** correctly uses the actual received quantity
-  (`_get_surface_preparation_actual_quantity:2821`, used at packing `:576-578`), and the read model does
-  expose `counted_quantity`/`quantity_difference` — just not as the primary station display.
-
-So packing's "did anything go missing?" check is right, but the displayed piece counts at
-HANGING/PRODUCTION/PACKING are the ordered total, not the counted truth — exactly as the owner reported.
-- **Tension to resolve with the owner:** `WORKFLOW.md` principle 6 says `planned_quantity` *stays* the
-  original expected quantity for audit, while "Quantity Discrepancy Visibility" says station operators
-  should see the **operational** quantity. The fix should show the actual received quantity as the
-  station-facing operational count once surface prep has counted it, while keeping declared + difference
-  for office/manager (and preserving the audit `planned_quantity`). Confirm desired display, then fix.
+- **NA52** — the multi-day board sizes day net-ceilings with the contaminated *learned* changeover
+  estimate (`service.py:1163`, surfaced `:1258`) while displaying the bounded N49-6 per-day value
+  (`:1199,1244`); good-day stats inherit the same inflation (`:898,936`). CONFIRMED.
+- **NA53** — good-day per-day "effective booth rate" almost always shows the seed (`service.py:885`,
+  `MIN_RATE_SAMPLE_ORDERS = 3` rarely met within one day). CONFIRMED.
+- **NA54** — paint hard-block is binary on `current_stock_kg <= 0`, not demand-aware
+  (`paint_feasibility.py:88`). CONFIRMED.
+- **NA55/NA56/NA57** — CapacityBoard AUTOMATIC-only + mount-only fetch; Mon–Fri + full day-0 calendar
+  assumption (`placement.py:43`, `service.py:1152`); one advised shift length stamped on every day
+  (`service.py:1140`, `placement.py:150`). CONFIRMED in code.
+- **NA51** — the multi-day board (EDF + light→dark) and the executable per-line `queue_position` are two
+  decoupled orderings with no apply path. CONFIRMED (board ignores `queue_position`).
 
 ## Notes / non-divergences worth recording
 
-- Manager stats doc-understatement (above) — propose a one-line WORKFLOW fix; logged here, not a defect.
+- **Residual NA42 preview-stage guards (minor, non-actionable).** `_is_automatic_production_preview_stage`
+  (`app/process/service.py:1456`) still returns `True` for AUTOMATIC + `PRODUCTION` and is referenced in
+  ~6 places (`:410,444,500,1098,1269,2472`). After `reconcile_stage_states_to_route` an AUTOMATIC order
+  has **no** `PRODUCTION` row, so these guards are now defensive/legacy belt-and-suspenders rather than
+  load-bearing. The NA42 doc note's "removes the phantom stage special-cased everywhere" slightly
+  overstates the cleanup. Harmless; fold the guards out opportunistically when next touching those paths
+  — not worth its own NA item.
 - No code change was made under this audit (read-only, per the task).
+
+## Relied-on-evidence (not re-read this pass)
+
+The stable pre-planner core was audited line-by-line on 2026-06-17 and has not been the subject of the
+intervening work; it is trusted here from that pass + the green guardian + the 576-test suite +
+`alembic check` clean:
+
+- Stage model & sequences, `process_status`/READY derivation, reopen-409, the RAL/DECORAL correction
+  split + S01–S12 matrix, resource locks / packing N-slot model, authorization (NA1), queue
+  stale-revision (per-line), throughput / cycle-time / WIP-aging, paint inventory & consumption,
+  additional work types, external number, completed release, JWT/config/bcrypt/SQLite pragmas,
+  idempotency/concurrency, attachments, audit, QC document generation, frontend historical display.
+- NA26 (operational quantity at stations) — fixed 2026-06-17, `operational_quantity` present on the
+  station read model; trusted from that closure + tests.
