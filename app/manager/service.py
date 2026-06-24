@@ -32,6 +32,7 @@ from app.manager.capacity import (
 )
 from app.manager.good_day import (
     DayActivity,
+    GoodDayMetrics,
     summarize_day,
     summarize_period,
 )
@@ -869,13 +870,17 @@ class ManagerService:
         ).all()
 
         # Bracketed automatic passes for the same window, grouped by completion day for changeover +
-        # booth-active hours + effective rate. The learned per-change cost values the changeover loss.
+        # booth-active hours + effective rate. NA52: the changeover loss is valued with the **bounded
+        # N49-6 size+direction** cost of the day's actual run, NOT the N49-2 statistical estimate — that
+        # estimate absorbs overnight/idle gaps (≈250 min/change) and would report a "changeover loss"
+        # larger than the day's real output. The statistical estimate stays a diagnostic on
+        # ``/manager/stats/line-measurements``.
         observations = self._automatic_pass_observations(date_from, date_to, production_type)
-        changeover = estimate_colour_changeover(observations)
         passes_by_day: dict[date, list[AutomaticPassObservation]] = {}
         for observation in observations:
             passes_by_day.setdefault(observation.packing_done_at.date(), []).append(observation)
 
+        day_metrics_core: list[GoodDayMetrics] = []
         day_metrics: list[GoodDayMetricsRead] = []
         for row in rows:
             day = date.fromisoformat(row.day)
@@ -884,6 +889,17 @@ class ManagerService:
             )
             changeover_count = count_colour_changeovers(
                 [observation.colour_key for observation in day_passes]
+            )
+            # Bounded per-change cost of the day's actual run order (size + direction, N49-6).
+            day_changeover_minutes_each = average_changeover_minutes(
+                [
+                    SequencedOrder(
+                        colour_key=observation.colour_key,
+                        ral_code=observation.ral_code,
+                        total_area_m2=observation.total_area_m2,
+                    )
+                    for observation in day_passes
+                ]
             )
             rate = measure_automatic_rate(day_passes)
 
@@ -898,9 +914,10 @@ class ManagerService:
                 ),
                 floor_m2=FLOOR_LONG_M2,
                 shift_hours=SHIFT_LONG_HOURS,
-                changeover_minutes_each=changeover.estimated_changeover_minutes,
+                changeover_minutes_each=day_changeover_minutes_each,
                 ceiling_rate_m2_per_h=CEILING_BOOTH_RATE_M2_PER_H,
             )
+            day_metrics_core.append(metrics)
             day_metrics.append(
                 GoodDayMetricsRead(
                     day=metrics.day,
@@ -923,23 +940,22 @@ class ManagerService:
                 )
             )
 
-        totals = summarize_period(
+        # Roll the already-computed per-day metrics up directly — no re-summarise with a single
+        # period-wide cost (that would re-introduce one flat per-change minute and lose each day's
+        # bounded N49-6 loss).
+        totals = summarize_period(day_metrics_core)
+
+        # Period-wide bounded changeover cost (over all passes in completion order) for the headline.
+        period_changeover_minutes_each = average_changeover_minutes(
             [
-                summarize_day(
-                    DayActivity(
-                        day=metric.day,
-                        output_m2=metric.output_m2,
-                        orders_completed=metric.orders_completed,
-                        orders_on_time=metric.orders_on_time,
-                        changeover_count=metric.changeover_count,
-                        active_hours=metric.active_hours,
-                    ),
-                    floor_m2=FLOOR_LONG_M2,
-                    shift_hours=SHIFT_LONG_HOURS,
-                    changeover_minutes_each=changeover.estimated_changeover_minutes,
-                    ceiling_rate_m2_per_h=CEILING_BOOTH_RATE_M2_PER_H,
+                SequencedOrder(
+                    colour_key=observation.colour_key,
+                    ral_code=observation.ral_code,
+                    total_area_m2=observation.total_area_m2,
                 )
-                for metric in day_metrics
+                for observation in sorted(
+                    observations, key=lambda observation: observation.hanging_started_at
+                )
             ]
         )
 
@@ -949,8 +965,8 @@ class ManagerService:
             date_to=date_to,
             floor_m2=FLOOR_LONG_M2,
             shift_hours=SHIFT_LONG_HOURS,
-            changeover_minutes_each=changeover.estimated_changeover_minutes,
-            changeover_is_measured=changeover.is_measured,
+            changeover_minutes_each=round(period_changeover_minutes_each, 1),
+            changeover_is_measured=True,
             days=day_metrics,
             totals=GoodDayTotalsRead(
                 days_count=totals.days_count,
@@ -1018,6 +1034,7 @@ class ManagerService:
                 total_area_m2=work_order.total_area_m2,
                 hanging_started_at=_as_naive_utc(hanging_started_at),
                 packing_done_at=_as_naive_utc(packing_done_at),
+                ral_code=work_order.ral_code,
             )
             for work_order, hanging_started_at, packing_done_at in rows
         ]
@@ -1151,7 +1168,26 @@ class ManagerService:
             )
             for work_order in active_orders
         ]
-        changeover = self._learned_changeover(production_type)
+        # NA52: size each day's net ceiling with the **bounded N49-6 size+direction** changeover cost —
+        # the same cost the single-day capacity view uses — NOT the N49-2 statistical estimate. That
+        # estimate is contaminated by overnight/idle gaps in the log (it learns idle time as "changeover",
+        # inflating to ≈250 min), which collapses every day's net ceiling and fragments the board. The
+        # statistical estimate stays a diagnostic (``GET /manager/stats/line-measurements``); here we use
+        # the bounded cost of the whole line's light→dark sweep so "what you see per day" (N49-6) equals
+        # "what placed the orders" (the net ceiling).
+        line_swept_ids = light_to_dark_order(
+            [
+                ColourOrderable(
+                    work_order_id=work_order.id,
+                    colour_key=self._order_colour_key(work_order),
+                    ral_code=work_order.ral_code,
+                )
+                for work_order in active_orders
+            ]
+        )
+        _line_total_minutes, line_avg_changeover_minutes = self._day_changeover_minutes(
+            [orders_by_id[order_id] for order_id in line_swept_ids]
+        )
         working_days = working_days_from(datetime.now(UTC).date(), horizon_working_days)
 
         # Paint-stock feasibility (N49-7): per-order OK / WARNING / BLOCKED in execution order, so the
@@ -1163,7 +1199,7 @@ class ManagerService:
             placeable,
             working_days=working_days,
             shift_length=resolved_shift,
-            changeover_minutes=changeover.estimated_changeover_minutes,
+            changeover_minutes=line_avg_changeover_minutes,
         )
 
         placement_by_id = {placement.work_order_id: placement for placement in plan.placements}
@@ -1258,8 +1294,11 @@ class ManagerService:
             shift_length=plan.shift_length,
             shift_advised=shift_advised,
             horizon_working_days=plan.horizon_working_days,
-            changeover_minutes=changeover.estimated_changeover_minutes,
-            changeover_is_measured=changeover.is_measured,
+            # The headline cost is now the bounded N49-6 size+direction figure that actually sized the
+            # plan (NA52). It is always determinate from the orders' sizes/colours — a structural model,
+            # not a learned-vs-seed fallback — so ``changeover_is_measured`` is True by construction.
+            changeover_minutes=round(line_avg_changeover_minutes, 1),
+            changeover_is_measured=True,
             days=days,
             infeasible_order_ids=plan.infeasible_order_ids,
         )

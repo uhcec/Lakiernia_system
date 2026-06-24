@@ -603,9 +603,25 @@ only. Five elements, top to bottom:
   proxy, distinct from the board's light→dark sweep), **N49-9** (the read-only board first cut).
 
 ### NA52. Learned colour-changeover cost is wildly inflated (≈254 min/change) — it absorbs idle/overnight gaps, collapsing the capacity plan
-- Status: **OPEN — found 2026-06-24** while explaining NA51 on the live planner walkthrough DB. Confirmed
-  in code + data: the planner's day-capacity math is being driven by a changeover cost an order of
-  magnitude above the confirmed 15/30-min bands.
+- Status: **DONE (2026-06-24).** Applied the "cleanest fix": the **bounded N49-6 size+direction** cost now
+  drives the capacity model on **both** planner endpoints, and the N49-2 statistical estimate is demoted to
+  a diagnostic (`GET /manager/stats/line-measurements` only). Changes (`app/manager/service.py`):
+  `get_multi_day_plan` feeds `place_orders` the average N49-6 changeover minutes of the whole line's
+  light→dark sweep (not `changeover.estimated_changeover_minutes`) to size each day's net ceiling, and
+  surfaces that bounded figure as the top-level `changeover_minutes` (`changeover_is_measured=True` — the
+  size+direction cost is always determinate). `get_good_day_stats` now values each day's changeover loss
+  with the day's own bounded N49-6 per-change cost (`average_changeover_minutes` over the day's run) and
+  rolls the **already-computed** per-day metrics up directly (no re-summarise with one period-wide cost),
+  fixing the **#2 NA50 inheritance** in the same change. `AutomaticPassObservation` gained `ral_code` so
+  good-day can derive the direction cost. `get_day_capacity` already used the bounded cost — unchanged. No
+  schema change; `alembic check` clean. Tests: new `tests/test_planner_changeover_bound_na52.py` (2 — a
+  contaminated spread-across-days log produces an inflated N49-2 estimate, yet the multi-day plan's cost
+  stays ≤ the 30-min band and a long day isn't collapsed; a good-day's changeover loss stays bounded and
+  below the day's output). 578 backend + 91 frontend pass; both builds green. `docs/WORKFLOW.md` "Target
+  planning model" + good-day section updated.
+- Status (original): **OPEN — found 2026-06-24** while explaining NA51 on the live planner walkthrough DB.
+  Confirmed in code + data: the planner's day-capacity math is being driven by a changeover cost an order
+  of magnitude above the confirmed 15/30-min bands.
 - Severity: **MEDIUM–HIGH** (it makes the headline planner feature — the multi-day board, day-floor, and
   the "won't make it" set — misleading; not data corruption since the planner is still advisory/read-only).
 - Evidence (live, AUTOMATIC line, `seed_n49_planner_walkthrough` DB, today 2026-06-24):
@@ -657,11 +673,12 @@ only. Five elements, top to bottom:
     headline figure). This removes the idle/overnight contamination from the model entirely instead of
     trying to clean it, and makes "what you see" (per-day cost) equal "what placed the orders" (net
     ceiling).
-- **#2 CONFIRMED 2026-06-24 — the good-day stats inherit the same inflation (NA50).**
-  `get_good_day_stats` multiplies each day's colour-change count by the period-wide learned
-  `changeover.estimated_changeover_minutes` (`app/manager/service.py:898,936`). A 3-change day reports
-  ≈1000 m² of "changeover loss" — which can exceed the day's actual output, making the headline good-day
-  metric misleading too. The NA52 fix MUST cover this call site (use the same bounded N49-6 cost).
+- **#2 RESOLVED 2026-06-24 (in the NA52 fix) — the good-day stats no longer inherit the inflation (NA50).**
+  `get_good_day_stats` previously multiplied each day's colour-change count by the period-wide learned
+  `changeover.estimated_changeover_minutes`, so a 3-change day reported ≈1000 m² of "changeover loss" that
+  could exceed the day's actual output. It now values each day's loss with the day's own **bounded N49-6**
+  per-change cost (`average_changeover_minutes` over that day's run) and rolls the per-day metrics up
+  directly. Covered by `tests/test_planner_changeover_bound_na52.py`.
 
 ### NA53. Good-day per-day "effective booth rate" is almost always the seed (dead diagnostic)
 - Status: **OPEN — found 2026-06-24 (code review of the N49 series).**

@@ -427,7 +427,7 @@ seed 80 m²/h = midpoint of the confirmed 60–100 band, × shift hours), with e
 consuming capacity** (changeover minutes → m² of ceiling lost → a *net* ceiling). It also **advises the
 shift length** from the available ready work (≥ 800 → long, else short). `GET /manager/planner/day-capacity`
 buckets a line's currently-planned orders, flagging below-floor and over-ceiling (spill), using the
-learned changeover cost. **Deadline-feasible multi-day placement is also built** (N49-4):
+bounded size + direction changeover cost (N49-6 below). **Deadline-feasible multi-day placement is also built** (N49-4):
 `app/manager/placement.py` lays a line's active planned orders across the next working days
 **earliest-deadline-first** into net-ceiling-bounded day buckets (a colour change shrinks the day's
 usable ceiling, so packing is conservative — `placement.changeover_loss_m2` is shared with the single-day
@@ -448,7 +448,12 @@ lightness?" question. The **changeover cost is now size + direction-aware** (N49
 `app/manager/capacity.py`): a colour change costs the **100 m² odzysk band** (≤ 15 min "bez odzysku"
 under 100 m², up to 30 min "z odzysku" over) scaled by colour direction (light → dark cheap, dark → light
 the full band), replacing the flat per-change count; the per-day cost flows through the same shared
-`changeover_loss_m2`, so single-day and multi-day never drift. Each order also carries a
+`changeover_loss_m2`, so single-day and multi-day never drift. **This bounded N49-6 cost — not the N49-2
+statistical estimate — is what drives the capacity model on both planner endpoints (NA52):** the
+statistical estimate (extra inter-start gap when the colour changes) is contaminated by overnight/idle
+gaps in the log — it learns idle time as "changeover" and inflates to hundreds of minutes, which would
+collapse every day's net ceiling — so it is kept as a *diagnostic* on `GET /manager/stats/line-measurements`
+only. Each order also carries a
 **manager-overridable suggested line** (N49-8): a **small-m² colour-orphan** (no same-colour neighbour to
 group with) is suggested **manual**; everything else **automatic** (join a colour run / keep the booth
 fed). `GET /manager/planner/multi-day` returns the swept order (`sequence_position`), the per-day
@@ -716,9 +721,11 @@ split how", but not whether the day was *good* as the multi-day capacity model d
   shift length is recorded this can become per-day.
 - **On-time %** — of the day's completions, the share whose `PACKING`-done date is on/before the hard
   `planned_pickup_date` (required since N49-1). Scoped to the requested line's completions.
-- **Colour-changeover loss** — the day's colour-change count × the learned per-change cost (N49-2),
-  expressed as m² of booth capacity burned (the same `changeover_loss_m2` arithmetic the planner uses) —
-  now a *historical* stat, not only a planning preview.
+- **Colour-changeover loss** — the day's colour-change count × the **bounded N49-6 size + direction**
+  per-change cost of that day's actual run, expressed as m² of booth capacity burned (the same
+  `changeover_loss_m2` arithmetic the planner uses) — now a *historical* stat, not only a planning
+  preview. (Uses the bounded cost, **not** the N49-2 statistical estimate — that estimate is inflated by
+  overnight/idle gaps and would report a loss larger than the day's output; NA52.)
 - **Diagnostics:** the day's effective booth **rate** (m²/h, from that day's bracketed passes) and
   **utilisation / idle** (booth-active hours vs the shift — "fabryka nie stała").
 
