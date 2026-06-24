@@ -6,11 +6,14 @@ capacity loss, below-floor + over-ceiling (spill) flags, and the shift-length ad
 
 from app.manager.capacity import (
     CEILING_BOOTH_RATE_M2_PER_H,
+    CHANGEOVER_BAND_LARGE_MINUTES,
+    CHANGEOVER_BAND_SMALL_MINUTES,
     FLOOR_LONG_M2,
     FLOOR_SHORT_M2,
     PlacedOrder,
     ShiftLength,
     advise_shift_length,
+    changeover_minutes_for_transition,
     compute_day_capacity,
 )
 
@@ -102,3 +105,14 @@ def test_advise_shift_length_by_long_day_floor() -> None:
 def test_ceiling_rate_seed_is_the_band_midpoint() -> None:
     # The seed booth rate is the midpoint of the confirmed 60–100 m²/h band.
     assert CEILING_BOOTH_RATE_M2_PER_H == 80.0
+
+
+def test_changeover_minutes_size_and_direction_band() -> None:
+    # Size: ≤ 100 m² uses the small band, > 100 the large band (dark→light = full band).
+    assert changeover_minutes_for_transition(next_order_m2=80.0, light_to_dark=False) == CHANGEOVER_BAND_SMALL_MINUTES
+    assert changeover_minutes_for_transition(next_order_m2=150.0, light_to_dark=False) == CHANGEOVER_BAND_LARGE_MINUTES
+    # Direction: light→dark is strictly cheaper than the dark→light full band.
+    assert (
+        changeover_minutes_for_transition(next_order_m2=150.0, light_to_dark=True)
+        < changeover_minutes_for_transition(next_order_m2=150.0, light_to_dark=False)
+    )

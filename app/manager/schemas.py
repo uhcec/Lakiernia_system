@@ -245,8 +245,10 @@ class DayCapacityRead(BaseModel):
 
     Read-side of N49-3: the day-capacity foundation the multi-day placement (N49-4) and the capacity
     board (N49-9) build on. ``shift_advised`` is true when the shift length was derived from the
-    available ready work rather than supplied by the caller. ``changeover_minutes`` is the learned
-    per-change cost (N49-2) folded into the net ceiling.
+    available ready work rather than supplied by the caller. ``changeover_minutes`` is the **average
+    per-change** cost folded into the net ceiling — size + direction-aware (N49-6): derived from the
+    line's actual light→dark sweep (the 100 m² odzysk band × colour direction), not a flat constant.
+    ``changeover_minutes_total`` is that sweep's full changeover cost.
     """
 
     production_type: ProductionType
@@ -271,7 +273,13 @@ class DayCapacityRead(BaseModel):
 
 
 class OrderPlacementRead(BaseModel):
-    """Where one order landed in the multi-day plan and whether that still ships it on time (N49-4)."""
+    """Where one order landed in the multi-day plan and whether that still ships it on time (N49-4).
+
+    Within its day the orders are listed as a **light → dark colour sweep** (N49-5): ``sequence_position``
+    is the order's 0-based slot in that sweep. ``suggested_production_type`` is the planner's proposed
+    line (N49-8, small-m² colour-orphan → manual, else automatic) — a suggestion the manager can
+    override; ``suggested_line_is_*`` expose the reason behind it.
+    """
 
     work_order_id: int
     order_number: str
@@ -279,14 +287,25 @@ class OrderPlacementRead(BaseModel):
     ral_code: str | None
     total_area_m2: float | None
     day_index: int
+    # 0-based position within the day's light→dark sweep (N49-5).
+    sequence_position: int
     scheduled_date: date | None
     planned_pickup_date: date
     meets_deadline: bool
     days_late: int
+    # Suggested line (N49-8) — manager-overridable.
+    suggested_production_type: ProductionType
+    suggested_line_is_colour_orphan: bool
+    suggested_line_is_small: bool
 
 
 class PlannedDayRead(BaseModel):
-    """One working day in the multi-day plan: its capacity bucket and the orders placed in it (N49-4)."""
+    """One working day in the multi-day plan: its capacity bucket and the orders placed in it (N49-4).
+
+    ``placements`` are ordered as the day's **light → dark colour sweep** (N49-5). ``changeover_minutes``
+    is the day's **size + direction-aware** total changeover cost for that sweep (N49-6) — identical
+    colours cost zero, light→dark cheap, dark→light the full size band — not a flat per-change count.
+    """
 
     day_index: int
     scheduled_date: date | None
@@ -295,6 +314,8 @@ class PlannedDayRead(BaseModel):
     gross_ceiling_m2: float
     net_ceiling_m2: float
     changeover_count: int
+    # Size + direction-aware total changeover minutes for the day's light→dark sweep (N49-6).
+    changeover_minutes: float
     placed_order_count: int
     placed_m2: float
     below_floor: bool

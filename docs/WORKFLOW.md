@@ -407,9 +407,24 @@ usable ceiling, so packing is conservative — `placement.changeover_loss_m2` is
 model). It reports, per order, whether the day it lands on still meets its hard pickup deadline, and
 returns the **"won't make it" set** (orders scheduled past their deadline or beyond the horizon).
 `GET /manager/planner/multi-day` surfaces it (one day per column, each with its floor/ceiling and placed
-orders); the working-day calendar skips weekends (Mon–Fri assumption, revisit). The remaining *capacity
-planner* pieces that consume this foundation (light→dark ordering N49-5, the size-aware changeover cost
-N49-6, paint hard-block N49-7, line-assignment N49-8, the capacity board N49-9) are not yet built.
+orders); the working-day calendar skips weekends (Mon–Fri assumption, revisit). **Within-day light→dark
+ordering, the size + direction changeover cost, and the line-assignment lever are also built**
+(N49-5/6/8). The EDF day-to-day placement stays as-is; *within* each placed day `app/manager/colour.py`
+reorders the orders into a **light → dark colour sweep** — identical colours grouped first (a same-colour
+adjacency costs zero changeover), then the remaining colour *changes* swept light → dark (the cheap
+direction: lighter residue is invisible under a darker coat; a **dark → light** reset is the expensive
+event to minimise). Colour **lightness is derived from the RAL code** in a single, documented
+`ral_lightness` helper — the one place to revisit the still-open "do colour families override pure
+lightness?" question. The **changeover cost is now size + direction-aware** (N49-6, in
+`app/manager/capacity.py`): a colour change costs the **100 m² odzysk band** (≤ 15 min "bez odzysku"
+under 100 m², up to 30 min "z odzysku" over) scaled by colour direction (light → dark cheap, dark → light
+the full band), replacing the flat per-change count; the per-day cost flows through the same shared
+`changeover_loss_m2`, so single-day and multi-day never drift. Each order also carries a
+**manager-overridable suggested line** (N49-8): a **small-m² colour-orphan** (no same-colour neighbour to
+group with) is suggested **manual**; everything else **automatic** (join a colour run / keep the booth
+fed). `GET /manager/planner/multi-day` returns the swept order (`sequence_position`), the per-day
+size+direction changeover minutes, and the suggested line per order. The remaining *capacity planner*
+pieces (paint hard-block N49-7, the capacity board N49-9) are not yet built.
 Trust is earned in three phases: (1) **observer** — manager plans manually, the system only shows
 day-fill vs floor/ceiling and the changeover count; (2) **suggester** — the system proposes the
 arrangement, the manager edits; (3) **trusted** — the system arrangement is the default and the manager

@@ -27,6 +27,15 @@ from app.manager.capacity import (
     advise_shift_length,
     compute_day_capacity,
 )
+from app.manager.colour import (
+    ColourOrderable,
+    SequencedOrder,
+    average_changeover_minutes,
+    colour_neighbour_counts,
+    light_to_dark_order,
+    sequence_changeover_minutes,
+    suggest_line,
+)
 from app.manager.measurement import (
     AutomaticPassObservation,
     estimate_colour_changeover,
@@ -822,37 +831,55 @@ class ManagerService:
     ) -> DayCapacityRead:
         """Day-capacity snapshot for a line's currently-planned work (N49-3, the planner foundation).
 
-        Buckets the line's active planned orders (in queue order) into one working day, showing fill
-        vs the floor (800/500 m²) and the net ceiling (physical booth capacity minus colour-changeover
-        loss). When ``shift_length`` is omitted it is **advised** from the available ready work (enough
-        to clear the long-day floor → long day, else short — ``docs/FACTORY_DOMAIN_MODEL.md`` §7). The
-        per-change cost is the learned changeover estimate (N49-2) over a trailing window; colour
-        changes are counted from the queue order. Pure arithmetic lives in ``app/manager/capacity.py``.
+        Buckets the line's active planned orders into one working day, showing fill vs the floor
+        (800/500 m²) and the net ceiling (physical booth capacity minus colour-changeover loss). The
+        orders are first reordered into a **light → dark colour sweep** (N49-5, identical colours
+        grouped), then the day's changeover cost is computed **size + direction-aware** (N49-6): each
+        colour change costs the 100 m² odzysk band scaled by the colour direction, so the m² loss
+        reflects size + direction, not a flat per-change count. ``changeover_minutes`` returns the
+        average per-change cost of that sweep; ``changeover_is_measured`` reflects whether the learned
+        seed was refined (kept for the read model, though the bands themselves are structural). When
+        ``shift_length`` is omitted it is **advised** from the available ready work
+        (``docs/FACTORY_DOMAIN_MODEL.md`` §7). Pure arithmetic lives in ``app/manager/capacity.py`` /
+        ``app/manager/colour.py``.
         """
         self._ensure_manager_station_action(station_context)
 
         active_orders = self._active_planned_orders_for_line(production_type)
-        placed_orders = [
-            PlacedOrder(work_order_id=work_order.id, total_area_m2=work_order.total_area_m2)
-            for work_order in active_orders
-        ]
         available_m2 = sum(work_order.total_area_m2 or 0.0 for work_order in active_orders)
 
         shift_advised = shift_length is None
         resolved_shift = shift_length if shift_length is not None else advise_shift_length(available_m2)
 
-        colour_by_id = {work_order.id: self._order_colour_key(work_order) for work_order in active_orders}
-        changeover_count = colour_changeovers_for_order_ids(
-            [work_order.id for work_order in active_orders], colour_by_id
+        # Reorder the day into a light→dark sweep (N49-5) so the changeover count + cost reflect the
+        # arrangement the planner would actually run, not the raw queue order.
+        swept_ids = light_to_dark_order(
+            [
+                ColourOrderable(
+                    work_order_id=work_order.id,
+                    colour_key=self._order_colour_key(work_order),
+                    ral_code=work_order.ral_code,
+                )
+                for work_order in active_orders
+            ]
         )
+        orders_by_id = {work_order.id: work_order for work_order in active_orders}
+        swept_orders = [orders_by_id[order_id] for order_id in swept_ids]
+        placed_orders = [
+            PlacedOrder(work_order_id=work_order.id, total_area_m2=work_order.total_area_m2)
+            for work_order in swept_orders
+        ]
 
+        colour_by_id = {work_order.id: self._order_colour_key(work_order) for work_order in swept_orders}
+        changeover_count = colour_changeovers_for_order_ids(swept_ids, colour_by_id)
+        _total_minutes, avg_change_minutes = self._day_changeover_minutes(swept_orders)
         changeover = self._learned_changeover(production_type)
 
         day = compute_day_capacity(
             resolved_shift,
             placed_orders,
             changeover_count=changeover_count,
-            changeover_minutes=changeover.estimated_changeover_minutes,
+            changeover_minutes=avg_change_minutes,
         )
 
         return DayCapacityRead(
@@ -898,10 +925,14 @@ class ManagerService:
         Lays the line's active planned orders across the next ``horizon_working_days`` working days,
         earliest-deadline-first, into net-ceiling-bounded day buckets (floor 800/500, gross booth
         ceiling minus the m² lost to each day's colour changes — the learned changeover cost from
-        N49-2). When ``shift_length`` is omitted it is **advised** from the available ready work
-        (``docs/FACTORY_DOMAIN_MODEL.md`` §7). ``infeasible_order_ids`` is the "won't make it" set —
-        orders whose scheduled day is past their hard pickup deadline or beyond the horizon. Pure
-        placement arithmetic lives in ``app/manager/placement.py``.
+        N49-2). **Within each placed day** the orders are then reordered into a **light → dark colour
+        sweep** (N49-5, identical colours grouped) and that day's **size + direction-aware** changeover
+        cost is reported (N49-6). Each order also carries a **suggested line** (N49-8: small-m²
+        colour-orphan → manual, else automatic — a manager-overridable hint). When ``shift_length`` is
+        omitted it is **advised** from the available ready work (``docs/FACTORY_DOMAIN_MODEL.md`` §7).
+        ``infeasible_order_ids`` is the "won't make it" set — orders whose scheduled day is past their
+        hard pickup deadline or beyond the horizon. Pure placement arithmetic lives in
+        ``app/manager/placement.py``; colour ordering / line lever in ``app/manager/colour.py``.
         """
         self._ensure_manager_station_action(station_context)
 
@@ -931,41 +962,87 @@ class ManagerService:
             changeover_minutes=changeover.estimated_changeover_minutes,
         )
 
-        placements_by_day: dict[int, list[OrderPlacementRead]] = {}
-        for placement in plan.placements:
-            work_order = orders_by_id[placement.work_order_id]
-            placements_by_day.setdefault(placement.day_index, []).append(
-                OrderPlacementRead(
-                    work_order_id=placement.work_order_id,
-                    order_number=work_order.order_number,
-                    customer_name=work_order.customer_name,
-                    ral_code=work_order.ral_code,
-                    total_area_m2=work_order.total_area_m2,
-                    day_index=placement.day_index,
-                    scheduled_date=placement.scheduled_date,
-                    planned_pickup_date=placement.planned_pickup_date,
-                    meets_deadline=placement.meets_deadline,
-                    days_late=placement.days_late,
-                )
+        placement_by_id = {placement.work_order_id: placement for placement in plan.placements}
+
+        # Line suggestion (N49-8) is decided across the whole line's planned set: an order is a
+        # colour-orphan when no OTHER planned order shares its colour. Small + orphan → manual.
+        colour_counts = colour_neighbour_counts(
+            [self._order_colour_key(work_order) for work_order in active_orders]
+        )
+
+        def _line_suggestion(work_order: WorkOrder):
+            colour_key = self._order_colour_key(work_order)
+            is_orphan = colour_key is None or colour_counts.get(colour_key, 0) <= 1
+            return suggest_line(
+                work_order_id=work_order.id,
+                total_area_m2=work_order.total_area_m2,
+                is_colour_orphan=is_orphan,
             )
 
-        days = [
-            PlannedDayRead(
-                day_index=day.day_index,
-                scheduled_date=day.scheduled_date,
-                shift_length=day.shift_length,
-                floor_m2=day.floor_m2,
-                gross_ceiling_m2=day.gross_ceiling_m2,
-                net_ceiling_m2=day.net_ceiling_m2,
-                changeover_count=day.changeover_count,
-                placed_order_count=len(day.placed_order_ids),
-                placed_m2=day.placed_m2,
-                below_floor=day.below_floor,
-                over_ceiling=day.over_ceiling,
-                placements=placements_by_day.get(day.day_index, []),
+        days: list[PlannedDayRead] = []
+        for day in plan.days:
+            # Within each placed day, reorder into a light→dark colour sweep (N49-5). The day membership
+            # + ceiling come from N49-4 EDF placement; we only reorder *within* the day.
+            day_orders = [orders_by_id[order_id] for order_id in day.placed_order_ids]
+            swept_ids = light_to_dark_order(
+                [
+                    ColourOrderable(
+                        work_order_id=work_order.id,
+                        colour_key=self._order_colour_key(work_order),
+                        ral_code=work_order.ral_code,
+                    )
+                    for work_order in day_orders
+                ]
             )
-            for day in plan.days
-        ]
+            swept_orders = [orders_by_id[order_id] for order_id in swept_ids]
+            day_changeover_minutes, _avg = self._day_changeover_minutes(swept_orders)
+            # Count changes in the SWEPT order (grouped) so the displayed count and cost agree — the
+            # placement's own count is from the EDF order, used only to size the net ceiling.
+            swept_colour_by_id = {
+                work_order.id: self._order_colour_key(work_order) for work_order in swept_orders
+            }
+            swept_changeover_count = colour_changeovers_for_order_ids(swept_ids, swept_colour_by_id)
+
+            placements = []
+            for position, work_order in enumerate(swept_orders):
+                placement = placement_by_id[work_order.id]
+                suggestion = _line_suggestion(work_order)
+                placements.append(
+                    OrderPlacementRead(
+                        work_order_id=work_order.id,
+                        order_number=work_order.order_number,
+                        customer_name=work_order.customer_name,
+                        ral_code=work_order.ral_code,
+                        total_area_m2=work_order.total_area_m2,
+                        day_index=placement.day_index,
+                        sequence_position=position,
+                        scheduled_date=placement.scheduled_date,
+                        planned_pickup_date=placement.planned_pickup_date,
+                        meets_deadline=placement.meets_deadline,
+                        days_late=placement.days_late,
+                        suggested_production_type=ProductionType(suggestion.suggested_production_type),
+                        suggested_line_is_colour_orphan=suggestion.is_colour_orphan,
+                        suggested_line_is_small=suggestion.is_small,
+                    )
+                )
+
+            days.append(
+                PlannedDayRead(
+                    day_index=day.day_index,
+                    scheduled_date=day.scheduled_date,
+                    shift_length=day.shift_length,
+                    floor_m2=day.floor_m2,
+                    gross_ceiling_m2=day.gross_ceiling_m2,
+                    net_ceiling_m2=day.net_ceiling_m2,
+                    changeover_count=swept_changeover_count,
+                    changeover_minutes=round(day_changeover_minutes, 1),
+                    placed_order_count=len(day.placed_order_ids),
+                    placed_m2=day.placed_m2,
+                    below_floor=day.below_floor,
+                    over_ceiling=day.over_ceiling,
+                    placements=placements,
+                )
+            )
 
         return MultiDayPlanRead(
             production_type=production_type,
@@ -1324,6 +1401,24 @@ class ManagerService:
         if not work_order.ral_code:
             return None
         return f"{work_order.ral_code}|{work_order.paint_producer or ''}|{work_order.paint_code or ''}"
+
+    def _sequenced_order(self, work_order: WorkOrder) -> SequencedOrder:
+        """A work order projected for the size+direction changeover cost (N49-6)."""
+        return SequencedOrder(
+            colour_key=self._order_colour_key(work_order),
+            ral_code=work_order.ral_code,
+            total_area_m2=work_order.total_area_m2,
+        )
+
+    def _day_changeover_minutes(self, ordered_work_orders: list[WorkOrder]) -> tuple[float, float]:
+        """(total, average-per-change) size+direction changeover minutes for a day's light→dark sweep.
+
+        The total is what the day actually loses to colour changes (N49-6); the average is what the
+        per-change day-capacity model (``compute_day_capacity``) consumes as ``changeover_minutes`` so
+        its m² loss reflects size + direction rather than a flat constant. Caller passes the orders
+        already in their within-day sweep order (``light_to_dark_order``)."""
+        sequence = [self._sequenced_order(work_order) for work_order in ordered_work_orders]
+        return sequence_changeover_minutes(sequence), average_changeover_minutes(sequence)
 
     def _resolve_rule_config(self, production_type: ProductionType) -> list[tuple[ScheduleRuleKey, bool]]:
         """The stored (key, enabled) priority list for a line, falling back to the all-enabled default.

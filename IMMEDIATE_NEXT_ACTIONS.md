@@ -652,14 +652,31 @@ only. Five elements, top to bottom:
   - Original framing — Place orders across day-buckets in deadline order so no hard pickup date is missed;
     surface a "won't make it" warning. Objective hierarchy: **deadline > floor > grouping.** Acceptance:
     orders land on days respecting deadlines; infeasible deadlines warn.
-- **N49-5 — Light→dark colour ordering** (replaces the crude "largest run first"). Group identical
-  colours (zero changeover), then order remaining changes **light → dark** using RAL-code lightness;
-  dark → light is the expensive reset to minimise. **Supersedes NA49.H** and the exact-identity-only
-  COLOUR rule. Acceptance: within-day automatic order is a light→dark sweep; estimated changeover drops.
-- **N49-6 — 100 m² changeover-cost model.** Cost a colour change by the next order's size vs the 100 m²
-  odzysk threshold (< 100 → ≤ 15 min "bez odzysku"; > 100 → up to 30 min "z odzysku") and by colour
-  direction. Feeds the capacity-consumed-by-changeover number. Acceptance: changeover cost reflects size
-  + direction, not a flat count.
+- **N49-5 — Light→dark colour ordering. DONE (2026-06-24).** A DB-free `app/manager/colour.py` reorders
+  each placed day into a **light → dark colour sweep**: `light_to_dark_order` groups identical colours
+  (zero-changeover runs) then sweeps the remaining changes lightest → darkest by a shared, documented
+  `ral_lightness` helper (RAL-code group/anchor map — white 9010/9016 = 1.0 lightest, black 9005 = 0.0
+  darkest, greys in between; the single point to revisit the open colour-family question, flagged in the
+  module + `FACTORY_DOMAIN_MODEL.md` §7). The EDF day-to-day placement (N49-4) is unchanged; the sweep is
+  **within** each day only. Wired into `ManagerService.get_multi_day_plan` (per-order `sequence_position`)
+  and `get_day_capacity` (the day's changeover count/cost now reflect the grouped sweep, not raw queue
+  order). **Supersedes NA49.H** + the exact-identity COLOUR rule. Tests: `tests/test_colour.py` (lightness
+  ordering, grouping, no-colour-last, empty) + `tests/test_within_day_plan_service.py` (white→grey→black
+  sweep, grouping drops the changeover count) + updated `test_day_capacity_service.py` (interleaved A,B,A
+  groups to 1 change). No schema change; `alembic check` clean. Acceptance met: within-day order is a
+  light→dark sweep; the grouped sweep cuts the estimated changeover vs the raw queue order.
+- **N49-6 — 100 m² changeover-cost model. DONE (2026-06-24).** `app/manager/capacity.py`
+  `changeover_minutes_for_transition` costs a colour change by the **next order's size vs the 100 m²
+  odzysk threshold** (≤ 100 → 15 min "bez odzysku"; > 100 → 30 min "z odzysku") **and colour direction**
+  (light → dark = a fraction of the band; dark → light = the full band — the residue-shows reset). It
+  reuses the confirmed `band_*` structural figures (one source with `measurement.py`).
+  `app/manager/colour.py::sequence_changeover_minutes` / `average_changeover_minutes` walk a day's swept
+  sequence (same-colour adjacency = 0) into a per-day total + per-change average; the average feeds
+  `compute_day_capacity`'s `changeover_minutes`, so the **same shared `changeover_loss_m2`** turns it into
+  m² of ceiling lost for both single-day and multi-day (no drift). `get_multi_day_plan` surfaces the
+  per-day size+direction `changeover_minutes`. Tests: `tests/test_colour.py` + `tests/test_capacity.py`
+  (size band, light→dark < dark→light, missing-size = large band) + service assertions. No schema change;
+  `alembic check` clean. Acceptance met: changeover cost reflects size + direction, not a flat count.
 - **N49-7 — Paint-stock HARD block** (was NA49.C, **upgraded to core** — out-of-stock paint is a leading
   cause of a missed norm). A colour series whose paint is not in stock **cannot be planned** (hard block,
   not just a warning); show a forward "paint suffices / runs out at order X" view. Acceptance: the planner
@@ -675,9 +692,17 @@ only. Five elements, top to bottom:
     refinement:** hard-block on the **automatic** planned series (metered, trustworthy); pair with a quick
     **stock recount at the booth**; treat colours heavily used on manual as lower-confidence (warn, don't
     hard-block). Do not hard-block purely on a possibly-stale balance.
-- **N49-8 — Line-assignment lever.** The planner assigns/suggests a line per order: small m² +
-  colour-orphan → **manual**; otherwise **automatic** (join a colour run / balance idle). Interacts with
-  grouping. Acceptance: planner proposes a line per order by the rule; manager can override.
+- **N49-8 — Line-assignment lever. DONE (2026-06-24).** `app/manager/colour.py::suggest_line` proposes a
+  line per order: a **small-m² colour-orphan** (no same-colour neighbour to group with, ≤ the 100 m²
+  threshold) → **manual**; everything else → **automatic** (join a colour run / keep the booth fed). A
+  missing m² is treated as not-small (safe automatic default). `get_multi_day_plan` decides orphan-ness
+  across the whole line's planned set (`colour_neighbour_counts`) and returns
+  `suggested_production_type` + the reason flags (`suggested_line_is_colour_orphan` /
+  `suggested_line_is_small`) per order — a **suggestion only**; the manager still assigns/overrides the
+  line through the existing planning endpoints. Tests: `tests/test_colour.py` (the four rule branches) +
+  `tests/test_within_day_plan_service.py` (small orphan → manual, grouped/large → automatic). No schema
+  change; `alembic check` clean. Acceptance met: planner proposes a line per order by the rule; manager
+  can override.
 
 **UI:**
 - **N49-9 — Multi-day capacity board.** Rolling ~week board; each day a column filling toward

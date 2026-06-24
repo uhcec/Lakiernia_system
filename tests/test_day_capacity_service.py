@@ -87,20 +87,21 @@ def test_advises_long_day_and_sums_placed_m2(db_session: Session) -> None:
     assert day.over_ceiling is False
 
 
-def test_counts_colour_changeovers_from_queue_order(db_session: Session) -> None:
+def test_light_to_dark_sweep_groups_colours_and_costs_by_size(db_session: Session) -> None:
     work_order_service, manager_service = _build(db_session)
-    # Interleaved colours A,B,A → 2 colour changes in queue order; changeover loss reduces net ceiling.
+    # Interleaved input A,B,A — but the day is reordered into a light→dark sweep (N49-5) that GROUPS the
+    # two A orders, so only ONE colour change remains (down from the 2 the raw queue order had).
     _plan_automatic(work_order_service, manager_service, "A1", "RAL 1000", 100.0)
     _plan_automatic(work_order_service, manager_service, "B1", "RAL 2000", 100.0)
     _plan_automatic(work_order_service, manager_service, "A2", "RAL 1000", 100.0)
 
     day = manager_service.get_day_capacity(station_context=MANAGER)
 
-    assert day.changeover_count == 2
-    # No measured history → seeded changeover cost (20 min/change).
-    assert day.changeover_is_measured is False
-    assert day.changeover_minutes == 20.0
-    assert day.changeover_minutes_total == 40.0
+    assert day.changeover_count == 1  # grouped sweep, not the 2 of the interleaved queue order
+    # Size+direction-aware cost (N49-6): all orders ≤ 100 m² → small "bez odzysku" band (≤ 15 min),
+    # not a flat 20-min seed. The single change costs at most the small band.
+    assert day.changeover_minutes <= 15.0
+    assert day.changeover_minutes_total == round(day.changeover_minutes, 1)
     assert day.changeover_loss_m2 > 0.0
     assert day.net_ceiling_m2 < day.gross_ceiling_m2
 

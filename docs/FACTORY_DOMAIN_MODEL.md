@@ -353,7 +353,11 @@ The exact minutes/frequency are not tracked by people — the system should **le
 data** (see §4) — but the grouping reward is large. The **15/30-min bands are confirmed**; the *frequency*
 of colour changes is **not a fixed number** — it depends on the day's order mix, so the system learns it.
 The RAL-lightness light→dark model is the working assumption (owner's white→grey example); the owner could
-not confirm whether colour "families" override it — ⚠️ *still to confirm with the colleague.*
+not confirm whether colour "families" override it — ⚠️ *still to confirm with the colleague.* **Built
+(N49-5/6):** the within-day sweep + the size+direction changeover cost are implemented; RAL→lightness
+lives in **one documented helper** `app/manager/colour.py::ral_lightness` (a coarse group/anchor map, NOT
+a perceptual L\* scale) — that helper is the **single point to revisit** when this open question is
+answered (a CIE-Lab/HLC mapping or a family table would replace it there, nowhere else).
 
 ### Line choice (manual vs automatic) is a real planning lever
 
