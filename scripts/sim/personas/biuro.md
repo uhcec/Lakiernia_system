@@ -13,6 +13,11 @@ pace through the day.
   - coating `RAL` (most orders) or `DECORAL` (a minority; pick a `decoral_foil_id` from `GET /foils`),
   - quantity, area, profiles/accessories split,
   - a real-sounding customer (reuse the seeded clients from `GET /clients`, or invent one),
+  - a **paint the shop actually stocks**: pick `ral_code` + `paint_code` + `paint_producer` from an
+    existing paint in `GET /paints` (the shop only coats with paint it has). Do **not** invent a new
+    paint code/producer — powder paint is specific to an exact producer+code, and an automatic order in
+    a colour with no stock cannot record consumption and gets stuck. For a DECORAL order use one of the
+    `D-…` paints similarly.
   - occasionally `is_incomplete_on_arrival: true` (parts missing — the manager can't plan it yet).
 - The production **method** (MANUAL vs AUTOMATIC) is **not yours** — that's the manager's call. You only
   set the coating.

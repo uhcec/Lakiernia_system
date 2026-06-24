@@ -213,6 +213,29 @@ Before starting Phase 3, resolve the open owner questions on NA34/NA36/NA37/NA38
 - Required fix: Add an `exp` claim and verify it in `decode_token`; decide a session lifetime.
 - Acceptance: Expired tokens are rejected with `401`; tests cover expiry.
 
+### NA59. DECORAL correction at the Decoral pass uses the RAL in-place reset, not the documented child spin-off
+- Status: OPEN — surfaced by the workflow simulation (Phase 1, 2026-06-24), code-verified. Needs an owner/docs
+  decision on intended semantics before any fix (could be MEDIUM→HIGH if confirmed unintended).
+- Problem: completing a DECORAL pass with a correction via the **plain** per-order endpoint
+  `POST /process/work-orders/{id}/decoral-production/complete` (no batch id) routes through
+  `_reset_to_correction_planning(..., completed_stage=DECORAL_PRODUCTION)` (`app/process/service.py:954-967`),
+  i.e. the **RAL same-order** model: the root order itself bounces back to `TO_BE_PLANNED` with a CORRECTION
+  batch on itself, `is_decoral_incomplete=false`, **no child order**. The documented DECORAL correction model
+  (`docs/WORKFLOW.md` ~L24/L957, CLAUDE.md "Core domain model") is a **child `P{root}` spin-off** while the OK
+  part stays on the root's single Decoral pass and the root shows the "N" marker. The child path only fires on
+  the **tracked-batch** variant (`.../batches/{batch_id}/decoral-production/complete`, line 929), which the
+  operator UI / a plain completion does not use. Sim evidence: order 0003 (DECORAL qty 12), 11 OK / 1 correction
+  → root 0003 went to `TO_BE_PLANNED` with a self CORRECTION batch (qty 1), 0 correction_orders,
+  `is_decoral_incomplete=false`; downstream it will presumably re-run surface prep/production rather than just
+  re-doing the Decoral pass.
+- Required fix (pending semantics): either route the plain decoral-completion correction through the same
+  DECORAL spin-off seam as packing (`_select_correction_kind`/`_dispatch_packing_correction`, NA40) so a child
+  `P{root}` carries the rework, or — if same-order reset at the Decoral pass is intended — document that
+  explicitly and reconcile `docs/WORKFLOW.md`/CLAUDE.md. Add regression coverage for a correction raised at the
+  Decoral pass (both endpoint variants).
+- Acceptance: a DECORAL correction raised at the Decoral pass behaves per the (decided) model consistently
+  across the plain and batch endpoints; docs and code agree; regression test pins it.
+
 ---
 
 ## LOW
@@ -1706,6 +1729,20 @@ correctness defects. Severities reflect maintainability risk, not user-visible b
   or disposable; the doc set reflects that choice (coordinate with NA45).
 
 ## Done
+
+- **Workflow simulation — Phase 1 (full light day, all stations, 2026-06-24)** — ran one simulated working
+  day with all eight live station personas on the API-driven harness. Office brought in 3 orders (RAL 420 →
+  AUTOMATIC, RAL 48 → MANUAL, DECORAL 12 → MANUAL); every station acted (prep counting with a −2 short,
+  hanging, automatic paint consumption, manual coating, packing with emergent OK/correction splits, the Decoral
+  pass). Auditor clean every tick — including correctly NOT false-flagging 0002's short count (43 OK + 3
+  correction = 46 received of 48 planned). Three findings captured: NA58 recurred independently (profiles/
+  accessories count attribution); a **harness gap** fixed in-flight (office personas invented un-stocked paint
+  triples → an AUTOMATIC order couldn't record consumption; tightened `personas/biuro.md` to pick `paint_code`/
+  `paint_producer` from `GET /paints`, and the system correctly rejected consumption against zero stock — not a
+  bug); and **NA59**, a code-verified DECORAL-correction divergence (plain decoral-completion uses the RAL
+  in-place reset, not the documented child spin-off). Day ended with the three orders mid-correction at planning
+  — a realistic Day-1→Day-2 carryover and a natural Phase 2 hook. The `consumed_paint_quantity_kg` "−0.0 on a
+  fresh order" the office flagged triaged out as a cosmetic negative-zero, not a bug.
 
 - **Workflow simulation harness + dev virtual clock — Phase 0 (2026-06-24)** — built `scripts/sim/`: a
   multi-day, multi-station simulation where one autonomous LLM persona per station (`personas/*.md`,
