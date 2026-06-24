@@ -1,11 +1,12 @@
 from collections.abc import Sequence
-from datetime import UTC, datetime
+from datetime import datetime
 
 from sqlalchemy import Select, func, select, update
 from sqlalchemy.orm import Session
 
 from app.paints.models import Paint, PaintStockMovement
 from app.shared.enums import PaintStockMovementType
+from app.shared import clock
 
 
 class PaintRepository:
@@ -81,7 +82,7 @@ class PaintRepository:
         return float(-(total_delta or 0.0))
 
     def apply_quantity_delta(self, *, paint_id: int, quantity_delta_kg: float) -> Paint | None:
-        now = datetime.now(UTC)
+        now = clock.now()
         statement = (
             update(Paint)
             .where(

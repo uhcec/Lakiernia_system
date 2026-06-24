@@ -1,10 +1,11 @@
-from datetime import UTC, date, datetime
+from datetime import date, datetime
 
 from sqlalchemy import CheckConstraint, Date, DateTime, Enum, Float, ForeignKey, Index, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database.base import Base
 from app.shared.enums import PaintStockMovementType
+from app.shared import clock
 
 
 paint_stock_movement_type_enum = Enum(
@@ -30,11 +31,11 @@ class Paint(Base):
     paint_producer: Mapped[str] = mapped_column(String(255), nullable=False)
     paint_code: Mapped[str] = mapped_column(String(64), nullable=False)
     current_quantity_kg: Mapped[float] = mapped_column(Float(), nullable=False, default=0)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: clock.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
-        default=lambda: datetime.now(UTC),
-        onupdate=lambda: datetime.now(UTC),
+        default=lambda: clock.now(),
+        onupdate=lambda: clock.now(),
         nullable=False,
     )
 
@@ -65,8 +66,8 @@ class PaintStockMovement(Base):
     movement_type: Mapped[PaintStockMovementType] = mapped_column(paint_stock_movement_type_enum, nullable=False)
     quantity_delta_kg: Mapped[float] = mapped_column(Float(), nullable=False)
     resulting_quantity_kg: Mapped[float] = mapped_column(Float(), nullable=False)
-    movement_date: Mapped[date] = mapped_column(Date(), nullable=False, default=lambda: datetime.now(UTC).date())
+    movement_date: Mapped[date] = mapped_column(Date(), nullable=False, default=lambda: clock.now().date())
     note: Mapped[str | None] = mapped_column(Text(), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: clock.now(), nullable=False)
 
     paint = relationship("Paint", back_populates="stock_movements")

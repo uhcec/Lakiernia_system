@@ -127,6 +127,7 @@ from app.work_orders.schemas import (
     build_work_order_kind_view,
 )
 from app.work_orders.service import WorkOrderService
+from app.shared import clock
 
 
 _QUEUE_MUTATION_LOCK = RLock()
@@ -187,7 +188,7 @@ _MAX_PLAN_HORIZON_WORKING_DAYS = 3
 def _as_naive_utc(value: datetime) -> datetime:
     """Normalize a datetime to naive UTC so log/now timestamps subtract cleanly.
 
-    SQLite returns naive datetimes even for tz-aware columns, while ``datetime.now(UTC)`` is aware;
+    SQLite returns naive datetimes even for tz-aware columns, while ``clock.now()`` is aware;
     coercing both avoids "can't subtract offset-naive and offset-aware" errors.
     """
     if value.tzinfo is not None:
@@ -691,7 +692,7 @@ class ManagerService:
         """
         self._ensure_stats_viewer(station_context)
         session = self.repository.session
-        reference_now = now or datetime.now(UTC)
+        reference_now = now or clock.now()
 
         rows = session.execute(
             select(WorkOrderStageState, WorkOrder)
@@ -1131,7 +1132,7 @@ class ManagerService:
 
     def _learned_changeover(self, production_type: ProductionType):
         """The colour-changeover estimate (N49-2) over the trailing window, for the capacity planner."""
-        today = datetime.now(UTC).date()
+        today = clock.now().date()
         return estimate_colour_changeover(
             self._automatic_pass_observations(
                 today - timedelta(days=_MEASUREMENT_WINDOW_DAYS), today, production_type
@@ -1198,10 +1199,10 @@ class ManagerService:
         _line_total_minutes, line_avg_changeover_minutes = self._day_changeover_minutes(
             [orders_by_id[order_id] for order_id in line_swept_ids]
         )
-        working_days = working_days_from(datetime.now(UTC).date(), horizon_working_days)
+        working_days = working_days_from(clock.now().date(), horizon_working_days)
         # Pro-rate day 0 to the hours left in today's shift (NA56) so a plan built mid-shift doesn't
         # promise a whole day today. ``now`` is factory-local wall-clock (defaults to the server clock).
-        first_day_hours = remaining_shift_hours(now if now is not None else datetime.now(), resolved_shift)
+        first_day_hours = remaining_shift_hours(now if now is not None else clock.now_naive_local(), resolved_shift)
 
         # Paint-stock feasibility (N49-7): per-order OK / WARNING / BLOCKED in execution order, so the
         # board can mark out-of-stock (metered) colours that the plan-time gate also refuses.
@@ -1493,7 +1494,7 @@ class ManagerService:
             else:
                 target_position = self._next_active_queue_position_for_line(production_type)
 
-            now = datetime.now(UTC)
+            now = clock.now()
             completed_work_orders_to_trail = self._get_completed_work_orders_requiring_trailing(
                 production_type=production_type,
                 reserved_queue_positions=[target_position],
@@ -1562,7 +1563,7 @@ class ManagerService:
                 exclude_work_order_id=work_order_id,
             )
 
-            now = datetime.now(UTC)
+            now = clock.now()
             completed_work_orders_to_trail = self._get_completed_work_orders_requiring_trailing(
                 production_type=production_type,
                 reserved_queue_positions=[payload.queue_position],
@@ -1634,7 +1635,7 @@ class ManagerService:
 
             previous_priority = work_order.planning_priority
             work_order.planning_priority = payload.planning_priority
-            work_order.updated_at = datetime.now(UTC)
+            work_order.updated_at = clock.now()
             self._record_audit_event(
                 event_type="manager.planning_priority_set",
                 station_context=station_context,
@@ -1677,7 +1678,7 @@ class ManagerService:
             # into the new line and collide on the per-line (production_type, queue_position)
             # unique index. The order still sits on the source line at this point.
             target_position = self._next_active_queue_position_for_line(target_production_type)
-            now = datetime.now(UTC)
+            now = clock.now()
             completed_work_orders_to_trail = self._get_completed_work_orders_requiring_trailing(
                 production_type=target_production_type,
                 reserved_queue_positions=[target_position],
@@ -1788,7 +1789,7 @@ class ManagerService:
                 if self.process_service.get_display_status(work_order) == ProcessDisplayStatus.READY
             ]
 
-            now = datetime.now(UTC)
+            now = clock.now()
             temporarily_repositioned_work_orders = [
                 existing_work_orders[item.work_order_id]
                 for item in items
@@ -1957,7 +1958,7 @@ class ManagerService:
             )
         else:
             config.rules_json = rules_json
-            config.updated_at = datetime.now(UTC)
+            config.updated_at = clock.now()
         self._record_audit_event(
             event_type="manager.schedule_config_updated",
             station_context=station_context,

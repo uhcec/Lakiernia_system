@@ -293,6 +293,22 @@ Before starting Phase 3, resolve the open owner questions on NA34/NA36/NA37/NA38
   meant to return. Confirm intent before deleting.
 - Acceptance: No dead component-under-test; the office table has a single source of truth.
 
+### NA58. Surface-prep `counted_quantity` collapses the profiles/accessories split (fidelity gap)
+- Status: OPEN — surfaced by the workflow simulation (Phase 0, 2026-06-24); needs owner confirmation that
+  it matters before any work.
+- Problem: an order carries `profiles_quantity` + `accessories_quantity` separately
+  (`app/work_orders/schemas.py` `WorkOrderCreate`), but the surface-preparation start records only a single
+  `counted_quantity` (`StageTransitionRequest`, `app/process/schemas.py:87`; `start_stage`,
+  `app/process/router.py:38`). When the physical count is short, the operator cannot record *which* group was
+  short — the shortfall total is captured, its attribution is lost, so downstream nobody knows whether
+  profiles or accessories were missing. (Sim friction note: prep counted 118 vs planned 120 on a
+  100-profile/20-accessory order with no way to say the 2 missing were profiles.)
+- Required fix (if owner wants it): allow an optional per-group counted split at surface preparation that sums
+  to `counted_quantity`, mirroring how packing corrections already split profiles/accessories; otherwise
+  document that surface-prep counting is intentionally aggregate.
+- Acceptance: either the operator can attribute a short count to profiles vs accessories, or `docs/WORKFLOW.md`
+  states the aggregate count is by design. No silent loss of which group was short.
+
 ---
 
 ## Verification / follow-up (not a defect, but pending)
@@ -1690,6 +1706,26 @@ correctness defects. Severities reflect maintainability risk, not user-visible b
   or disposable; the doc set reflects that choice (coordinate with NA45).
 
 ## Done
+
+- **Workflow simulation harness + dev virtual clock — Phase 0 (2026-06-24)** — built `scripts/sim/`: a
+  multi-day, multi-station simulation where one autonomous LLM persona per station (`personas/*.md`,
+  driven through `scripts/sim_client.py`) pulls real work from the running backend and decides for itself,
+  so emergent flow surfaces UX gaps + realistic data + invariant breaks. Mechanical half: `controller.py`
+  (clock/snapshot/audit/timeline, owns no decisions) + `auditor.py` (quantity conservation, one-active-batch,
+  queue-position uniqueness, packing slots) + `seed_sim_baseline.py` (clean DB, zero orders). To make 3
+  simulated days produce real timestamps *and* drive the planner's shift/day logic, added a dev-only virtual
+  clock: `app/shared/clock.py` chokepoint (now routes the model column defaults + ~14 service `datetime.now`
+  sites), the dev-only `PUT /dev/clock` router (`app/api/routes/dev_clock.py`, mounted only in local envs),
+  and `tests/test_clock.py`. **Python-side defaults only → no migration; `alembic check` clean.** Auth tokens
+  deliberately kept on real wall-clock time (`app/auth/service.py`) because JWT `exp` is validated against real
+  time — issuing them on simulated time made them born-expired (caught during Phase 0). `sim_client.py` got a
+  reusable `call()` + UTF-8 stdout (Polish), and the Vite-proxy coverage test ignores the dev-only `/dev`
+  prefix. Phase 0 result: live `biuro`/`kierownik`/`przygotowanie`/`produkcja-reczna`/`pakowanie` personas ran
+  both lines end-to-end; the packing persona independently found 3 under-coated pieces → a RAL correction
+  (33 OK + 3 CORRECTION batch back to planning) with quantity conserved (auditor clean every tick); virtual
+  clock advanced 07:00→09:45 with real-shaped durations; one friction finding captured (now NA58). Gate: full
+  backend `pytest` green + `alembic check` clean. Next: Phase 1 (full light day, all stations) then Phase 2
+  (3 days); see `scripts/sim/README.md`.
 
 - **Planning horizon capped at 3 working days (owner policy, 2026-06-24)** — the manager cannot plan
   more than 3 working days ahead (today + the next two working days). Applied as both the default and the

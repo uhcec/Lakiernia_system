@@ -1,0 +1,3 @@
+# Per-run simulation output (timelines, friction logs, invariant logs, transient state) is not
+# version-controlled — the harness is the reusable artifact; runs are reproducible output.
+runs/

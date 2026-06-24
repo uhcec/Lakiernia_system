@@ -1,10 +1,11 @@
-from datetime import UTC, datetime
+from datetime import datetime
 
 from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database.base import Base
 from app.shared.enums import StationId
+from app.shared import clock
 
 
 _presence_station_id_enum = Enum(
@@ -25,7 +26,7 @@ class Employee(Base):
     full_name: Mapped[str] = mapped_column(String(120), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
+        DateTime(timezone=True), default=lambda: clock.now(), nullable=False
     )
 
 
@@ -41,7 +42,7 @@ class StationPresence(Base):
         ForeignKey("employees.id", ondelete="CASCADE"), nullable=False, index=True
     )
     checked_in_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
+        DateTime(timezone=True), default=lambda: clock.now(), nullable=False
     )
     checked_out_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 

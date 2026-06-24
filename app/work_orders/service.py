@@ -2,7 +2,7 @@ import io
 import json
 import queue as _queue
 import threading
-from datetime import UTC, date, datetime
+from datetime import date, datetime
 from pathlib import Path
 from uuid import uuid4
 
@@ -19,6 +19,7 @@ from app.paints.service import PaintService
 from app.process.enums import CoatingType, ProcessDisplayStatus
 from app.process.repository import ProcessRepository
 from app.process.service import ProcessService
+from app.shared import clock
 from app.shared.enums import StationId, WorkOrderStatus, get_work_order_status_label
 from app.shared.exceptions import InvalidAttachmentError, InvalidStatusTransitionError, InvalidWorkOrderDataError, ResourceNotFoundError
 from app.work_orders.enums import WorkOrderAttachmentCategory
@@ -296,7 +297,7 @@ class WorkOrderService:
             work_order.paint_id = resolved_paint.id
             work_order.paint_stock_snapshot_quantity_kg = resolved_snapshot
 
-        work_order.updated_at = datetime.now(UTC)
+        work_order.updated_at = clock.now()
         if changed_fields:
             self._record_audit_event(
                 event_type="work_order.updated",
@@ -414,7 +415,7 @@ class WorkOrderService:
         self._validate_work_order_state(work_order, {"is_incomplete_on_arrival": False})
 
         work_order.is_incomplete_on_arrival = False
-        work_order.updated_at = datetime.now(UTC)
+        work_order.updated_at = clock.now()
         self._record_audit_event(
             event_type="work_order.arrival_completed",
             station_context=station_context,
@@ -451,7 +452,7 @@ class WorkOrderService:
         if current_release_state == payload.is_released_to_client:
             return self._to_read_model(work_order)
 
-        now = datetime.now(UTC)
+        now = clock.now()
         work_order.released_to_client_at = now if payload.is_released_to_client else None
         work_order.updated_at = now
         self._record_audit_event(

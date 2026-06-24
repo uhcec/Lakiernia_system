@@ -1,10 +1,11 @@
-from datetime import UTC, datetime
+from datetime import datetime
 
 from sqlalchemy import DateTime, Enum, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database.base import Base
 from app.shared.enums import StationId
+from app.shared import clock
 
 
 station_id_enum = Enum(
@@ -33,7 +34,7 @@ class AuditEvent(Base):
     request_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     summary: Mapped[str] = mapped_column(String(255), nullable=False)
     details_json: Mapped[str | None] = mapped_column(Text(), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: clock.now(), nullable=False)
 
     # Employees present at the action's station when it was recorded (per-operator attribution).
     actors: Mapped[list["AuditEventActor"]] = relationship(

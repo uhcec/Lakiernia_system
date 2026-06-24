@@ -20,6 +20,7 @@ from app.employees.schemas import (
 from app.shared.enums import StationId
 from app.shared.exceptions import ResourceNotFoundError
 from app.work_orders.models import WorkOrder
+from app.shared import clock
 
 
 # Audit events that mark a stage/order completion — used to credit pieces/m² to the operators who
@@ -78,7 +79,7 @@ class EmployeeService:
     def check_out(self, station_id: StationId, employee_id: int) -> StationPresenceRosterRead:
         open_rows = self.repository.list_open_presence(station_id, employee_id)
         if open_rows:
-            now = datetime.now(UTC)
+            now = clock.now()
             for presence in open_rows:
                 presence.checked_out_at = now
             self.repository.commit()
@@ -88,7 +89,7 @@ class EmployeeService:
         """End-of-shift convenience: check everyone out of a station at once."""
         present = self.repository.list_present_anywhere(station_id)
         if present:
-            now = datetime.now(UTC)
+            now = clock.now()
             for presence in present:
                 presence.checked_out_at = now
             self.repository.commit()
@@ -132,7 +133,7 @@ class EmployeeService:
     ) -> PresenceHistoryRead:
         self._ensure_employee_admin(station_context)
         window_start, window_end = self._window(date_from, date_to)
-        now = _naive_utc(datetime.now(UTC))
+        now = _naive_utc(clock.now())
 
         sessions: list[PresenceSessionRead] = []
         for presence in self.repository.list_presence_sessions():
@@ -162,7 +163,7 @@ class EmployeeService:
         self._ensure_employee_admin(station_context)
         session = self.repository.session
         window_start, window_end = self._window(date_from, date_to)
-        now = _naive_utc(datetime.now(UTC))
+        now = _naive_utc(clock.now())
 
         # Hours present per employee (clamp each session to the window; open sessions count to now).
         hours_by_employee: dict[int, float] = {}
@@ -245,7 +246,7 @@ class EmployeeService:
     # --- helpers ----------------------------------------------------------------------------------
 
     def _check_out_employee_everywhere(self, employee_id: int) -> None:
-        now = datetime.now(UTC)
+        now = clock.now()
         open_sessions = self.repository.session.scalars(
             select(StationPresence).where(
                 StationPresence.employee_id == employee_id,

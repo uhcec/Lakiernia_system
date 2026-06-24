@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime
 
 from sqlalchemy import Boolean, CheckConstraint, DateTime, Enum, ForeignKey, Index, Integer, String, Text, UniqueConstraint, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -9,6 +9,7 @@ from app.audit.models import station_id_enum
 from app.database.base import Base
 from app.process.enums import ProcessStage, QuantityBatchType, StageStatus
 from app.shared.enums import StationId
+from app.shared import clock
 
 
 process_stage_enum = Enum(
@@ -45,11 +46,11 @@ class WorkOrderStageState(Base):
     stage: Mapped[ProcessStage] = mapped_column(process_stage_enum, nullable=False)
     status: Mapped[StageStatus] = mapped_column(stage_status_enum, default=StageStatus.NOT_STARTED, nullable=False)
     counted_quantity: Mapped[int | None] = mapped_column(Integer(), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: clock.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
-        default=lambda: datetime.now(UTC),
-        onupdate=lambda: datetime.now(UTC),
+        default=lambda: clock.now(),
+        onupdate=lambda: clock.now(),
         nullable=False,
     )
 
@@ -85,7 +86,7 @@ class WorkOrderQuantityBatch(Base):
     is_partial: Mapped[bool] = mapped_column(Boolean(), nullable=False, default=False)
     correction_reason_category: Mapped[str | None] = mapped_column(Text(), nullable=True)
     correction_reason_note: Mapped[str | None] = mapped_column(Text(), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: clock.now(), nullable=False)
 
     work_order = relationship("WorkOrder", back_populates="quantity_batches")
     parent_batch = relationship("WorkOrderQuantityBatch", remote_side="WorkOrderQuantityBatch.id")
@@ -122,7 +123,7 @@ class StageTransitionEvent(Base):
     counted_quantity: Mapped[int | None] = mapped_column(Integer(), nullable=True)
     station_id: Mapped[StationId] = mapped_column(station_id_enum, default=StationId.UNKNOWN, nullable=False)
     user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
-    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False)
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: clock.now(), nullable=False)
 
 
 class StatOnlyCorrection(Base):
@@ -148,7 +149,7 @@ class StatOnlyCorrection(Base):
     correction_reason_note: Mapped[str | None] = mapped_column(Text(), nullable=True)
     correction_profiles_quantity: Mapped[int | None] = mapped_column(Integer(), nullable=True)
     correction_accessories_quantity: Mapped[int | None] = mapped_column(Integer(), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: clock.now(), nullable=False)
 
     work_order = relationship("WorkOrder")
 
@@ -158,10 +159,10 @@ class ProcessResourceLock(Base):
 
     resource_key: Mapped[str] = mapped_column(String(64), primary_key=True)
     work_order_id: Mapped[int] = mapped_column(ForeignKey("work_orders.id", ondelete="CASCADE"), nullable=False, index=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: clock.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
-        default=lambda: datetime.now(UTC),
-        onupdate=lambda: datetime.now(UTC),
+        default=lambda: clock.now(),
+        onupdate=lambda: clock.now(),
         nullable=False,
     )

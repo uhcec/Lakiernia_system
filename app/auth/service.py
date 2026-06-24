@@ -27,6 +27,9 @@ def verify_password(plain: str, hashed: str) -> bool:
 
 
 def create_access_token(user: User) -> str:
+    # Deliberately real wall-clock time, NOT the dev virtual clock: a JWT's lifetime is a real-session
+    # concern and the ``exp`` claim is validated by the JWT library against real time. Issuing tokens on
+    # simulated factory time would make them born-expired during a workflow simulation run.
     now = datetime.now(UTC)
     payload = {
         "sub": user.login,

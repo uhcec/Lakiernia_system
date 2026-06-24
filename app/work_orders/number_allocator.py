@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import datetime
 
 from sqlalchemy import update
 from sqlalchemy.dialects.postgresql import insert as postgresql_insert
@@ -6,6 +6,7 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
 from app.work_orders.models import WorkOrderNumberCounter
+from app.shared import clock
 
 _GLOBAL_COUNTER_KEY = 0
 
@@ -15,7 +16,7 @@ class WorkOrderNumberAllocator:
         self.session = session
 
     def allocate(self) -> str:
-        allocation_time = datetime.now(UTC)
+        allocation_time = clock.now()
         next_value = self._increment_counter(allocation_time)
         return f"{next_value:04d}"
 

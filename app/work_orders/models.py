@@ -1,4 +1,4 @@
-from datetime import UTC, date, datetime
+from datetime import date, datetime
 
 from sqlalchemy import Boolean, CheckConstraint, Date, DateTime, Enum, Float, ForeignKey, Index, Integer, String, Text, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -7,6 +7,7 @@ from app.database.base import Base
 from app.process.enums import CoatingType, ProductionType
 from app.work_orders.enums import WorkOrderAttachmentCategory
 from app.shared.enums import PlanningPriority, QueueNamespace, WorkOrderKind
+from app.shared import clock
 
 
 coating_type_enum = Enum(
@@ -151,11 +152,11 @@ class WorkOrder(Base):
     accessories_quantity: Mapped[int | None] = mapped_column(Integer(), nullable=True)
     accessories_to_count: Mapped[bool] = mapped_column(Boolean(), nullable=False, default=False)
     notes: Mapped[str | None] = mapped_column(Text(), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: clock.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
-        default=lambda: datetime.now(UTC),
-        onupdate=lambda: datetime.now(UTC),
+        default=lambda: clock.now(),
+        onupdate=lambda: clock.now(),
         nullable=False,
     )
     stage_states = relationship(
@@ -219,8 +220,8 @@ class WorkOrderNumberCounter(Base):
 
     year: Mapped[int] = mapped_column(Integer(), primary_key=True)
     last_value: Mapped[int] = mapped_column(Integer(), nullable=False, default=0)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: clock.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: clock.now(), nullable=False)
 
 
 class WorkOrderAttachment(Base):
@@ -241,6 +242,6 @@ class WorkOrderAttachment(Base):
     # Optional free-text human sub-label (legacy; orthogonal to `category`).
     attachment_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
     description: Mapped[str | None] = mapped_column(Text(), nullable=True)
-    uploaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False)
+    uploaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: clock.now(), nullable=False)
 
     work_order = relationship("WorkOrder", back_populates="attachments")

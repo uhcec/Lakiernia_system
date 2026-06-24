@@ -12,7 +12,9 @@ from pathlib import Path
 from app.main import app
 
 # FastAPI's built-in routes are not proxied (the SPA owns the page; docs are hit directly if at all).
-_IGNORED_PREFIXES = {"openapi.json", "docs", "redoc"}
+# ``dev`` is the development-only virtual-clock router (``/dev/clock``): it is mounted only in local
+# environments and is driven by the workflow simulation directly, never by the browser/SPA.
+_IGNORED_PREFIXES = {"openapi.json", "docs", "redoc", "dev"}
 
 _VITE_CONFIG = Path(__file__).resolve().parents[1] / "frontend" / "vite.config.ts"
 

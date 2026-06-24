@@ -1,7 +1,7 @@
 from collections.abc import Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime
 import logging
 from threading import RLock
 
@@ -30,6 +30,7 @@ from app.shared.exceptions import InvalidPaintInventoryError, InvalidProcessStag
 from app.work_orders.number_allocator import WorkOrderNumberAllocator
 from app.work_orders.models import WorkOrder
 from app.work_orders.schemas import build_coating_type_view, build_production_type_view, build_queue_namespace_view, build_work_order_kind_view
+from app.shared import clock
 
 
 logger = logging.getLogger(__name__)
@@ -208,7 +209,7 @@ class ProcessService:
                 if resource_keys:
                     self.resource_locks.acquire_stage_resource_locks(work_order, stage, target_status)
                 stage_state.status = target_status
-                stage_state.updated_at = datetime.now(UTC)
+                stage_state.updated_at = clock.now()
                 # NA22a: automatic orders reserve a packing slot the moment hanging starts.
                 self.resource_locks.reserve_packing_for_automatic_hanging(work_order, stage, target_status)
 
@@ -585,7 +586,7 @@ class ProcessService:
 
             if packing_state.status == StageStatus.NOT_STARTED:
                 packing_state.status = StageStatus.IN_PROGRESS
-                packing_state.updated_at = datetime.now(UTC)
+                packing_state.updated_at = clock.now()
                 self.audit.record_stage_audit_event(
                     work_order=work_order,
                     stage=ProcessStage.PACKING,
@@ -732,7 +733,7 @@ class ProcessService:
                 )
 
             packing_state.counted_quantity = counted_quantity
-            packing_state.updated_at = datetime.now(UTC)
+            packing_state.updated_at = clock.now()
 
             # AUTOMATIC orders have no PRODUCTION stage (NA42); only MANUAL ones do.
             production_state = self._find_stage_state(work_order, ProcessStage.PRODUCTION)
@@ -788,7 +789,7 @@ class ProcessService:
                 return self._to_stage_work_order_read(refreshed_work_order, ProcessStage.PACKING)
             else:
                 packing_state.status = StageStatus.DONE
-                packing_state.updated_at = datetime.now(UTC)
+                packing_state.updated_at = clock.now()
                 if work_order.coating_type == CoatingType.RAL:
                     work_order.completed_quantity += ok_quantity
                     active_batch.is_active = False
@@ -876,7 +877,7 @@ class ProcessService:
 
             work_order.paint_id = paint.id
             work_order.consumed_paint_quantity_kg = consumed_paint_quantity_kg
-            work_order.updated_at = datetime.now(UTC)
+            work_order.updated_at = clock.now()
             self.audit.record_automatic_paint_consumption_audit_event(
                 work_order=work_order,
                 station_context=station_context,
@@ -953,7 +954,7 @@ class ProcessService:
             if correction_quantity > 0:
                 packing_state = self._get_stage_state(work_order, ProcessStage.PACKING)
                 packing_state.counted_quantity = None
-                packing_state.updated_at = datetime.now(UTC)
+                packing_state.updated_at = clock.now()
                 self._reset_to_correction_planning(
                     work_order,
                     active_batch,
@@ -978,7 +979,7 @@ class ProcessService:
                 return self._to_stage_work_order_read(refreshed_work_order, ProcessStage.DECORAL_PRODUCTION)
             else:
                 decoral_state.status = StageStatus.DONE
-                decoral_state.updated_at = datetime.now(UTC)
+                decoral_state.updated_at = clock.now()
                 work_order.completed_quantity += ok_quantity
                 if active_batch is not None:
                     active_batch.is_active = False
@@ -1437,7 +1438,7 @@ class ProcessService:
     def _reset_stage_states_for_active_batch(self, work_order: WorkOrder, return_stage: ProcessStage) -> None:
         stage_sequence = self.get_actionable_stage_sequence_for_work_order(work_order)
         return_stage_index = stage_sequence.index(return_stage)
-        current_timestamp = datetime.now(UTC)
+        current_timestamp = clock.now()
 
         for index, stage in enumerate(stage_sequence):
             stage_state = self._get_stage_state(work_order, stage)
@@ -1784,7 +1785,7 @@ class ProcessService:
 
         packing_state = self._get_stage_state(work_order, ProcessStage.PACKING)
         packing_state.counted_quantity = counted_quantity
-        packing_state.updated_at = datetime.now(UTC)
+        packing_state.updated_at = clock.now()
 
         # Stat-only correction (NA34): fixed on the spot — record the statistic and fold the corrected
         # pieces into OK so the batch completes normally (DECORAL continues Decoral; RAL closes).
@@ -2007,7 +2008,7 @@ class ProcessService:
         response_batch: WorkOrderQuantityBatch | None = None
 
         packing_state.status = StageStatus.DONE
-        packing_state.updated_at = datetime.now(UTC)
+        packing_state.updated_at = clock.now()
         active_batch.is_active = False
         active_batch.current_stage = ProcessStage.PACKING
         active_batch.current_stage_status = StageStatus.DONE
@@ -2087,7 +2088,7 @@ class ProcessService:
             decoral_state = self._get_stage_state(root, ProcessStage.DECORAL_PRODUCTION)
             if decoral_state.status == StageStatus.DONE:
                 decoral_state.status = StageStatus.IN_PROGRESS
-                decoral_state.updated_at = datetime.now(UTC)
+                decoral_state.updated_at = clock.now()
 
     def _close_returned_correction_child(self, child: WorkOrder) -> None:
         for batch in list(child.active_batches):
@@ -2222,7 +2223,7 @@ class ProcessService:
         work_order.correction_reason_category = correction_reason_category
         work_order.correction_reason_note = correction_reason_note
 
-        current_timestamp = datetime.now(UTC)
+        current_timestamp = clock.now()
         for stage_state in work_order.stage_states:
             if stage_state.stage == ProcessStage.SURFACE_PREPARATION:
                 stage_state.status = StageStatus.DONE
@@ -2374,7 +2375,7 @@ class ProcessService:
         return bool(work_order.correction_orders)
 
     def _mark_all_stage_states_done(self, work_order: WorkOrder) -> None:
-        current_timestamp = datetime.now(UTC)
+        current_timestamp = clock.now()
         for stage_state in work_order.stage_states:
             stage_state.status = StageStatus.DONE
             stage_state.updated_at = current_timestamp
@@ -2435,7 +2436,7 @@ class ProcessService:
 
         stage_state = self._get_stage_state(work_order, ProcessStage.SURFACE_PREPARATION)
         stage_state.counted_quantity = counted_quantity
-        stage_state.updated_at = datetime.now(UTC)
+        stage_state.updated_at = clock.now()
 
     def _ensure_surface_preparation_counted_quantity(self, work_order: WorkOrder) -> None:
         stage_state = self._get_stage_state(work_order, ProcessStage.SURFACE_PREPARATION)

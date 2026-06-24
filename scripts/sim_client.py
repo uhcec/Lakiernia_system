@@ -101,7 +101,36 @@ def _token_for(login: str, *, force: bool) -> str:
     return token
 
 
+def call(
+    login: str,
+    method: str,
+    path: str,
+    body: object | None = None,
+) -> tuple[int, object]:
+    """Authenticated call as ``login`` for importers (the simulation controller / personas).
+
+    Returns ``(status, parsed_json_or_text)``. Retries once with a fresh login on 401, mirroring the
+    CLI. Raises ``SystemExit(2)`` only when the backend is unreachable (same as ``_request``).
+    """
+    token = _token_for(login, force=False)
+    status, raw = _request(method, path, token, body)
+    if status == 401:
+        token = _token_for(login, force=True)
+        status, raw = _request(method, path, token, body)
+    try:
+        return status, json.loads(raw)
+    except ValueError:
+        return status, raw
+
+
 def main(argv: list[str] | None = None) -> int:
+    # The API speaks Polish; force UTF-8 so printing responses never dies on a legacy cp1252 console.
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError):
+            pass
+
     parser = argparse.ArgumentParser(description="Authenticated HTTP client for workflow-sim.")
     parser.add_argument("--as", dest="login", required=True, help="station login (e.g. biuro, kierownik)")
     parser.add_argument("--fresh-login", action="store_true", help="ignore any cached token")
