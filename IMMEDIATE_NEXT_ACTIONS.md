@@ -812,7 +812,28 @@ only. Five elements, top to bottom:
   the shift (or starts next day); covered by a test.
 
 ### NA57. Multi-day plan applies one advised shift length uniformly to every day
-- Status: **OPEN — found 2026-06-24 (code review of the N49 series).**
+- **Owner decision (2026-06-24): judge each day against its own sensible shift (option (a)).** The reality
+  — not enough m² to fill every day above the floor — isn't hidden; the fix only stops measuring an
+  under-filled day against the *wrong* bar (the long-day 800 floor) when it's plainly a short day.
+- Status: **DONE (2026-06-24).** `place_orders` (`app/manager/placement.py`) now derives each **later**
+  day's display shift/floor/ceiling from that day's own placed m² via `display_shift_for`: a later day is
+  SHORT (floor 500) when its m² fit a short day's net ceiling (≈640) **and** are below the long floor —
+  else LONG (floor 800). The **fill** still uses the plan-level full-day ceiling to decide day boundaries
+  (unchanged membership); only the per-day *label + floor + ceiling* change. Day 0 keeps its NA56 hours
+  proration. Because SHORT is assigned only when the work fits, a day is **never** flagged `over_ceiling`
+  against a ceiling smaller than what was packed — the contradiction the naive "advise per day" fix would
+  cause. Result: a 550 m² overflow day reads as a fine short day (not below floor), a 200 m² day is SHORT
+  + below the *short* floor (500, not 800), and a 700 m² day stays LONG + correctly below the long floor.
+  Frontend needs no change (the board already renders per-day `shift_length` → "krót."/"dług."). Tests:
+  pure placement (short-not-below / tiny-short-below / long-under-target, each asserting no `over_ceiling`)
+  + service read-model case; two NA56 tests updated (a 400 m² later day is now correctly SHORT, so they use
+  a 700 m² day-1 to keep asserting a LONG later day). 593 backend + 93 frontend pass; both builds green;
+  `alembic check` clean (no schema change). `docs/WORKFLOW.md` "Target planning model" updated.
+  - **Deferred follow-up (option (b)):** a *tiny* overflow day could carry **no** floor flag at all
+    ("not a working day you'd open"), rather than being below the short floor — only if the small-day flag
+    proves bothersome on the real board (it adds a "not a real working day" state across the board + good-day
+    stats; out of scope for this LOW item).
+- Status (original): **OPEN — found 2026-06-24 (code review of the N49 series).**
 - Severity: **LOW** (cosmetic/labelling; interacts with the below-floor flag).
 - Problem: `get_multi_day_plan` advises the shift length once from the *total* available m²
   (`advise_shift_length(available_m2)`, `app/manager/service.py:1140`) and `place_orders` stamps that one

@@ -437,8 +437,13 @@ returns the **"won't make it" set** (orders scheduled past their deadline or bey
 orders); the working-day calendar skips weekends (**Mon–Fri confirmed 2026-06-24**, NA56; holidays
 deferred, configurable via `working_days_from`'s weekend set). **Day 0 is pro-rated to the hours left in
 today's shift** (NA56): a plan built at 16:00 of a long shift ending 21:00 sizes today's ceiling + floor
-to ~5/14 of a full day, so a mid-shift plan doesn't promise a whole day's capacity today (later days are
-full). The horizon is **capped at 3 working days** (`horizon_working_days` default and max = 3; owner policy 2026-06-24 — no planning
+to ~5/14 of a full day, so a mid-shift plan doesn't promise a whole day's capacity today. **Each later day
+is judged against its own shift** (NA57): the fill always uses the plan-level (physical full-day) ceiling
+to decide day boundaries, but for display an under-filled overflow day is labelled SHORT — measured
+against the short floor (500), not the long floor (800) — when its m² fit a short day's net ceiling; a day
+that holds more than a short day (e.g. 700 m²) stays LONG and is correctly flagged below the long floor.
+SHORT is only assigned when the work fits, so a day is never flagged over its own (smaller) ceiling. The
+horizon is **capped at 3 working days** (`horizon_working_days` default and max = 3; owner policy 2026-06-24 — no planning
 further than today + the next two working days). **Within-day light→dark
 ordering, the size + direction changeover cost, and the line-assignment lever are also built**
 (N49-5/6/8). The EDF day-to-day placement stays as-is; *within* each placed day `app/manager/colour.py`

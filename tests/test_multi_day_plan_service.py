@@ -134,10 +134,10 @@ def test_past_deadline_order_is_infeasible(db_session: Session) -> None:
 
 def test_day_zero_is_prorated_when_planned_mid_shift(db_session: Session) -> None:
     work_order_service, manager_service = _build(db_session)
-    # Two 400 m² same-colour orders would fit one full long day (gross 1120), but planned at 16:00 today
-    # has only ~5 h of day-0 capacity (80 × 5 = 400 m²), so the second spills to a full day 1 (NA56).
+    # Planned at 16:00 today → only ~5 h of day-0 capacity (80 × 5 = 400 m²), so the 700 m² order spills
+    # to a full day 1 (NA56). Day 1 holds 700 m² (> a short day), so it stays LONG (NA57).
     _plan_automatic(work_order_service, manager_service, "A1", "RAL 9010", 400.0, _COMFORTABLE)
-    _plan_automatic(work_order_service, manager_service, "A2", "RAL 9010", 400.0, _COMFORTABLE)
+    _plan_automatic(work_order_service, manager_service, "A2", "RAL 9010", 700.0, _COMFORTABLE)
     afternoon = datetime(_TODAY.year, _TODAY.month, _TODAY.day, 16, 0)
 
     plan = manager_service.get_multi_day_plan(
@@ -148,6 +148,26 @@ def test_day_zero_is_prorated_when_planned_mid_shift(db_session: Session) -> Non
     assert plan.days[0].gross_ceiling_m2 == 400.0
     assert plan.days[0].placed_m2 == 400.0
     assert plan.days[1].gross_ceiling_m2 == 1120.0
+    assert plan.days[1].placed_m2 == 700.0
+
+
+def test_underfilled_later_day_reads_as_a_short_day(db_session: Session) -> None:
+    work_order_service, manager_service = _build(db_session)
+    # 3 × 550 m² (same colour): day 0 = 1100 (LONG), the trailing 550 spills to day 1 — judged as a SHORT
+    # day (fits ≤ 640, below the long floor) so it clears the short floor and isn't flagged below (NA57).
+    for i in range(3):
+        _plan_automatic(work_order_service, manager_service, f"A{i}", "RAL 9010", 550.0, _COMFORTABLE)
+
+    plan = manager_service.get_multi_day_plan(
+        shift_length=ShiftLength.LONG, station_context=MANAGER, now=_MORNING
+    )
+
+    assert len(plan.days) == 2
+    assert plan.days[0].shift_length is ShiftLength.LONG
+    assert plan.days[1].placed_m2 == 550.0
+    assert plan.days[1].shift_length is ShiftLength.SHORT
+    assert plan.days[1].below_floor is False
+    assert plan.days[1].over_ceiling is False
 
 
 def test_plan_carries_queue_position_and_revision_for_the_blend(db_session: Session) -> None:

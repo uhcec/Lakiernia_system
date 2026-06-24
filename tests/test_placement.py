@@ -7,7 +7,7 @@ oversized-order edge, and the working-day calendar.
 
 from datetime import date
 
-from app.manager.capacity import ShiftLength
+from app.manager.capacity import FLOOR_SHORT_M2, ShiftLength
 from app.manager.placement import (
     PlaceableOrder,
     place_orders,
@@ -137,12 +137,13 @@ def test_oversized_order_placed_alone_and_flagged_over_ceiling() -> None:
 
 
 def test_first_day_hours_prorates_day_zero_only() -> None:
-    # A 5 h day-0 gross ceiling = 80 × 5 = 400 m²; the second 400 m² order can't fit today and spills to
-    # day 1 (a full day). Day 0's floor is pro-rated too (800 × 5/14 ≈ 285.71), so 400 ≥ it → not below.
+    # A 5 h day-0 gross ceiling = 80 × 5 = 400 m²; the 700 m² order can't fit today and spills to day 1,
+    # which is a full LONG day (700 > the short ceiling, so judged against the long floor). Day 0's floor
+    # is pro-rated too (800 × 5/14 ≈ 285.71), so 400 ≥ it → not below.
     plan = place_orders(
         [
             _order(1, 400.0, date(2026, 7, 10)),
-            _order(2, 400.0, date(2026, 7, 10)),
+            _order(2, 700.0, date(2026, 7, 10)),
         ],
         working_days=_WORKING_WEEK,
         shift_length=ShiftLength.LONG,
@@ -154,9 +155,62 @@ def test_first_day_hours_prorates_day_zero_only() -> None:
     assert plan.days[0].placed_m2 == 400.0
     assert plan.days[0].floor_m2 == round(800.0 * 5.0 / 14.0, 2)
     assert plan.days[0].below_floor is False
-    # Day 1 is a full working day again (gross 1120, floor 800).
+    # Day 1 is a full working day (gross 1120, long floor 800); it holds 700 m² so it's genuinely below.
     assert plan.days[1].gross_ceiling_m2 == 1120.0
     assert plan.days[1].floor_m2 == 800.0
+    assert plan.days[1].below_floor is True
+
+
+def test_underfilled_later_day_is_judged_as_a_short_day() -> None:
+    # 3 × 550 m² same colour: day 0 fills to 1100 (LONG), the trailing 550 spills to day 1. 550 fits a
+    # short day (≤ 640) and is below the long floor → judged SHORT (floor 500), so it clears 500 and is
+    # NOT flagged below floor (it's a fine short day, not a failed long day). NA57.
+    plan = place_orders(
+        [_order(i, 550.0, date(2026, 7, 10)) for i in range(1, 4)],
+        working_days=_WORKING_WEEK,
+        shift_length=ShiftLength.LONG,
+        changeover_minutes=20.0,
+    )
+    assert len(plan.days) == 2
+    assert plan.days[0].shift_length is ShiftLength.LONG
+    assert plan.days[0].placed_m2 == 1100.0
+    assert plan.days[1].placed_m2 == 550.0
+    assert plan.days[1].shift_length is ShiftLength.SHORT
+    assert plan.days[1].floor_m2 == FLOOR_SHORT_M2
+    assert plan.days[1].below_floor is False
+    assert plan.days[1].over_ceiling is False  # SHORT only when it fits → never over its own ceiling
+
+
+def test_tiny_later_day_is_short_and_below_its_own_floor() -> None:
+    # day 0 = 1100, day 1 = 200. 200 fits a short day but is below the short floor too → SHORT + below,
+    # but measured against 500, not the long 800.
+    plan = place_orders(
+        [_order(1, 550.0, date(2026, 7, 10)), _order(2, 550.0, date(2026, 7, 10)), _order(3, 200.0, date(2026, 7, 10))],
+        working_days=_WORKING_WEEK,
+        shift_length=ShiftLength.LONG,
+        changeover_minutes=20.0,
+    )
+    assert plan.days[1].placed_m2 == 200.0
+    assert plan.days[1].shift_length is ShiftLength.SHORT
+    assert plan.days[1].floor_m2 == FLOOR_SHORT_M2
+    assert plan.days[1].below_floor is True
+    assert plan.days[1].over_ceiling is False
+
+
+def test_underfilled_long_day_still_flags_below_the_long_floor() -> None:
+    # day 0 = 1100, day 1 = 700. 700 needs more than a short day (> 640) → it's a genuinely under-target
+    # LONG day, correctly flagged below the long floor (700 < 800).
+    plan = place_orders(
+        [_order(1, 550.0, date(2026, 7, 10)), _order(2, 550.0, date(2026, 7, 10)), _order(3, 700.0, date(2026, 7, 10))],
+        working_days=_WORKING_WEEK,
+        shift_length=ShiftLength.LONG,
+        changeover_minutes=20.0,
+    )
+    assert plan.days[1].placed_m2 == 700.0
+    assert plan.days[1].shift_length is ShiftLength.LONG
+    assert plan.days[1].floor_m2 == 800.0
+    assert plan.days[1].below_floor is True
+    assert plan.days[1].over_ceiling is False
 
 
 def test_beyond_horizon_orders_are_infeasible_with_no_date() -> None:
