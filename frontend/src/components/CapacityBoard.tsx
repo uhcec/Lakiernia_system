@@ -106,6 +106,21 @@ function PlacementRow({ placement }: { placement: OrderPlacement }) {
 function DayColumn({ day }: { day: PlannedDay }) {
   const fill = fillPercent(day.placed_m2, day.net_ceiling_m2);
   const floorLine = floorPercent(day.floor_m2, day.net_ceiling_m2);
+  // A day with no capacity left (today, planned after the shift ends — NA56): show it as closed rather
+  // than a "0 m² / próg 0" bar, so today still appears in the 3-day window without looking broken.
+  if (day.net_ceiling_m2 <= 0) {
+    return (
+      <div className="flex w-60 shrink-0 flex-col rounded-2xl border border-line bg-mist/40 p-3">
+        <div className="flex items-baseline justify-between">
+          <span className="text-sm font-semibold text-ink">{formatDayHeader(day.scheduled_date, day.day_index)}</span>
+          <span className="text-[10px] uppercase tracking-wide text-steel">dziś</span>
+        </div>
+        <div className="mt-6 flex flex-1 items-center justify-center rounded-xl border border-dashed border-line bg-white/60 px-3 py-6 text-center text-xs text-steel">
+          Po godzinach — planowanie od jutra
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="flex w-60 shrink-0 flex-col rounded-2xl border border-line bg-mist/40 p-3">
       <div className="flex items-baseline justify-between">
@@ -207,7 +222,11 @@ export function CapacityBoard() {
     }
   }, [plan, load]);
 
-  const hasWork = plan?.days.some((day) => day.placements.length > 0) ?? false;
+  // Only the in-horizon (dated) days are shown as columns — today + the next 2 working days (NA56 /
+  // 3-day plan). Orders that overflow the horizon live in dateless buckets; they never render as extra
+  // columns, only in the "won't make it" banner — but they ARE still part of the apply payload below.
+  const visibleDays = plan ? plan.days.filter((day) => day.scheduled_date !== null) : [];
+  const hasWork = visibleDays.some((day) => day.placements.length > 0);
   const lineLabel = LINE_OPTIONS.find((option) => option.value === line)?.label ?? "";
   const suggested = plan ? suggestedOrder(plan) : [];
   const current = plan ? currentQueueOrder(plan) : [];
@@ -293,7 +312,7 @@ export function CapacityBoard() {
         <div className="rounded-2xl border border-rose-200 bg-rose-50 px-5 py-4 text-sm text-rose-700">{error}</div>
       ) : !plan ? null : hasWork ? (
         <div className="flex gap-3 overflow-x-auto pb-2">
-          {plan.days.map((day) => (
+          {visibleDays.map((day) => (
             <DayColumn key={day.day_index} day={day} />
           ))}
         </div>

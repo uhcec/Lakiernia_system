@@ -5,7 +5,7 @@ allows in-stock / untracked / manual-used colours, exposes the forward "runs out
 marks an already-planned order BLOCKED in the multi-day plan once its colour depletes — all manager-gated.
 """
 
-from datetime import date
+from datetime import UTC, date, datetime
 
 import pytest
 from sqlalchemy.orm import Session
@@ -25,6 +25,10 @@ from app.work_orders.service import WorkOrderService
 
 MANAGER = StationContext(station_id=StationId.MANAGER)
 PRODUCER = "AkzoNobel"
+# Pre-shift "now" so today is a full day-0 (NA56) and the single planned order lands on day 0 regardless
+# of the wall-clock the suite runs at.
+_TODAY = datetime.now(UTC).date()
+_MORNING = datetime(_TODAY.year, _TODAY.month, _TODAY.day, 6, 0)
 
 
 def _build(db_session: Session) -> tuple[WorkOrderService, ManagerService]:
@@ -108,7 +112,7 @@ def test_plan_allowed_when_paint_in_stock(db_session: Session) -> None:
     order_id = _create(work_order_service, "A1", "RAL 9005", 100.0)
 
     _assign(manager_service, order_id, ProductionType.AUTOMATIC)  # no raise
-    plan = manager_service.get_multi_day_plan(station_context=MANAGER)
+    plan = manager_service.get_multi_day_plan(station_context=MANAGER, now=_MORNING)
     assert plan.days[0].placements[0].paint_status is PaintFeasibilityStatus.OK
 
 
@@ -165,7 +169,7 @@ def test_multi_day_plan_marks_blocked_when_colour_depletes_after_planning(db_ses
         )
     )
 
-    plan = manager_service.get_multi_day_plan(station_context=MANAGER)
+    plan = manager_service.get_multi_day_plan(station_context=MANAGER, now=_MORNING)
     placement = plan.days[0].placements[0]
     assert placement.paint_status is PaintFeasibilityStatus.BLOCKED
 

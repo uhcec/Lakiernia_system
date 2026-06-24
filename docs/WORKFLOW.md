@@ -437,7 +437,13 @@ returns the **"won't make it" set** (orders scheduled past their deadline or bey
 orders); the working-day calendar skips weekends (**Mon–Fri confirmed 2026-06-24**, NA56; holidays
 deferred, configurable via `working_days_from`'s weekend set). **Day 0 is pro-rated to the hours left in
 today's shift** (NA56): a plan built at 16:00 of a long shift ending 21:00 sizes today's ceiling + floor
-to ~5/14 of a full day, so a mid-shift plan doesn't promise a whole day's capacity today. **Each later day
+to ~5/14 of a full day, so a mid-shift plan doesn't promise a whole day's capacity today. When today's
+remaining capacity can't even take the first order (e.g. planned **after** the shift ends → zero hours
+left), today is kept as an **empty closed column** ("Po godzinach — planowanie od jutra") and the work
+starts tomorrow, instead of stranding an order on a zero-capacity today flagged over-limit. The board
+shows **only the in-horizon dated days** — today + the next 2 working days (3 columns); work that overflows
+those 3 days is reported in the "won't make it" banner, never as an extra dateless column (it is still part
+of the queue-apply payload). **Each later day
 is judged against its own shift** (NA57): the fill always uses the plan-level (physical full-day) ceiling
 to decide day boundaries, but for display an under-filled overflow day is labelled SHORT — measured
 against the short floor (500), not the long floor (800) — when its m² fit a short day's net ceiling; a day

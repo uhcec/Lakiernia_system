@@ -116,6 +116,37 @@ describe("CapacityBoard (N49-9 / NA51)", () => {
     expect(screen.getByRole("button", { name: "Ręczna" }).getAttribute("aria-pressed")).toBe("true");
   });
 
+  it("shows a closed 'today' and hides dateless overflow days (NA56 / 3-day plan)", async () => {
+    const base = makePlan("AUTOMATIC", [1, 2]);
+    const work = base.days[0];
+    const closedToday = {
+      ...work,
+      day_index: 0,
+      scheduled_date: "2026-06-24",
+      net_ceiling_m2: 0,
+      gross_ceiling_m2: 0,
+      floor_m2: 0,
+      placed_m2: 0,
+      placed_order_count: 0,
+      placements: [],
+    };
+    const overflow = {
+      ...work,
+      day_index: 2,
+      scheduled_date: null, // beyond the 3-day horizon → must NOT render as a column
+      placements: [{ ...work.placements[0], work_order_id: 9, order_number: "WO-OVERFLOW" }],
+    };
+    const plan = { ...base, days: [closedToday, { ...work, day_index: 1 }, overflow] };
+    vi.mocked(fetchMultiDayPlan).mockResolvedValueOnce(plan);
+
+    render(<CapacityBoard />);
+    await screen.findByText("Plan wielodniowy");
+
+    expect(screen.getByText(/Po godzinach/)).toBeTruthy(); // today is closed, shown but not broken
+    expect(screen.getByText("WO-1")).toBeTruthy(); // the dated working day renders
+    expect(screen.queryByText("WO-OVERFLOW")).toBeNull(); // the dateless overflow day is not a column
+  });
+
   it("applies the suggested order back to the queue when it differs from the live order (NA51)", async () => {
     // Live queue is WO-2 then WO-1 (positions 2,1), but the suggested sweep is WO-1 then WO-2.
     vi.mocked(fetchMultiDayPlan).mockResolvedValueOnce(makePlan("AUTOMATIC", [2, 1]));

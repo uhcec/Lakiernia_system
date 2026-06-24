@@ -537,6 +537,22 @@ only. Five elements, top to bottom:
   changeover loss counts colour changes, manager gating). 576 backend + 90 frontend pass; both builds green.
   Owner to confirm: the headline set, whether on-time should be **factory-wide** (both lines) rather than
   per-line, and whether the floor should use a recorded per-day shift length once that is captured.
+
+### N49-11. Planner zero-capacity day-0 edge + 3-day board polish (2026-06-24, owner-driven, live-verified)
+- Status: **DONE (2026-06-24).** Follow-ups from the live-app verification (`/verify`) of the NA5x planner
+  work: (1) **zero-capacity today** — when a plan is built after the shift ends, today's pro-rated capacity
+  is 0; the first order was stranded on it flagged `over_ceiling` ("ponad limit na 0 m² dziś"). Now
+  `place_orders` keeps today as an **empty closed column** and starts the work tomorrow when today can't
+  take the first order (a genuinely > full-day order still lands + flags). (2) **Owner: "only plan 3 days —
+  today, tomorrow, the day after tomorrow."** The horizon was already 3 working days; the board now renders
+  **only the in-horizon dated days** (`scheduled_date != null`), so overflow no longer appears as a 4th
+  dateless column — those orders stay in the "won't make it" banner (and remain in the NA51 apply payload,
+  verified end-to-end: a 19-order reorder incl. overflow is accepted). (3) Frontend shows a closed today as
+  "Po godzinach — planowanie od jutra". Tests: pure placement (shift-over → empty today + work next day;
+  partial-today takes-what-fits) + frontend (closed-today + dateless-overflow-hidden); ~3 service tests
+  pinned a pre-shift `now` for determinism. **Live re-verified at 23:02:** today `gross/net/placed=0,
+  over=False`, board renders 3 dated days, 2 overflow buckets dateless → infeasible, apply still accepts all
+  19. 596 backend + 94 frontend pass; both builds green; `alembic check` clean. `docs/WORKFLOW.md` updated.
   - Original framing — verification finding (clean-slate process session, 2026-06-23), confirmed in code.
 - Severity: **MEDIUM** (manager-facing truth — the stats answer the *old* question, not the one the
   multi-day capacity model now defines as a good day).

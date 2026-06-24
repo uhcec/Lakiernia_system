@@ -153,6 +153,11 @@ def place_orders(
     ``first_day_hours`` (NA56) pro-rates **day 0 only** to the hours left in today's shift: its gross
     ceiling and floor scale by ``first_day_hours / full shift hours`` (so a plan built mid-shift doesn't
     promise a whole day today). ``None`` (the default) means a full day 0 — identical to the prior model.
+    When today's remaining capacity can't even take the first order (e.g. planned after the shift ends →
+    zero hours left), today is kept as an **empty closed column** and the work starts on the next day,
+    rather than stranding that order on a near-zero "today" flagged over-ceiling (the NA56 zero-capacity
+    edge). Days beyond the supplied ``working_days`` horizon are still returned (dateless) so their orders
+    carry an infeasible verdict — the caller/UI shows only the in-horizon (dated) days.
 
     Each **later** day is *judged* against its own shift (NA57): the fill above always uses the plan-level
     (physical full-day) ceiling to decide day boundaries, but for display a day that holds little work is
@@ -196,6 +201,20 @@ def place_orders(
 
     closed_days: list[_OpenDay] = []
     current = _OpenDay()
+
+    # NA56 edge: when today is a *reduced* partial day (planned mid/after shift) whose remaining capacity
+    # can't even take the first order — yet that order would fit a full day — keep today as an empty
+    # (closed) column and start the work tomorrow, instead of stranding the order on a near-zero "today"
+    # flagged over-ceiling. A genuinely oversized order (won't fit even a full day) still lands + flags it.
+    today_is_reduced = first_day_hours is not None and first_day_hours < full_hours
+    if ordered and today_is_reduced:
+        first_area = max(ordered[0].total_area_m2 or 0.0, 0.0)
+        today_net = net_ceiling(0, count_colour_changeovers([ordered[0].colour_key]))
+        full_day_net = ceiling_rate_m2_per_h * full_hours
+        if today_net < first_area <= full_day_net:
+            closed_days.append(current)  # today stays as an empty closed column; work begins next day
+            current = _OpenDay()
+
     for order in ordered:
         area = max(order.total_area_m2 or 0.0, 0.0)
         tentative_changeovers = count_colour_changeovers(current.colours + [order.colour_key])

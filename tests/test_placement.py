@@ -213,6 +213,38 @@ def test_underfilled_long_day_still_flags_below_the_long_floor() -> None:
     assert plan.days[1].over_ceiling is False
 
 
+def test_shift_over_keeps_today_empty_and_starts_work_next_day() -> None:
+    # first_day_hours=0 (planned after the shift ends) → today has zero capacity. The order must NOT be
+    # stranded on today flagged over-ceiling (NA56 edge); today stays an empty closed column and the work
+    # starts on day 1.
+    plan = place_orders(
+        [_order(1, 280.0, date(2026, 7, 10)), _order(2, 300.0, date(2026, 7, 10))],
+        working_days=_WORKING_WEEK,
+        shift_length=ShiftLength.LONG,
+        changeover_minutes=20.0,
+        first_day_hours=0.0,
+    )
+    assert plan.days[0].scheduled_date == _MON  # today is still shown (a column)…
+    assert plan.days[0].placed_m2 == 0.0  # …but empty (closed)
+    assert plan.days[0].gross_ceiling_m2 == 0.0
+    assert plan.days[0].over_ceiling is False  # no stranded over-ceiling order on a zero-capacity today
+    assert plan.days[1].placed_m2 == 580.0  # the work starts tomorrow
+    assert all(p.meets_deadline for p in plan.placements)
+
+
+def test_partial_today_takes_what_fits_then_overflows() -> None:
+    # 2 h left today = 80 × 2 = 160 m². A 100 m² first order fits today; the next 100 overflows to day 1.
+    plan = place_orders(
+        [_order(1, 100.0, date(2026, 7, 10)), _order(2, 100.0, date(2026, 7, 10))],
+        working_days=_WORKING_WEEK,
+        shift_length=ShiftLength.LONG,
+        changeover_minutes=20.0,
+        first_day_hours=2.0,
+    )
+    assert plan.days[0].placed_m2 == 100.0  # today took what fits in its remaining hours
+    assert plan.days[1].placed_m2 == 100.0
+
+
 def test_beyond_horizon_orders_are_infeasible_with_no_date() -> None:
     # Horizon of one working day, two full days of work → the 2nd day has no date and is infeasible.
     one_day = working_days_from(_MON, 1)
