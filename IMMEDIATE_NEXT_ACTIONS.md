@@ -560,6 +560,47 @@ only. Five elements, top to bottom:
 - Acceptance: Statystyki can show, per day, m² vs the profitable floor, on-time %, and changeover loss,
   each derivable from the stage-transition log; covered by tests; owner confirms the headline set.
 
+### NA51. The multi-day board and the real queue are two decoupled orderings, with no way to reconcile them
+- Status: **OPEN — owner-surfaced 2026-06-24** while looking at the live planner: the multi-day board
+  showed orders 0114/0115 "today", but those two are **not** the first orders worked today per the actual
+  line queue. Owner: "trochę nie rozumiem czy to tak specjalnie czy co." It is partly intentional (the
+  board sorts by deadline, see below) but exposes a real half-built state, hence this item.
+- Severity: **MEDIUM** (manager-facing coherence/truth — the planning surface contradicts what the line
+  actually does, with no way to act on it; not data corruption).
+- Problem: there are **two independent orderings** that do not know about each other:
+  1. **The real, executable queue** — `WorkOrder.queue_position` per line (what the stations consume).
+     The manager owns it via `assign_plan` (append to end) / `update_queue_position` / `reorder_queue`.
+  2. **The multi-day board** (`GET /manager/planner/multi-day`, `frontend/src/components/CapacityBoard.tsx`)
+     — a **read-only projection** that **ignores `queue_position` entirely** and sorts strictly by hard
+     deadline: `place_orders` does `sorted(orders, key=lambda o: (o.planned_pickup_date, o.work_order_id))`
+     (`app/manager/placement.py:158`), then applies a within-day light→dark colour sweep (N49-5) on top.
+  So the board shows the system's *opinion* of what should run today (earliest deadline first), while the
+  line runs the manager's `queue_position` order — and **nothing reconciles them**. The board has no
+  "apply to queue" action (the only mutate is `reorder_queue`; the one applyable proposal is the NA33
+  lexicographic `propose_auto_schedule`, which is a *different* algorithm from the board's EDF + light→dark
+  — see NA49.H/I). This is the deferred **NA49.K** (drag/pin/apply) seen from the user's side.
+- Why it's confusing: 0114/0115 almost certainly carry the earliest `planned_pickup_date` of the planned
+  set, so the board is "correct" by its own rule — but a manager reasonably reads the board as "what's next
+  on the line", which it is not. The board is a forecast/recommendation, not a mirror of the plan and not a
+  driver of it.
+- Decision needed (owner) — what should the board *be*?
+  - **Option A — faithful forecast:** the board respects `queue_position` (shows the manager's actual
+    order spread across days) and *flags* where that order breaks a deadline / the floor. Less "clever",
+    but consistent with what the line actually does.
+  - **Option B — optimal recommendation + apply:** keep the EDF + light→dark recommendation, but add an
+    **"Apply to queue"** action (and ideally pin/urgent — NA49.K) so the line can adopt the board order.
+    Without it the board will always drift from reality and mislead.
+  - A blend is possible (show both: "your order" vs "suggested order", with an apply button).
+- Required fix: once the owner picks A/B, either (A) re-base the board projection on `queue_position`
+  within each capacity day, or (B) add a mutate that writes the board's derived order back to
+  `queue_position` (respecting pins), and resolve the NA33-vs-light→dark two-algorithm split (NA49.H/I) so
+  "what you see" equals "what you apply".
+- Acceptance: the manager can tell, without confusion, the difference between the planned order and any
+  suggested order; if a suggestion is shown, there is a way to apply it; the board no longer silently
+  contradicts the executable queue. Covered by tests; `docs/WORKFLOW.md` "Target planning model" updated.
+- Related: **NA49.K** (drag/pin/urgent — deferred), **NA49.H/I** (NA33 scheduler is a crude lexicographic
+  proxy, distinct from the board's light→dark sweep), **N49-9** (the read-only board first cut).
+
 ## System-wide ordering / scheduling model (owner design session 2026-06-23)
 
 ### NA49. Multi-day capacity planner ("schedule the painting bottleneck, derive the rest")
