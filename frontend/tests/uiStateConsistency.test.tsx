@@ -19,6 +19,18 @@ vi.mock("../src/api/managerApi", () => ({
   assignWorkOrderPlan: vi.fn(),
   fetchAutoScheduleProposal: vi.fn(),
   fetchCorrectionReasonReport: vi.fn(),
+  fetchMultiDayPlan: vi.fn(() =>
+    Promise.resolve({
+      production_type: "AUTOMATIC",
+      shift_length: "SHORT",
+      shift_advised: true,
+      horizon_working_days: 10,
+      changeover_minutes: 0,
+      changeover_is_measured: false,
+      days: [],
+      infeasible_order_ids: [],
+    }),
+  ),
   fetchPlannedWorkOrders: vi.fn(),
   fetchScheduleConfig: vi.fn(),
   fetchUnplannedWorkOrders: vi.fn(),

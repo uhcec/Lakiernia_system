@@ -145,6 +145,55 @@ export interface AutoScheduleProposal {
   proposed_order: WorkOrder[];
 }
 
+// Multi-day capacity plan (N49-4..N49-8) rendered by the capacity board (N49-9).
+export type PaintFeasibilityStatus = "OK" | "WARNING" | "BLOCKED";
+
+export interface OrderPlacement {
+  work_order_id: number;
+  order_number: string;
+  customer_name: string;
+  ral_code: string | null;
+  total_area_m2: number | null;
+  day_index: number;
+  sequence_position: number;
+  scheduled_date: string | null;
+  planned_pickup_date: string;
+  meets_deadline: boolean;
+  days_late: number;
+  suggested_production_type: ProductionTypeValue;
+  suggested_line_is_colour_orphan: boolean;
+  suggested_line_is_small: boolean;
+  paint_status: PaintFeasibilityStatus;
+  paint_remaining_kg: number | null;
+}
+
+export interface PlannedDay {
+  day_index: number;
+  scheduled_date: string | null;
+  shift_length: "LONG" | "SHORT";
+  floor_m2: number;
+  gross_ceiling_m2: number;
+  net_ceiling_m2: number;
+  changeover_count: number;
+  changeover_minutes: number;
+  placed_order_count: number;
+  placed_m2: number;
+  below_floor: boolean;
+  over_ceiling: boolean;
+  placements: OrderPlacement[];
+}
+
+export interface MultiDayPlan {
+  production_type: ProductionTypeValue;
+  shift_length: "LONG" | "SHORT";
+  shift_advised: boolean;
+  horizon_working_days: number;
+  changeover_minutes: number;
+  changeover_is_measured: boolean;
+  days: PlannedDay[];
+  infeasible_order_ids: number[];
+}
+
 // Good-day stats (NA50): the capacity model's definition of a good day.
 export interface GoodDayMetrics {
   day: string;

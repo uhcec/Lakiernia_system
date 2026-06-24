@@ -743,10 +743,24 @@ only. Five elements, top to bottom:
   can override.
 
 **UI:**
-- **N49-9 — Multi-day capacity board.** Rolling ~week board; each day a column filling toward
-  floor/ceiling, segments coloured light→dark, below-floor + at-risk-deadline flags, drag between days,
-  **pin/urgent** (delivers the deferred **NA49.K**). Becomes the manager's planning surface. Acceptance:
-  board shows days with floor/ceiling + the derived shared-stage order, and supports drag + pin.
+- **N49-9 — Multi-day capacity board. DONE (2026-06-24, read-only first cut).** `frontend/src/components/
+  CapacityBoard.tsx` renders `GET /manager/planner/multi-day` for the AUTOMATIC line on the manager panel:
+  a horizontally-scrolling column per working day, each filling toward its floor/net-ceiling (a fill bar
+  with the floor marked, green/amber/red by below-floor/over-ceiling), orders listed in the backend's
+  light→dark sweep order with the derived flags surfaced — per-day **poniżej progu / ponad limit** + the
+  changeover count, per-order **po terminie (+N dn.)** and the N49-7 **brak farby / farba na wyczerpaniu**
+  paint markers — plus a banner for the "won't make it" `infeasible_order_ids` set. The board only
+  **renders** what the planner derives (no local recompute of capacity/deadline/paint). Frontend-only:
+  new `MultiDayPlan` types + `fetchMultiDayPlan` client + mount in `ManagerPanelPage`. Tests:
+  `frontend/tests/capacityBoard.test.tsx` (renders the column + below-floor / at-risk / paint-blocked /
+  infeasible flags) + the manager-tab mock updated. 91 frontend tests pass; build green. `docs/WORKFLOW.md`
+  "Target planning model" updated.
+  - **Deferred (NA49.K):** drag-between-days + pin/urgent — they need a backend mutate + schema (a pinned/
+    urgent flag the re-optimise respects), so the first cut is the read-only board; the lever lands when the
+    persistence is added.
+  - Original framing — Rolling ~week board; each day a column filling toward floor/ceiling, segments
+    coloured light→dark, below-floor + at-risk-deadline flags, drag between days, **pin/urgent** (delivers
+    the deferred **NA49.K**). Becomes the manager's planning surface.
 
 **Shared-stage derivation (the original NA49 defect):**
 - **N49-10 — Derive shared-stage order; kill duplicate "Poz." DONE (2026-06-24).** Backend owns the

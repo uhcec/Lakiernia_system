@@ -6,6 +6,7 @@ import type {
   CorrectionReasonReportItem,
   CycleTimeStats,
   GoodDayStats,
+  MultiDayPlan,
   ReorderQueueRequest,
   ScheduleRuleConfigRead,
   ScheduleRuleConfigUpdate,
@@ -115,6 +116,28 @@ export async function fetchCycleTimeStats(dateFrom: string, dateTo: string): Pro
   }
 
   return response.json() as Promise<CycleTimeStats>;
+}
+
+export async function fetchMultiDayPlan(
+  productionType: ProductionTypeValue,
+  horizonWorkingDays = 10,
+): Promise<MultiDayPlan> {
+  const url = new URL(createApiUrl("/manager/planner/multi-day"), window.location.origin);
+  url.searchParams.set("production_type", productionType);
+  url.searchParams.set("horizon_working_days", String(horizonWorkingDays));
+  const finalUrl = createApiUrl("/manager/planner/multi-day").startsWith("http")
+    ? url.toString()
+    : `${url.pathname}${url.search}`;
+
+  const response = await fetch(finalUrl, {
+    headers: { Accept: "application/json", ...getCurrentStationHeaders() },
+  });
+
+  if (!response.ok) {
+    throw await createApiError(response, "Nie udało się pobrać planu wielodniowego");
+  }
+
+  return response.json() as Promise<MultiDayPlan>;
 }
 
 export async function fetchGoodDayStats(dateFrom: string, dateTo: string): Promise<GoodDayStats> {

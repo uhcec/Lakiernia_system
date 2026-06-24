@@ -29,6 +29,7 @@ import {
 } from "../utils/queueReorder";
 import { buildWorkOrderDetailHref } from "../api/stationContext";
 import { WorkOrderPrimaryInfoLine } from "../components/WorkOrderPrimaryInfoLine";
+import { CapacityBoard } from "../components/CapacityBoard";
 import {
   getWorkOrderActiveCorrectionsText,
   getWorkOrderAttentionBadges,
@@ -1247,6 +1248,8 @@ export function ManagerPanelPage() {
           ))}
         </section>
       )}
+
+      {!isLoading ? <CapacityBoard /> : null}
 
       <section className="rounded-[2rem] border border-white/70 bg-white/80 p-6 shadow-panel backdrop-blur sm:p-8">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">

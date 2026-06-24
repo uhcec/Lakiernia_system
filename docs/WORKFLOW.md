@@ -460,7 +460,15 @@ hard-blocked** (manual consumption is invisible, so the automatic balance reads 
 execution order, costing each colour series down against its stock: **BLOCKED** (metered, out of stock),
 **WARNING** (runs short partway, or manual-used low-confidence), or **OK**. The same per-order status is
 attached to each `multi-day` placement, so an order planned while in stock surfaces as BLOCKED once its
-colour later depletes. The remaining *capacity planner* piece (the capacity board N49-9) is not yet built.
+colour later depletes.
+**Capacity board (N49-9, `frontend/src/components/CapacityBoard.tsx`):** a read-only multi-day board on
+the manager panel renders `GET /manager/planner/multi-day` for the automatic line — each working day a
+column filling toward its floor/net-ceiling (a fill bar with the floor marked), orders listed in the
+backend's light→dark sweep order, with the derived flags surfaced (below-floor / over-ceiling per day;
+per-order at-risk-deadline + days-late, and the N49-7 paint BLOCKED / WARNING markers), plus a banner for
+the "won't make it" `infeasible_order_ids` set. The board only **renders** what the planner derives — it
+never recomputes capacity/deadline/paint meaning locally. Drag-between-days and pin/urgent (the deferred
+**NA49.K**) are a follow-up: they need a backend mutate + schema, so the first cut is read-only.
 Trust is earned in three phases: (1) **observer** — manager plans manually, the system only shows
 day-fill vs floor/ceiling and the changeover count; (2) **suggester** — the system proposes the
 arrangement, the manager edits; (3) **trusted** — the system arrangement is the default and the manager
