@@ -145,7 +145,15 @@ def _audit(run_dir: Path) -> dict:
 
     orders: list[dict] = []
     violations: list[str] = []
-    for order_id in _all_order_ids(run_dir):
+    # Worklist grows as we discover correction children (P-orders) — they are NOT in the default
+    # /work-orders list, so following `correction_orders` is the only way to invariant-check them.
+    to_check = list(_all_order_ids(run_dir))
+    seen_ids: set[int] = set()
+    while to_check:
+        order_id = to_check.pop(0)
+        if order_id in seen_ids:
+            continue
+        seen_ids.add(order_id)
         status, order = sim_client.call("admin", "GET", f"/work-orders/{order_id}")
         if status != 200 or not isinstance(order, dict):
             violations.append(f"[id {order_id}] could not be read back ({status})")
@@ -154,6 +162,11 @@ def _audit(run_dir: Path) -> dict:
         violations += auditor.check_order(order, prev_completed.get(str(order_id)))
         if isinstance(order.get("completed_quantity"), int):
             prev_completed[str(order_id)] = order["completed_quantity"]
+        for child in order.get("correction_orders", []) or []:
+            child_id = child.get("id")
+            if isinstance(child_id, int) and child_id not in seen_ids:
+                to_check.append(child_id)
+    _record_known_orders(run_dir, seen_ids)
 
     violations += auditor.check_queue_uniqueness(orders)
 
