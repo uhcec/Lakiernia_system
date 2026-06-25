@@ -19,8 +19,10 @@ sys.path.insert(0, str(_REPO_ROOT))
 sys.path.insert(0, str(_SCRIPTS_DIR))
 
 import reset_and_seed_dev_db as base  # noqa: E402  (path set up above)
+from sqlalchemy import delete  # noqa: E402
 from app.audit.context import StationContext  # noqa: E402
 from app.database.session import get_session_factory  # noqa: E402
+from app.paints.models import Paint, PaintStockMovement  # noqa: E402
 from app.paints.repository import PaintRepository  # noqa: E402
 from app.paints.schemas import PaintDeliveryCreate  # noqa: E402
 from app.paints.service import PaintService  # noqa: E402
@@ -36,6 +38,14 @@ def seed_paint_stock(session) -> None:
 
     Uses the real ``PaintService.record_delivery`` path (auto-creates the paint + a DELIVERY movement), so
     the inventory looks exactly as it would after a real delivery — not hand-poked rows."""
+    # Clear the paint ledger first. `reset_app_data` does NOT touch Paint / PaintStockMovement, so without
+    # this each reseed both (a) piles another delivery onto existing stock and (b) leaves stale consumption
+    # movements whose reused `work_order_id` then bleeds into the new order's derived consumed-paint read
+    # (the read model sums consumption by work_order_id). Caught by the simulation, Phase 2 day 1.
+    session.execute(delete(PaintStockMovement))
+    session.execute(delete(Paint))
+    session.commit()
+
     service = PaintService(PaintRepository(session))
     office = StationContext(station_id=StationId.OFFICE)
     from datetime import date
