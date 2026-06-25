@@ -60,6 +60,31 @@ Before starting Phase 3, resolve the open owner questions on NA34/NA36/NA37/NA38
 
 ## HIGH
 
+### NA60. `assign_plan` trailing-completed shuffle collides → unhandled HTTP 500 when planning onto a line that holds completed orders
+- Status: OPEN — surfaced and **reproduced** by the workflow simulation (Phase 2, day 3, 2026-06-24); code + traceback verified.
+- Problem: planning a work order onto a production line where one or more **completed (READY)** orders still
+  occupy queue positions raises `sqlite3.IntegrityError: UNIQUE constraint failed:
+  work_orders.production_type, work_orders.queue_position` during the trailing-completed shuffle, and it
+  surfaces as a raw **HTTP 500**. `assign_plan` (`app/manager/service.py:1470`) does a two-phase shuffle —
+  `_temporarily_move_queue_rows_out_of_the_way` → set the new order's `queue_position` → `flush()`
+  (line 1516) → `_trail_completed_work_orders` (line 1517) — and wraps only the **final** `repository.commit()`
+  in `IntegrityError → InvalidManagerPlanningError` (lines 1533-1539). The collision fires during an
+  intermediate **flush** (the trail step, executed as an `UPDATE work_orders SET queue_position=? WHERE id=?`
+  executemany), which is **outside** that try/except, so it escapes unmapped. Same class as the closed NA48
+  (which fixed `update_production_type`), but in `assign_plan` itself and only triggered once several completed
+  orders have piled up on a line — which normal multi-day use produces.
+- Reproduction: with MANUAL holding 1 active + 5 READY orders (positions 1-6), `POST /manager/work-orders/{id}/plan {"production_type":"MANUAL"}`
+  on a fresh order returns 500. The empty AUTOMATIC line accepted plans fine — it is specific to a line with
+  trailing completed orders. (Two defects: (1) the shuffle reaches a transiently-colliding intermediate state;
+  (2) the `IntegrityError` guard doesn't cover the intermediate flush where the collision actually occurs.)
+- Required fix: make the trailing/temporary-move shuffle collision-free (e.g. park rows at guaranteed-unique
+  temporary positions and apply final moves in a non-colliding order, or order the executemany so no
+  intermediate state violates the unique index), AND extend the `IntegrityError → InvalidManagerPlanningError`
+  mapping to cover the whole mutation (the intermediate flush, not just the final commit) so a queue collision
+  can never be a 500. Regression test: plan onto a line carrying several completed orders.
+- Acceptance: planning onto a line with any number of trailing completed orders succeeds (appends past them)
+  or fails with a clean 4xx; never a 500. Test pins the multi-completed-order case.
+
 ### NA1. Authorization is decoupled from authentication — any logged-in user can act as any station
 - Status: DONE (2026-06-16) — see Done section. Implemented per the approved
   `docs/AUTHZ_DESIGN_PROPOSAL.md` defaults.
