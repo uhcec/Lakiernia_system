@@ -932,6 +932,43 @@ def test_assign_plan_after_completed_only_queue_trails_completed_beyond_requeste
     assert planned_by_id[completed["id"]]["process_status"] == {"value": "READY", "label": "Gotowe"}
 
 
+def test_assign_plan_appends_onto_line_with_several_completed_orders_without_500(test_client: TestClient) -> None:
+    """NA60: appending onto a line where several completed (READY) orders occupy positions must not 500.
+
+    The trailing shuffle parked the completed rows at temporary positions whose range overlapped the
+    final trailed range; because the flush applies UPDATEs in primary-key order (not the safe move
+    order), the overlap transiently violated the ``(production_type, queue_position)`` unique index and
+    surfaced as an unhandled HTTP 500. Here the completed orders are planned in REVERSE position order
+    relative to their primary keys, so the flush order is not the safe order — the exact trigger.
+    """
+    active = create_work_order(test_client, "Active head")
+    completed = [create_work_order(test_client, f"Completed {i}") for i in range(4)]
+
+    test_client.post(
+        f"/manager/work-orders/{active['id']}/plan", json={"production_type": "MANUAL", "queue_position": 1}
+    )
+    # Primary-key-ascending completed[0..3] take queue positions 5,4,3,2 — PK order is the reverse of
+    # position order, so a position-naive flush ordering collides.
+    for work_order, position in zip(completed, [5, 4, 3, 2]):
+        test_client.post(
+            f"/manager/work-orders/{work_order['id']}/plan",
+            json={"production_type": "MANUAL", "queue_position": position},
+        )
+        complete_manual_ral_order(test_client, work_order["id"])
+
+    incoming = create_work_order(test_client, "Incoming append")
+    response = test_client.post(
+        f"/manager/work-orders/{incoming['id']}/plan", json={"production_type": "MANUAL"}
+    )
+
+    assert response.status_code == 200, response.text
+    planned_by_id = {item["id"]: item for item in test_client.get("/manager/work-orders").json()}
+    assert planned_by_id[active["id"]]["queue_position"] == 1
+    assert planned_by_id[incoming["id"]]["queue_position"] == 2
+    # The four completed orders trail past the appended order, into a clean contiguous block.
+    assert sorted(planned_by_id[w["id"]]["queue_position"] for w in completed) == [3, 4, 5, 6]
+
+
 def test_update_queue_position_reuses_completed_queue_position_and_trails_completed_order(test_client: TestClient) -> None:
     completed = create_work_order(test_client, "Completed queue patch slot")
     active = create_work_order(test_client, "Active queue patch slot")

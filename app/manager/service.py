@@ -2136,10 +2136,16 @@ class ManagerService:
             return
 
         planned_work_orders = self._planned_work_orders_for_line(production_type)
+        # Park the rows STRICTLY ABOVE every final trailed position (NA60). Trailing only happens when a
+        # completed order sits at/after the incoming order's slot, so the highest occupied position
+        # belongs to a completed row and the final block is bounded by ``max(all) + len``. Offsetting the
+        # temporary base by ``len(work_orders)`` guarantees the temp range and the final range are
+        # disjoint, so the flush (which applies UPDATEs in primary-key order, not the safe move order)
+        # can never transiently collide on the ``(production_type, queue_position)`` unique index.
         temporary_queue_position = max(
             [work_order.queue_position or 0 for work_order in planned_work_orders] + reserved_queue_positions,
             default=0,
-        ) + 1
+        ) + len(work_orders) + 1
         for work_order in work_orders:
             work_order.queue_position = temporary_queue_position
             work_order.updated_at = now

@@ -61,7 +61,12 @@ Before starting Phase 3, resolve the open owner questions on NA34/NA36/NA37/NA38
 ## HIGH
 
 ### NA60. `assign_plan` trailing-completed shuffle collides → unhandled HTTP 500 when planning onto a line that holds completed orders
-- Status: OPEN — surfaced and **reproduced** by the workflow simulation (Phase 2, day 3, 2026-06-24); code + traceback verified.
+- Status: **FIXED (2026-06-24) — see Done section.** Root cause: the temporary parking range overlapped the
+  final trailed range, so the PK-ordered flush transiently violated the unique index. Fix: offset the temp
+  base by `len(work_orders)` so the temp range is strictly above every final position (one line in the shared
+  `_temporarily_move_queue_rows_out_of_the_way`, fixing all three callers). Regression test added; reproduced
+  the exact 500 (red) then green; full `pytest` + `alembic check` clean; live-verified the original plan now
+  returns 200.
 - Problem: planning a work order onto a production line where one or more **completed (READY)** orders still
   occupy queue positions raises `sqlite3.IntegrityError: UNIQUE constraint failed:
   work_orders.production_type, work_orders.queue_position` during the trailing-completed shuffle, and it
@@ -1760,6 +1765,21 @@ correctness defects. Severities reflect maintainability risk, not user-visible b
   or disposable; the doc set reflects that choice (coordinate with NA45).
 
 ## Done
+
+- **NA60 — queue trailing-shuffle 500 fixed (2026-06-24)** — planning onto a line holding completed (READY)
+  orders raised `UNIQUE constraint failed: (production_type, queue_position)` and surfaced as HTTP 500.
+  Root cause: `_temporarily_move_queue_rows_out_of_the_way` (`app/manager/service.py`) parked completed rows at
+  a temporary range starting `max(positions)+1`, which **overlapped** the final trailed range; because the
+  flush applies `UPDATE queue_position` in primary-key order (not the safe move order), the overlap transiently
+  violated the unique index. Fix: offset the temporary base by `len(work_orders)` so the parking range is
+  strictly above every possible final position (provably disjoint, since trailing only occurs when the top
+  position is a completed row, bounding the final block at `max(all)+len`). One line in the shared helper →
+  fixes `assign_plan`, `update_queue_position`, and `update_production_type`. Regression test
+  `test_assign_plan_appends_onto_line_with_several_completed_orders_without_500` in `tests/test_manager_api.py`
+  arranges the completed orders in reverse PK/position order to force the collision (red before, green after).
+  Full `pytest` green + `alembic check` clean (no schema change); live-verified the original 500'ing plan now
+  returns 200 and the queue stays collision-free. Surfaced by the Phase 2 multi-day simulation (needs
+  accumulated completed orders to trigger).
 
 - **NA59 — DECORAL decoral-pass correction documented (2026-06-25)** — the sim surfaced that a correction
   raised at the Decoral pass (`POST /process/work-orders/{id}/decoral-production/complete` with
