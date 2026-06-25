@@ -214,8 +214,14 @@ Before starting Phase 3, resolve the open owner questions on NA34/NA36/NA37/NA38
 - Acceptance: Expired tokens are rejected with `401`; tests cover expiry.
 
 ### NA59. DECORAL correction at the Decoral pass uses the RAL in-place reset, not the documented child spin-off
-- Status: OPEN — surfaced by the workflow simulation (Phase 1, 2026-06-24), code-verified. Needs an owner/docs
-  decision on intended semantics before any fix (could be MEDIUM→HIGH if confirmed unintended).
+- Status: **RESOLVED by documentation (2026-06-25) — the code is correct; the docs were the gap.** Owner
+  confirmed the observed behavior is the intended one: a DECORAL defect found **at the Decoral pass** (the foil
+  work itself) is corrected with the RAL-style same-order in-place reset (a `CORRECTION` batch on the same
+  order, no child, no `N`), whereas the child/`N` model is specifically for defects found **at packing**
+  (base coat, before foil). Documented in `docs/WORKFLOW.md` (Corrections Behavior — new "Decoral pass" block +
+  qualified invariant #8 + a note under the S01–S12 matrix) and the CLAUDE.md core-domain summary. No code
+  change. See Done section.
+- Original finding (kept for context) — surfaced by the workflow simulation (Phase 1, 2026-06-24), code-verified.
 - Problem: completing a DECORAL pass with a correction via the **plain** per-order endpoint
   `POST /process/work-orders/{id}/decoral-production/complete` (no batch id) routes through
   `_reset_to_correction_planning(..., completed_stage=DECORAL_PRODUCTION)` (`app/process/service.py:954-967`),
@@ -1729,6 +1735,17 @@ correctness defects. Severities reflect maintainability risk, not user-visible b
   or disposable; the doc set reflects that choice (coordinate with NA45).
 
 ## Done
+
+- **NA59 — DECORAL decoral-pass correction documented (2026-06-25)** — the sim surfaced that a correction
+  raised at the Decoral pass (`POST /process/work-orders/{id}/decoral-production/complete` with
+  `correction_quantity > 0`) routes through the RAL-style same-order reset (`_reset_to_correction_planning`,
+  `app/process/service.py:954-967`) rather than the documented DECORAL child spin-off. Reproduced in the real
+  frontend with the owner; **owner confirmed the behavior is correct** — the child/`N` model is for base-coat
+  defects found at *packing*, while a defect in the *foil* (at the Decoral pass) is a same-order correction
+  round. The docs were the gap, not the code. Updated `docs/WORKFLOW.md` (invariant #8 now stage-aware; a new
+  "DECORAL correction raised at the Decoral pass" block under Corrections Behavior; a note under the S01–S12
+  matrix that the matrix's DECORAL rows are all packing-stage) and CLAUDE.md (core-domain DECORAL bullet now
+  splits the two loci). No code change; no tests affected.
 
 - **Workflow simulation — Phase 1 (full light day, all stations, 2026-06-24)** — ran one simulated working
   day with all eight live station personas on the API-driven harness. Office brought in 3 orders (RAL 420 →

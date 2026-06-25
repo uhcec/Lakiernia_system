@@ -87,9 +87,13 @@ backend state and must not infer correction/READY/queue/quantity meaning locally
   packing leaves `IN_PROGRESS`; automatic orders merely *waiting* at packing do not hold it.
 - **Corrections use two models — do not unify without checking `docs/WORKFLOW.md`:**
   - RAL: resets the *same* order back to planning with a `CORRECTION` batch (no child order).
-  - DECORAL: spins off a child "P{root}" work order; the OK part stays on the root's single Decoral
-    pass; the parent shows the "N" (decoral-incomplete) marker until corrections return.
-  - Corrections skip `SURFACE_PREPARATION`. Reason/category is recorded at packing.
+  - DECORAL — **depends on where the defect is found** (see `docs/WORKFLOW.md` "Corrections Behavior"):
+    a defect **at packing** (base coat, before foil) spins off a child "P{root}" work order, the OK part
+    stays on the root's single Decoral pass, and the parent shows the "N" (decoral-incomplete) marker; a
+    defect **at the Decoral pass** (the foil work itself) uses the RAL-style same-order in-place reset (a
+    `CORRECTION` batch on the same order, no child, no "N" — owner-confirmed 2026-06-25).
+  - Corrections skip `SURFACE_PREPARATION`. Reason/category is recorded at packing (or at the Decoral pass
+    for a decoral-pass correction).
 - READY rules and the S01–S12 scenario matrix live in `docs/WORKFLOW.md` — consult it before touching
   completion/merge logic.
 

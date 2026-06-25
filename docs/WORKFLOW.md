@@ -21,7 +21,7 @@ Scope:
 - `counted_quantity == actual_received_quantity` for the active batch/order at packing
 - `planned_quantity - actual_received_quantity` must remain visible for audit/read models
 7. When packing creates a correction child, the correction quantity is split from the actual received quantity validated at packing, not from the original expected quantity.
-8. Correction representation depends on coating type (see Corrections Behavior): RAL resets the same order back to planning with a `CORRECTION` quantity batch; DECORAL creates a child correction work order (`is_correction=true`, `parent_order_id` set).
+8. Correction representation depends on coating type **and the stage where the defect is found** (see Corrections Behavior): RAL resets the same order back to planning with a `CORRECTION` quantity batch; a DECORAL defect found **at packing** (base-coat defect, before the foil) creates a child correction work order (`is_correction=true`, `parent_order_id` set); a DECORAL defect found **at the Decoral pass** (the foil work itself, `DECORAL_PRODUCTION`) uses the RAL-style same-order in-place reset with a `CORRECTION` batch — no child, no `N` marker.
 9. Parent waits for open corrections; merge/finalization propagates upward when descendants close.
 
 ## Work Order Intake Fields
@@ -161,6 +161,22 @@ DECORAL (a Decoral stage still follows packing):
 - `production_type = null`, `queue_position = null` (unplanned)
 The correction reason/category and profile/accessory split are stored on the child work order, and the
 parent shows the `N` (decoral-incomplete) marker until corrections return.
+
+DECORAL correction raised **at the Decoral pass** (`DECORAL_PRODUCTION`, the foil work itself — owner-confirmed 2026-06-25):
+- This is a **different locus** from the packing case above. A defect found while applying/after the
+  foil is corrected with the **RAL-style same-order in-place reset**, *not* a child order: the OK quantity
+  is added to `completed_quantity`, the active batch closes, and the **same** order resets to planning
+  (`production_type = null`, `queue_position = null`) with a new `CORRECTION` quantity batch
+  (`parent_batch_id` set) carrying the foil-rework quantity. **No child work order is created** and the
+  root does **not** show the `N` marker (`is_decoral_incomplete = false`).
+- Rationale: the child / `N` model exists to re-run the **base coat** for pieces that failed *before* the
+  foil. A defect in the foil work itself does not need a separate base-coat order — it re-circulates as a
+  normal correction round on the same order (which then re-runs the production→packing→Decoral path,
+  skipping `SURFACE_PREPARATION` like any correction).
+- Endpoint note: `POST /process/work-orders/{id}/decoral-production/complete` with `correction_quantity > 0`
+  performs this in-place reset (`_reset_to_correction_planning`, `completed_stage = DECORAL_PRODUCTION`).
+  The `SPIN_OFF_CHILD` seam (`_select_correction_kind` / `_dispatch_packing_correction`) is reserved for the
+  **packing** correction path; the tracked-batch decoral endpoint variant follows the batch it is given.
 
 Common rules:
 3. Parent/root enters a waiting state until all open correction descendants are completed.
@@ -960,6 +976,12 @@ Additional completion behavior:
 | S10 | RAL | AUTOMATIC | multi-round correction | automatic variant of S09 (rounds return via HANGING) | READY after all rounds close | order completed=Q | each round is a new CORRECTION batch on the same order; no child orders |
 | S11 | DECORAL | MANUAL | multi-round correction | dec + manual multi-round: each child closes at packing and returns OK to the root's single Decoral pass; only the root runs Decoral | READY after all descendants close and the root's Decoral pass finishes the returned pieces | root parent completed=Q | corrections are flat children of the root; parent blocked until full descendant closure |
 | S12 | DECORAL | AUTOMATIC | multi-round correction | automatic variant of S11 (children return via HANGING -> PACKING); still one Decoral pass on the root | READY after all descendants close and the root's Decoral finishes | root parent completed=Q | combines automatic child routing with the flat-child, single-root-Decoral merge |
+
+Note — every DECORAL scenario above (S03–S04, S07–S08, S11–S12) covers corrections found **after packing**
+(base-coat defects, child model). A DECORAL defect found **at the Decoral pass itself** (`DECORAL_PRODUCTION`,
+the foil work) is a distinct, owner-confirmed case **not** in the numbered matrix: it uses the RAL-style
+same-order in-place reset (a `CORRECTION` batch on the same order, no child, no `N` marker) — see
+"DECORAL correction raised at the Decoral pass" under Corrections Behavior.
 
 ## Test Alignment
 
