@@ -1,0 +1,157 @@
+# System lakierni — specyfikacja domenowa (odtworzona)
+
+**Status:** odtworzona z kodu i przejrzana punkt po punkcie z właścicielem **2026-06-26**.
+**Metoda (wg `CLAUDE.md`):** każda linijka jest oparta na kodzie (`plik:linia`) **i** potwierdzona przez
+właściciela. `✅` = potwierdzone jako zgodne z fabryką. `⚠️ ZMIANA #n` = kod tak robi dzisiaj, ale
+właściciel chce to zmienić — patrz `docs/ZMIANY.md`; **nie traktuj obecnego zachowania jako docelowego.**
+
+Ten plik opisuje **co kod robi dzisiaj**. To nowa baza prawdy, zastępująca skasowaną dokumentację.
+
+---
+
+## 1. Model danych i niezmienniki
+
+- ✅ Zlecenie ma dodatnią ilość; ilość zakończona mieści się między 0 a całkowitą. `app/work_orders/models.py:52-54`
+- ✅ Zlecenie „zaplanowane" = ma **jednocześnie** linię i pozycję w kolejce (oba ustawione albo żadne). `app/work_orders/models.py:61-64`
+- ✅ Zlecenie niekompletne po przyjeździe nie może być zaplanowane. `app/work_orders/models.py:65-68`
+- ✅ Pozycja w kolejce jest unikalna **per linia** (ręczna/automat); pozycja 1 istnieje na obu liniach niezależnie. `app/work_orders/models.py:97-105`
+- ✅ Blokada planowania (pin/pilne) może istnieć tylko na zleceniu zaplanowanym. `app/work_orders/models.py:71-74`
+- ✅ Gdy znane są ilości profili i akcesoriów, muszą sumować się do całkowitej. `app/work_orders/models.py:75-86`
+- ✅ Folię Decoral można przypisać tylko zleceniu DECORAL. `app/work_orders/models.py:87-90`
+- ✅ Zlecenie poprawkowe musi mieć rodzica i żyje w przestrzeni kolejki CORRECTIONS. `app/work_orders/models.py:91-96`
+- ✅ Zlecenie ma w danej chwili co najwyżej jedną aktywną partię. `app/process/models.py:69-75`
+- ✅ Pięć etapów (przygotowanie powierzchni, zawieszanie, produkcja, produkcja Decoral, pakowanie); trzy statusy (nie rozpoczęte, w trakcie, zakończone). `app/process/enums.py:82-97`
+- ✅ Powłoka = RAL/DECORAL; produkcja = ręczna/automat; rodzaj = standard/przemalowanka. `app/process/enums.py:47-62`, `app/shared/enums.py:69-71`
+- ✅ Przejścia etapów zapisywane są w stałym dzienniku (tylko dopisywanie; zasila statystyki). Dziś każda akcja idzie pod **wspólną tożsamością stacji** — nie ma loginu osoby; pole „kto" zostawione na przyszłość. `app/process/models.py:95-126`
+
+## 2. Przyjęcie (biuro)
+
+- ✅ Numer zlecenia = jeden **globalny licznik 4-cyfrowy** (`0001`, `0002`…), **nie** resetowany rocznie. `app/work_orders/number_allocator.py:11-39`
+- ✅ Wymagane przy tworzeniu: klient, RAL + kod farby + producent, technologia, data przyjęcia, **data odbioru**, powierzchnia (>0). `app/work_orders/schemas.py:154-177`
+- ✅ Ilość domyślnie 1. `app/work_orders/schemas.py:157`
+- ✅ Dla profili i akcesoriów podajesz **albo** ilość, **albo** „do policzenia na produkcji", nigdy oba/żadne. `app/work_orders/schemas.py:128-132`
+- ✅ Utworzenie zlecenia zapisuje **migawkę stanu farby** (kg w tej chwili). `app/work_orders/service.py:202-206`
+- ✅ Tylko biuro tworzy zlecenia / zarządza załącznikami / odznacza „kompletne"; biuro lub kierownik edytuje. `app/work_orders/service.py:637-642`, `258-262`
+- ✅ Lista biura **nie pokazuje** poprawek „P…". `app/work_orders/service.py:371-374`
+- ✅ Status zlecenia jest **wyliczany** z postępu, nigdy ustawiany ręcznie. `app/work_orders/service.py:166-174`
+- ✅ „Po terminie" = data odbioru przed dziś ORAZ zlecenie jeszcze nie gotowe. `app/work_orders/service.py:793-797`
+- ✅ „Wydane klientowi" można ustawić tylko dla gotowego zlecenia. `app/work_orders/service.py:447-457`
+- ✅ Załączniki: tylko PDF / PNG / JPG, limit rozmiaru z konfiguracji. `app/work_orders/service.py:150-154`
+
+## 3. Przepływ etapów i trasa
+
+- ✅ Trasa wynika z powłoki + linii: przygotowanie → (zawieszanie, chyba że ręczna) → produkcja → pakowanie → (Decoral, jeśli DECORAL). `app/process/service.py:88-102`
+- ✅ Ręczna nie ma zawieszania; automat nie ma produkcji (linia maluje sama). `app/process/service.py:96-98`, `1450-1454`
+- ✅ Przemalowanka pomija przygotowanie powierzchni; poprawki pomijają przygotowanie. `app/process/service.py:1467-1469`, `1461-1465`
+- ✅ Dozwolone ruchy statusu: nie rozpoczęte→w trakcie; w trakcie→{zakończone, nie rozpoczęte}; zakończone→{w trakcie, nie rozpoczęte}. `app/process/service.py:1290-1299`
+- ✅ Etap nie ruszy, dopóki poprzedni nie jest zakończony. `app/process/service.py:1301-1308`
+- ✅ Zlecenia w pełni gotowego nie da się cofnąć przez otwarcie wcześniejszego etapu — do tego służy poprawka. `app/process/service.py:1284-1288`
+- ✅ „Cofnij" cofa etap o jeden poziom; zablokowane, gdy brak aktywnych sztuk. `app/process/service.py:507-523`
+- ✅ Automat: przy starcie zawieszania pakowanie od razu wchodzi „w trakcie" — pakowanie idzie równolegle z linią. `app/process/service.py:223-233`
+- ✅ Pakowanie automatu można obrabiać gdy zawieszanie trwa, ale zakończyć dopiero gdy zawieszanie skończone i zarejestrowano farbę. `app/process/service.py:1524-1548`, `697-700`
+- ✅ Każda akcja etapu jest przypisana do swojej stacji. `app/process/service.py:1413-1427`
+- ✅ Przygotowanie powierzchni i pakowanie są **fizycznie wspólne** dla obu linii; ich kolejność wyliczana osobno (nie z pozycji kolejki) i opisana etykietą linii. `app/process/service.py:279-358`
+- ✅ Kolejność przygotowania: następna linia z **mniejszym** buforem „przygotowane-ale-niemalowane" (w sztukach); remis → automat. `app/process/shared_stage.py:49-89`
+
+## 4. Ilości i liczenie
+
+- ✅ Zakończenie przygotowania **wymaga** policzenia; >0 i ≤ aktywnej ilości. `app/process/service.py:2441-2444`, `2431-2435`
+- ✅ Policzona liczba z przygotowania staje się **„rzeczywiście przyjętą"** — pakowanie musi się z nią zgodzić. `app/process/service.py:2677-2682`
+- ✅ Policzona przy pakowaniu musi równać się rzeczywistej z przygotowania (a w rundzie poprawkowej — wielkości partii poprawkowej). `app/process/service.py:722-733`
+- ✅ Na pakowaniu: dobre + do-poprawki = policzone. `app/process/service.py:714-720`
+- ✅ Zużycie farby pokazywane na zleceniu to suma kg z całego łańcucha poprawek. `app/process/service.py:2556`
+
+## 5. Poprawki i Decoral
+
+Na zleceniu DECORAL są dwa punkty kontroli, bo dwie rzeczy mogą się zepsuć:
+
+- **Brak farby — na PAKOWANIU (przed Decoralem).** Złe sztuki stają się osobnym **dzieckiem „P…"** (które wraca **pomalować od nowa**); korzeń dostaje **znacznik „N"**; dobre sztuki korzenia **od razu idą na Decoral**. ✅ `app/process/service.py:1986-2049`
+- **Brak folii — na/po DECORALU.** **Brak dziecka** — wracają tylko złe sztuki jako **to samo zlecenie** (jak RAL, z przemalowaniem podkładu), bez numeru „P". ✅ `app/process/service.py:954-967`
+
+Szczegóły:
+- ✅ Trzy rodzaje poprawki w jednym punkcie decyzyjnym: poprawione od razu (tylko statystyka), to samo zlecenie wraca, dziecko „P". `app/process/enums.py:113-123`, `app/process/service.py:1864-1879`
+- ✅ „Poprawione od razu" zapisuje tylko statystykę — bez dziecka i partii; sztuki liczą się jako dobre, zlecenie kończy się jak jest. `app/process/service.py:1881-1909`
+- ⚠️ **ZMIANA #1** — „to samo zlecenie wraca" obecnie **kasuje też pin/pilne**; powinno je zachować. `app/process/service.py:2192-2241`
+- ✅ Numery poprawek od **korzenia**: `P{korzeń}`, potem `P{korzeń}-2`, `-3`… niezależnie od zagnieżdżenia. `app/process/service.py:2101-2123`
+- ✅ Dziecko poprawkowe dziedziczy farbę/kolor/klienta/daty/powierzchnię i jest zawsze rodzaju STANDARD. (Rodzaj nie wpływa na pominięcie przygotowania — to wynika z bycia poprawką.) `app/process/service.py:2125-2169`, `1461-1465`
+- ✅ Jest dokładnie **jeden przebieg Decoral, na korzeniu**; sztuki w pełni poprawionego dziecka wracają na Decoral korzenia, a dziecko zamyka się bez własnego Decoralu. `app/process/service.py:2001-2021`, `2093-2099`
+- ✅ Zwrócone sztuki **dorastają** do trwającej partii Decoral korzenia (przyp. 1); jeśli Decoral korzenia był już zrobiony — zakładają **nową** partię Decoral i Decoral otwiera się ponownie (przyp. 2). `app/process/service.py:2060-2091`
+  - ⚠️ **ZMIANA #2** — przyp. 2 (drugi, osobny przebieg Decoral) jest poprawny, ale ma być **wyraźnie widoczny** dla operatora.
+- ✅ Zaplanowanie poprawki z góry oznacza wszystkie etapy przed jej etapem powrotu jako zakończone (nie startuje od zera). `app/process/service.py:1852-1857`, `1438-1448`
+- ✅ Etap powrotu: automat → zawieszanie; inaczej produkcja. `app/process/service.py:1429-1436`
+- ✅ Znacznik „N" = zlecenie DECORAL z otwartymi dziećmi-poprawkami (nie zamknie się, póki nie wrócą). Gaśnie, gdy dziecko wróci. `app/process/service.py:2400-2407`
+- ✅ Powód: kategoria ≤64 znaki, notatka ≤500; wymagany gdy są złe sztuki, zabroniony gdy ich nie ma; podział profile/akcesoria musi sumować się do liczby złych. `app/process/service.py:1356-1404`
+
+## 6. Zakończenie
+
+- ✅ RAL, pakowanie bez poprawki: zlecenie zalicza dobre sztuki, partia główna się zamyka. `app/process/service.py:790-795`
+- ✅ DECORAL, pakowanie bez poprawki **nie kończy** zlecenia — sztuki idą na Decoral. `app/process/service.py:806-811`
+- ✅ Zakończenie Decoralu (bez poprawki) zalicza dobre sztuki. `app/process/service.py:980-986`
+- ✅ GOTOWE = wszystkie sztuki zaliczone (zakończone = całość) ORAZ brak aktywnych ORAZ wszystkie dzieci-poprawki gotowe. `app/process/service.py:2390-2395`
+- ✅ Domykanie idzie w górę po rodzicach — zamknięcie ostatniego dziecka domyka korzeń. `app/process/service.py:2329-2375`
+- ⚠️ **ZMIANA #10** — jeśli sztuki kiedyś „przeciekną" (zaliczone ≠ całość przy domknięciu), zlecenie jest wyrównywane do całości, a ostrzeżenie trafia **tylko do logu technicznego**; ma być **widoczne dla człowieka**. Sprawdzone na żywo 2026-06-26. `app/process/service.py:2343-2350`
+- ✅ Zakończone dziecko-poprawka jest oznaczane jako „poprawka historyczna". `app/process/service.py:2397-2398`
+- ✅ Pierwszeństwo statusu: niekompletne → gotowe → do zaplanowania → (status partii) → czeka na poprawki → pierwszy niezakończony etap. `app/process/service.py:1132-1164`
+
+## 7. Sloty pakowania i blokady zasobów
+
+- ✅ N stanowisk pakowania (konfigurowalne); **domyślnie N = 2**. `app/process/resource_locks.py:154-158`, `app/core/config.py:45`
+- ✅ Domyślnie jedno stanowisko naraz; tylko zlecenie **ręczne** otwiera 2. slot (override lub zakończenie); automat zawsze trzyma jedno stanowisko. `app/process/resource_locks.py:177-230`
+- ✅ Zlecenie automatyczne **rezerwuje slot pakowania przy starcie zawieszania** (żeby ręczne nie zablokowało niewstrzymywalnej linii). `app/process/resource_locks.py:237-247`
+- ✅ Drugie automatyczne **czeka po cichu** (bez 2. slotu). `app/process/resource_locks.py:188-216`
+- ✅ Zlecenie może zwolnić stanowisko bez kończenia (zła pozycja); nie zwolni cudzego. `app/process/service.py:607-643`
+- ✅ Zawieszanie to zasób na jedno zlecenie; linia automatyczna to zasób na jedno zlecenie (od zawieszania-zakończonego do pakowania-zakończonego). `app/process/resource_locks.py:88-103`, `321-338`
+- ✅ Kierownik widzi to jako powód blokady („Zawieszanie zajęte" / „Linia automatyczna zajęta"). `app/process/service.py:1189-1211`
+- ✅ Przeterminowane blokady są automatycznie zwalniane, gdy właściciel już nie zajmuje zasobu. `app/process/resource_locks.py:169-175`, `251-273`
+- ✅ Model zakłada jeden worker backendu. `app/process/resource_locks.py:1-20`
+
+## 8. Kolejka planowania
+
+- ✅ Tylko kierownik planuje / przegląda statystyki. `app/manager/service.py:2039-2053`
+- ✅ Planowanie wymaga zlecenia niezaplanowanego i nie niekompletnego. `app/manager/service.py:1479-1482`
+- ✅ Kierownik **wybiera linię przy planowaniu**; zaplanowanie **jako automat** jest twardo blokowane, gdy mierzony kolor jest poza magazynem / nie starcza (ręcznej się nie sprawdza). `app/manager/service.py:1487-1488`, `1426-1468`
+- ✅ Planowanie bez podanej pozycji dopisuje na **koniec aktywnej kolejki** linii. `app/manager/service.py:1489-1495`
+- ⚠️ **ZMIANA #3** — zakończone zlecenia obecnie **zostają w kolejce** jako blok na końcu (z logiką odsuwania); mają **wychodzić z kolejki i zwalniać pozycję**. `app/manager/service.py:1498-1519`, `2094-2176`
+- ✅ Pozycja „zajęta" tylko przez zlecenie nie-gotowe. `app/manager/service.py:2079-2092`
+- ✅ Zmiana linii zablokowana po starcie zawieszania/produkcji; przełączenie dopisuje na koniec i kasuje pin. `app/manager/service.py:1671`, `2182-2190`, `1695-1697`
+- ✅ Przeciąganie kolejki ma ochronę przed nieświeżymi danymi i musi obejmować wszystkie aktywne zlecenia tej linii, tylko tej linii, bez duplikatów. `app/manager/service.py:1748-1750`, `1755-1784`
+- ✅ PIN = przypnij do slotu; PILNE = na przód; brak = swobodnie przestawialne. `app/shared/enums.py:78-92`
+- ✅ „Ułóż automatycznie" tylko **proponuje**; kierownik zatwierdza. `app/manager/service.py:1983-1994`
+
+## 9. Liczby planera
+
+- ✅ Próg opłacalności: 800 m² (długi dzień) / 500 m² (krótki). `app/manager/capacity.py:33-36`
+- ✅ Zmiany: długa = 07:00–21:00 (14 h), krótka = 07:00–15:00 (8 h). `app/manager/capacity.py:32-38`
+- ✅ Pasmo prędkości kabiny 60–100 m²/h, używany środek **80**. `app/manager/capacity.py:41-43`
+- ⚠️ **ZMIANA #4** — system obecnie **doradza** długość zmiany; ma ją ustawiać **kierownik**. `app/manager/capacity.py:165-171`
+- ✅ Koszt zmiany koloru wg **wielkości**: następne ≤100 m² → 15 min; >100 m² → 30 min. `app/manager/capacity.py:45-58`
+  - ⚠️ **ZMIANA #5** — koszt zależy obecnie też od **kierunku** koloru (jasny→ciemny taniej); kierunek ma zniknąć (tylko wielkość). `app/manager/capacity.py:127-147`
+- ✅ Próg 100 m² to ten sam co próg farby/odzysku. `app/manager/capacity.py:53`
+- ✅ Horyzont planowania = **3 dni robocze** (dziś + dwa), domyślny i twardy limit. `app/manager/service.py:182-185`
+- ✅ Kalendarz: pon–pt robocze, sob/niedz wolne, brak świąt. `app/manager/placement.py:40-45`
+- ✅ Dzień 0 skracany proporcjonalnie do godzin pozostałych w zmianie. `app/manager/placement.py:205-216`
+- ✅ Układanie: najwcześniejszy termin pierwszy, w dni ograniczone pułapem netto; zlecenie większe od dnia stoi samo i jest oznaczone „przekracza pułap"; zlecenie po terminie / poza horyzontem oznaczone „nie zdąży". `app/manager/placement.py:134-287`
+- ⚠️ **ZMIANA #6** — obecnie **3** reguły układania (kolor → termin → maks. przerób); mają być **2** (termin → kolor), bez „maks. przerób". `app/manager/enums.py:4-51`
+- ⚠️ **ZMIANA #7** — „jasność" koloru jest zgadywana z kodu RAL pod zamiatanie jasny→ciemny; ma zostać **usunięta** (z ZMIANĄ #5 planowanie kolorów sprowadza się do grupowania identycznych kolorów). `app/manager/colour.py:43-102`
+- ✅ Sugestia linii: małe (≤100 m²) **i** kolor-sierota → ręczna; inaczej automat; kierownik nadpisuje. `app/manager/colour.py:214-236`
+- ✅ Wykonalność farby: BLOKADA (mierzony kolor poza/nie starcza na pierwsze), OSTRZEŻENIE (skończy się dalej, albo kolor ręczny niepewny), inaczej OK. `app/manager/paint_feasibility.py:85-98`
+  - ⚠️ **ZMIANA #8** — kolor **nieśledzony** (bez wprowadzonego stanu) jest obecnie po cichu „OK"; ma być **widocznie oznaczony** („brak wprowadzonego stanu"). `app/manager/paint_feasibility.py:120-133`
+
+## 10. Magazyn farby
+
+- ✅ Prognoza zapotrzebowania = powierzchnia ÷ 4 jeśli < 100 m², inaczej ÷ 6, zaokrąglone do pełnych kg. `app/work_orders/schemas.py:308-312`
+- ✅ Niedobór = prognoza − stan (w górę), pokazywany gdy prognoza > stan. `app/work_orders/schemas.py:315-328`
+- ✅ Zużycie automatu: tylko automat, po starcie zawieszania, wymaga kodu farby, **raz a dobrze** (bez edycji po zapisie; korekta ręczną korektą biura). `app/process/service.py:847-864`
+- ✅ Zapis zużycia zdejmuje farbę ze stanu; błąd, gdy nie starcza. `app/paints/service.py:130-153`
+- ✅ Kolor „śledzony" tylko z realną historią ruchów (nie placeholder 0 kg). `app/paints/service.py:155-159`
+- ✅ Typy ruchów: saldo otwarcia, dostawa, zużycie automatu, korekta ręczna; dostawy/korekty tylko biuro. `app/shared/enums.py:95-99`
+
+## 11. Statystyki
+
+- ✅ Przerób (m²) przypisywany do **dnia zakończenia pakowania**; poprawki **wykluczone** (ich sztuki policzono już na rodzicu — bez podwójnego liczenia). `app/manager/service.py:253-346`
+- ✅ Przebieg Decoral to **osobna, dodatkowa** seria m² w dniu jego zakończenia. `app/manager/service.py:387-421`
+- ✅ Każda statystyka produkcji cięta dwojako naraz: wg metody (ręczna/automat) i powłoki (RAL/Decoral). `app/manager/service.py:151-175`
+- ✅ „Zdarzenie poprawki" ma jedną wspólną definicję łączącą partie poprawkowe + dzieci „P" + poprawione od razu. `app/manager/repository.py:105-128`
+- ✅ Czas cyklu = najświeższy zakończony przebieg etapu; czas wiodący = pierwszy start → zakończenie pakowania. `app/manager/service.py:462-678`
+- ✅ Starzenie WIP = zlecenia aktualnie „w trakcie", liczone od ostatniego wejścia w trakcie. `app/manager/service.py:680-770`
+- ⚠️ **ZMIANA #9** — „dobry dzień" mierzony jest względem długiego dnia (800 m²/14 h), bo długość minionej zmiany nie jest zapisywana; **faktyczna długość zmiany ma być zapisywana** i używana. `app/manager/service.py:805-818`
