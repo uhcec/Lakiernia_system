@@ -1,8 +1,37 @@
 # Working method
 
-This repo's documentation was deleted on purpose. There is no domain spec yet, and there is not
-meant to be one until it has been rebuilt from scratch and confirmed by the owner. Until then, follow
-these rules without exception.
+The old docs were deleted as unreliable and the domain spec was rebuilt from the code, item by item,
+confirmed with the owner (2026-06-26). The confirmed ground truth now lives in:
+
+- `docs/SPEC.md` / `docs/SPECYFIKACJA.md` — what the system does today (each line cited `file:line` +
+  owner-confirmation marker; items the owner wants changed are flagged `⚠️ CHANGE #n`).
+- `docs/CHANGES.md` / `docs/ZMIANY.md` — the agreed change/debt list.
+- `docs/DECISIONS.md` — append-only log of *why* a domain decision was made (create it on first use).
+
+The backend is reviewed; **the frontend is not yet** — treat its behavior as unverified.
+
+## Operating mode (you own the workflow; the owner owns decisions)
+
+The owner is here for **decisions and requirements only**. You own the whole engineering workflow and
+run it without being told each step. On every task, by default:
+
+1. Read `docs/SPEC.md` for the area you touch. If domain behavior is unclear, **ask the owner before
+   coding** — never guess the factory.
+2. One change = one PR, small and self-contained. Cut root causes, not symptoms; if logic looks
+   over-complicated, ask what wrong assumption forces it and fix that.
+3. For subtle paths (corrections, Decoral, completion, queue, packing slots) write a regression test
+   that pins current behavior **before** changing it, and verify on the live backend (`scripts/sim/`).
+4. Sequence work: **delete/simplify first, then fix, then build** — never build on code slated for removal.
+5. Update `SPEC.md` in the **same PR** as the behavior change. Log the *why* in `DECISIONS.md`. Tick the
+   item off `CHANGES.md` (or add newly found debt).
+6. Think ahead and critically on the owner's behalf: flag over-engineering, dead code, doc drift, and
+   designs that will block later change — proactively, before they become a problem. Match the model's
+   sophistication to the real decision a human makes; don't add cleverness a human just overrides.
+
+Keep these as defaults so a fresh session needs no re-briefing. Surface options and a recommendation;
+let the owner decide. Do not make the owner manage the process.
+
+Follow the rules below without exception.
 
 ## Ground truth
 
