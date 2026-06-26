@@ -28,7 +28,9 @@ from app.manager.capacity import (
     PlacedOrder,
     ShiftLength,
     compute_day_capacity,
+    floor_m2,
     remaining_shift_hours,
+    shift_hours,
 )
 from app.manager.good_day import (
     DayActivity,
@@ -62,7 +64,7 @@ from app.manager.paint_feasibility import (
     build_forward_view,
     colour_series_blocked,
 )
-from app.manager.models import AutoScheduleConfig
+from app.manager.models import AutoScheduleConfig, DayShiftLength
 from app.manager.repository import ManagerRepository
 from app.manager.scheduler import (
     SchedulableOrder,
@@ -78,6 +80,7 @@ from app.manager.schemas import (
     CycleTimeSegment,
     CycleTimeStats,
     DayCapacityRead,
+    DayShiftLengthRead,
     GoodDayMetricsRead,
     GoodDayStats,
     GoodDayTotalsRead,
@@ -810,10 +813,11 @@ class ManagerService:
         booth-active hours + effective rate from that day's bracketed automatic passes (HANGING start →
         PACKING done). Pure arithmetic lives in ``app/manager/good_day.py``.
 
-        ASSUMPTION (documented): the actual shift length run on a *past* day is not persisted, so every day
-        is measured against the long-day full-shift bar (800 m² floor over 14 h). The per-change colour
-        cost is the learned estimate (N49-2) over the period's passes (seed when sparse). On-time and the
-        booth metrics are scoped to the requested line's completions.
+        Each day is measured against the shift length actually run that day (CHANGES #9): the manager's
+        persisted ``DayShiftLength`` gives the day's floor (800/500 m²) and full-shift hours (14/8); a day
+        with no persisted length falls back to LONG (the prior conservative bar). The per-change colour
+        cost is the bounded N49-6 size cost of that day's run. On-time and the booth metrics are scoped to
+        the requested line's completions.
         """
         self._ensure_stats_viewer(station_context)
         session = self.repository.session
@@ -883,6 +887,12 @@ class ManagerService:
         for observation in observations:
             passes_by_day.setdefault(observation.packing_done_at.date(), []).append(observation)
 
+        # CHANGES #9: the shift length the manager actually ran each day, defaulting to LONG when unset.
+        shift_by_day = {
+            row.day: ShiftLength(row.shift_length)
+            for row in self.repository.list_day_shift_lengths(date_from, date_to)
+        }
+
         day_metrics_core: list[GoodDayMetrics] = []
         day_metrics: list[GoodDayMetricsRead] = []
         for row in rows:
@@ -907,6 +917,7 @@ class ManagerService:
             # period figure (NA53), so we only need active_hours here, not the per-day effective rate.
             day_active_hours = measure_automatic_rate(day_passes).active_hours
 
+            day_shift = shift_by_day.get(day, ShiftLength.LONG)
             metrics = summarize_day(
                 DayActivity(
                     day=day,
@@ -916,8 +927,8 @@ class ManagerService:
                     changeover_count=changeover_count,
                     active_hours=day_active_hours,
                 ),
-                floor_m2=FLOOR_LONG_M2,
-                shift_hours=SHIFT_LONG_HOURS,
+                floor_m2=floor_m2(day_shift),
+                shift_hours=shift_hours(day_shift),
                 changeover_minutes_each=day_changeover_minutes_each,
                 ceiling_rate_m2_per_h=CEILING_BOOTH_RATE_M2_PER_H,
             )
@@ -987,6 +998,48 @@ class ManagerService:
                 rate_is_measured=period_rate.is_measured,
             ),
         )
+
+    def set_day_shift_length(
+        self,
+        day: date,
+        shift_length: ShiftLength,
+        station_context: StationContext | None = None,
+    ) -> DayShiftLengthRead:
+        """Persist the shift length the manager actually ran on ``day`` (CHANGES #9), upserting the row.
+
+        The "good day" measure reads this so the day is judged against the shift that was run, not always
+        the long-day bar. Manager-gated and audited."""
+        self._ensure_manager_station_action(station_context)
+        row = self.repository.get_day_shift_length(day)
+        if row is None:
+            row = self.repository.add_day_shift_length(
+                DayShiftLength(day=day, shift_length=shift_length.value)
+            )
+        else:
+            row.shift_length = shift_length.value
+            row.updated_at = clock.now()
+        self._record_audit_event(
+            event_type="manager.day_shift_length_set",
+            station_context=station_context,
+            work_order=None,
+            target_type="day_shift_length",
+            target_id=row.id,
+            summary=f"Set shift length for {day.isoformat()} to {shift_length.value}.",
+            details={"day": day.isoformat(), "shift_length": shift_length.value},
+        )
+        self.repository.commit()
+        return DayShiftLengthRead(day=day, shift_length=shift_length)
+
+    def get_day_shift_length(
+        self,
+        day: date,
+        station_context: StationContext | None = None,
+    ) -> DayShiftLengthRead:
+        """The persisted shift length for ``day`` (CHANGES #9), defaulting to LONG when none is set."""
+        self._ensure_stats_viewer(station_context)
+        row = self.repository.get_day_shift_length(day)
+        resolved = ShiftLength(row.shift_length) if row is not None else ShiftLength.LONG
+        return DayShiftLengthRead(day=day, shift_length=resolved)
 
     def _automatic_pass_observations(
         self,

@@ -1,9 +1,10 @@
 from collections.abc import Sequence
+from datetime import date
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
-from app.manager.models import AutoScheduleConfig
+from app.manager.models import AutoScheduleConfig, DayShiftLength
 from app.process.enums import ProductionType, QuantityBatchType
 from app.process.models import StatOnlyCorrection, WorkOrderQuantityBatch
 from app.work_orders.models import WorkOrder
@@ -165,6 +166,21 @@ class ManagerRepository:
         self.session.add(config)
         self.session.flush()
         return config
+
+    def get_day_shift_length(self, day: date) -> DayShiftLength | None:
+        return self.session.scalar(select(DayShiftLength).where(DayShiftLength.day == day))
+
+    def list_day_shift_lengths(self, date_from: date, date_to: date) -> Sequence[DayShiftLength]:
+        return self.session.scalars(
+            select(DayShiftLength).where(
+                DayShiftLength.day >= date_from, DayShiftLength.day <= date_to
+            )
+        ).all()
+
+    def add_day_shift_length(self, row: DayShiftLength) -> DayShiftLength:
+        self.session.add(row)
+        self.session.flush()
+        return row
 
     def commit(self) -> None:
         self.session.commit()

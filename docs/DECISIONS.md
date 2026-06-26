@@ -158,3 +158,24 @@ elaborate shuffle logic just to keep their positions valid while new orders were
 - `list_planned_work_orders` already filters `queue_position IS NOT NULL`, so completed orders fall out
   of the manager board and the scheduler set automatically once their position is released.
 - **MUST sim-verify** the live completion+queue path before this is considered shippable (CLAUDE.md).
+
+## 2026-06-26 — CHANGE #9: persist the actual shift length per day for "good day"
+
+**Decision:** the shift length the manager actually ran on a day is **persisted explicitly** (a new
+`day_shift_lengths` row the manager sets, owner-chosen over deriving it from booth hours). The "good
+day" measure judges each day against its persisted shift (floor 800/500 m², hours 14/8); a day with no
+stored length falls back to LONG (the prior conservative bar).
+
+**Why:** owner-confirmed 2026-06-26 (CHANGES #9). Measuring every past day against the long-day bar
+unfairly marked legitimately-short days as "bad". The owner chose to record the run shift explicitly
+(a deliberate operational fact) rather than infer it from worked hours, which can be noisy. Connects to
+CHANGE #4 (the manager already sets the planning shift length).
+
+**Implementation notes:**
+- `day_shift_lengths` (migration `20260626_0044`): one row per day, `shift_length` as the enum value.
+- `GET/PUT /manager/day-shift-length?day=…` read/record it (PUT is manager-gated + audited
+  `manager.day_shift_length_set`); GET defaults unset days to LONG.
+- `get_good_day_stats` loads the day→shift map once for the range and passes per-day floor/hours into
+  the pure `summarize_day`.
+- **Frontend (unreviewed):** needs a control for the manager to record the day's shift length; the
+  backend endpoint is ready. Until then, all days default to LONG (current behaviour preserved).

@@ -154,4 +154,4 @@ Details:
 - ✅ A "correction event" has one shared definition unioning correction batches + child "P" orders + fixed-on-the-spot. `app/manager/repository.py:105-128`
 - ✅ Cycle time = most-recent completed pass per stage; lead time = first start → packing done. `app/manager/service.py:462-678`
 - ✅ WIP aging = orders currently IN_PROGRESS, aged from the last entry into progress. `app/manager/service.py:680-770`
-- ⚠️ **CHANGE #9** — "good day" is measured against the long day (800 m²/14 h) because past shift length isn't stored; the **actual shift length should be persisted** and used. `app/manager/service.py:805-818`
+- ✅ **(CHANGE #9 done 2026-06-26)** the shift length actually run each day is **persisted** (`day_shift_lengths`, set by the manager) and the "good day" measure judges each day against it (its floor 800/500 + hours 14/8); a day with no stored length falls back to LONG. `app/manager/service.py:805-825`, `app/manager/models.py` (`DayShiftLength`)

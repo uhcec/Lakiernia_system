@@ -312,6 +312,19 @@ class GoodDayStats(BaseModel):
     totals: GoodDayTotalsRead
 
 
+class DayShiftLengthRead(BaseModel):
+    """The shift length run on a given day (CHANGES #9) — read side; defaults to LONG when unset."""
+
+    day: date
+    shift_length: ShiftLength
+
+
+class DayShiftLengthUpdate(BaseModel):
+    """The manager records the shift length actually run on a day (CHANGES #9)."""
+
+    shift_length: ShiftLength
+
+
 class DayCapacityRead(BaseModel):
     """One working day as a capacity bucket — floor + ceiling + how the line's planned work fills it.
 

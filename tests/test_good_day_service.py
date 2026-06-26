@@ -11,7 +11,7 @@ import pytest
 from sqlalchemy.orm import Session
 
 from app.audit.context import StationContext
-from app.manager.capacity import FLOOR_LONG_M2
+from app.manager.capacity import FLOOR_LONG_M2, FLOOR_SHORT_M2, ShiftLength
 from app.manager.measurement import SEED_AUTOMATIC_RATE_M2_PER_H
 from app.manager.repository import ManagerRepository
 from app.manager.service import ManagerService
@@ -166,6 +166,41 @@ def test_period_booth_rate_falls_back_to_seed_when_sparse(db_session: Session) -
 
     assert stats.totals.rate_is_measured is False
     assert stats.totals.rate_m2_per_h == SEED_AUTOMATIC_RATE_M2_PER_H
+
+
+def test_good_day_measures_against_persisted_shift_length_NA_CHANGES9(db_session: Session) -> None:
+    work_order_service, manager_service = _build(db_session)
+    t0 = datetime(2026, 6, 11, 7, 0, tzinfo=UTC)
+    order = _create(work_order_service, "A1", m2=600.0)  # 600 m² packed that day
+    _complete_pass(db_session, order.id, hang_at=t0, pack_at=t0 + timedelta(hours=1))
+
+    # No persisted shift length → measured against the LONG bar (800 m²) → below floor.
+    default_stats = manager_service.get_good_day_stats(
+        date(2026, 6, 11), date(2026, 6, 11), station_context=MANAGER
+    )
+    assert default_stats.days[0].floor_m2 == FLOOR_LONG_M2
+    assert default_stats.days[0].met_floor is False
+
+    # The manager records that 06-11 was actually a SHORT day → measured against 500 m² → now a good day.
+    manager_service.set_day_shift_length(date(2026, 6, 11), ShiftLength.SHORT, station_context=MANAGER)
+    short_stats = manager_service.get_good_day_stats(
+        date(2026, 6, 11), date(2026, 6, 11), station_context=MANAGER
+    )
+    assert short_stats.days[0].floor_m2 == FLOOR_SHORT_M2
+    assert short_stats.days[0].met_floor is True
+
+
+def test_set_day_shift_length_upserts_and_is_manager_gated(db_session: Session) -> None:
+    _, manager_service = _build(db_session)
+    manager_service.set_day_shift_length(date(2026, 6, 11), ShiftLength.SHORT, station_context=MANAGER)
+    assert manager_service.get_day_shift_length(date(2026, 6, 11), station_context=MANAGER).shift_length is ShiftLength.SHORT
+    # Upsert: setting it again overwrites in place.
+    manager_service.set_day_shift_length(date(2026, 6, 11), ShiftLength.LONG, station_context=MANAGER)
+    assert manager_service.get_day_shift_length(date(2026, 6, 11), station_context=MANAGER).shift_length is ShiftLength.LONG
+    # Unset day defaults to LONG.
+    assert manager_service.get_day_shift_length(date(2026, 7, 1), station_context=MANAGER).shift_length is ShiftLength.LONG
+    with pytest.raises(StationActionForbiddenError):
+        manager_service.set_day_shift_length(date(2026, 6, 11), ShiftLength.SHORT, station_context=PACKING_STATION)
 
 
 def test_good_day_stats_requires_manager(db_session: Session) -> None:

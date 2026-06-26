@@ -13,7 +13,7 @@ teraz (`plik:linia`), czego chce właściciel i dlaczego. Potwierdzone zachowani
 | 6 | zmiana | Dwie reguły układania (termin → kolor) ✅ |
 | 7 | zmiana | Wywalić zgadywanie jasności z kodu RAL ✅ |
 | 8 | zmiana | Oznaczać kolory nieśledzone zamiast cichego OK ✅ |
-| 9 | zmiana | Zapisywać faktyczną długość zmiany dla „dobrego dnia" |
+| 9 | zmiana | Zapisywać faktyczną długość zmiany dla „dobrego dnia" ✅ |
 | 10 | zmiana | Uwidocznić czujkę przecieku ilości ✅ |
 
 ---
@@ -59,9 +59,10 @@ teraz (`plik:linia`), czego chce właściciel i dlaczego. Potwierdzone zachowani
 - **Cel:** pokazać go jako osobny widoczny stan („brak wprowadzonego stanu — wprowadź") zamiast cichego OK. (Nie da się twardo blokować na nieznanym — ale nie ma być niewidoczne.)
 - **Zrobione:** dodano `PaintFeasibilityStatus.STOCK_NOT_ENTERED`. Zlecenie z kolorem bez wiersza stanu lub tylko z placeholderem 0 kg dostaje ten status (lista `stock_not_entered_order_ids`); nigdy nie jest twardo blokowane. Zlecenie bez koloru zostaje OK. `app/manager/paint_feasibility.py`, `app/manager/schemas.py`, `app/manager/service.py`.
 
-### #9 — Zapisywać faktyczną długość zmiany dla „dobrego dnia"  *(zmiana)*
+### #9 — Zapisywać faktyczną długość zmiany dla „dobrego dnia"  *(zmiana)* — ✅ ZROBIONE 2026-06-26
 - **Teraz:** każdy miniony dzień mierzony względem długiego dnia (800 m²/14 h), bo faktyczna długość zmiany tego dnia nie jest zapisywana. `app/manager/service.py:805-818`
 - **Cel:** zapisywać faktyczną długość zmiany per dzień i mierzyć „dobry dzień" względem niej. (Łączy się z #4.)
+- **Zrobione:** nowa tabela + model `day_shift_lengths` (migracja `20260626_0044`); endpointy `GET/PUT /manager/day-shift-length?day=…` do odczytu/zapisu długości zmiany dnia (audytowane). `get_good_day_stats` mierzy każdy dzień względem zapisanej zmiany (próg 800/500, godziny 14/8), domyślnie LONG gdy brak. `app/manager/models.py`, `app/manager/repository.py`, `app/manager/service.py`, `app/manager/router.py`, `app/manager/schemas.py`.
 
 ### #10 — Uwidocznić czujkę przecieku ilości  *(zmiana)* — ✅ ZROBIONE 2026-06-26
 - **Teraz:** przy domykaniu, gdy zaliczone sztuki ≠ całość, zlecenie jest wyrównywane do całości, a ostrzeżenie trafia **tylko do logu technicznego serwera**; żaden człowiek go nie widzi. Sprawdzone na żywo 2026-06-26: przeciek 7/10 domknął się po cichu do 10/10, tylko z wpisem w logu. `app/process/service.py:2343-2350`

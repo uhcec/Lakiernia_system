@@ -154,4 +154,4 @@ Szczegóły:
 - ✅ „Zdarzenie poprawki" ma jedną wspólną definicję łączącą partie poprawkowe + dzieci „P" + poprawione od razu. `app/manager/repository.py:105-128`
 - ✅ Czas cyklu = najświeższy zakończony przebieg etapu; czas wiodący = pierwszy start → zakończenie pakowania. `app/manager/service.py:462-678`
 - ✅ Starzenie WIP = zlecenia aktualnie „w trakcie", liczone od ostatniego wejścia w trakcie. `app/manager/service.py:680-770`
-- ⚠️ **ZMIANA #9** — „dobry dzień" mierzony jest względem długiego dnia (800 m²/14 h), bo długość minionej zmiany nie jest zapisywana; **faktyczna długość zmiany ma być zapisywana** i używana. `app/manager/service.py:805-818`
+- ✅ **(ZMIANA #9 zrobiona 2026-06-26)** faktyczna długość zmiany danego dnia jest **zapisywana** (`day_shift_lengths`, ustawia kierownik), a „dobry dzień" mierzy każdy dzień względem niej (jego próg 800/500 + godziny 14/8); dzień bez zapisu domyślnie LONG. `app/manager/service.py:805-825`, `app/manager/models.py` (`DayShiftLength`)

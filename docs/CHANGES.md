@@ -13,7 +13,7 @@ code does now (`file:line`), what the owner wants, and why. See `docs/SPEC.md` f
 | 6 | change | Two scheduling rules (deadline → colour) ✅ |
 | 7 | change | Drop RAL-lightness guessing ✅ |
 | 8 | change | Flag untracked colours instead of silent OK ✅ |
-| 9 | change | Persist the actual shift length for "good day" |
+| 9 | change | Persist the actual shift length for "good day" ✅ |
 | 10 | change | Make the quantity-leak tripwire human-visible ✅ |
 
 ---
@@ -60,9 +60,10 @@ code does now (`file:line`), what the owner wants, and why. See `docs/SPEC.md` f
 - **Want:** surface it as a distinct visible state ("stock not entered — enter it") rather than silent OK. (Can't hard-block on unknown — but should not be invisible.)
 - **Done:** added `PaintFeasibilityStatus.STOCK_NOT_ENTERED`. A coloured order with no stock row, or only the untracked 0-kg placeholder, now gets that status (collected in `PaintForwardView.stock_not_entered_order_ids` / `PaintForwardViewRead`); it is never hard-blocked. A truly colourless order stays OK. `app/manager/paint_feasibility.py`, `app/manager/schemas.py`, `app/manager/service.py`.
 
-### #9 — Persist the actual shift length for "good day"  *(change)*
+### #9 — Persist the actual shift length for "good day"  *(change)* — ✅ DONE 2026-06-26
 - **Now:** every past day is measured against the long-day bar (800 m² / 14 h) because the actual shift length run that day isn't stored. `app/manager/service.py:805-818`
 - **Want:** persist the actual shift length per day and measure "good day" against it. (Connects to #4.)
+- **Done:** new `day_shift_lengths` table + model (migration `20260626_0044`); manager endpoints `GET/PUT /manager/day-shift-length?day=…` to read/record the day's shift length (audited). `get_good_day_stats` now measures each day against its persisted shift (floor 800/500, hours 14/8), defaulting to LONG when unset. `app/manager/models.py`, `app/manager/repository.py`, `app/manager/service.py`, `app/manager/router.py`, `app/manager/schemas.py`.
 
 ### #10 — Make the quantity-leak tripwire human-visible  *(change)* — ✅ DONE 2026-06-26
 - **Now:** at finalization, if credited pieces ≠ total, the order is forced to total and a warning is written **only to the technical server log**; no human sees it. Verified live 2026-06-26: a 7/10 leak was silently completed to 10/10 with only a log warning. `app/process/service.py:2343-2350`

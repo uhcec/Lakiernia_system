@@ -16,6 +16,8 @@ from app.manager.schemas import (
     CorrectionReasonReportItem,
     CycleTimeStats,
     DayCapacityRead,
+    DayShiftLengthRead,
+    DayShiftLengthUpdate,
     GoodDayStats,
     LineMeasurementStats,
     MultiDayPlanRead,
@@ -113,6 +115,25 @@ def get_good_day_stats(
     return service.get_good_day_stats(
         date_from, date_to, production_type, station_context=station_context
     )
+
+
+@router.get("/day-shift-length", response_model=DayShiftLengthRead)
+def get_day_shift_length(
+    day: Annotated[date, Query()],
+    station_context: Annotated[StationContext, Depends(get_station_context)],
+    service: Annotated[ManagerService, Depends(get_manager_service)] = ...,
+) -> DayShiftLengthRead:
+    return service.get_day_shift_length(day, station_context=station_context)
+
+
+@router.put("/day-shift-length", response_model=DayShiftLengthRead)
+def set_day_shift_length(
+    payload: DayShiftLengthUpdate,
+    station_context: Annotated[StationContext, Depends(get_station_context)],
+    day: Annotated[date, Query()] = ...,
+    service: Annotated[ManagerService, Depends(get_manager_service)] = ...,
+) -> DayShiftLengthRead:
+    return service.set_day_shift_length(day, payload.shift_length, station_context=station_context)
 
 
 @router.get("/planner/day-capacity", response_model=DayCapacityRead)
