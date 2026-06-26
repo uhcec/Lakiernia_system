@@ -1481,17 +1481,6 @@ class ManagerService:
                 target_position = self._next_active_queue_position_for_line(production_type)
 
             now = clock.now()
-            completed_work_orders_to_trail = self._get_completed_work_orders_requiring_trailing(
-                production_type=production_type,
-                reserved_queue_positions=[target_position],
-            )
-            self._temporarily_move_queue_rows_out_of_the_way(
-                completed_work_orders_to_trail,
-                production_type=production_type,
-                reserved_queue_positions=[target_position],
-                now=now,
-            )
-
             work_order.production_type = production_type
             work_order.queue_position = target_position
             work_order.updated_at = now
@@ -1506,9 +1495,6 @@ class ManagerService:
             self.process_service.reconcile_stage_states_to_route(work_order)
             self.process_service.prepare_correction_work_order_for_planning(work_order)
             self.repository.session.flush()
-            self._trail_completed_work_orders(
-                completed_work_orders_to_trail, production_type=production_type, now=now
-            )
             self._record_audit_event(
                 event_type="manager.plan_assigned",
                 station_context=station_context,
@@ -1556,25 +1542,10 @@ class ManagerService:
             )
 
             now = clock.now()
-            completed_work_orders_to_trail = self._get_completed_work_orders_requiring_trailing(
-                production_type=production_type,
-                reserved_queue_positions=[payload.queue_position],
-                exclude_work_order_id=work_order_id,
-            )
-            self._temporarily_move_queue_rows_out_of_the_way(
-                completed_work_orders_to_trail,
-                production_type=production_type,
-                reserved_queue_positions=[payload.queue_position],
-                now=now,
-            )
-
             previous_queue_position = work_order.queue_position
             work_order.queue_position = payload.queue_position
             work_order.updated_at = now
             self.repository.session.flush()
-            self._trail_completed_work_orders(
-                completed_work_orders_to_trail, production_type=production_type, now=now
-            )
             self._record_audit_event(
                 event_type="manager.queue_position_updated",
                 station_context=station_context,
@@ -1671,17 +1642,6 @@ class ManagerService:
             # unique index. The order still sits on the source line at this point.
             target_position = self._next_active_queue_position_for_line(target_production_type)
             now = clock.now()
-            completed_work_orders_to_trail = self._get_completed_work_orders_requiring_trailing(
-                production_type=target_production_type,
-                reserved_queue_positions=[target_position],
-            )
-            self._temporarily_move_queue_rows_out_of_the_way(
-                completed_work_orders_to_trail,
-                production_type=target_production_type,
-                reserved_queue_positions=[target_position],
-                now=now,
-            )
-
             work_order.production_type = target_production_type
             work_order.queue_position = target_position
             # A pin/urgent lock is a slot on the source line; moving lines re-appends at the end, so the
@@ -1693,9 +1653,6 @@ class ManagerService:
             self.process_service.reconcile_stage_states_to_route(work_order)
             self.process_service.prepare_correction_work_order_for_planning(work_order)
             self.repository.session.flush()
-            self._trail_completed_work_orders(
-                completed_work_orders_to_trail, production_type=target_production_type, now=now
-            )
             self._record_audit_event(
                 event_type="manager.production_type_changed",
                 station_context=station_context,
@@ -2080,94 +2037,6 @@ class ManagerService:
         )
         if existing_work_order is not None and self.process_service.get_display_status(existing_work_order) != ProcessDisplayStatus.READY:
             raise InvalidManagerPlanningError(f"Queue position {queue_position} is already taken.")
-
-    def _get_completed_work_orders_requiring_trailing(
-        self,
-        *,
-        production_type: ProductionType,
-        reserved_queue_positions: list[int],
-        exclude_work_order_id: int | None = None,
-    ) -> list[WorkOrder]:
-        planned_work_orders = self._planned_work_orders_for_line(production_type)
-        completed_work_orders = [
-            work_order
-            for work_order in planned_work_orders
-            if work_order.id != exclude_work_order_id
-            and self.process_service.get_display_status(work_order) == ProcessDisplayStatus.READY
-        ]
-        if not completed_work_orders:
-            return []
-
-        active_queue_positions = [
-            work_order.queue_position or 0
-            for work_order in planned_work_orders
-            if work_order.id != exclude_work_order_id
-            and self.process_service.get_display_status(work_order) != ProcessDisplayStatus.READY
-        ]
-        next_completed_position = max(active_queue_positions + reserved_queue_positions, default=0) + 1
-
-        ordered_completed_work_orders = self._sort_queue_rows(completed_work_orders)
-        for work_order in ordered_completed_work_orders:
-            if work_order.queue_position != next_completed_position:
-                return ordered_completed_work_orders
-            next_completed_position += 1
-
-        return []
-
-    def _temporarily_move_queue_rows_out_of_the_way(
-        self,
-        work_orders: list[WorkOrder],
-        *,
-        production_type: ProductionType,
-        reserved_queue_positions: list[int],
-        now: datetime,
-    ) -> None:
-        if not work_orders:
-            return
-
-        planned_work_orders = self._planned_work_orders_for_line(production_type)
-        # Park the rows STRICTLY ABOVE every final trailed position (NA60). Trailing only happens when a
-        # completed order sits at/after the incoming order's slot, so the highest occupied position
-        # belongs to a completed row and the final block is bounded by ``max(all) + len``. Offsetting the
-        # temporary base by ``len(work_orders)`` guarantees the temp range and the final range are
-        # disjoint, so the flush (which applies UPDATEs in primary-key order, not the safe move order)
-        # can never transiently collide on the ``(production_type, queue_position)`` unique index.
-        temporary_queue_position = max(
-            [work_order.queue_position or 0 for work_order in planned_work_orders] + reserved_queue_positions,
-            default=0,
-        ) + len(work_orders) + 1
-        for work_order in work_orders:
-            work_order.queue_position = temporary_queue_position
-            work_order.updated_at = now
-            temporary_queue_position += 1
-
-        self.repository.session.flush()
-
-    def _trail_completed_work_orders(
-        self,
-        work_orders: list[WorkOrder],
-        *,
-        production_type: ProductionType,
-        now: datetime,
-    ) -> None:
-        if not work_orders:
-            return
-
-        planned_work_orders = self._planned_work_orders_for_line(production_type)
-        active_queue_positions = [
-            work_order.queue_position or 0
-            for work_order in planned_work_orders
-            if self.process_service.get_display_status(work_order) != ProcessDisplayStatus.READY
-        ]
-        next_completed_position = max(active_queue_positions, default=0) + 1
-        for work_order in self._sort_queue_rows(work_orders):
-            work_order.queue_position = next_completed_position
-            work_order.updated_at = now
-            next_completed_position += 1
-
-    @staticmethod
-    def _sort_queue_rows(work_orders: list[WorkOrder]) -> list[WorkOrder]:
-        return sorted(work_orders, key=lambda work_order: (work_order.queue_position or 0, work_order.id))
 
     @staticmethod
     def _ensure_production_not_started(work_order: WorkOrder) -> None:

@@ -7,7 +7,7 @@ teraz (`plik:linia`), czego chce właściciel i dlaczego. Potwierdzone zachowani
 |---|-----|-------|
 | 1 | bug | Poprawka nie może gubić pin/pilne ✅ |
 | 2 | UX | Uwidocznić drugi, osobny przebieg Decoral |
-| 3 | zmiana | Gotowe zlecenia wychodzą z kolejki (zwalniają pozycję) |
+| 3 | zmiana | Gotowe zlecenia wychodzą z kolejki (zwalniają pozycję) ✅ |
 | 4 | zmiana | Kierownik ustala długość zmiany (bez doradzania) ✅ |
 | 5 | zmiana | Koszt zmiany koloru tylko wg wielkości (bez kierunku) ✅ |
 | 6 | zmiana | Dwie reguły układania (termin → kolor) ✅ |
@@ -28,10 +28,11 @@ teraz (`plik:linia`), czego chce właściciel i dlaczego. Potwierdzone zachowani
 - **Teraz:** gdy poprawione sztuki wracają po już zrobionym Decoralu korzenia, zakładają świeżą partię Decoral — poprawny, ale łatwy do przeoczenia „drugi przebieg". `app/process/service.py:2060-2091`
 - **Cel:** pokazać operatorowi jasno, że to osobny, drugi przebieg Decoral na dosłanych sztukach. Logika zostaje; to kwestia prezentacji.
 
-### #3 — Gotowe zlecenia wychodzą z kolejki  *(zmiana)*
+### #3 — Gotowe zlecenia wychodzą z kolejki  *(zmiana)* — ✅ ZROBIONE 2026-06-26
 - **Teraz:** zakończone (gotowe) zlecenie trzyma linię + pozycję i zostaje w kolejce jako blok na końcu; rozbudowana logika „odsuwania" tym zarządza. `app/manager/service.py:1498-1519`, `2094-2176`
 - **Cel:** po zakończeniu zlecenie **opuszcza aktywną kolejkę linii i zwalnia pozycję**. Wtedy cała mechanika odsuwania jest zbędna.
 - **Przed wdrożeniem:** sprawdzić, co polega na tym, że gotowe zostają w kolejce (tablica kierownika, statystyki).
+- **Zrobione:** poluzowano inwariant do „pozycja wymaga linii" (linia może istnieć bez pozycji) — migracja `20260626_0043`. Przy finalizacji zlecenie zwalnia pozycję + zamek planowania, ale zachowuje linię (statystyki cięte po linii dalej działają); zakończone korekty-dzieci też zwalniają pozycje. Usunięto całą maszynerię odsuwania (`_get_completed_work_orders_requiring_trailing`, `_temporarily_move_queue_rows_out_of_the_way`, `_trail_completed_work_orders`, `_sort_queue_rows`) i jej 3 wywołania. **Decyzja właściciela** (2026-06-26): gotowe znikają też z widoków stanowisk operatora. `app/process/service.py`, `app/manager/service.py`, `app/work_orders/models.py`.
 
 ### #4 — Kierownik ustala długość zmiany  *(zmiana)* — ✅ ZROBIONE 2026-06-26
 - **Teraz:** gdy długość zmiany jest pominięta, system doradza długą/krótką wg dostępnej gotowej roboty. `app/manager/capacity.py:165-171`

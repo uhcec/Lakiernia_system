@@ -669,14 +669,17 @@ def test_completed_decoral_correction_preserves_correction_quantity_context_in_m
         json={"ok_quantity": 3, "correction_quantity": 0},
     )
 
+    # CHANGES #3: both the completed root and its completed correction child have LEFT the manager's
+    # active planning queue (released their positions), so neither appears in /manager/work-orders.
     planned_response = test_client.get("/manager/work-orders")
-
     assert planned_response.status_code == 200
-    completed_orders = {
-        item["id"]: item for item in planned_response.json() if item["process_status"]["value"] == "READY"
-    }
-    parent_item = completed_orders[created["id"]]
-    correction_item = completed_orders[correction_order["id"]]
+    planned_ids = {item["id"] for item in planned_response.json()}
+    assert created["id"] not in planned_ids
+    assert correction_order["id"] not in planned_ids
+
+    # The correction-quantity context is still preserved on the orders themselves (read via detail).
+    parent_item = test_client.get(f"/work-orders/{created['id']}").json()
+    correction_item = test_client.get(f"/work-orders/{correction_order['id']}").json()
 
     assert correction_item["total_quantity"] == 3
     assert correction_item["completed_quantity"] == 3
@@ -878,7 +881,9 @@ def test_cannot_plan_order_into_occupied_queue_position(test_client: TestClient)
     assert other_line_response.json()["queue_position"] == 4
 
 
-def test_assign_plan_reuses_completed_queue_position_and_trails_completed_order(test_client: TestClient) -> None:
+def test_completed_order_releases_its_queue_position_for_reuse(test_client: TestClient) -> None:
+    # CHANGES #3: completing an order releases its queue position (it leaves the active queue), so a new
+    # order can take that freed slot directly — no trailing/shuffle of completed rows.
     completed = create_work_order(test_client, "Completed queue slot")
     active = create_work_order(test_client, "Active queue slot")
     incoming = create_work_order(test_client, "Incoming queue slot")
@@ -904,11 +909,12 @@ def test_assign_plan_reuses_completed_queue_position_and_trails_completed_order(
     planned_by_id = {item["id"]: item for item in planned_response.json()}
     assert planned_by_id[incoming["id"]]["queue_position"] == 1
     assert planned_by_id[active["id"]]["queue_position"] == 2
-    assert planned_by_id[completed["id"]]["queue_position"] == 3
-    assert planned_by_id[completed["id"]]["process_status"] == {"value": "READY", "label": "Gotowe"}
+    # The completed order has left the active queue entirely.
+    assert completed["id"] not in planned_by_id
+    assert test_client.get(f"/work-orders/{completed['id']}").json()["queue_position"] is None
 
 
-def test_assign_plan_after_completed_only_queue_trails_completed_beyond_requested_position(test_client: TestClient) -> None:
+def test_plan_onto_line_with_only_a_completed_order_takes_requested_position(test_client: TestClient) -> None:
     completed = create_work_order(test_client, "Completed only queue slot")
     incoming = create_work_order(test_client, "Incoming after completed only")
 
@@ -928,18 +934,13 @@ def test_assign_plan_after_completed_only_queue_trails_completed_beyond_requeste
     assert planned_response.status_code == 200
     planned_by_id = {item["id"]: item for item in planned_response.json()}
     assert planned_by_id[incoming["id"]]["queue_position"] == 2
-    assert planned_by_id[completed["id"]]["queue_position"] == 3
-    assert planned_by_id[completed["id"]]["process_status"] == {"value": "READY", "label": "Gotowe"}
+    assert completed["id"] not in planned_by_id  # left the queue on completion
 
 
-def test_assign_plan_appends_onto_line_with_several_completed_orders_without_500(test_client: TestClient) -> None:
-    """NA60: appending onto a line where several completed (READY) orders occupy positions must not 500.
-
-    The trailing shuffle parked the completed rows at temporary positions whose range overlapped the
-    final trailed range; because the flush applies UPDATEs in primary-key order (not the safe move
-    order), the overlap transiently violated the ``(production_type, queue_position)`` unique index and
-    surfaced as an unhandled HTTP 500. Here the completed orders are planned in REVERSE position order
-    relative to their primary keys, so the flush order is not the safe order — the exact trigger.
+def test_append_onto_line_with_several_completed_orders_NA60(test_client: TestClient) -> None:
+    """CHANGES #3 (supersedes the NA60 trailing fix): completed orders release their positions on
+    completion, so appending onto a line that previously held several completed orders is trivial —
+    there is no trailing shuffle left to collide on the per-line unique index.
     """
     active = create_work_order(test_client, "Active head")
     completed = [create_work_order(test_client, f"Completed {i}") for i in range(4)]
@@ -947,8 +948,6 @@ def test_assign_plan_appends_onto_line_with_several_completed_orders_without_500
     test_client.post(
         f"/manager/work-orders/{active['id']}/plan", json={"production_type": "MANUAL", "queue_position": 1}
     )
-    # Primary-key-ascending completed[0..3] take queue positions 5,4,3,2 — PK order is the reverse of
-    # position order, so a position-naive flush ordering collides.
     for work_order, position in zip(completed, [5, 4, 3, 2]):
         test_client.post(
             f"/manager/work-orders/{work_order['id']}/plan",
@@ -964,12 +963,12 @@ def test_assign_plan_appends_onto_line_with_several_completed_orders_without_500
     assert response.status_code == 200, response.text
     planned_by_id = {item["id"]: item for item in test_client.get("/manager/work-orders").json()}
     assert planned_by_id[active["id"]]["queue_position"] == 1
+    # Only the active head remains in the queue; the incoming order appends right after it at 2.
     assert planned_by_id[incoming["id"]]["queue_position"] == 2
-    # The four completed orders trail past the appended order, into a clean contiguous block.
-    assert sorted(planned_by_id[w["id"]]["queue_position"] for w in completed) == [3, 4, 5, 6]
+    assert all(w["id"] not in planned_by_id for w in completed)
 
 
-def test_update_queue_position_reuses_completed_queue_position_and_trails_completed_order(test_client: TestClient) -> None:
+def test_update_queue_position_into_slot_freed_by_a_completed_order(test_client: TestClient) -> None:
     completed = create_work_order(test_client, "Completed queue patch slot")
     active = create_work_order(test_client, "Active queue patch slot")
 
@@ -990,11 +989,10 @@ def test_update_queue_position_reuses_completed_queue_position_and_trails_comple
     assert planned_response.status_code == 200
     planned_by_id = {item["id"]: item for item in planned_response.json()}
     assert planned_by_id[active["id"]]["queue_position"] == 1
-    assert planned_by_id[completed["id"]]["queue_position"] == 2
-    assert planned_by_id[completed["id"]]["process_status"] == {"value": "READY", "label": "Gotowe"}
+    assert completed["id"] not in planned_by_id  # left the queue on completion
 
 
-def test_cannot_directly_move_completed_order_in_active_queue(test_client: TestClient) -> None:
+def test_cannot_move_a_completed_order_that_left_the_queue(test_client: TestClient) -> None:
     completed = create_work_order(test_client, "Completed direct queue patch")
 
     test_client.post(
@@ -1003,10 +1001,12 @@ def test_cannot_directly_move_completed_order_in_active_queue(test_client: TestC
     )
     complete_manual_ral_order(test_client, completed["id"])
 
+    # CHANGES #3: the completed order is no longer planned (it released its position), so it can't be
+    # moved in the active queue.
     response = test_client.patch(f"/manager/work-orders/{completed['id']}/queue-position", json={"queue_position": 2})
 
     assert response.status_code == 409
-    assert response.json()["detail"] == "Completed work orders cannot be moved in the active queue."
+    assert "must be planned" in response.json()["detail"]
 
 
 def test_update_queue_position_for_planned_order(test_client: TestClient) -> None:
@@ -1480,10 +1480,10 @@ def test_reorder_rejects_work_order_from_another_line(test_client: TestClient) -
     assert "production line" in response.json()["detail"]
 
 
-def test_change_production_type_trails_completed_order_on_target_line(test_client: TestClient) -> None:
-    # Target MANUAL line holds an active order at position 1 and a COMPLETED order parked at
-    # position 2 (the append slot). Moving an AUTOMATIC order onto MANUAL must trail the completed
-    # order out of the way instead of colliding with it on the per-line unique index.
+def test_change_production_type_onto_line_with_a_completed_order(test_client: TestClient) -> None:
+    # CHANGES #3: the target MANUAL line had a completed order that already left the queue (no position),
+    # so moving an AUTOMATIC order onto MANUAL just appends after the one remaining active order — there
+    # is no completed row left to collide with or trail.
     manual_active = create_work_order(test_client, "Manual active blocker")
     manual_completed = create_work_order(test_client, "Manual completed blocker")
     automatic_order = create_work_order(test_client, "Automatic to reslot")
@@ -1509,11 +1509,9 @@ def test_change_production_type_trails_completed_order_on_target_line(test_clien
 
     assert response.status_code == 200
     assert response.json()["production_type"]["value"] == "MANUAL"
-    # The moved order lands at the end of the active queue (position 2); the completed order is
-    # pushed to position 3.
+    # The moved order lands at the end of the active queue (position 2, after the active head).
     assert response.json()["queue_position"] == 2
     planned_by_id = {item["id"]: item for item in test_client.get("/manager/work-orders").json()}
     assert planned_by_id[manual_active["id"]]["queue_position"] == 1
     assert planned_by_id[automatic_order["id"]]["queue_position"] == 2
-    assert planned_by_id[manual_completed["id"]]["queue_position"] == 3
-    assert planned_by_id[manual_completed["id"]]["process_status"] == {"value": "READY", "label": "Gotowe"}
+    assert manual_completed["id"] not in planned_by_id  # left the queue on completion

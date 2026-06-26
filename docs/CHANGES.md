@@ -7,7 +7,7 @@ code does now (`file:line`), what the owner wants, and why. See `docs/SPEC.md` f
 |---|------|-------|
 | 1 | bug | A correction must not lose its pin/urgent lock ✅ |
 | 2 | UX | Make the second, separate Decoral pass visible |
-| 3 | change | Completed orders leave the queue (release their position) |
+| 3 | change | Completed orders leave the queue (release their position) ✅ |
 | 4 | change | Manager sets the shift length (drop auto-advising) ✅ |
 | 5 | change | Colour-change cost by size only (drop direction) ✅ |
 | 6 | change | Two scheduling rules (deadline → colour) ✅ |
@@ -28,10 +28,11 @@ code does now (`file:line`), what the owner wants, and why. See `docs/SPEC.md` f
 - **Now:** when corrected pieces return after the root's Decoral was already done, they start a fresh Decoral batch — a correct but easy-to-miss "second pass". `app/process/service.py:2060-2091`
 - **Want:** show the operator clearly that this is a separate, second Decoral pass on the returned pieces. Backend logic stays; this is presentation.
 
-### #3 — Completed orders leave the queue  *(change)*
+### #3 — Completed orders leave the queue  *(change)* — ✅ DONE 2026-06-26
 - **Now:** a completed (READY) order keeps its line + queue position and stays in the queue as a trailing block; elaborate "trailing/shuffle" logic manages it. `app/manager/service.py:1498-1519`, `2094-2176`
 - **Want:** on completion the order **leaves the line's active queue and releases its position**. This makes the trailing/shuffle machinery unnecessary.
 - **Before implementing:** check what relies on completed orders staying planned (e.g. the manager board, any statistics).
+- **Done:** loosened the planned invariant to "queue_position requires production_type" (a line may exist without a position) — migration `20260626_0043`. On finalize, an order releases its queue position + planning lock but keeps its line (so throughput stats split by line still work); completed correction children release their slots too. Deleted the whole trailing/shuffle machinery (`_get_completed_work_orders_requiring_trailing`, `_temporarily_move_queue_rows_out_of_the_way`, `_trail_completed_work_orders`, `_sort_queue_rows`) and its three call sites. **Owner-decided** (2026-06-26): completed orders also drop off the operator station views (they're done; stations work the active queue). `app/process/service.py`, `app/manager/service.py`, `app/work_orders/models.py`.
 
 ### #4 — Manager sets the shift length  *(change)* — ✅ DONE 2026-06-26
 - **Now:** when shift length is omitted the system advises long/short from available ready m². `app/manager/capacity.py:165-171`

@@ -68,9 +68,10 @@ def _packed_pass(
     """A completed automatic pass: PACKING DONE + the HANGING→PACKING bracket the engine reads from."""
     work_order = db_session.get(WorkOrder, work_order_id)
     work_order.production_type = ProductionType.AUTOMATIC
-    work_order.queue_position = work_order_id
-    # Drive it to a completed/READY state so it leaves the schedulable (active-planned) set but still
-    # contributes its HANGING→PACKING bracket + packed output to the measurement/good-day reads.
+    # CHANGES #3: a completed order has LEFT the queue (no position) but keeps its line, so it still
+    # contributes its HANGING→PACKING bracket + packed output to the measurement/good-day reads (which
+    # read the stage-transition log + line, not the queue position).
+    work_order.queue_position = None
     work_order.completed_quantity = work_order.total_quantity
     for batch in work_order.quantity_batches:
         batch.is_active = False

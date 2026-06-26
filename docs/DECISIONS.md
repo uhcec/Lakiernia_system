@@ -130,3 +130,31 @@ unknown (the paint may well be there), so it's a visible-but-non-blocking state.
 - Two untracked situations both map to it: no stock row (`stock is None` with a non-null colour) and a
   present-but-untracked placeholder (`is_tracked False`). The hard-block predicate already excludes
   untracked colours, so nothing that was OK and safe becomes blocked.
+
+## 2026-06-26 — CHANGE #3: completed orders leave the queue
+
+**Decision:** on completion (READY) an order leaves the line's **active queue and releases its
+position**, but keeps the **line** it ran on. The planned invariant is loosened from "line and position
+both set or both unset" to "a position requires a line (a line may exist without a position)". The
+trailing/shuffle machinery that parked completed rows is deleted. Completed orders also drop off the
+operator station views (manager + station both work the active queue only).
+
+**Why:** owner-confirmed 2026-06-26 (CHANGES #3). Completed orders piled up as a trailing block, forcing
+elaborate shuffle logic just to keep their positions valid while new orders were inserted (a recent NA60
+500 came straight from that). Releasing the position removes the whole problem.
+
+**Two dependencies the owner flagged, resolved:**
+- **Statistics** split throughput by `WorkOrder.production_type`, so we could NOT null the line.
+  Resolution: release only `queue_position` (+ planning lock), keep `production_type`. Stats untouched.
+- **Operator stage views** keyed visibility off "is planned" (needs a position). Owner decided
+  (2026-06-26) completed orders should disappear from station screens too — which the position release
+  already produces, so no extra change.
+
+**Implementation notes:**
+- Migration `20260626_0043` swaps the check constraint (batch `recreate="always"`, full `ck_…` names).
+- `_finalize_completion_chain_if_ready` releases the finalized order's slot AND every complete-for-display
+  correction descendant's slot — a correction child completes by merging back into the parent (finalize
+  runs on the PARENT), so the child would otherwise keep its position as a closed historical correction.
+- `list_planned_work_orders` already filters `queue_position IS NOT NULL`, so completed orders fall out
+  of the manager board and the scheduler set automatically once their position is released.
+- **MUST sim-verify** the live completion+queue path before this is considered shippable (CLAUDE.md).

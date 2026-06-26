@@ -1673,7 +1673,7 @@ def test_packing_stage_list_includes_counted_quantity_difference(test_client: Te
     assert item["quantity_difference"] == 0
 
 
-def test_completed_hanging_stage_row_preserves_historical_non_zero_quantities(test_client: TestClient) -> None:
+def test_completed_order_leaves_the_hanging_station_view_NA_CHANGES3(test_client: TestClient) -> None:
     created = create_planned_work_order(
         test_client,
         title="Completed hanging quantities",
@@ -1687,18 +1687,13 @@ def test_completed_hanging_stage_row_preserves_historical_non_zero_quantities(te
 
     response = test_client.get("/process/stages/HANGING/work-orders")
 
+    # CHANGES #3: a completed order leaves the active queue, so it also drops off the operator's station
+    # screen (it's done — the station works the active queue).
     assert response.status_code == 200
-    item = next(item for item in response.json() if item["id"] == created["id"])
-    assert item["stage_status"] == {
-        "stage": "HANGING",
-        "status": {"value": "DONE", "label": "Zakończone"},
-    }
-    assert item["current_active_quantity"] == 0
-    assert item["planned_quantity"] == 11
-    assert item["batch_quantity"] == 11
+    assert all(item["id"] != created["id"] for item in response.json())
 
 
-def test_completed_packing_stage_row_preserves_historical_non_zero_quantities(test_client: TestClient) -> None:
+def test_completed_order_leaves_the_packing_station_view_NA_CHANGES3(test_client: TestClient) -> None:
     created = create_planned_work_order(
         test_client,
         title="Completed packing quantities",
@@ -1710,19 +1705,12 @@ def test_completed_packing_stage_row_preserves_historical_non_zero_quantities(te
 
     response = test_client.get("/process/stages/PACKING/work-orders")
 
+    # CHANGES #3: a completed order leaves the active queue and so drops off the packing station screen.
     assert response.status_code == 200
-    item = next(item for item in response.json() if item["id"] == created["id"])
-    assert item["stage_status"] == {
-        "stage": "PACKING",
-        "status": {"value": "DONE", "label": "Zakończone"},
-    }
-    assert item["current_active_quantity"] == 0
-    assert item["planned_quantity"] == 11
-    assert item["counted_quantity"] == 11
-    assert item["quantity_difference"] == 0
+    assert all(item["id"] != created["id"] for item in response.json())
 
 
-def test_completed_decoral_stage_row_preserves_historical_non_zero_quantities(test_client: TestClient) -> None:
+def test_completed_order_leaves_the_decoral_station_view_NA_CHANGES3(test_client: TestClient) -> None:
     created = create_planned_work_order(
         test_client,
         title="Completed decoral quantities",
@@ -1737,15 +1725,9 @@ def test_completed_decoral_stage_row_preserves_historical_non_zero_quantities(te
 
     response = test_client.get("/process/stages/DECORAL_PRODUCTION/work-orders")
 
+    # CHANGES #3: a completed order leaves the active queue and so drops off the decoral station screen.
     assert response.status_code == 200
-    item = next(item for item in response.json() if item["id"] == created["id"])
-    assert item["stage_status"] == {
-        "stage": "DECORAL_PRODUCTION",
-        "status": {"value": "DONE", "label": "Zakończone"},
-    }
-    assert item["current_active_quantity"] == 0
-    assert item["planned_quantity"] == 11
-    assert item["batch_quantity"] == 11
+    assert all(item["id"] != created["id"] for item in response.json())
 
 
 def test_reopen_stage_moves_done_back_to_in_progress(test_client: TestClient) -> None:

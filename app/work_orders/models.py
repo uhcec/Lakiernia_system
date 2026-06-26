@@ -58,9 +58,13 @@ class WorkOrder(Base):
         ),
         CheckConstraint("consumed_paint_quantity_kg >= 0", name="consumed_paint_quantity_non_negative"),
         CheckConstraint("queue_position IS NULL OR queue_position >= 1", name="queue_position_positive_if_present"),
+        # A queue position requires a line (you can't sit in a line's queue without a line), but a line
+        # may exist WITHOUT a position: on completion an order leaves the active queue (queue_position →
+        # NULL) yet keeps the line it ran on, so statistics that split throughput by line still work
+        # (CHANGES #3). "Planned" = has a queue position; "left the queue" = line set, position NULL.
         CheckConstraint(
-            "(production_type IS NULL AND queue_position IS NULL) OR (production_type IS NOT NULL AND queue_position IS NOT NULL)",
-            name="planned_requires_production_type_and_queue_position",
+            "queue_position IS NULL OR production_type IS NOT NULL",
+            name="queue_position_requires_production_type",
         ),
         CheckConstraint(
             "queue_position IS NULL OR is_incomplete_on_arrival = 0",

@@ -2372,6 +2372,16 @@ class ProcessService:
                 )
             current_work_order.completed_quantity = current_work_order.total_quantity
             self._mark_all_stage_states_done(current_work_order)
+            # CHANGES #3: a completed order leaves the line's active queue — release its queue position
+            # (and any planning lock; the slot is gone) but KEEP the line it ran on, so throughput stats
+            # that split by line still work. "Planned" = has a position, so this drops it out of the
+            # planning queue without losing the line. Finalizing an order means its whole correction
+            # subtree is complete, so release the completed children's slots too — a correction child
+            # completes by merging back into the parent (which calls finalize on the PARENT), so the
+            # child would otherwise keep its position despite being a closed historical correction.
+            self._release_queue_slot(current_work_order)
+            for descendant in self._completed_correction_descendants(current_work_order):
+                self._release_queue_slot(descendant)
             finalized_work_order = current_work_order
 
             if not current_work_order.is_correction or current_work_order.parent_order_id is None:
@@ -2384,6 +2394,24 @@ class ProcessService:
 
         self._commit_process_changes()
         return finalized_work_order
+
+    @staticmethod
+    def _release_queue_slot(work_order: WorkOrder) -> None:
+        """Drop an order out of the active queue (CHANGES #3): release its position + any planning lock,
+        keeping the line it ran on. Idempotent."""
+        work_order.queue_position = None
+        work_order.planning_priority = None
+        work_order.pending_planning_priority = None
+
+    def _completed_correction_descendants(self, work_order: WorkOrder) -> list[WorkOrder]:
+        """All correction descendants (recursively) that are complete-for-display — closed historical
+        corrections that should also leave the queue when their root finalizes."""
+        descendants: list[WorkOrder] = []
+        for child in work_order.correction_orders:
+            if self._is_complete_for_display(child):
+                descendants.append(child)
+            descendants.extend(self._completed_correction_descendants(child))
+        return descendants
 
     def _can_finalize_work_order(self, work_order: WorkOrder) -> bool:
         if self._has_open_corrections(work_order):

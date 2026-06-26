@@ -12,7 +12,7 @@ Ten plik opisuje **co kod robi dzisiaj**. To nowa baza prawdy, zastępująca ska
 ## 1. Model danych i niezmienniki
 
 - ✅ Zlecenie ma dodatnią ilość; ilość zakończona mieści się między 0 a całkowitą. `app/work_orders/models.py:52-54`
-- ✅ Zlecenie „zaplanowane" = ma **jednocześnie** linię i pozycję w kolejce (oba ustawione albo żadne). `app/work_orders/models.py:61-64`
+- ✅ Zlecenie „zaplanowane" = ma **pozycję w kolejce**; pozycja wymaga linii, ale linia może istnieć **bez** pozycji — gotowe zlecenie opuszcza aktywną kolejkę (pozycja → NULL), zachowując linię (ZMIANA #3). `app/work_orders/models.py:61-64`
 - ✅ Zlecenie niekompletne po przyjeździe nie może być zaplanowane. `app/work_orders/models.py:65-68`
 - ✅ Pozycja w kolejce jest unikalna **per linia** (ręczna/automat); pozycja 1 istnieje na obu liniach niezależnie. `app/work_orders/models.py:97-105`
 - ✅ Blokada planowania (pin/pilne) może istnieć tylko na zleceniu zaplanowanym. `app/work_orders/models.py:71-74`
@@ -111,7 +111,7 @@ Szczegóły:
 - ✅ Planowanie wymaga zlecenia niezaplanowanego i nie niekompletnego. `app/manager/service.py:1479-1482`
 - ✅ Kierownik **wybiera linię przy planowaniu**; zaplanowanie **jako automat** jest twardo blokowane, gdy mierzony kolor jest poza magazynem / nie starcza (ręcznej się nie sprawdza). `app/manager/service.py:1487-1488`, `1426-1468`
 - ✅ Planowanie bez podanej pozycji dopisuje na **koniec aktywnej kolejki** linii. `app/manager/service.py:1489-1495`
-- ⚠️ **ZMIANA #3** — zakończone zlecenia obecnie **zostają w kolejce** jako blok na końcu (z logiką odsuwania); mają **wychodzić z kolejki i zwalniać pozycję**. `app/manager/service.py:1498-1519`, `2094-2176`
+- ✅ **(ZMIANA #3 zrobiona 2026-06-26)** przy zakończeniu zlecenie **wychodzi z aktywnej kolejki linii i zwalnia pozycję** (zachowując linię); maszynerię odsuwania/trailing usunięto. Zakończone korekty-dzieci też zwalniają pozycje, gdy root się finalizuje. `app/process/service.py:2375-2410`
 - ✅ Pozycja „zajęta" tylko przez zlecenie nie-gotowe. `app/manager/service.py:2079-2092`
 - ✅ Zmiana linii zablokowana po starcie zawieszania/produkcji; przełączenie dopisuje na koniec i kasuje pin. `app/manager/service.py:1671`, `2182-2190`, `1695-1697`
 - ✅ Przeciąganie kolejki ma ochronę przed nieświeżymi danymi i musi obejmować wszystkie aktywne zlecenia tej linii, tylko tej linii, bez duplikatów. `app/manager/service.py:1748-1750`, `1755-1784`

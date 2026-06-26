@@ -12,7 +12,7 @@ This file describes **what the code does today**. It is the new ground truth, re
 ## 1. Data model & invariants
 
 - ✅ An order must have a positive quantity; completed quantity is between 0 and total. `app/work_orders/models.py:52-54`
-- ✅ An order is "planned" exactly when it has **both** a production line and a queue position (both set or both unset). `app/work_orders/models.py:61-64`
+- ✅ An order is "planned" exactly when it has a **queue position**; a queue position requires a production line, but a line may exist **without** a position — a completed order leaves the active queue (position → NULL) yet keeps its line (CHANGE #3). `app/work_orders/models.py:61-64`
 - ✅ An order marked incomplete-on-arrival cannot be planned. `app/work_orders/models.py:65-68`
 - ✅ Queue position is unique **per production line** (MANUAL vs AUTOMATIC); position 1 exists on both lines independently. `app/work_orders/models.py:97-105`
 - ✅ A planning lock (pin/urgent) can only exist on a planned order. `app/work_orders/models.py:71-74`
@@ -111,7 +111,7 @@ Details:
 - ✅ Planning requires the order to be unplanned and not incomplete-on-arrival. `app/manager/service.py:1479-1482`
 - ✅ The manager **picks the line at plan time**; planning an order **as AUTOMATIC** is hard-blocked if its metered colour is out of stock / insufficient (MANUAL is not checked). `app/manager/service.py:1487-1488`, `1426-1468`
 - ✅ Planning with no explicit position appends to the **end of the line's active queue**. `app/manager/service.py:1489-1495`
-- ⚠️ **CHANGE #3** — completed orders currently **stay in the line's queue** as a trailing block (with shuffling logic); they should **leave the queue and release their position**. `app/manager/service.py:1498-1519`, `2094-2176`
+- ✅ **(CHANGE #3 done 2026-06-26)** on completion an order **leaves the line's active queue and releases its position** (keeping its line); the trailing/shuffle machinery was removed. Completed correction children release their slots too when the root finalizes. `app/process/service.py:2375-2410`
 - ✅ A position is "taken" only by a non-READY order. `app/manager/service.py:2079-2092`
 - ✅ A line switch is blocked once hanging/production started; switching re-appends at the end and clears the pin. `app/manager/service.py:1671`, `2182-2190`, `1695-1697`
 - ✅ Drag-reorder uses staleness protection and must include all active orders of that line, that line only, no duplicates. `app/manager/service.py:1748-1750`, `1755-1784`
