@@ -2236,7 +2236,11 @@ class ProcessService:
 
         work_order.production_type = None
         work_order.queue_position = None
-        # Leaving the queue clears any manager planning lock (pin/urgent, NA49.K) — the slot is gone.
+        # Leaving the queue clears the live planning lock (the slot is gone), but we REMEMBER the
+        # manager's pin/urgent intent (CHANGES #1) so re-planning this order after the correction round
+        # restores it instead of silently dropping it.
+        if work_order.planning_priority is not None:
+            work_order.pending_planning_priority = work_order.planning_priority
         work_order.planning_priority = None
         work_order.consumed_paint_quantity_kg = 0
 

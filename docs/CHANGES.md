@@ -5,7 +5,7 @@ code does now (`file:line`), what the owner wants, and why. See `docs/SPEC.md` f
 
 | # | Type | Title |
 |---|------|-------|
-| 1 | bug | A correction must not lose its pin/urgent lock |
+| 1 | bug | A correction must not lose its pin/urgent lock ✅ |
 | 2 | UX | Make the second, separate Decoral pass visible |
 | 3 | change | Completed orders leave the queue (release their position) |
 | 4 | change | Manager sets the shift length (drop auto-advising) ✅ |
@@ -18,10 +18,11 @@ code does now (`file:line`), what the owner wants, and why. See `docs/SPEC.md` f
 
 ---
 
-### #1 — A correction must not lose its pin/urgent lock  *(bug)*
+### #1 — A correction must not lose its pin/urgent lock  *(bug)* — ✅ DONE 2026-06-26
 - **Now:** when a packing correction sends an order back to planning (replan-in-place), it clears `planning_priority` (pin/urgent) along with the line and position. `app/process/service.py:2237-2240`
 - **Want:** the order should keep its pin/urgent intent through the correction round.
 - **Note:** the DB allows a planning lock only on a planned order (`app/work_orders/models.py:71-74`), so a returned (unplanned) order can't literally hold one — the intended priority likely needs to be remembered and re-applied when the order is re-planned.
+- **Done:** added `work_orders.pending_planning_priority` (migration `20260626_0042`, unconstrained). The replan-in-place parks the live `planning_priority` there before clearing it; `assign_plan` re-applies it (and clears the parked value) when the order is re-planned. Regression test `test_correction_round_remembers_and_restores_pin_NA_CHANGES1`. `app/process/service.py`, `app/manager/service.py`, `app/work_orders/models.py`.
 
 ### #2 — Make the second, separate Decoral pass visible  *(UX)*
 - **Now:** when corrected pieces return after the root's Decoral was already done, they start a fresh Decoral batch — a correct but easy-to-miss "second pass". `app/process/service.py:2060-2091`

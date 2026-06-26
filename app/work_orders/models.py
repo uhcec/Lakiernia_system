@@ -142,6 +142,11 @@ class WorkOrder(Base):
     # Manager planning lock respected by the painting auto-scheduler re-optimise (NA49.K). NULL = freely
     # re-orderable; PINNED = keep its queue slot; URGENT = force to the front of the line.
     planning_priority: Mapped[PlanningPriority | None] = mapped_column(planning_priority_enum, nullable=True)
+    # CHANGES #1: a planning lock can only sit on a planned order, so a correction round that unplans the
+    # order (queue_position → NULL) cannot keep `planning_priority`. We remember the manager's pin/urgent
+    # intent here while the order is out for correction, and re-apply it when the order is re-planned.
+    # Unconstrained by `planning_priority_requires_planned`, so it survives the unplanned window.
+    pending_planning_priority: Mapped[PlanningPriority | None] = mapped_column(planning_priority_enum, nullable=True)
     received_date: Mapped[date] = mapped_column(Date(), nullable=False)
     planned_pickup_date: Mapped[date] = mapped_column(Date(), nullable=False)
     released_to_client_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

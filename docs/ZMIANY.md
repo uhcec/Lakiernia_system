@@ -5,7 +5,7 @@ teraz (`plik:linia`), czego chce właściciel i dlaczego. Potwierdzone zachowani
 
 | # | Typ | Tytuł |
 |---|-----|-------|
-| 1 | bug | Poprawka nie może gubić pin/pilne |
+| 1 | bug | Poprawka nie może gubić pin/pilne ✅ |
 | 2 | UX | Uwidocznić drugi, osobny przebieg Decoral |
 | 3 | zmiana | Gotowe zlecenia wychodzą z kolejki (zwalniają pozycję) |
 | 4 | zmiana | Kierownik ustala długość zmiany (bez doradzania) ✅ |
@@ -18,10 +18,11 @@ teraz (`plik:linia`), czego chce właściciel i dlaczego. Potwierdzone zachowani
 
 ---
 
-### #1 — Poprawka nie może gubić pin/pilne  *(bug)*
+### #1 — Poprawka nie może gubić pin/pilne  *(bug)* — ✅ ZROBIONE 2026-06-26
 - **Teraz:** gdy poprawka na pakowaniu odsyła zlecenie do planowania (to samo zlecenie wraca), kasuje `planning_priority` (pin/pilne) razem z linią i pozycją. `app/process/service.py:2237-2240`
 - **Cel:** zlecenie ma zachować pin/pilne przez rundę poprawkową.
 - **Uwaga:** baza dopuszcza blokadę planowania tylko na zleceniu zaplanowanym (`app/work_orders/models.py:71-74`), więc odesłane (niezaplanowane) zlecenie nie może jej dosłownie trzymać — zamiar priorytetu trzeba zapamiętać i ponownie nałożyć przy ponownym zaplanowaniu.
+- **Zrobione:** dodano `work_orders.pending_planning_priority` (migracja `20260626_0042`, bez constraintu). Replan-in-place parkuje tam żywy `planning_priority` przed wyczyszczeniem; `assign_plan` przywraca go (i czyści parking) przy ponownym zaplanowaniu. Test regresyjny `test_correction_round_remembers_and_restores_pin_NA_CHANGES1`. `app/process/service.py`, `app/manager/service.py`, `app/work_orders/models.py`.
 
 ### #2 — Uwidocznić drugi, osobny przebieg Decoral  *(UX)*
 - **Teraz:** gdy poprawione sztuki wracają po już zrobionym Decoralu korzenia, zakładają świeżą partię Decoral — poprawny, ale łatwy do przeoczenia „drugi przebieg". `app/process/service.py:2060-2091`

@@ -91,3 +91,23 @@ invisible to the shop. Force-closing is kept (don't trap the order) but it must 
   `station_context=None` → recorded under `StationId.SYSTEM` (no operator triggered it).
 - This is a safety net, not the fix: the quantity model should prevent leaks in the first place. The
   flag is the tripwire that makes a model bug visible.
+
+## 2026-06-26 — CHANGE #1: a correction round must not lose pin/urgent
+
+**Decision:** when a packing correction sends an order back to planning (replan-in-place), the live
+`planning_priority` lock is still cleared (it can't sit on an unplanned order — DB constraint
+`planning_priority_requires_planned`), but the manager's pin/urgent **intent is remembered** in a new
+`pending_planning_priority` column and **re-applied** when the order is re-planned.
+
+**Why:** owner-confirmed 2026-06-26 (CHANGES #1, a bug). A pinned/urgent order silently lost its
+priority every time it bounced through a correction round, so the manager's intent evaporated exactly
+when the order most needed to keep its place.
+
+**Implementation notes:**
+- `pending_planning_priority` (migration `20260626_0042`) is deliberately NOT bound by
+  `planning_priority_requires_planned`, so it can hold the intent through the unplanned window.
+- Set in `_reset_to_correction_planning` (parks the live value before clearing it); consumed in
+  `assign_plan` (re-applies, then clears the parked value). It is single-use per round.
+- A deliberate **line switch** still clears the lock and does not restore (that path doesn't touch
+  `pending_planning_priority`, which is only set by the correction round) — switching lines is an
+  explicit "give up the slot" action, distinct from a correction bounce.

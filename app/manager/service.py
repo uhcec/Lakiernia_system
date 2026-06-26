@@ -1494,6 +1494,12 @@ class ManagerService:
             work_order.production_type = production_type
             work_order.queue_position = target_position
             work_order.updated_at = now
+            # CHANGES #1: restore a pin/urgent intent remembered while the order was out for a correction
+            # round (the lock can't live on an unplanned order, so it was parked in
+            # pending_planning_priority). Now that the order is planned again, re-apply and clear it.
+            if work_order.pending_planning_priority is not None:
+                work_order.planning_priority = work_order.pending_planning_priority
+                work_order.pending_planning_priority = None
             # Reconcile the stage-state rows to the (now-known) route FIRST, so correction replanning
             # below resets statuses on the rows the route actually has (NA42).
             self.process_service.reconcile_stage_states_to_route(work_order)

@@ -12,14 +12,18 @@ from app.database.base import Base
 from app.audit.context import StationContext
 from app.audit.models import AuditEvent
 from app.manager.repository import ManagerRepository
-from app.manager.schemas import WorkOrderPlanAssignRequest, WorkOrderProductionTypeUpdateRequest
+from app.manager.schemas import (
+    WorkOrderPlanAssignRequest,
+    WorkOrderPlanningPriorityUpdateRequest,
+    WorkOrderProductionTypeUpdateRequest,
+)
 from app.manager.service import ManagerService
 from app.process.enums import CoatingType, CorrectionKind, ProcessStage, ProductionType, QuantityBatchType, StageStatus
 from app.process.models import ProcessResourceLock, StatOnlyCorrection
 from app.process.repository import ProcessRepository
 from app.process.service import ProcessService
 from app.paints.schemas import PaintDeliveryCreate
-from app.shared.enums import QueueNamespace, StationId
+from app.shared.enums import PlanningPriority, QueueNamespace, StationId
 from app.shared.exceptions import InvalidManagerPlanningError, InvalidProcessStageTransitionError
 from app.work_orders.repository import WorkOrderRepository
 from app.work_orders.schemas import WorkOrderCreate
@@ -1421,6 +1425,42 @@ def test_complete_packing_full_correction_resets_order_to_planning(db_session: S
     assert process_service.get_display_status(work_order).value == "TO_BE_PLANNED"
     assert work_order.production_type is None
     assert work_order.queue_position is None
+
+
+def test_correction_round_remembers_and_restores_pin_NA_CHANGES1(db_session: Session) -> None:
+    # CHANGES #1: a packing correction (replan-in-place) unplans the order, so the live pin/urgent lock
+    # can't survive — but the manager's intent must NOT be lost. It is parked in
+    # pending_planning_priority and re-applied when the order is re-planned.
+    work_order_service, process_service, manager_service, _, process_repository = build_services(db_session)
+
+    created = create_ral_work_order(work_order_service, "Pinned then corrected")
+    manager_service.assign_plan(
+        created.id,
+        WorkOrderPlanAssignRequest(production_type=ProductionType.MANUAL, queue_position=1),
+    )
+    manager_service.set_planning_priority(
+        created.id,
+        WorkOrderPlanningPriorityUpdateRequest(planning_priority=PlanningPriority.PINNED),
+    )
+    advance_to_packing(process_service, created.id)
+
+    # Send some pieces back: replan-in-place clears the live lock but remembers the intent.
+    complete_packing(process_service, created.id, ok_quantity=40, correction_quantity=60)
+    returned = process_repository.get_work_order_with_stage_states(created.id)
+    assert returned is not None
+    assert returned.queue_position is None
+    assert returned.planning_priority is None  # lock can't sit on an unplanned order
+    assert returned.pending_planning_priority is PlanningPriority.PINNED  # but the intent is remembered
+
+    # Re-planning the returned order restores the pin and clears the parked intent.
+    manager_service.assign_plan(
+        created.id,
+        WorkOrderPlanAssignRequest(production_type=ProductionType.MANUAL, queue_position=1),
+    )
+    replanned = process_repository.get_work_order_with_stage_states(created.id)
+    assert replanned is not None
+    assert replanned.planning_priority is PlanningPriority.PINNED
+    assert replanned.pending_planning_priority is None
 
 
 def test_multiple_packing_correction_rounds_accumulate_on_same_order(db_session: Session) -> None:

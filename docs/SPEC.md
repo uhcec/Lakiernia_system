@@ -71,7 +71,7 @@ There are two quality checkpoints on a DECORAL order, because two things can go 
 Details:
 - ✅ Three correction kinds, chosen at one seam: fixed-on-the-spot (stat only), same-order replan, spin-off child. `app/process/enums.py:113-123`, `app/process/service.py:1864-1879`
 - ✅ "Fixed on the spot" records only a statistic — no child, no batch; pieces count as good, order completes as-is. `app/process/service.py:1881-1909`
-- ⚠️ **CHANGE #1** — same-order replan currently also **clears the pin/urgent lock**; this should be kept. `app/process/service.py:2192-2241`
+- ✅ **(CHANGE #1 done 2026-06-26)** same-order replan still clears the *live* lock (it can't sit on an unplanned order) but now **remembers** the pin/urgent intent in `pending_planning_priority` and **re-applies** it when the order is re-planned. `app/process/service.py:2237-2245`, `app/manager/service.py:1497-1503`
 - ✅ Correction numbers come from the **root**: `P{root}`, then `P{root}-2`, `P{root}-3`… regardless of nesting. `app/process/service.py:2101-2123`
 - ✅ A correction child inherits paint/colour/customer/dates/area and is always STANDARD kind. (Kind is irrelevant to the prep-skip — that comes from being a correction.) `app/process/service.py:2125-2169`, `1461-1465`
 - ✅ There is exactly **one Decoral pass, on the root**; a fully-fixed child's good pieces return to the root's Decoral and the child closes without its own Decoral. `app/process/service.py:2001-2021`, `2093-2099`
