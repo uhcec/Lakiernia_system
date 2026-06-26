@@ -2003,7 +2003,6 @@ class ManagerService:
                 work_order_id=work_order.id,
                 colour_key=colour_by_id[work_order.id],
                 planned_pickup_date=work_order.planned_pickup_date,
-                total_area_m2=work_order.total_area_m2,
             )
             for work_order in active_orders
         ]

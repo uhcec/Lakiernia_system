@@ -72,18 +72,16 @@ def test_update_schedule_config_persists_and_audits(db_session: Session) -> None
     _, manager_service = _build(db_session)
     payload = ScheduleRuleConfigUpdate(
         rules=[
-            ScheduleRuleConfigUpdateItem(key=ScheduleRuleKey.DEADLINE, enabled=True),
             ScheduleRuleConfigUpdateItem(key=ScheduleRuleKey.COLOUR, enabled=True),
-            ScheduleRuleConfigUpdateItem(key=ScheduleRuleKey.CHANGEOVER, enabled=False),
+            ScheduleRuleConfigUpdateItem(key=ScheduleRuleKey.DEADLINE, enabled=False),
         ]
     )
     manager_service.update_schedule_config(ProductionType.AUTOMATIC, payload, station_context=MANAGER)
 
     reloaded = manager_service.get_schedule_config(ProductionType.AUTOMATIC, station_context=MANAGER)
     assert [(item.key, item.enabled) for item in reloaded.rules] == [
-        (ScheduleRuleKey.DEADLINE, True),
         (ScheduleRuleKey.COLOUR, True),
-        (ScheduleRuleKey.CHANGEOVER, False),
+        (ScheduleRuleKey.DEADLINE, False),
     ]
     event = db_session.scalar(
         select(AuditEvent).where(AuditEvent.event_type == "manager.schedule_config_updated")

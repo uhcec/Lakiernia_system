@@ -10,7 +10,7 @@ order id. Each rule contributes one independent per-order sort key, so the prior
 lever and the parts compose predictably.
 """
 
-from collections.abc import Collection, Iterable, Sequence
+from collections.abc import Collection, Sequence
 from dataclasses import dataclass
 from datetime import date
 
@@ -28,22 +28,9 @@ class SchedulableOrder:
     work_order_id: int
     colour_key: str | None
     planned_pickup_date: date | None
-    total_area_m2: float | None
 
 
-def _colour_group_totals(orders: Iterable[SchedulableOrder]) -> dict[str | None, float]:
-    """Total m² per colour group — drives the CHANGEOVER ("largest runs first") rule."""
-    totals: dict[str | None, float] = {}
-    for order in orders:
-        totals[order.colour_key] = totals.get(order.colour_key, 0.0) + (order.total_area_m2 or 0.0)
-    return totals
-
-
-def _rule_key(
-    rule: ScheduleRuleKey,
-    order: SchedulableOrder,
-    group_totals: dict[str | None, float],
-) -> tuple:
+def _rule_key(rule: ScheduleRuleKey, order: SchedulableOrder) -> tuple:
     """The sort key contributed by a single rule for one order (ascending = earlier in the plan)."""
     if rule is ScheduleRuleKey.COLOUR:
         # Group identical colours; the "no colour" bucket sorts last, then alphabetically by colour.
@@ -51,10 +38,6 @@ def _rule_key(
     if rule is ScheduleRuleKey.DEADLINE:
         # Earliest pickup first; orders without a date sort last.
         return (order.planned_pickup_date is None, order.planned_pickup_date or date.max)
-    if rule is ScheduleRuleKey.CHANGEOVER:
-        # Largest single-colour run first (maximise m²/day); members of a colour share this key, so
-        # this also keeps a colour together.
-        return (-group_totals.get(order.colour_key, 0.0),)
     raise ValueError(f"Unknown schedule rule: {rule!r}")
 
 
@@ -67,12 +50,10 @@ def propose_sequence(
     With no rules the order is deterministic by id, so an empty/all-disabled config still yields a
     stable result rather than an arbitrary one.
     """
-    group_totals = _colour_group_totals(orders)
-
     def composite_key(order: SchedulableOrder) -> tuple:
         key: tuple = ()
         for rule in rules:
-            key += _rule_key(rule, order, group_totals)
+            key += _rule_key(rule, order)
         # Deterministic final tie-break so the proposal never depends on input order.
         return key + (order.work_order_id,)
 

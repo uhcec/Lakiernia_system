@@ -11,12 +11,11 @@ from app.manager.scheduler import (
 )
 
 
-def _order(work_order_id: int, colour: str | None, pickup: date | None = None, m2: float | None = 10.0) -> SchedulableOrder:
+def _order(work_order_id: int, colour: str | None, pickup: date | None = None) -> SchedulableOrder:
     return SchedulableOrder(
         work_order_id=work_order_id,
         colour_key=colour,
         planned_pickup_date=pickup,
-        total_area_m2=m2,
     )
 
 
@@ -26,15 +25,16 @@ def test_colour_rule_clusters_same_colour_with_id_tiebreak() -> None:
     assert propose_sequence(orders, [ScheduleRuleKey.COLOUR]) == [2, 4, 1, 3]
 
 
-def test_default_priority_colour_then_deadline_then_changeover() -> None:
+def test_default_priority_deadline_then_colour() -> None:
+    # CHANGES #6: only two rules remain, default order deadline → colour.
     orders = [
         _order(1, "A", date(2026, 1, 5)),
         _order(2, "A", date(2026, 1, 1)),
         _order(3, "B", date(2026, 1, 2)),
     ]
-    rules = [ScheduleRuleKey.COLOUR, ScheduleRuleKey.DEADLINE, ScheduleRuleKey.CHANGEOVER]
-    # Colour clusters first (A before B); within A the earlier deadline (id 2) leads.
-    assert propose_sequence(orders, rules) == [2, 1, 3]
+    rules = [ScheduleRuleKey.DEADLINE, ScheduleRuleKey.COLOUR]
+    # Earliest deadline leads (id 2 on 01-01), then 01-02 (id 3), then 01-05 (id 1).
+    assert propose_sequence(orders, rules) == [2, 3, 1]
 
 
 def test_deadline_primary_clusters_colour_within_same_date() -> None:
@@ -45,12 +45,6 @@ def test_deadline_primary_clusters_colour_within_same_date() -> None:
     ]
     # Same date everywhere, so the secondary COLOUR rule clusters A (ids 1,3) before B (id 2).
     assert propose_sequence(orders, [ScheduleRuleKey.DEADLINE, ScheduleRuleKey.COLOUR]) == [1, 3, 2]
-
-
-def test_changeover_rule_does_largest_m2_colour_run_first() -> None:
-    orders = [_order(1, "A", m2=10.0), _order(2, "A", m2=10.0), _order(3, "B", m2=50.0)]
-    # Colour B carries 50 m² vs A's 20, so the bigger run leads (maximise m²/day between cleans).
-    assert propose_sequence(orders, [ScheduleRuleKey.CHANGEOVER]) == [3, 1, 2]
 
 
 def test_orders_without_colour_sort_last() -> None:

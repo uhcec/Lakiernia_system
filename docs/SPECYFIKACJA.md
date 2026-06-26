@@ -131,7 +131,7 @@ Szczegóły:
 - ✅ Kalendarz: pon–pt robocze, sob/niedz wolne, brak świąt. `app/manager/placement.py:40-45`
 - ✅ Dzień 0 skracany proporcjonalnie do godzin pozostałych w zmianie. `app/manager/placement.py:205-216`
 - ✅ Układanie: najwcześniejszy termin pierwszy, w dni ograniczone pułapem netto; zlecenie większe od dnia stoi samo i jest oznaczone „przekracza pułap"; zlecenie po terminie / poza horyzontem oznaczone „nie zdąży". `app/manager/placement.py:134-287`
-- ⚠️ **ZMIANA #6** — obecnie **3** reguły układania (kolor → termin → maks. przerób); mają być **2** (termin → kolor), bez „maks. przerób". `app/manager/enums.py:4-51`
+- ✅ **(ZMIANA #6 zrobiona 2026-06-26)** Tylko **2** reguły układania — **termin → kolor** (domyślna kolejność); regułę „maks. przerób" usunięto. `app/manager/enums.py:4-43`, `app/manager/scheduler.py:42-57`
 - ⚠️ **ZMIANA #7** — „jasność" koloru jest zgadywana z kodu RAL pod zamiatanie jasny→ciemny; ma zostać **usunięta** (z ZMIANĄ #5 planowanie kolorów sprowadza się do grupowania identycznych kolorów). `app/manager/colour.py:43-102`
 - ✅ Sugestia linii: małe (≤100 m²) **i** kolor-sierota → ręczna; inaczej automat; kierownik nadpisuje. `app/manager/colour.py:214-236`
 - ✅ Wykonalność farby: BLOKADA (mierzony kolor poza/nie starcza na pierwsze), OSTRZEŻENIE (skończy się dalej, albo kolor ręczny niepewny), inaczej OK. `app/manager/paint_feasibility.py:85-98`

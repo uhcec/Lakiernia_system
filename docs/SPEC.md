@@ -131,7 +131,7 @@ Details:
 - ✅ Calendar: Mon–Fri working, Sat/Sun off, no holiday list. `app/manager/placement.py:40-45`
 - ✅ Day 0 is pro-rated to hours left in today's shift. `app/manager/placement.py:205-216`
 - ✅ Placement is earliest-deadline-first into net-ceiling days; an order bigger than a day stands alone and is flagged over-ceiling; an order past its deadline / horizon is flagged "won't make it". `app/manager/placement.py:134-287`
-- ⚠️ **CHANGE #6** — there are currently **3** scheduling rules (colour → deadline → max-throughput, default order); should become **2** rules (deadline → colour), dropping max-throughput. `app/manager/enums.py:4-51`
+- ✅ **(CHANGE #6 done 2026-06-26)** Two scheduling rules only — **deadline → colour** (default order); the "max-throughput" rule was removed. `app/manager/enums.py:4-43`, `app/manager/scheduler.py:42-57`
 - ⚠️ **CHANGE #7** — colour "lightness" is currently guessed from the RAL code to drive a light→dark sweep; this should be **removed** (with CHANGE #5, colour planning reduces to grouping identical colours). `app/manager/colour.py:43-102`
 - ✅ Line suggestion: small (≤100 m²) **and** colour-orphan → manual; else automatic; manager-overridable. `app/manager/colour.py:214-236`
 - ✅ Paint feasibility: BLOCKED (metered colour out / insufficient for first order), WARNING (runs short later, or manual-used low-confidence), OK otherwise. `app/manager/paint_feasibility.py:85-98`

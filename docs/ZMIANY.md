@@ -10,7 +10,7 @@ teraz (`plik:linia`), czego chce właściciel i dlaczego. Potwierdzone zachowani
 | 3 | zmiana | Gotowe zlecenia wychodzą z kolejki (zwalniają pozycję) |
 | 4 | zmiana | Kierownik ustala długość zmiany (bez doradzania) |
 | 5 | zmiana | Koszt zmiany koloru tylko wg wielkości (bez kierunku) |
-| 6 | zmiana | Dwie reguły układania (termin → kolor) |
+| 6 | zmiana | Dwie reguły układania (termin → kolor) ✅ |
 | 7 | zmiana | Wywalić zgadywanie jasności z kodu RAL |
 | 8 | zmiana | Oznaczać kolory nieśledzone zamiast cichego OK |
 | 9 | zmiana | Zapisywać faktyczną długość zmiany dla „dobrego dnia" |
@@ -40,9 +40,10 @@ teraz (`plik:linia`), czego chce właściciel i dlaczego. Potwierdzone zachowani
 - **Teraz:** koszt = pasmo wielkości (≤100 m² → 15 min, >100 m² → 30 min) skalowane **kierunkiem** koloru (jasny→ciemny pół, ciemny→jasny pełne). `app/manager/capacity.py:127-147`, `app/manager/colour.py:157-175`
 - **Cel:** wywalić kierunek; zmiana koloru kosztuje pasmo wielkości niezależnie od kierunku.
 
-### #6 — Dwie reguły układania (termin → kolor)  *(zmiana)*
+### #6 — Dwie reguły układania (termin → kolor)  *(zmiana)* — ✅ ZROBIONE 2026-06-26
 - **Teraz:** trzy reguły — KOLOR, TERMIN, „maks. przerób" (najpierw największy run jednego koloru) — domyślnie kolor → termin → maks. przerób. `app/manager/enums.py:4-51`
 - **Cel:** tylko **dwie** reguły (termin, kolor), domyślnie **termin → kolor**; wywalić „maks. przerób".
+- **Zrobione:** usunięto `ScheduleRuleKey.CHANGEOVER` i jego wpis w katalogu oraz gałąź sortowania/`_colour_group_totals`; domyślna kolejność to teraz termin → kolor. Stare configi z kluczem `"changeover"` degradują się łagodnie (nieznane klucze są pomijane). `app/manager/enums.py`, `app/manager/scheduler.py`.
 
 ### #7 — Wywalić zgadywanie jasności z kodu RAL  *(zmiana)*
 - **Teraz:** jasność koloru przybliżana z kodu RAL (pierwsza cyfra + ręczne nadpisania) pod zamiatanie jasny→ciemny. `app/manager/colour.py:43-102`

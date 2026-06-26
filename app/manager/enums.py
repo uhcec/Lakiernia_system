@@ -10,35 +10,27 @@ class ScheduleRuleKey(str, Enum):
     compose predictably and the priority order is the only thing the manager tunes.
     """
 
+    # Earlier planned pickup date first (urgency). Orders without a pickup date sort last.
+    DEADLINE = "deadline"
     # Cluster identical colours together (same RAL + producer + paint code adjacent), groups ordered
     # alphabetically by colour identity. Fewer colour changes on the booth.
     COLOUR = "colour"
-    # Earlier planned pickup date first (urgency). Orders without a pickup date sort last.
-    DEADLINE = "deadline"
-    # "Maksymalny przerób" → maximise m² painted per day: do the largest single-colour runs first, so
-    # the booth spends more time painting and less time being cleaned between colours. The colour group
-    # carrying the most m² leads; this also clusters identical colours (a group shares one key).
-    CHANGEOVER = "changeover"
 
 
 # Catalog of every rule the scheduler knows, with operator-facing Polish copy. The default priority
-# order (colour → deadline → changeover, all enabled) is the order of this tuple — owner decision
-# 2026-06-23. A config row stores the manager's reordered/toggled view of exactly these keys.
+# order (deadline → colour, all enabled) is the order of this tuple — owner decision 2026-06-26
+# (CHANGES #6: two rules only; the "maksymalny przerób"/max-throughput rule was dropped). A config row
+# stores the manager's reordered/toggled view of exactly these keys.
 SCHEDULE_RULE_CATALOG: tuple[tuple[ScheduleRuleKey, str, str], ...] = (
-    (
-        ScheduleRuleKey.COLOUR,
-        "Grupowanie kolorami",
-        "Trzymaj zlecenia o tym samym kolorze obok siebie — mniej zmian koloru na kabinie.",
-    ),
     (
         ScheduleRuleKey.DEADLINE,
         "Termin odbioru",
         "Najpierw zlecenia z najwcześniejszym terminem odbioru.",
     ),
     (
-        ScheduleRuleKey.CHANGEOVER,
-        "Maksymalny przerób (m²/dzień)",
-        "Najpierw największe runy jednego koloru — kabina maluje więcej m² między myciami.",
+        ScheduleRuleKey.COLOUR,
+        "Grupowanie kolorami",
+        "Trzymaj zlecenia o tym samym kolorze obok siebie — mniej zmian koloru na kabinie.",
     ),
 )
 

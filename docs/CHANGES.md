@@ -10,7 +10,7 @@ code does now (`file:line`), what the owner wants, and why. See `docs/SPEC.md` f
 | 3 | change | Completed orders leave the queue (release their position) |
 | 4 | change | Manager sets the shift length (drop auto-advising) |
 | 5 | change | Colour-change cost by size only (drop direction) |
-| 6 | change | Two scheduling rules (deadline → colour) |
+| 6 | change | Two scheduling rules (deadline → colour) ✅ |
 | 7 | change | Drop RAL-lightness guessing |
 | 8 | change | Flag untracked colours instead of silent OK |
 | 9 | change | Persist the actual shift length for "good day" |
@@ -40,9 +40,10 @@ code does now (`file:line`), what the owner wants, and why. See `docs/SPEC.md` f
 - **Now:** changeover cost = size band (≤100 m² → 15 min, >100 m² → 30 min) scaled by colour **direction** (light→dark pays half, dark→light full). `app/manager/capacity.py:127-147`, `app/manager/colour.py:157-175`
 - **Want:** drop the direction factor; a colour change costs its size band regardless of direction.
 
-### #6 — Two scheduling rules (deadline → colour)  *(change)*
+### #6 — Two scheduling rules (deadline → colour)  *(change)* — ✅ DONE 2026-06-26
 - **Now:** three rules — COLOUR, DEADLINE, "max throughput" (largest single-colour run first) — default order colour → deadline → max-throughput. `app/manager/enums.py:4-51`
 - **Want:** only **two** rules (deadline, colour), default order **deadline → colour**; remove "max throughput".
+- **Done:** removed `ScheduleRuleKey.CHANGEOVER` + its catalog entry and the `_colour_group_totals`/CHANGEOVER sort branch; default order is now deadline → colour. Stored configs holding the old `"changeover"` key degrade gracefully (unknown keys are dropped in `_resolve_rule_config`). `app/manager/enums.py`, `app/manager/scheduler.py`.
 
 ### #7 — Drop RAL-lightness guessing  *(change)*
 - **Now:** colour lightness is approximated from the RAL code (first digit + hand-set overrides) to order a light→dark sweep. `app/manager/colour.py:43-102`
