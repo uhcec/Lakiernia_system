@@ -111,3 +111,22 @@ when the order most needed to keep its place.
 - A deliberate **line switch** still clears the lock and does not restore (that path doesn't touch
   `pending_planning_priority`, which is only set by the correction round) — switching lines is an
   explicit "give up the slot" action, distinct from a correction bounce.
+
+## 2026-06-26 — CHANGE #8: flag untracked colours (STOCK_NOT_ENTERED)
+
+**Decision:** a coloured order whose paint stock is not entered — no stock row, or only the 0-kg
+auto-placeholder with no movement history — gets a distinct `PaintFeasibilityStatus.STOCK_NOT_ENTERED`
+instead of a silent OK. It is surfaced (`stock_not_entered_order_ids`) but **never hard-blocked**. A
+truly colourless order still reports OK (it makes no paint claim).
+
+**Why:** owner-confirmed 2026-06-26 (CHANGES #8). Treating "we have no idea about this paint" as OK
+hid exactly the gap the manager needs to act on ("enter the stock"); but we can't hard-block on the
+unknown (the paint may well be there), so it's a visible-but-non-blocking state.
+
+**Implementation notes:**
+- New enum value (string `"STOCK_NOT_ENTERED"`); the schema reuses the same enum, so it serialises
+  automatically. **Frontend (unreviewed)** likely enumerates only OK/WARNING/BLOCKED — it will receive
+  the new string and should add a badge for it when the frontend is reviewed.
+- Two untracked situations both map to it: no stock row (`stock is None` with a non-null colour) and a
+  present-but-untracked placeholder (`is_tracked False`). The hard-block predicate already excludes
+  untracked colours, so nothing that was OK and safe becomes blocked.

@@ -135,7 +135,7 @@ Szczegóły:
 - ✅ **(ZMIANA #7 zrobiona 2026-06-26)** zgadywanie „jasności" z kodu RAL (i zamiatanie jasny→ciemny) **usunięto**; planowanie kolorów w dniu to teraz **grupowanie identycznych kolorów** (grupy alfabetycznie wg tożsamości koloru), koszt = liczba zmian × pasmo wielkości. `app/manager/colour.py:48-69`
 - ✅ Sugestia linii: małe (≤100 m²) **i** kolor-sierota → ręczna; inaczej automat; kierownik nadpisuje. `app/manager/colour.py:214-236`
 - ✅ Wykonalność farby: BLOKADA (mierzony kolor poza/nie starcza na pierwsze), OSTRZEŻENIE (skończy się dalej, albo kolor ręczny niepewny), inaczej OK. `app/manager/paint_feasibility.py:85-98`
-  - ⚠️ **ZMIANA #8** — kolor **nieśledzony** (bez wprowadzonego stanu) jest obecnie po cichu „OK"; ma być **widocznie oznaczony** („brak wprowadzonego stanu"). `app/manager/paint_feasibility.py:120-133`
+  - ✅ **(ZMIANA #8 zrobiona 2026-06-26)** zlecenie z kolorem **nieśledzonym** (brak stanu — brak wiersza lub tylko placeholder 0 kg) ma teraz osobny stan **STOCK_NOT_ENTERED** (lista `stock_not_entered_order_ids`), zamiast cichego OK; nigdy nie jest twardo blokowane. Zlecenie bez koloru zostaje OK. `app/manager/paint_feasibility.py:29-37`, `116-175`
 
 ## 10. Magazyn farby
 

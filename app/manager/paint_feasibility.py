@@ -30,6 +30,11 @@ class PaintFeasibilityStatus(str, Enum):
     OK = "OK"
     WARNING = "WARNING"
     BLOCKED = "BLOCKED"
+    # CHANGES #8: a coloured order whose paint stock is NOT entered (no movement history — only the 0-kg
+    # auto-placeholder, or no stock row at all). The inventory makes no claim, so it cannot be OK
+    # (silently fine) nor BLOCKED (we can't hard-block on the unknown) — it is a distinct, visible
+    # "stock not entered — enter it" state so the gap is acted on rather than invisible.
+    STOCK_NOT_ENTERED = "STOCK_NOT_ENTERED"
 
 
 @dataclass(frozen=True)
@@ -80,6 +85,8 @@ class PaintForwardView:
     orders: list[OrderPaintFeasibility]
     blocked_order_ids: list[int]
     warning_order_ids: list[int]
+    # CHANGES #8: coloured orders whose paint stock isn't entered (untracked) — surfaced, not silent.
+    stock_not_entered_order_ids: list[int]
 
 
 def colour_series_blocked(stock: PaintColourStock, *, first_order_demand_kg: float = 0.0) -> bool:
@@ -105,19 +112,29 @@ def build_forward_view(
     """Walk the orders in execution order, costing each colour series down against its starting stock.
 
     ``orders`` must already be in the order the line will paint them (the "runs out at order X" point is
-    sequence-dependent). A colourless order, or a colour with no stock entry, is treated as untracked →
-    OK (the inventory isn't following it, so we make no claim).
+    sequence-dependent). A truly **colourless** order makes no paint claim → OK. A **coloured** order
+    whose stock isn't entered (no stock row, or only the 0-kg untracked placeholder) → STOCK_NOT_ENTERED
+    (CHANGES #8): visible, but never hard-blocked.
     """
     cumulative: dict[str, float] = {}
     results: list[OrderPaintFeasibility] = []
     blocked: list[int] = []
     warned: list[int] = []
+    stock_not_entered: list[int] = []
 
     for order in orders:
         stock = stock_by_colour.get(order.colour_key) if order.colour_key is not None else None
         demand = max(order.demand_kg, 0.0)
 
+        # No stock row at all: a colourless order is OK (no claim); a coloured one is "stock not entered".
         if stock is None:
+            status = (
+                PaintFeasibilityStatus.OK
+                if order.colour_key is None
+                else PaintFeasibilityStatus.STOCK_NOT_ENTERED
+            )
+            if status is PaintFeasibilityStatus.STOCK_NOT_ENTERED:
+                stock_not_entered.append(order.work_order_id)
             results.append(
                 OrderPaintFeasibility(
                     work_order_id=order.work_order_id,
@@ -128,7 +145,7 @@ def build_forward_view(
                     remaining_after_kg=0.0,
                     is_tracked=False,
                     manual_used=False,
-                    status=PaintFeasibilityStatus.OK,
+                    status=status,
                 )
             )
             continue
@@ -142,9 +159,13 @@ def build_forward_view(
 
         if colour_series_blocked(stock, first_order_demand_kg=demand if is_first_on_series else 0.0):
             status = PaintFeasibilityStatus.BLOCKED
+        elif not stock.is_tracked:
+            # A stock row exists but the colour has no movement history (the 0-kg auto-placeholder): the
+            # balance is meaningless, so neither OK nor a balance-based warning — surface it (CHANGES #8).
+            status = PaintFeasibilityStatus.STOCK_NOT_ENTERED
         elif stock.manual_used and remaining < 0.0:
             status = PaintFeasibilityStatus.WARNING
-        elif not stock.manual_used and stock.is_tracked and remaining < 0.0:
+        elif not stock.manual_used and remaining < 0.0:
             # Tracked, metered colour with *some* stock that the cumulative demand overruns — the
             # forward "runs out at this order" warning (a partial shortfall, not a full out-of-stock).
             status = PaintFeasibilityStatus.WARNING
@@ -155,6 +176,8 @@ def build_forward_view(
             blocked.append(order.work_order_id)
         elif status is PaintFeasibilityStatus.WARNING:
             warned.append(order.work_order_id)
+        elif status is PaintFeasibilityStatus.STOCK_NOT_ENTERED:
+            stock_not_entered.append(order.work_order_id)
 
         results.append(
             OrderPaintFeasibility(
@@ -170,4 +193,9 @@ def build_forward_view(
             )
         )
 
-    return PaintForwardView(orders=results, blocked_order_ids=blocked, warning_order_ids=warned)
+    return PaintForwardView(
+        orders=results,
+        blocked_order_ids=blocked,
+        warning_order_ids=warned,
+        stock_not_entered_order_ids=stock_not_entered,
+    )

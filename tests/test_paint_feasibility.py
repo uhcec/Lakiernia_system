@@ -85,19 +85,34 @@ def test_first_order_fits_then_second_overruns_blocks_only_when_first_short() ->
     assert view.warning_order_ids == [2]
 
 
-def test_untracked_colour_makes_no_claim() -> None:
-    # No stock entry for the colour → the inventory isn't following it → OK, no block.
+def test_coloured_order_with_no_stock_row_is_stock_not_entered() -> None:
+    # CHANGES #8: a coloured order whose colour has no stock row at all is no longer silently OK — it is
+    # surfaced as "stock not entered", but never hard-blocked.
     orders = [PlannedPaintOrder(work_order_id=1, colour_key="X", demand_kg=10.0)]
     view = build_forward_view(orders, {})
-    assert view.orders[0].status is PaintFeasibilityStatus.OK
+    assert view.orders[0].status is PaintFeasibilityStatus.STOCK_NOT_ENTERED
     assert view.orders[0].is_tracked is False
     assert view.blocked_order_ids == []
+    assert view.stock_not_entered_order_ids == [1]
+
+
+def test_untracked_placeholder_colour_is_stock_not_entered() -> None:
+    # CHANGES #8: a stock row exists but the colour has no movement history (the 0-kg auto-placeholder).
+    # The balance is meaningless, so it is STOCK_NOT_ENTERED, not a silent OK and not a balance warning.
+    orders = [PlannedPaintOrder(work_order_id=1, colour_key="X", demand_kg=10.0)]
+    view = build_forward_view(orders, {"X": _stock("X", 0.0, tracked=False)})
+    assert view.orders[0].status is PaintFeasibilityStatus.STOCK_NOT_ENTERED
+    assert view.blocked_order_ids == []
+    assert view.warning_order_ids == []
+    assert view.stock_not_entered_order_ids == [1]
 
 
 def test_colourless_order_is_ok() -> None:
+    # A truly colourless order makes no paint claim → OK (not "stock not entered").
     orders = [PlannedPaintOrder(work_order_id=1, colour_key=None, demand_kg=10.0)]
     view = build_forward_view(orders, {"X": _stock("X", 0.0)})
     assert view.orders[0].status is PaintFeasibilityStatus.OK
+    assert view.stock_not_entered_order_ids == []
 
 
 def test_two_series_are_costed_independently() -> None:

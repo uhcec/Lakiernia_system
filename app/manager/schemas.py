@@ -452,13 +452,15 @@ class PaintForwardViewRead(BaseModel):
 
     Orders are listed in execution (queue) order — the point at which a colour series runs dry is
     sequence-dependent. ``blocked_order_ids`` is the hard-block set (metered colour out of stock);
-    ``warning_order_ids`` is the runs-short / manual-used low-confidence set.
+    ``warning_order_ids`` is the runs-short / manual-used low-confidence set; ``stock_not_entered_order_ids``
+    is the untracked-colour set (stock not entered — enter it), surfaced but never hard-blocked (CHANGES #8).
     """
 
     production_type: ProductionType
     orders: list[OrderPaintFeasibilityRead]
     blocked_order_ids: list[int]
     warning_order_ids: list[int]
+    stock_not_entered_order_ids: list[int] = []
 
 
 class AutoScheduleProposal(BaseModel):

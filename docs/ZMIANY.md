@@ -12,7 +12,7 @@ teraz (`plik:linia`), czego chce właściciel i dlaczego. Potwierdzone zachowani
 | 5 | zmiana | Koszt zmiany koloru tylko wg wielkości (bez kierunku) ✅ |
 | 6 | zmiana | Dwie reguły układania (termin → kolor) ✅ |
 | 7 | zmiana | Wywalić zgadywanie jasności z kodu RAL ✅ |
-| 8 | zmiana | Oznaczać kolory nieśledzone zamiast cichego OK |
+| 8 | zmiana | Oznaczać kolory nieśledzone zamiast cichego OK ✅ |
 | 9 | zmiana | Zapisywać faktyczną długość zmiany dla „dobrego dnia" |
 | 10 | zmiana | Uwidocznić czujkę przecieku ilości ✅ |
 
@@ -53,9 +53,10 @@ teraz (`plik:linia`), czego chce właściciel i dlaczego. Potwierdzone zachowani
 - **Cel:** usunąć. Razem z #5 planowanie kolorów w ciągu dnia sprowadza się do **grupowania identycznych kolorów** (koszt = liczba zmian × 15/30 min wg wielkości).
 - **Zrobione:** skasowano `ral_lightness` i tablice `_RAL_*`; `light_to_dark_order` → `group_identical_colours` (grupy alfabetycznie wg tożsamości koloru, „bez koloru" na końcu). Pola `ral_code` w `ColourOrderable`/`SequencedOrder`/`AutomaticPassObservation` (już martwe) usunięto. `app/manager/colour.py`, `app/manager/measurement.py`, `app/manager/service.py`.
 
-### #8 — Oznaczać kolory nieśledzone zamiast cichego OK  *(zmiana)*
+### #8 — Oznaczać kolory nieśledzone zamiast cichego OK  *(zmiana)* — ✅ ZROBIONE 2026-06-26
 - **Teraz:** kolor bez historii stanu (tylko placeholder 0 kg) traktowany po cichu jako „OK" — planer nic nie twierdzi. `app/manager/paint_feasibility.py:120-133`
 - **Cel:** pokazać go jako osobny widoczny stan („brak wprowadzonego stanu — wprowadź") zamiast cichego OK. (Nie da się twardo blokować na nieznanym — ale nie ma być niewidoczne.)
+- **Zrobione:** dodano `PaintFeasibilityStatus.STOCK_NOT_ENTERED`. Zlecenie z kolorem bez wiersza stanu lub tylko z placeholderem 0 kg dostaje ten status (lista `stock_not_entered_order_ids`); nigdy nie jest twardo blokowane. Zlecenie bez koloru zostaje OK. `app/manager/paint_feasibility.py`, `app/manager/schemas.py`, `app/manager/service.py`.
 
 ### #9 — Zapisywać faktyczną długość zmiany dla „dobrego dnia"  *(zmiana)*
 - **Teraz:** każdy miniony dzień mierzony względem długiego dnia (800 m²/14 h), bo faktyczna długość zmiany tego dnia nie jest zapisywana. `app/manager/service.py:805-818`

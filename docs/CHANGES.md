@@ -12,7 +12,7 @@ code does now (`file:line`), what the owner wants, and why. See `docs/SPEC.md` f
 | 5 | change | Colour-change cost by size only (drop direction) ✅ |
 | 6 | change | Two scheduling rules (deadline → colour) ✅ |
 | 7 | change | Drop RAL-lightness guessing ✅ |
-| 8 | change | Flag untracked colours instead of silent OK |
+| 8 | change | Flag untracked colours instead of silent OK ✅ |
 | 9 | change | Persist the actual shift length for "good day" |
 | 10 | change | Make the quantity-leak tripwire human-visible ✅ |
 
@@ -54,9 +54,10 @@ code does now (`file:line`), what the owner wants, and why. See `docs/SPEC.md` f
 - **Want:** remove it. Together with #5, within-day colour planning reduces to **grouping identical colours** (cost = number of changes × 15/30 min by size).
 - **Done:** deleted `ral_lightness` + the `_RAL_*` lightness tables; `light_to_dark_order` → `group_identical_colours` (groups ordered alphabetically by colour identity, "no colour" last). `ColourOrderable`/`SequencedOrder`/`AutomaticPassObservation` lost their now-dead `ral_code` field. Within-day colour planning is now pure grouping. `app/manager/colour.py`, `app/manager/measurement.py`, `app/manager/service.py`.
 
-### #8 — Flag untracked colours instead of silent OK  *(change)*
+### #8 — Flag untracked colours instead of silent OK  *(change)* — ✅ DONE 2026-06-26
 - **Now:** a colour with no stock history (only the 0-kg auto-placeholder) is treated as silently "OK" — the planner makes no claim. `app/manager/paint_feasibility.py:120-133`
 - **Want:** surface it as a distinct visible state ("stock not entered — enter it") rather than silent OK. (Can't hard-block on unknown — but should not be invisible.)
+- **Done:** added `PaintFeasibilityStatus.STOCK_NOT_ENTERED`. A coloured order with no stock row, or only the untracked 0-kg placeholder, now gets that status (collected in `PaintForwardView.stock_not_entered_order_ids` / `PaintForwardViewRead`); it is never hard-blocked. A truly colourless order stays OK. `app/manager/paint_feasibility.py`, `app/manager/schemas.py`, `app/manager/service.py`.
 
 ### #9 — Persist the actual shift length for "good day"  *(change)*
 - **Now:** every past day is measured against the long-day bar (800 m² / 14 h) because the actual shift length run that day isn't stored. `app/manager/service.py:805-818`

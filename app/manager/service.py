@@ -1406,6 +1406,7 @@ class ManagerService:
             ],
             blocked_order_ids=view.blocked_order_ids,
             warning_order_ids=view.warning_order_ids,
+            stock_not_entered_order_ids=view.stock_not_entered_order_ids,
         )
 
     def _assert_paint_available_for_automatic(self, work_order: WorkOrder) -> None:
