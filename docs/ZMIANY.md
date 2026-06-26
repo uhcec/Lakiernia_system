@@ -14,7 +14,7 @@ teraz (`plik:linia`), czego chce właściciel i dlaczego. Potwierdzone zachowani
 | 7 | zmiana | Wywalić zgadywanie jasności z kodu RAL ✅ |
 | 8 | zmiana | Oznaczać kolory nieśledzone zamiast cichego OK |
 | 9 | zmiana | Zapisywać faktyczną długość zmiany dla „dobrego dnia" |
-| 10 | zmiana | Uwidocznić czujkę przecieku ilości |
+| 10 | zmiana | Uwidocznić czujkę przecieku ilości ✅ |
 
 ---
 
@@ -60,6 +60,7 @@ teraz (`plik:linia`), czego chce właściciel i dlaczego. Potwierdzone zachowani
 - **Teraz:** każdy miniony dzień mierzony względem długiego dnia (800 m²/14 h), bo faktyczna długość zmiany tego dnia nie jest zapisywana. `app/manager/service.py:805-818`
 - **Cel:** zapisywać faktyczną długość zmiany per dzień i mierzyć „dobry dzień" względem niej. (Łączy się z #4.)
 
-### #10 — Uwidocznić czujkę przecieku ilości  *(zmiana)*
+### #10 — Uwidocznić czujkę przecieku ilości  *(zmiana)* — ✅ ZROBIONE 2026-06-26
 - **Teraz:** przy domykaniu, gdy zaliczone sztuki ≠ całość, zlecenie jest wyrównywane do całości, a ostrzeżenie trafia **tylko do logu technicznego serwera**; żaden człowiek go nie widzi. Sprawdzone na żywo 2026-06-26: przeciek 7/10 domknął się po cichu do 10/10, tylko z wpisem w logu. `app/process/service.py:2343-2350`
 - **Cel:** przeciek to sygnał błędu wyżej — zostawić czujkę, ale uczynić ją **widoczną dla człowieka** (np. flaga na zleceniu), żeby dało się zbadać, zamiast cichego domknięcia. Model ilości ma w ogóle nie dopuszczać przecieków; to jest siatka bezpieczeństwa.
+- **Zrobione:** dodano trwałą flagę `work_orders.quantity_leak_flagged` (migracja `20260626_0041`), ustawianą w czujce przy domykaniu, wystawioną w `WorkOrderRead` (biuro + kierownik) oraz zdarzenie audytu SYSTEM `work_order.quantity_leak_detected`. Zlecenie nadal domyka się do całości (żeby robota nie utknęła), ale przeciek nie jest już cichy. `app/process/service.py`, `app/work_orders/models.py`, `app/work_orders/schemas.py`.

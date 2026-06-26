@@ -2339,13 +2339,32 @@ class ProcessService:
                 break
 
             # Quantity conservation should already make these equal; if not, finalizing would mask a
-            # leak — surface it (NA19) rather than silently overwriting.
+            # leak — surface it (NA19, CHANGES #10) rather than silently overwriting. We still force the
+            # total so the order can close, but we flag it on the order AND write an audit event so a
+            # human sees it (a silent log line nobody reads is not "surfaced").
             if current_work_order.completed_quantity != current_work_order.total_quantity:
+                gap_before = current_work_order.completed_quantity
                 logger.warning(
                     "Finalizing work order %s with a quantity gap: completed=%s total=%s (forcing to total).",
                     current_work_order.order_number,
-                    current_work_order.completed_quantity,
+                    gap_before,
                     current_work_order.total_quantity,
+                )
+                current_work_order.quantity_leak_flagged = True
+                self.audit.record_audit_event(
+                    event_type="work_order.quantity_leak_detected",
+                    station_context=None,
+                    work_order=current_work_order,
+                    target_type="work_order",
+                    target_id=current_work_order.id,
+                    summary=(
+                        f"Quantity leak on work order {current_work_order.order_number}: "
+                        f"credited {gap_before} of {current_work_order.total_quantity} at close (forced to total)."
+                    ),
+                    details={
+                        "completed_quantity": gap_before,
+                        "total_quantity": current_work_order.total_quantity,
+                    },
                 )
             current_work_order.completed_quantity = current_work_order.total_quantity
             self._mark_all_stage_states_done(current_work_order)

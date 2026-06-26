@@ -1635,6 +1635,8 @@ def test_finalize_does_not_warn_when_quantities_match(db_session: Session) -> No
     assert process_service.get_display_status(final).value == "READY"
     # Normal case: quantities reconcile, so the safety-net warning must stay silent.
     assert not any("quantity gap" in record.getMessage() for record in records)
+    # And no leak flag is raised on a clean finalize (CHANGES #10).
+    assert final.quantity_leak_flagged is False
 
 
 def test_finalize_warns_and_forces_total_when_quantity_gap(db_session: Session) -> None:
@@ -1686,6 +1688,14 @@ def test_finalize_warns_and_forces_total_when_quantity_gap(db_session: Session) 
     gap_warnings = [record for record in records if "quantity gap" in record.getMessage()]
     assert len(gap_warnings) == 1
     assert "completed=9" in gap_warnings[0].getMessage()
+    # CHANGES #10: the leak is now human-visible — a persisted flag on the order + an audit event,
+    # not just a log line nobody reads.
+    assert refreshed.quantity_leak_flagged is True
+    leak_event = db_session.scalar(
+        select(AuditEvent).where(AuditEvent.event_type == "work_order.quantity_leak_detected")
+    )
+    assert leak_event is not None
+    assert leak_event.work_order_id == created.id
 
 
 def test_fully_packed_order_cannot_reopen_any_stage(db_session: Session) -> None:

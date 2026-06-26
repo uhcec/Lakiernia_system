@@ -14,7 +14,7 @@ code does now (`file:line`), what the owner wants, and why. See `docs/SPEC.md` f
 | 7 | change | Drop RAL-lightness guessing ✅ |
 | 8 | change | Flag untracked colours instead of silent OK |
 | 9 | change | Persist the actual shift length for "good day" |
-| 10 | change | Make the quantity-leak tripwire human-visible |
+| 10 | change | Make the quantity-leak tripwire human-visible ✅ |
 
 ---
 
@@ -61,6 +61,7 @@ code does now (`file:line`), what the owner wants, and why. See `docs/SPEC.md` f
 - **Now:** every past day is measured against the long-day bar (800 m² / 14 h) because the actual shift length run that day isn't stored. `app/manager/service.py:805-818`
 - **Want:** persist the actual shift length per day and measure "good day" against it. (Connects to #4.)
 
-### #10 — Make the quantity-leak tripwire human-visible  *(change)*
+### #10 — Make the quantity-leak tripwire human-visible  *(change)* — ✅ DONE 2026-06-26
 - **Now:** at finalization, if credited pieces ≠ total, the order is forced to total and a warning is written **only to the technical server log**; no human sees it. Verified live 2026-06-26: a 7/10 leak was silently completed to 10/10 with only a log warning. `app/process/service.py:2343-2350`
 - **Want:** the leak is a sign of an upstream bug — keep the tripwire but make it **visible to a human** (e.g. a flag on the order) so it gets investigated, instead of a silent auto-complete. The quantity model should prevent leaks in the first place; this is the safety net.
+- **Done:** added a persisted `work_orders.quantity_leak_flagged` boolean (migration `20260626_0041`), set in the finalize tripwire, exposed in `WorkOrderRead` (office + manager read models), plus a SYSTEM audit event `work_order.quantity_leak_detected`. The order still force-closes to total (so work isn't stuck) but the leak is no longer silent. `app/process/service.py`, `app/work_orders/models.py`, `app/work_orders/schemas.py`.

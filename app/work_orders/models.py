@@ -147,6 +147,12 @@ class WorkOrder(Base):
     released_to_client_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     total_area_m2: Mapped[float | None] = mapped_column(Float(), nullable=True)
     is_incomplete_on_arrival: Mapped[bool] = mapped_column(Boolean(), nullable=False, default=False)
+    # NA19 safety net (CHANGES #10): set when finalization had to force completed_quantity to total
+    # because credited pieces ≠ total (a quantity-conservation "leak"). It should never happen; when it
+    # does it signals an upstream bug, so it is surfaced to a human (read models) instead of only logged.
+    quantity_leak_flagged: Mapped[bool] = mapped_column(
+        Boolean(), nullable=False, default=False, server_default=text("0")
+    )
     profiles_quantity: Mapped[int | None] = mapped_column(Integer(), nullable=True)
     profiles_to_count: Mapped[bool] = mapped_column(Boolean(), nullable=False, default=False)
     accessories_quantity: Mapped[int | None] = mapped_column(Integer(), nullable=True)

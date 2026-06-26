@@ -71,3 +71,23 @@ manager narrows to SHORT when they decide to run a short day.
 - `shift_advised` removed from `DayCapacityRead` / `MultiDayPlanRead` and the (unused) `manager.ts`
   type — the flag only existed to mark an advised shift, which no longer happens.
 - Connects to CHANGE #9 (persist the *actual* shift length run, for the "good day" measure).
+
+## 2026-06-26 — CHANGE #10: quantity-leak tripwire made human-visible
+
+**Decision:** when finalization detects a quantity-conservation leak (credited pieces ≠ total at
+close), the order still force-closes to total (so work is never stuck), but the leak is now surfaced
+to a human: a persisted `work_orders.quantity_leak_flagged` boolean (shown in the office + manager read
+models) plus a SYSTEM audit event `work_order.quantity_leak_detected`. The technical log warning stays.
+
+**Why:** owner-confirmed 2026-06-26 (CHANGES #10). A leak signals an upstream bug; the old behaviour
+wrote it only to the server log, so a 7/10 → 10/10 silent auto-complete (verified live 2026-06-26) was
+invisible to the shop. Force-closing is kept (don't trap the order) but it must be investigable.
+
+**Implementation notes:**
+- Migration `20260626_0041` adds the column with `server_default 0`; the model also carries
+  `server_default=text("0")` so raw-SQL inserts (the DB-constraint tests) and metadata-built schemas
+  backfill existing/legacy rows.
+- The flag is set inside `_finalize_completion_chain_if_ready`; `record_audit_event` is called with
+  `station_context=None` → recorded under `StationId.SYSTEM` (no operator triggered it).
+- This is a safety net, not the fix: the quantity model should prevent leaks in the first place. The
+  flag is the tripwire that makes a model bug visible.

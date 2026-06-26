@@ -89,7 +89,7 @@ Szczegóły:
 - ✅ Zakończenie Decoralu (bez poprawki) zalicza dobre sztuki. `app/process/service.py:980-986`
 - ✅ GOTOWE = wszystkie sztuki zaliczone (zakończone = całość) ORAZ brak aktywnych ORAZ wszystkie dzieci-poprawki gotowe. `app/process/service.py:2390-2395`
 - ✅ Domykanie idzie w górę po rodzicach — zamknięcie ostatniego dziecka domyka korzeń. `app/process/service.py:2329-2375`
-- ⚠️ **ZMIANA #10** — jeśli sztuki kiedyś „przeciekną" (zaliczone ≠ całość przy domknięciu), zlecenie jest wyrównywane do całości, a ostrzeżenie trafia **tylko do logu technicznego**; ma być **widoczne dla człowieka**. Sprawdzone na żywo 2026-06-26. `app/process/service.py:2343-2350`
+- ✅ **(ZMIANA #10 zrobiona 2026-06-26)** jeśli sztuki „przeciekną" (zaliczone ≠ całość przy domknięciu), zlecenie nadal jest wyrównywane do całości (żeby się domknęło), ale teraz jest **widoczne dla człowieka**: trwała flaga `quantity_leak_flagged` na zleceniu (w read-modelach) + zdarzenie audytu SYSTEM `work_order.quantity_leak_detected`, nie tylko log techniczny. `app/process/service.py:2343-2367`, `app/work_orders/models.py:150-154`
 - ✅ Zakończone dziecko-poprawka jest oznaczane jako „poprawka historyczna". `app/process/service.py:2397-2398`
 - ✅ Pierwszeństwo statusu: niekompletne → gotowe → do zaplanowania → (status partii) → czeka na poprawki → pierwszy niezakończony etap. `app/process/service.py:1132-1164`
 

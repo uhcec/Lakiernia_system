@@ -89,7 +89,7 @@ Details:
 - ✅ DECORAL completion (no correction) credits the good pieces. `app/process/service.py:980-986`
 - ✅ READY = all pieces credited (completed = total) AND no active pieces AND all correction children complete. `app/process/service.py:2390-2395`
 - ✅ Finalization walks up the parent chain — closing the last child closes the root. `app/process/service.py:2329-2375`
-- ⚠️ **CHANGE #10** — if pieces ever "leak" (credited ≠ total at close), the order is forced to total and a warning is written **only to the technical log**; this should be made **human-visible**. Verified live 2026-06-26. `app/process/service.py:2343-2350`
+- ✅ **(CHANGE #10 done 2026-06-26)** if pieces "leak" (credited ≠ total at close) the order is still forced to total so it can close, but it is now **human-visible**: a persisted `quantity_leak_flagged` flag on the order (surfaced in the read models) + a SYSTEM audit event `work_order.quantity_leak_detected`, not just a technical log line. `app/process/service.py:2343-2367`, `app/work_orders/models.py:150-154`
 - ✅ A completed correction child is marked a "historical correction". `app/process/service.py:2397-2398`
 - ✅ Display-status precedence: incomplete → ready → to-plan → (batch status) → waiting-for-corrections → first unfinished stage. `app/process/service.py:1132-1164`
 

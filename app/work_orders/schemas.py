@@ -262,6 +262,9 @@ class WorkOrderRead(BaseModel):
     released_to_client_at: datetime | None = None
     total_area_m2: float | None
     is_incomplete_on_arrival: bool
+    # NA19 safety net (CHANGES #10): true when finalization had to force the total over a quantity leak.
+    # A human-visible flag so the upstream bug gets investigated instead of silently auto-completing.
+    quantity_leak_flagged: bool = False
     surface_preparation_counted_quantity: int | None = None
     surface_preparation_quantity_difference: int | None = None
     profiles_quantity: int | None
