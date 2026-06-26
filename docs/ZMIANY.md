@@ -8,7 +8,7 @@ teraz (`plik:linia`), czego chce właściciel i dlaczego. Potwierdzone zachowani
 | 1 | bug | Poprawka nie może gubić pin/pilne |
 | 2 | UX | Uwidocznić drugi, osobny przebieg Decoral |
 | 3 | zmiana | Gotowe zlecenia wychodzą z kolejki (zwalniają pozycję) |
-| 4 | zmiana | Kierownik ustala długość zmiany (bez doradzania) |
+| 4 | zmiana | Kierownik ustala długość zmiany (bez doradzania) ✅ |
 | 5 | zmiana | Koszt zmiany koloru tylko wg wielkości (bez kierunku) ✅ |
 | 6 | zmiana | Dwie reguły układania (termin → kolor) ✅ |
 | 7 | zmiana | Wywalić zgadywanie jasności z kodu RAL ✅ |
@@ -32,9 +32,10 @@ teraz (`plik:linia`), czego chce właściciel i dlaczego. Potwierdzone zachowani
 - **Cel:** po zakończeniu zlecenie **opuszcza aktywną kolejkę linii i zwalnia pozycję**. Wtedy cała mechanika odsuwania jest zbędna.
 - **Przed wdrożeniem:** sprawdzić, co polega na tym, że gotowe zostają w kolejce (tablica kierownika, statystyki).
 
-### #4 — Kierownik ustala długość zmiany  *(zmiana)*
+### #4 — Kierownik ustala długość zmiany  *(zmiana)* — ✅ ZROBIONE 2026-06-26
 - **Teraz:** gdy długość zmiany jest pominięta, system doradza długą/krótką wg dostępnej gotowej roboty. `app/manager/capacity.py:165-171`
 - **Cel:** wywalić doradzanie; kierownik ustala długość dnia (długi/krótki) jawnie.
+- **Zrobione:** usunięto `advise_shift_length`; `get_day_capacity`/`get_multi_day_plan` przy pominiętej długości domyślnie biorą LONG zamiast doradzać z m². Wywalono bezużyteczne już pole `shift_advised` z `DayCapacityRead`/`MultiDayPlanRead` (oraz nieużywane pole w `manager.ts`). `app/manager/capacity.py`, `app/manager/service.py`, `app/manager/schemas.py`.
 
 ### #5 — Koszt zmiany koloru tylko wg wielkości  *(zmiana)* — ✅ ZROBIONE 2026-06-26
 - **Teraz:** koszt = pasmo wielkości (≤100 m² → 15 min, >100 m² → 30 min) skalowane **kierunkiem** koloru (jasny→ciemny pół, ciemny→jasny pełne). `app/manager/capacity.py:127-147`, `app/manager/colour.py:157-175`

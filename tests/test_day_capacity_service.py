@@ -11,7 +11,7 @@ import pytest
 from sqlalchemy.orm import Session
 
 from app.audit.context import StationContext
-from app.manager.capacity import FLOOR_LONG_M2, ShiftLength
+from app.manager.capacity import FLOOR_SHORT_M2, ShiftLength
 from app.manager.repository import ManagerRepository
 from app.manager.schemas import WorkOrderPlanAssignRequest
 from app.manager.service import ManagerService
@@ -61,25 +61,24 @@ def _plan_automatic(
     return created.id
 
 
-def test_empty_line_advises_short_day_below_floor(db_session: Session) -> None:
+def test_empty_line_defaults_to_long_day(db_session: Session) -> None:
     _, manager_service = _build(db_session)
     day = manager_service.get_day_capacity(station_context=MANAGER)
     assert day.production_type == ProductionType.AUTOMATIC
-    assert day.shift_advised is True
-    assert day.shift_length is ShiftLength.SHORT  # no ready work → short day
+    # CHANGES #4: the planner no longer advises from available work — an unset shift defaults to LONG.
+    assert day.shift_length is ShiftLength.LONG
     assert day.placed_m2 == 0.0
-    assert day.below_floor is True
+    assert day.below_floor is True  # 0 < 800
 
 
-def test_advises_long_day_and_sums_placed_m2(db_session: Session) -> None:
+def test_default_long_day_sums_placed_m2(db_session: Session) -> None:
     work_order_service, manager_service = _build(db_session)
-    # 900 m² of ready work (≥ 800 long-day floor) → advise a long day; same colour → no changeovers.
     _plan_automatic(work_order_service, manager_service, "A1", "RAL 9010", 500.0)
     _plan_automatic(work_order_service, manager_service, "A2", "RAL 9010", 400.0)
 
     day = manager_service.get_day_capacity(station_context=MANAGER)
 
-    assert day.shift_length is ShiftLength.LONG
+    assert day.shift_length is ShiftLength.LONG  # default
     assert day.placed_m2 == 900.0
     assert day.placed_order_count == 2
     assert day.below_floor is False  # 900 ≥ 800
@@ -87,20 +86,19 @@ def test_advises_long_day_and_sums_placed_m2(db_session: Session) -> None:
     assert day.over_ceiling is False
 
 
-def test_light_to_dark_sweep_groups_colours_and_costs_by_size(db_session: Session) -> None:
+def test_grouped_colours_cost_by_size(db_session: Session) -> None:
     work_order_service, manager_service = _build(db_session)
-    # Interleaved input A,B,A — but the day is reordered into a light→dark sweep (N49-5) that GROUPS the
-    # two A orders, so only ONE colour change remains (down from the 2 the raw queue order had).
+    # Interleaved input A,B,A — but the day groups the two A orders (N49-5), so only ONE colour change
+    # remains (down from the 2 the raw queue order had).
     _plan_automatic(work_order_service, manager_service, "A1", "RAL 1000", 100.0)
     _plan_automatic(work_order_service, manager_service, "B1", "RAL 2000", 100.0)
     _plan_automatic(work_order_service, manager_service, "A2", "RAL 1000", 100.0)
 
     day = manager_service.get_day_capacity(station_context=MANAGER)
 
-    assert day.changeover_count == 1  # grouped sweep, not the 2 of the interleaved queue order
-    # Size+direction-aware cost (N49-6): all orders ≤ 100 m² → small "bez odzysku" band (≤ 15 min),
-    # not a flat 20-min seed. The single change costs at most the small band.
-    assert day.changeover_minutes <= 15.0
+    assert day.changeover_count == 1  # grouped, not the 2 of the interleaved queue order
+    # Size-band cost (N49-6): all orders ≤ 100 m² → small "bez odzysku" band = 15 min.
+    assert day.changeover_minutes == 15.0
     assert day.changeover_minutes_total == round(day.changeover_minutes, 1)
     assert day.changeover_loss_m2 > 0.0
     assert day.net_ceiling_m2 < day.gross_ceiling_m2
@@ -111,11 +109,11 @@ def test_caller_can_force_shift_length(db_session: Session) -> None:
     _plan_automatic(work_order_service, manager_service, "A1", "RAL 9010", 100.0)
 
     day = manager_service.get_day_capacity(
-        shift_length=ShiftLength.LONG, station_context=MANAGER
+        shift_length=ShiftLength.SHORT, station_context=MANAGER
     )
-    assert day.shift_advised is False
-    assert day.shift_length is ShiftLength.LONG
-    assert day.floor_m2 == FLOOR_LONG_M2
+    # The manager's explicit choice is honoured over the LONG default.
+    assert day.shift_length is ShiftLength.SHORT
+    assert day.floor_m2 == FLOOR_SHORT_M2
 
 
 def test_manual_line_is_separate_bucket(db_session: Session) -> None:

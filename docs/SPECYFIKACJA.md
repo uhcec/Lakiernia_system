@@ -123,7 +123,7 @@ Szczegóły:
 - ✅ Próg opłacalności: 800 m² (długi dzień) / 500 m² (krótki). `app/manager/capacity.py:33-36`
 - ✅ Zmiany: długa = 07:00–21:00 (14 h), krótka = 07:00–15:00 (8 h). `app/manager/capacity.py:32-38`
 - ✅ Pasmo prędkości kabiny 60–100 m²/h, używany środek **80**. `app/manager/capacity.py:41-43`
-- ⚠️ **ZMIANA #4** — system obecnie **doradza** długość zmiany; ma ją ustawiać **kierownik**. `app/manager/capacity.py:165-171`
+- ✅ **(ZMIANA #4 zrobiona 2026-06-26)** długość zmiany **ustawia kierownik**; doradzanie wg m² usunięto. Gdy wywołanie nie poda długości, planer domyślnie przyjmuje LONG (bez doradzania). `app/manager/service.py:1071`, `1159`
 - ✅ Koszt zmiany koloru **tylko wg wielkości**: następne ≤100 m² → 15 min; >100 m² → 30 min. `app/manager/capacity.py:45-55`, `app/manager/capacity.py:127-147`
   - ✅ **(ZMIANA #5 zrobiona 2026-06-26)** czynnik **kierunku** koloru (jasny→ciemny taniej) usunięto — zmiana koloru kosztuje swoje pasmo wielkości niezależnie od kierunku.
 - ✅ Próg 100 m² to ten sam co próg farby/odzysku. `app/manager/capacity.py:53`

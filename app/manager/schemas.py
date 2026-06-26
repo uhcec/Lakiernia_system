@@ -316,16 +316,15 @@ class DayCapacityRead(BaseModel):
     """One working day as a capacity bucket — floor + ceiling + how the line's planned work fills it.
 
     Read-side of N49-3: the day-capacity foundation the multi-day placement (N49-4) and the capacity
-    board (N49-9) build on. ``shift_advised`` is true when the shift length was derived from the
-    available ready work rather than supplied by the caller. ``changeover_minutes`` is the **average
-    per-change** cost folded into the net ceiling — size + direction-aware (N49-6): derived from the
-    line's actual light→dark sweep (the 100 m² odzysk band × colour direction), not a flat constant.
-    ``changeover_minutes_total`` is that sweep's full changeover cost.
+    board (N49-9) build on. The ``shift_length`` is **set by the manager** (CHANGES #4); when the caller
+    omits it the planner defaults to LONG (it no longer advises from available work). ``changeover_minutes``
+    is the **average per-change** cost folded into the net ceiling — size-band-aware (N49-6): derived from
+    the line's actual colour-grouped order (the 100 m² odzysk band), not a flat constant.
+    ``changeover_minutes_total`` is that order's full changeover cost.
     """
 
     production_type: ProductionType
     shift_length: ShiftLength
-    shift_advised: bool
     shift_hours: float
     floor_m2: float
     ceiling_rate_m2_per_h: float
@@ -411,15 +410,14 @@ class MultiDayPlanRead(BaseModel):
 
     Lays the line's active planned orders across the next ``horizon_working_days`` working days,
     earliest-deadline-first, into net-ceiling-bounded day buckets (``app/manager/placement.py``).
-    ``shift_advised`` is true when the shift length was derived from the available work rather than
-    supplied; ``changeover_minutes`` is the learned per-change cost (N49-2) folded into each day's net
-    ceiling. ``infeasible_order_ids`` is the "won't make it" set — orders whose scheduled day is past
-    their hard pickup deadline or beyond the horizon.
+    The ``shift_length`` is **set by the manager** (CHANGES #4); when the caller omits it the planner
+    defaults to LONG. ``changeover_minutes`` is the per-change cost folded into each day's net ceiling.
+    ``infeasible_order_ids`` is the "won't make it" set — orders whose scheduled day is past their hard
+    pickup deadline or beyond the horizon.
     """
 
     production_type: ProductionType
     shift_length: ShiftLength
-    shift_advised: bool
     horizon_working_days: int
     changeover_minutes: float
     changeover_is_measured: bool

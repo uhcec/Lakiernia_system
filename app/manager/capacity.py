@@ -153,15 +153,6 @@ def remaining_shift_hours(now: datetime, shift_length: ShiftLength) -> float:
     return max(min(SHIFT_START_HOUR + full - current_hour, full), 0.0)
 
 
-def advise_shift_length(available_ready_m2: float) -> ShiftLength:
-    """Advise the shift length from the work available to run (``docs/FACTORY_DOMAIN_MODEL.md`` §7).
-
-    Enough ready work to clear the long-day floor → run a long day; otherwise a short day (a long day
-    that idled below 800 m² would be unprofitable). The threshold is the long-day floor itself.
-    """
-    return ShiftLength.LONG if available_ready_m2 >= FLOOR_LONG_M2 else ShiftLength.SHORT
-
-
 def compute_day_capacity(
     shift_length: ShiftLength,
     placed_orders: Sequence[PlacedOrder],

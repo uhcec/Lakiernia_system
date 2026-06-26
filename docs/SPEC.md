@@ -123,7 +123,7 @@ Details:
 - ✅ Profitable **floor**: 800 m² (long day) / 500 m² (short day). `app/manager/capacity.py:33-36`
 - ✅ Shifts: long = 07:00–21:00 (14 h), short = 07:00–15:00 (8 h). `app/manager/capacity.py:32-38`
 - ✅ Booth physical rate band 60–100 m²/h, midpoint **80** used. `app/manager/capacity.py:41-43`
-- ⚠️ **CHANGE #4** — the system currently **advises** the shift length; the **manager should set it** instead. `app/manager/capacity.py:165-171`
+- ✅ **(CHANGE #4 done 2026-06-26)** the manager **sets** the shift length; the m²-based advising was removed. When the caller omits a shift length the planner defaults to LONG (no advising). `app/manager/service.py:1071`, `1159`
 - ✅ Colour-change cost by **size only**: next order ≤100 m² → 15 min; >100 m² → 30 min. `app/manager/capacity.py:45-55`, `app/manager/capacity.py:127-147`
   - ✅ **(CHANGE #5 done 2026-06-26)** the colour-**direction** factor (light→dark cheaper) was removed — a colour change costs its size band regardless of direction.
 - ✅ The 100 m² threshold equals the paint/odzysk threshold. `app/manager/capacity.py:53`

@@ -8,7 +8,7 @@ code does now (`file:line`), what the owner wants, and why. See `docs/SPEC.md` f
 | 1 | bug | A correction must not lose its pin/urgent lock |
 | 2 | UX | Make the second, separate Decoral pass visible |
 | 3 | change | Completed orders leave the queue (release their position) |
-| 4 | change | Manager sets the shift length (drop auto-advising) |
+| 4 | change | Manager sets the shift length (drop auto-advising) ✅ |
 | 5 | change | Colour-change cost by size only (drop direction) ✅ |
 | 6 | change | Two scheduling rules (deadline → colour) ✅ |
 | 7 | change | Drop RAL-lightness guessing ✅ |
@@ -32,9 +32,11 @@ code does now (`file:line`), what the owner wants, and why. See `docs/SPEC.md` f
 - **Want:** on completion the order **leaves the line's active queue and releases its position**. This makes the trailing/shuffle machinery unnecessary.
 - **Before implementing:** check what relies on completed orders staying planned (e.g. the manager board, any statistics).
 
-### #4 — Manager sets the shift length  *(change)*
+### #4 — Manager sets the shift length  *(change)* — ✅ DONE 2026-06-26
 - **Now:** when shift length is omitted the system advises long/short from available ready m². `app/manager/capacity.py:165-171`
 - **Want:** remove the advising; the manager sets the day length (long/short) explicitly.
+- **Done:** deleted `advise_shift_length`; `get_day_capacity`/`get_multi_day_plan` default an omitted shift to LONG instead of advising from m². Dropped the now-meaningless `shift_advised` field from `DayCapacityRead`/`MultiDayPlanRead` (and the unused `manager.ts` type field). `app/manager/capacity.py`, `app/manager/service.py`, `app/manager/schemas.py`.
+- **Default note:** LONG was chosen as the unset default (the full day); the manager toggles SHORT explicitly via the `shift_length` query param. See `docs/DECISIONS.md`.
 
 ### #5 — Colour-change cost by size only  *(change)* — ✅ DONE 2026-06-26
 - **Now:** changeover cost = size band (≤100 m² → 15 min, >100 m² → 30 min) scaled by colour **direction** (light→dark pays half, dark→light full). `app/manager/capacity.py:127-147`, `app/manager/colour.py:157-175`

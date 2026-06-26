@@ -54,3 +54,20 @@ collapses to grouping identical colours, which is all the owner wanted.
   implement the same "group identical colours alphabetically" idea for two different callers (the
   manager's rule-based proposal vs. the capacity-costing sweep). Not unified now to keep the change
   targeted; worth revisiting if a third caller appears.
+
+## 2026-06-26 — CHANGE #4: manager sets the shift length (no advising)
+
+**Decision:** the day-capacity / multi-day planner no longer advises LONG vs SHORT from the available
+ready m². The **manager sets** the shift length explicitly (the `shift_length` query param). When the
+caller omits it, the planner defaults to **LONG** (the full 07:00–21:00 day).
+
+**Why:** owner-confirmed 2026-06-26 (CHANGES #4). The m²-based advice second-guessed a decision the
+manager makes from real-world context (staffing, urgency) the system can't see; it was a guess the
+manager just overrode. LONG is the safe default because it shows the most capacity/headroom — the
+manager narrows to SHORT when they decide to run a short day.
+
+**Implementation notes:**
+- `advise_shift_length` deleted from `capacity.py`.
+- `shift_advised` removed from `DayCapacityRead` / `MultiDayPlanRead` and the (unused) `manager.ts`
+  type — the flag only existed to mark an advised shift, which no longer happens.
+- Connects to CHANGE #9 (persist the *actual* shift length run, for the "good day" measure).

@@ -195,7 +195,6 @@ export interface PlannedDay {
 export interface MultiDayPlan {
   production_type: ProductionTypeValue;
   shift_length: "LONG" | "SHORT";
-  shift_advised: boolean;
   horizon_working_days: number;
   changeover_minutes: number;
   changeover_is_measured: boolean;

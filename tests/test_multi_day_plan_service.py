@@ -79,8 +79,8 @@ def test_empty_line_yields_no_days(db_session: Session) -> None:
     _, manager_service = _build(db_session)
     plan = manager_service.get_multi_day_plan(station_context=MANAGER, now=_MORNING)
     assert plan.production_type == ProductionType.AUTOMATIC
-    assert plan.shift_advised is True
-    assert plan.shift_length is ShiftLength.SHORT
+    # CHANGES #4: no advising — an unset shift defaults to LONG.
+    assert plan.shift_length is ShiftLength.LONG
     assert plan.days == []
     assert plan.infeasible_order_ids == []
 

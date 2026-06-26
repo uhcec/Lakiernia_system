@@ -15,7 +15,6 @@ from app.manager.capacity import (
     SHIFT_LONG_HOURS,
     PlacedOrder,
     ShiftLength,
-    advise_shift_length,
     changeover_minutes_for_transition,
     compute_day_capacity,
     remaining_shift_hours,
@@ -97,13 +96,6 @@ def test_negative_inputs_are_clamped() -> None:
     assert day.placed_m2 == 0.0
     assert day.changeover_count == 0
     assert day.changeover_loss_m2 == 0.0
-
-
-def test_advise_shift_length_by_long_day_floor() -> None:
-    assert advise_shift_length(FLOOR_LONG_M2) is ShiftLength.LONG  # exactly at the floor → long
-    assert advise_shift_length(FLOOR_LONG_M2 + 400.0) is ShiftLength.LONG
-    assert advise_shift_length(FLOOR_LONG_M2 - 0.01) is ShiftLength.SHORT
-    assert advise_shift_length(0.0) is ShiftLength.SHORT
 
 
 def test_ceiling_rate_seed_is_the_band_midpoint() -> None:

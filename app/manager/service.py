@@ -27,7 +27,6 @@ from app.manager.capacity import (
     SHIFT_LONG_HOURS,
     PlacedOrder,
     ShiftLength,
-    advise_shift_length,
     compute_day_capacity,
     remaining_shift_hours,
 )
@@ -1060,17 +1059,15 @@ class ManagerService:
         cost is computed **size-band-aware** (N49-6): each colour change costs the 100 m² odzysk band,
         so the m² loss reflects size, not a flat per-change count. ``changeover_minutes`` returns the
         average per-change cost of that order; ``changeover_is_measured`` reflects whether the learned
-        seed was refined (kept for the read model, though the bands themselves are structural). When
-        ``shift_length`` is omitted it is **advised** from the available ready work. Pure arithmetic
-        lives in ``app/manager/capacity.py`` / ``app/manager/colour.py``.
+        seed was refined (kept for the read model, though the bands themselves are structural). The
+        ``shift_length`` is set by the manager (CHANGES #4); when omitted the planner defaults to LONG.
+        Pure arithmetic lives in ``app/manager/capacity.py`` / ``app/manager/colour.py``.
         """
         self._ensure_manager_station_action(station_context)
 
         active_orders = self._active_planned_orders_for_line(production_type)
-        available_m2 = sum(work_order.total_area_m2 or 0.0 for work_order in active_orders)
 
-        shift_advised = shift_length is None
-        resolved_shift = shift_length if shift_length is not None else advise_shift_length(available_m2)
+        resolved_shift = shift_length if shift_length is not None else ShiftLength.LONG
 
         # Reorder the day to group identical colours (N49-5) so the changeover count + cost reflect the
         # arrangement the planner would actually run, not the raw queue order.
@@ -1105,7 +1102,6 @@ class ManagerService:
         return DayCapacityRead(
             production_type=production_type,
             shift_length=day.shift_length,
-            shift_advised=shift_advised,
             shift_hours=day.shift_hours,
             floor_m2=day.floor_m2,
             ceiling_rate_m2_per_h=day.ceiling_rate_m2_per_h,
@@ -1149,8 +1145,8 @@ class ManagerService:
         N49-2). **Within each placed day** the orders are then reordered to **group identical colours**
         (N49-5) and that day's **size-band-aware** changeover cost is reported (N49-6). Each order also
         carries a **suggested line** (N49-8: small-m² colour-orphan → manual, else automatic — a
-        manager-overridable hint). When ``shift_length`` is omitted it is **advised** from the available
-        ready work.
+        manager-overridable hint). The ``shift_length`` is set by the manager (CHANGES #4); when omitted
+        the planner defaults to LONG.
         ``infeasible_order_ids`` is the "won't make it" set — orders whose scheduled day is past their
         hard pickup deadline or beyond the horizon. Pure placement arithmetic lives in
         ``app/manager/placement.py``; colour ordering / line lever in ``app/manager/colour.py``.
@@ -1159,10 +1155,8 @@ class ManagerService:
 
         active_orders = self._active_planned_orders_for_line(production_type)
         orders_by_id = {work_order.id: work_order for work_order in active_orders}
-        available_m2 = sum(work_order.total_area_m2 or 0.0 for work_order in active_orders)
 
-        shift_advised = shift_length is None
-        resolved_shift = shift_length if shift_length is not None else advise_shift_length(available_m2)
+        resolved_shift = shift_length if shift_length is not None else ShiftLength.LONG
 
         placeable = [
             PlaceableOrder(
@@ -1301,7 +1295,6 @@ class ManagerService:
         return MultiDayPlanRead(
             production_type=production_type,
             shift_length=plan.shift_length,
-            shift_advised=shift_advised,
             horizon_working_days=plan.horizon_working_days,
             # The headline cost is now the bounded N49-6 size-band figure that actually sized the
             # plan (NA52). It is always determinate from the orders' sizes/colours — a structural model,
