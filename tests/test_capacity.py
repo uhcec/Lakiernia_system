@@ -124,12 +124,10 @@ def test_remaining_shift_hours_prorates_today() -> None:
     assert remaining_shift_hours(datetime(2026, 6, 24, 13, 0), ShiftLength.SHORT) == 2.0
 
 
-def test_changeover_minutes_size_and_direction_band() -> None:
-    # Size: ≤ 100 m² uses the small band, > 100 the large band (dark→light = full band).
-    assert changeover_minutes_for_transition(next_order_m2=80.0, light_to_dark=False) == CHANGEOVER_BAND_SMALL_MINUTES
-    assert changeover_minutes_for_transition(next_order_m2=150.0, light_to_dark=False) == CHANGEOVER_BAND_LARGE_MINUTES
-    # Direction: light→dark is strictly cheaper than the dark→light full band.
-    assert (
-        changeover_minutes_for_transition(next_order_m2=150.0, light_to_dark=True)
-        < changeover_minutes_for_transition(next_order_m2=150.0, light_to_dark=False)
-    )
+def test_changeover_minutes_size_band_only() -> None:
+    # CHANGES #5: cost is the NEXT order's size band only — no colour-direction factor.
+    # ≤ 100 m² uses the small band, > 100 the large band.
+    assert changeover_minutes_for_transition(next_order_m2=80.0) == CHANGEOVER_BAND_SMALL_MINUTES
+    assert changeover_minutes_for_transition(next_order_m2=150.0) == CHANGEOVER_BAND_LARGE_MINUTES
+    # Missing size is treated as the conservative large band.
+    assert changeover_minutes_for_transition(next_order_m2=None) == CHANGEOVER_BAND_LARGE_MINUTES

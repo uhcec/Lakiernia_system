@@ -53,8 +53,7 @@ class AutomaticPassObservation:
 
     ``hanging_started_at`` / ``packing_done_at`` must be consistent (both naive UTC or both aware) so
     they subtract cleanly; the service normalises them. ``colour_key`` is the colour identity used to
-    decide whether a consecutive pair is a changeover (``None`` = no colour); ``ral_code`` carries the
-    raw code so consumers can derive the bounded size+direction changeover cost (N49-6).
+    decide whether a consecutive pair is a changeover (``None`` = no colour).
     """
 
     work_order_id: int
@@ -62,7 +61,6 @@ class AutomaticPassObservation:
     total_area_m2: float | None
     hanging_started_at: datetime
     packing_done_at: datetime
-    ral_code: str | None = None
 
 
 def _union_seconds(intervals: Sequence[tuple[datetime, datetime]]) -> float:

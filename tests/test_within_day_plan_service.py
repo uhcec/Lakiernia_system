@@ -70,9 +70,10 @@ def _plan(
     return created.id
 
 
-def test_day_is_ordered_light_to_dark_with_colours_grouped(db_session: Session) -> None:
+def test_day_groups_identical_colours(db_session: Session) -> None:
     work_order_service, manager_service = _build(db_session)
-    # Insert dark-first + interleaved; the sweep must put white first, group the two whites, black last.
+    # Insert interleaved; the day must group identical colours adjacent (CHANGES #7: no light→dark
+    # sweep — groups are ordered alphabetically by colour identity, the two whites grouped together).
     black = _plan(work_order_service, manager_service, "Black", "RAL 9005", 100.0)
     white1 = _plan(work_order_service, manager_service, "White1", "RAL 9010", 100.0)
     grey = _plan(work_order_service, manager_service, "Grey", "RAL 7035", 100.0)
@@ -83,8 +84,8 @@ def test_day_is_ordered_light_to_dark_with_colours_grouped(db_session: Session) 
     by_position = sorted(placements, key=lambda p: (p.day_index, p.sequence_position))
     ordered_ids = [p.work_order_id for p in by_position]
 
-    # White (lightest, grouped) → grey → black (darkest).
-    assert ordered_ids == [white1, white2, grey, black]
+    # Alphabetical by colour identity: RAL 7035 (grey) → RAL 9005 (black) → RAL 9010 (white, grouped).
+    assert ordered_ids == [grey, black, white1, white2]
     # sequence_position is a clean 0..n-1 within the (single) day.
     assert [p.sequence_position for p in by_position] == [0, 1, 2, 3]
 
@@ -100,21 +101,21 @@ def test_grouping_lowers_day_changeover_count(db_session: Session) -> None:
     plan = manager_service.get_multi_day_plan(shift_length=None, station_context=MANAGER, now=_MORNING)
     assert len(plan.days) == 1
     assert plan.days[0].changeover_count == 1
-    # Size+direction-aware cost (N49-6): one change, both small (≤100 m²) → at most the 15-min band.
-    assert 0.0 < plan.days[0].changeover_minutes <= 15.0
+    # Size-band cost (N49-6): one change, next order small (≤100 m²) → the 15-min band.
+    assert plan.days[0].changeover_minutes == 15.0
 
 
 def test_large_orders_incur_changeover_cost(db_session: Session) -> None:
     work_order_service, manager_service = _build(db_session)
-    # Two distinct colours, both LARGE (>100 m²): white→black is the cheap light→dark direction but
-    # still uses the large (30-min) band, so the day carries a real changeover cost (not zero).
+    # Two distinct colours, both LARGE (>100 m²): the change uses the large (30-min) band regardless of
+    # direction (CHANGES #5), so the day carries a real changeover cost (not zero).
     _plan(work_order_service, manager_service, "BigWhite", "RAL 9010", 300.0)
     _plan(work_order_service, manager_service, "BigBlack", "RAL 9005", 300.0)
 
     plan = manager_service.get_multi_day_plan(shift_length=None, station_context=MANAGER, now=_MORNING)
     day = next(d for d in plan.days if d.changeover_count == 1)
-    # Large band 30 min × light→dark factor 0.5 = 15 min.
-    assert day.changeover_minutes == 15.0
+    # Large band = 30 min, no direction discount.
+    assert day.changeover_minutes == 30.0
 
 
 def test_small_colour_orphan_is_suggested_manual(db_session: Session) -> None:

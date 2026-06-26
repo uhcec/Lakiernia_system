@@ -185,19 +185,21 @@ def test_plan_carries_queue_position_and_revision_for_the_blend(db_session: Sess
 
 
 def test_suggested_order_applies_back_via_reorder_queue(db_session: Session) -> None:
-    # Plan dark→light→mid (queue order A,B,C); the suggested sweep is light→dark = B, C, A. Applying that
-    # order through the existing reorder endpoint (the board's "Zastosuj plan") must rewrite the queue.
+    # Plan queue order A,B,C; the suggestion groups identical colours, ordered alphabetically by colour
+    # identity (CHANGES #7: no light→dark sweep). Applying that order through the existing reorder
+    # endpoint (the board's "Zastosuj plan") must rewrite the queue.
     work_order_service, manager_service = _build(db_session)
-    a_dark = _plan_automatic(work_order_service, manager_service, "A", "RAL 9005", 100.0, _COMFORTABLE)
-    b_light = _plan_automatic(work_order_service, manager_service, "B", "RAL 9010", 100.0, _COMFORTABLE)
-    c_mid = _plan_automatic(work_order_service, manager_service, "C", "RAL 7035", 100.0, _COMFORTABLE)
+    a = _plan_automatic(work_order_service, manager_service, "A", "RAL 9005", 100.0, _COMFORTABLE)
+    b = _plan_automatic(work_order_service, manager_service, "B", "RAL 9010", 100.0, _COMFORTABLE)
+    c = _plan_automatic(work_order_service, manager_service, "C", "RAL 7035", 100.0, _COMFORTABLE)
 
     plan = manager_service.get_multi_day_plan(station_context=MANAGER, now=_MORNING)
     suggested = sorted(
         (p for day in plan.days for p in day.placements),
         key=lambda p: (p.day_index, p.sequence_position),
     )
-    assert [p.work_order_id for p in suggested] == [b_light, c_mid, a_dark]
+    # Alphabetical by colour identity: RAL 7035 (c) → RAL 9005 (a) → RAL 9010 (b).
+    assert [p.work_order_id for p in suggested] == [c, a, b]
 
     manager_service.reorder_queue(
         WorkOrderQueueReorderBatchRequest(
@@ -217,7 +219,7 @@ def test_suggested_order_applies_back_via_reorder_queue(db_session: Session) -> 
         (p for day in after.days for p in day.placements),
         key=lambda p: p.queue_position,
     )
-    assert [p.work_order_id for p in by_queue] == [b_light, c_mid, a_dark]
+    assert [p.work_order_id for p in by_queue] == [c, a, b]
 
 
 def test_multi_day_plan_requires_manager(db_session: Session) -> None:

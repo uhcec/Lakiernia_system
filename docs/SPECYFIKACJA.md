@@ -124,15 +124,15 @@ Szczegóły:
 - ✅ Zmiany: długa = 07:00–21:00 (14 h), krótka = 07:00–15:00 (8 h). `app/manager/capacity.py:32-38`
 - ✅ Pasmo prędkości kabiny 60–100 m²/h, używany środek **80**. `app/manager/capacity.py:41-43`
 - ⚠️ **ZMIANA #4** — system obecnie **doradza** długość zmiany; ma ją ustawiać **kierownik**. `app/manager/capacity.py:165-171`
-- ✅ Koszt zmiany koloru wg **wielkości**: następne ≤100 m² → 15 min; >100 m² → 30 min. `app/manager/capacity.py:45-58`
-  - ⚠️ **ZMIANA #5** — koszt zależy obecnie też od **kierunku** koloru (jasny→ciemny taniej); kierunek ma zniknąć (tylko wielkość). `app/manager/capacity.py:127-147`
+- ✅ Koszt zmiany koloru **tylko wg wielkości**: następne ≤100 m² → 15 min; >100 m² → 30 min. `app/manager/capacity.py:45-55`, `app/manager/capacity.py:127-147`
+  - ✅ **(ZMIANA #5 zrobiona 2026-06-26)** czynnik **kierunku** koloru (jasny→ciemny taniej) usunięto — zmiana koloru kosztuje swoje pasmo wielkości niezależnie od kierunku.
 - ✅ Próg 100 m² to ten sam co próg farby/odzysku. `app/manager/capacity.py:53`
 - ✅ Horyzont planowania = **3 dni robocze** (dziś + dwa), domyślny i twardy limit. `app/manager/service.py:182-185`
 - ✅ Kalendarz: pon–pt robocze, sob/niedz wolne, brak świąt. `app/manager/placement.py:40-45`
 - ✅ Dzień 0 skracany proporcjonalnie do godzin pozostałych w zmianie. `app/manager/placement.py:205-216`
 - ✅ Układanie: najwcześniejszy termin pierwszy, w dni ograniczone pułapem netto; zlecenie większe od dnia stoi samo i jest oznaczone „przekracza pułap"; zlecenie po terminie / poza horyzontem oznaczone „nie zdąży". `app/manager/placement.py:134-287`
 - ✅ **(ZMIANA #6 zrobiona 2026-06-26)** Tylko **2** reguły układania — **termin → kolor** (domyślna kolejność); regułę „maks. przerób" usunięto. `app/manager/enums.py:4-43`, `app/manager/scheduler.py:42-57`
-- ⚠️ **ZMIANA #7** — „jasność" koloru jest zgadywana z kodu RAL pod zamiatanie jasny→ciemny; ma zostać **usunięta** (z ZMIANĄ #5 planowanie kolorów sprowadza się do grupowania identycznych kolorów). `app/manager/colour.py:43-102`
+- ✅ **(ZMIANA #7 zrobiona 2026-06-26)** zgadywanie „jasności" z kodu RAL (i zamiatanie jasny→ciemny) **usunięto**; planowanie kolorów w dniu to teraz **grupowanie identycznych kolorów** (grupy alfabetycznie wg tożsamości koloru), koszt = liczba zmian × pasmo wielkości. `app/manager/colour.py:48-69`
 - ✅ Sugestia linii: małe (≤100 m²) **i** kolor-sierota → ręczna; inaczej automat; kierownik nadpisuje. `app/manager/colour.py:214-236`
 - ✅ Wykonalność farby: BLOKADA (mierzony kolor poza/nie starcza na pierwsze), OSTRZEŻENIE (skończy się dalej, albo kolor ręczny niepewny), inaczej OK. `app/manager/paint_feasibility.py:85-98`
   - ⚠️ **ZMIANA #8** — kolor **nieśledzony** (bez wprowadzonego stanu) jest obecnie po cichu „OK"; ma być **widocznie oznaczony** („brak wprowadzonego stanu"). `app/manager/paint_feasibility.py:120-133`

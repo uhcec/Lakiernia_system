@@ -9,9 +9,9 @@ code does now (`file:line`), what the owner wants, and why. See `docs/SPEC.md` f
 | 2 | UX | Make the second, separate Decoral pass visible |
 | 3 | change | Completed orders leave the queue (release their position) |
 | 4 | change | Manager sets the shift length (drop auto-advising) |
-| 5 | change | Colour-change cost by size only (drop direction) |
+| 5 | change | Colour-change cost by size only (drop direction) ✅ |
 | 6 | change | Two scheduling rules (deadline → colour) ✅ |
-| 7 | change | Drop RAL-lightness guessing |
+| 7 | change | Drop RAL-lightness guessing ✅ |
 | 8 | change | Flag untracked colours instead of silent OK |
 | 9 | change | Persist the actual shift length for "good day" |
 | 10 | change | Make the quantity-leak tripwire human-visible |
@@ -36,18 +36,20 @@ code does now (`file:line`), what the owner wants, and why. See `docs/SPEC.md` f
 - **Now:** when shift length is omitted the system advises long/short from available ready m². `app/manager/capacity.py:165-171`
 - **Want:** remove the advising; the manager sets the day length (long/short) explicitly.
 
-### #5 — Colour-change cost by size only  *(change)*
+### #5 — Colour-change cost by size only  *(change)* — ✅ DONE 2026-06-26
 - **Now:** changeover cost = size band (≤100 m² → 15 min, >100 m² → 30 min) scaled by colour **direction** (light→dark pays half, dark→light full). `app/manager/capacity.py:127-147`, `app/manager/colour.py:157-175`
 - **Want:** drop the direction factor; a colour change costs its size band regardless of direction.
+- **Done:** removed `CHANGEOVER_LIGHT_TO_DARK_FACTOR` and the `light_to_dark` parameter from `changeover_minutes_for_transition`; `sequence_changeover_minutes` no longer computes direction. Cost is now the next order's size band only. Shipped together with #7. `app/manager/capacity.py`, `app/manager/colour.py`.
 
 ### #6 — Two scheduling rules (deadline → colour)  *(change)* — ✅ DONE 2026-06-26
 - **Now:** three rules — COLOUR, DEADLINE, "max throughput" (largest single-colour run first) — default order colour → deadline → max-throughput. `app/manager/enums.py:4-51`
 - **Want:** only **two** rules (deadline, colour), default order **deadline → colour**; remove "max throughput".
 - **Done:** removed `ScheduleRuleKey.CHANGEOVER` + its catalog entry and the `_colour_group_totals`/CHANGEOVER sort branch; default order is now deadline → colour. Stored configs holding the old `"changeover"` key degrade gracefully (unknown keys are dropped in `_resolve_rule_config`). `app/manager/enums.py`, `app/manager/scheduler.py`.
 
-### #7 — Drop RAL-lightness guessing  *(change)*
+### #7 — Drop RAL-lightness guessing  *(change)* — ✅ DONE 2026-06-26
 - **Now:** colour lightness is approximated from the RAL code (first digit + hand-set overrides) to order a light→dark sweep. `app/manager/colour.py:43-102`
 - **Want:** remove it. Together with #5, within-day colour planning reduces to **grouping identical colours** (cost = number of changes × 15/30 min by size).
+- **Done:** deleted `ral_lightness` + the `_RAL_*` lightness tables; `light_to_dark_order` → `group_identical_colours` (groups ordered alphabetically by colour identity, "no colour" last). `ColourOrderable`/`SequencedOrder`/`AutomaticPassObservation` lost their now-dead `ral_code` field. Within-day colour planning is now pure grouping. `app/manager/colour.py`, `app/manager/measurement.py`, `app/manager/service.py`.
 
 ### #8 — Flag untracked colours instead of silent OK  *(change)*
 - **Now:** a colour with no stock history (only the 0-kg auto-placeholder) is treated as silently "OK" — the planner makes no claim. `app/manager/paint_feasibility.py:120-133`

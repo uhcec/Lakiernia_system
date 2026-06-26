@@ -42,20 +42,16 @@ SHIFT_START_HOUR = 7.0
 # NOT the effective rate (N49-2, ≈57) which folds idle/changeover in — see the module docstring.
 CEILING_BOOTH_RATE_M2_PER_H = 80.0
 
-# Size + direction changeover-cost bands (N49-6, ``docs/FACTORY_DOMAIN_MODEL.md`` §7). A colour change
-# costs time scaled by the NEXT order's size against the 100 m² odzysk threshold (the same number as the
-# paint-demand threshold) and by the colour DIRECTION:
-#   • next order < 100 m² → "bez odzysku" (no powder recovery) → ≤ 15 min.
-#   • next order > 100 m² → "z odzysku"  (powder recovered, fuller clean) → up to 30 min.
-#   • light → dark is cheap (lighter residue is invisible under the darker coat — owner's white→grey);
-#     dark → light needs a full clean (residue would show), so it pays the band's full minutes.
-# These mirror ``measurement.py``'s confirmed structural ``band_*`` fields — one source for the bands.
+# Size changeover-cost bands (N49-6). A colour change costs time scaled by the NEXT order's size
+# against the 100 m² odzysk threshold (the same number as the paint-demand threshold):
+#   • next order ≤ 100 m² → "bez odzysku" (no powder recovery) → 15 min.
+#   • next order > 100 m² → "z odzysku"  (powder recovered, fuller clean) → 30 min.
+# CHANGES #5 (owner-confirmed 2026-06-26) removed the colour-direction factor: a colour change costs
+# its size band regardless of light→dark vs dark→light. These mirror ``measurement.py``'s confirmed
+# structural ``band_*`` fields — one source for the bands.
 CHANGEOVER_ODZYSK_THRESHOLD_M2 = 100.0
 CHANGEOVER_BAND_SMALL_MINUTES = 15.0  # next order ≤ threshold ("bez odzysku")
 CHANGEOVER_BAND_LARGE_MINUTES = 30.0  # next order > threshold ("z odzysku")
-# Light → dark is the cheap direction: only a fraction of the band's clean time is needed (no full
-# reset). A same-or-lighter-into-darker transition pays this fraction; dark → light pays the full band.
-CHANGEOVER_LIGHT_TO_DARK_FACTOR = 0.5
 
 
 class ShiftLength(str, Enum):
@@ -127,24 +123,19 @@ def changeover_loss_m2(
 def changeover_minutes_for_transition(
     *,
     next_order_m2: float | None,
-    light_to_dark: bool,
     band_small_minutes: float = CHANGEOVER_BAND_SMALL_MINUTES,
     band_large_minutes: float = CHANGEOVER_BAND_LARGE_MINUTES,
-    light_to_dark_factor: float = CHANGEOVER_LIGHT_TO_DARK_FACTOR,
     threshold_m2: float = CHANGEOVER_ODZYSK_THRESHOLD_M2,
 ) -> float:
-    """Minutes one colour change costs, by the NEXT order's size + the colour direction (N49-6).
+    """Minutes one colour change costs, by the NEXT order's size band only (N49-6, CHANGES #5).
 
-    Size band first: next order ≤ 100 m² → the small ("bez odzysku") band, else the large ("z odzysku")
-    band. Direction then scales it: a **light → dark** change is cheap (a fraction of the band — the
-    lighter residue hides under the darker coat), while **dark → light** pays the full band (a true
-    clean). A missing ``next_order_m2`` is treated as the conservative large band. The full 30/15-min
-    bands are the dark→light cost; light→dark is the discounted move. ``docs/FACTORY_DOMAIN_MODEL.md`` §7.
+    Next order ≤ 100 m² → the small ("bez odzysku") band (15 min), else the large ("z odzysku") band
+    (30 min). A missing ``next_order_m2`` is treated as the conservative large band. No colour-direction
+    factor — a change costs its size band regardless of direction (owner-confirmed 2026-06-26).
     """
     area = next_order_m2 if next_order_m2 is not None else float("inf")
     band = band_large_minutes if area > threshold_m2 else band_small_minutes
-    factor = max(min(light_to_dark_factor, 1.0), 0.0) if light_to_dark else 1.0
-    return max(band, 0.0) * factor
+    return max(band, 0.0)
 
 
 def remaining_shift_hours(now: datetime, shift_length: ShiftLength) -> float:

@@ -42,7 +42,7 @@ from app.manager.colour import (
     SequencedOrder,
     average_changeover_minutes,
     colour_neighbour_counts,
-    light_to_dark_order,
+    group_identical_colours,
     sequence_changeover_minutes,
     suggest_line,
 )
@@ -899,7 +899,6 @@ class ManagerService:
                 [
                     SequencedOrder(
                         colour_key=observation.colour_key,
-                        ral_code=observation.ral_code,
                         total_area_m2=observation.total_area_m2,
                     )
                     for observation in day_passes
@@ -954,7 +953,6 @@ class ManagerService:
             [
                 SequencedOrder(
                     colour_key=observation.colour_key,
-                    ral_code=observation.ral_code,
                     total_area_m2=observation.total_area_m2,
                 )
                 for observation in sorted(
@@ -1044,7 +1042,6 @@ class ManagerService:
                 total_area_m2=work_order.total_area_m2,
                 hanging_started_at=_as_naive_utc(hanging_started_at),
                 packing_done_at=_as_naive_utc(packing_done_at),
-                ral_code=work_order.ral_code,
             )
             for work_order, hanging_started_at, packing_done_at in rows
         ]
@@ -1059,15 +1056,13 @@ class ManagerService:
 
         Buckets the line's active planned orders into one working day, showing fill vs the floor
         (800/500 m²) and the net ceiling (physical booth capacity minus colour-changeover loss). The
-        orders are first reordered into a **light → dark colour sweep** (N49-5, identical colours
-        grouped), then the day's changeover cost is computed **size + direction-aware** (N49-6): each
-        colour change costs the 100 m² odzysk band scaled by the colour direction, so the m² loss
-        reflects size + direction, not a flat per-change count. ``changeover_minutes`` returns the
-        average per-change cost of that sweep; ``changeover_is_measured`` reflects whether the learned
+        orders are first reordered to **group identical colours** (N49-5), then the day's changeover
+        cost is computed **size-band-aware** (N49-6): each colour change costs the 100 m² odzysk band,
+        so the m² loss reflects size, not a flat per-change count. ``changeover_minutes`` returns the
+        average per-change cost of that order; ``changeover_is_measured`` reflects whether the learned
         seed was refined (kept for the read model, though the bands themselves are structural). When
-        ``shift_length`` is omitted it is **advised** from the available ready work
-        (``docs/FACTORY_DOMAIN_MODEL.md`` §7). Pure arithmetic lives in ``app/manager/capacity.py`` /
-        ``app/manager/colour.py``.
+        ``shift_length`` is omitted it is **advised** from the available ready work. Pure arithmetic
+        lives in ``app/manager/capacity.py`` / ``app/manager/colour.py``.
         """
         self._ensure_manager_station_action(station_context)
 
@@ -1077,14 +1072,13 @@ class ManagerService:
         shift_advised = shift_length is None
         resolved_shift = shift_length if shift_length is not None else advise_shift_length(available_m2)
 
-        # Reorder the day into a light→dark sweep (N49-5) so the changeover count + cost reflect the
+        # Reorder the day to group identical colours (N49-5) so the changeover count + cost reflect the
         # arrangement the planner would actually run, not the raw queue order.
-        swept_ids = light_to_dark_order(
+        swept_ids = group_identical_colours(
             [
                 ColourOrderable(
                     work_order_id=work_order.id,
                     colour_key=self._order_colour_key(work_order),
-                    ral_code=work_order.ral_code,
                 )
                 for work_order in active_orders
             ]
@@ -1152,11 +1146,11 @@ class ManagerService:
         Lays the line's active planned orders across the next ``horizon_working_days`` working days,
         earliest-deadline-first, into net-ceiling-bounded day buckets (floor 800/500, gross booth
         ceiling minus the m² lost to each day's colour changes — the learned changeover cost from
-        N49-2). **Within each placed day** the orders are then reordered into a **light → dark colour
-        sweep** (N49-5, identical colours grouped) and that day's **size + direction-aware** changeover
-        cost is reported (N49-6). Each order also carries a **suggested line** (N49-8: small-m²
-        colour-orphan → manual, else automatic — a manager-overridable hint). When ``shift_length`` is
-        omitted it is **advised** from the available ready work (``docs/FACTORY_DOMAIN_MODEL.md`` §7).
+        N49-2). **Within each placed day** the orders are then reordered to **group identical colours**
+        (N49-5) and that day's **size-band-aware** changeover cost is reported (N49-6). Each order also
+        carries a **suggested line** (N49-8: small-m² colour-orphan → manual, else automatic — a
+        manager-overridable hint). When ``shift_length`` is omitted it is **advised** from the available
+        ready work.
         ``infeasible_order_ids`` is the "won't make it" set — orders whose scheduled day is past their
         hard pickup deadline or beyond the horizon. Pure placement arithmetic lives in
         ``app/manager/placement.py``; colour ordering / line lever in ``app/manager/colour.py``.
@@ -1179,19 +1173,18 @@ class ManagerService:
             )
             for work_order in active_orders
         ]
-        # NA52: size each day's net ceiling with the **bounded N49-6 size+direction** changeover cost —
+        # NA52: size each day's net ceiling with the **bounded N49-6 size-band** changeover cost —
         # the same cost the single-day capacity view uses — NOT the N49-2 statistical estimate. That
         # estimate is contaminated by overnight/idle gaps in the log (it learns idle time as "changeover",
         # inflating to ≈250 min), which collapses every day's net ceiling and fragments the board. The
         # statistical estimate stays a diagnostic (``GET /manager/stats/line-measurements``); here we use
-        # the bounded cost of the whole line's light→dark sweep so "what you see per day" (N49-6) equals
-        # "what placed the orders" (the net ceiling).
-        line_swept_ids = light_to_dark_order(
+        # the bounded cost of the whole line's colour-grouped order so "what you see per day" (N49-6)
+        # equals "what placed the orders" (the net ceiling).
+        line_swept_ids = group_identical_colours(
             [
                 ColourOrderable(
                     work_order_id=work_order.id,
                     colour_key=self._order_colour_key(work_order),
-                    ral_code=work_order.ral_code,
                 )
                 for work_order in active_orders
             ]
@@ -1236,15 +1229,14 @@ class ManagerService:
 
         days: list[PlannedDayRead] = []
         for day in plan.days:
-            # Within each placed day, reorder into a light→dark colour sweep (N49-5). The day membership
+            # Within each placed day, reorder to group identical colours (N49-5). The day membership
             # + ceiling come from N49-4 EDF placement; we only reorder *within* the day.
             day_orders = [orders_by_id[order_id] for order_id in day.placed_order_ids]
-            swept_ids = light_to_dark_order(
+            swept_ids = group_identical_colours(
                 [
                     ColourOrderable(
                         work_order_id=work_order.id,
                         colour_key=self._order_colour_key(work_order),
-                        ral_code=work_order.ral_code,
                     )
                     for work_order in day_orders
                 ]
@@ -1311,7 +1303,7 @@ class ManagerService:
             shift_length=plan.shift_length,
             shift_advised=shift_advised,
             horizon_working_days=plan.horizon_working_days,
-            # The headline cost is now the bounded N49-6 size+direction figure that actually sized the
+            # The headline cost is now the bounded N49-6 size-band figure that actually sized the
             # plan (NA52). It is always determinate from the orders' sizes/colours — a structural model,
             # not a learned-vs-seed fallback — so ``changeover_is_measured`` is True by construction.
             changeover_minutes=round(line_avg_changeover_minutes, 1),
@@ -1868,20 +1860,19 @@ class ManagerService:
         return f"{work_order.ral_code}|{work_order.paint_producer or ''}|{work_order.paint_code or ''}"
 
     def _sequenced_order(self, work_order: WorkOrder) -> SequencedOrder:
-        """A work order projected for the size+direction changeover cost (N49-6)."""
+        """A work order projected for the size-band changeover cost (N49-6)."""
         return SequencedOrder(
             colour_key=self._order_colour_key(work_order),
-            ral_code=work_order.ral_code,
             total_area_m2=work_order.total_area_m2,
         )
 
     def _day_changeover_minutes(self, ordered_work_orders: list[WorkOrder]) -> tuple[float, float]:
-        """(total, average-per-change) size+direction changeover minutes for a day's light→dark sweep.
+        """(total, average-per-change) size-band changeover minutes for a day's colour-grouped order.
 
         The total is what the day actually loses to colour changes (N49-6); the average is what the
         per-change day-capacity model (``compute_day_capacity``) consumes as ``changeover_minutes`` so
-        its m² loss reflects size + direction rather than a flat constant. Caller passes the orders
-        already in their within-day sweep order (``light_to_dark_order``)."""
+        its m² loss reflects size rather than a flat constant. Caller passes the orders already in their
+        within-day colour-grouped order (``group_identical_colours``)."""
         sequence = [self._sequenced_order(work_order) for work_order in ordered_work_orders]
         return sequence_changeover_minutes(sequence), average_changeover_minutes(sequence)
 

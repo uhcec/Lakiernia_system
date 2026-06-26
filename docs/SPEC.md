@@ -124,15 +124,15 @@ Details:
 - ✅ Shifts: long = 07:00–21:00 (14 h), short = 07:00–15:00 (8 h). `app/manager/capacity.py:32-38`
 - ✅ Booth physical rate band 60–100 m²/h, midpoint **80** used. `app/manager/capacity.py:41-43`
 - ⚠️ **CHANGE #4** — the system currently **advises** the shift length; the **manager should set it** instead. `app/manager/capacity.py:165-171`
-- ✅ Colour-change cost by **size**: next order ≤100 m² → 15 min; >100 m² → 30 min. `app/manager/capacity.py:45-58`
-  - ⚠️ **CHANGE #5** — the cost currently also depends on colour **direction** (light→dark cheaper); the direction factor should be removed (size only). `app/manager/capacity.py:127-147`
+- ✅ Colour-change cost by **size only**: next order ≤100 m² → 15 min; >100 m² → 30 min. `app/manager/capacity.py:45-55`, `app/manager/capacity.py:127-147`
+  - ✅ **(CHANGE #5 done 2026-06-26)** the colour-**direction** factor (light→dark cheaper) was removed — a colour change costs its size band regardless of direction.
 - ✅ The 100 m² threshold equals the paint/odzysk threshold. `app/manager/capacity.py:53`
 - ✅ Planning horizon = **3 working days** (today + next two), default and hard cap. `app/manager/service.py:182-185`
 - ✅ Calendar: Mon–Fri working, Sat/Sun off, no holiday list. `app/manager/placement.py:40-45`
 - ✅ Day 0 is pro-rated to hours left in today's shift. `app/manager/placement.py:205-216`
 - ✅ Placement is earliest-deadline-first into net-ceiling days; an order bigger than a day stands alone and is flagged over-ceiling; an order past its deadline / horizon is flagged "won't make it". `app/manager/placement.py:134-287`
 - ✅ **(CHANGE #6 done 2026-06-26)** Two scheduling rules only — **deadline → colour** (default order); the "max-throughput" rule was removed. `app/manager/enums.py:4-43`, `app/manager/scheduler.py:42-57`
-- ⚠️ **CHANGE #7** — colour "lightness" is currently guessed from the RAL code to drive a light→dark sweep; this should be **removed** (with CHANGE #5, colour planning reduces to grouping identical colours). `app/manager/colour.py:43-102`
+- ✅ **(CHANGE #7 done 2026-06-26)** colour-"lightness" guessing from the RAL code (and the light→dark sweep) was **removed**; within-day colour planning is now just **grouping identical colours** (groups ordered alphabetically by colour identity), cost = number of changes × the size band. `app/manager/colour.py:48-69`
 - ✅ Line suggestion: small (≤100 m²) **and** colour-orphan → manual; else automatic; manager-overridable. `app/manager/colour.py:214-236`
 - ✅ Paint feasibility: BLOCKED (metered colour out / insufficient for first order), WARNING (runs short later, or manual-used low-confidence), OK otherwise. `app/manager/paint_feasibility.py:85-98`
   - ⚠️ **CHANGE #8** — an **untracked** colour (no stock entered) is currently silently "OK"; it should be **visibly flagged** ("stock not entered"). `app/manager/paint_feasibility.py:120-133`

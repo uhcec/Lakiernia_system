@@ -9,9 +9,9 @@ teraz (`plik:linia`), czego chce właściciel i dlaczego. Potwierdzone zachowani
 | 2 | UX | Uwidocznić drugi, osobny przebieg Decoral |
 | 3 | zmiana | Gotowe zlecenia wychodzą z kolejki (zwalniają pozycję) |
 | 4 | zmiana | Kierownik ustala długość zmiany (bez doradzania) |
-| 5 | zmiana | Koszt zmiany koloru tylko wg wielkości (bez kierunku) |
+| 5 | zmiana | Koszt zmiany koloru tylko wg wielkości (bez kierunku) ✅ |
 | 6 | zmiana | Dwie reguły układania (termin → kolor) ✅ |
-| 7 | zmiana | Wywalić zgadywanie jasności z kodu RAL |
+| 7 | zmiana | Wywalić zgadywanie jasności z kodu RAL ✅ |
 | 8 | zmiana | Oznaczać kolory nieśledzone zamiast cichego OK |
 | 9 | zmiana | Zapisywać faktyczną długość zmiany dla „dobrego dnia" |
 | 10 | zmiana | Uwidocznić czujkę przecieku ilości |
@@ -36,18 +36,20 @@ teraz (`plik:linia`), czego chce właściciel i dlaczego. Potwierdzone zachowani
 - **Teraz:** gdy długość zmiany jest pominięta, system doradza długą/krótką wg dostępnej gotowej roboty. `app/manager/capacity.py:165-171`
 - **Cel:** wywalić doradzanie; kierownik ustala długość dnia (długi/krótki) jawnie.
 
-### #5 — Koszt zmiany koloru tylko wg wielkości  *(zmiana)*
+### #5 — Koszt zmiany koloru tylko wg wielkości  *(zmiana)* — ✅ ZROBIONE 2026-06-26
 - **Teraz:** koszt = pasmo wielkości (≤100 m² → 15 min, >100 m² → 30 min) skalowane **kierunkiem** koloru (jasny→ciemny pół, ciemny→jasny pełne). `app/manager/capacity.py:127-147`, `app/manager/colour.py:157-175`
 - **Cel:** wywalić kierunek; zmiana koloru kosztuje pasmo wielkości niezależnie od kierunku.
+- **Zrobione:** usunięto `CHANGEOVER_LIGHT_TO_DARK_FACTOR` i parametr `light_to_dark` z `changeover_minutes_for_transition`; koszt to teraz tylko pasmo wielkości następnego zlecenia. Wdrożone razem z #7. `app/manager/capacity.py`, `app/manager/colour.py`.
 
 ### #6 — Dwie reguły układania (termin → kolor)  *(zmiana)* — ✅ ZROBIONE 2026-06-26
 - **Teraz:** trzy reguły — KOLOR, TERMIN, „maks. przerób" (najpierw największy run jednego koloru) — domyślnie kolor → termin → maks. przerób. `app/manager/enums.py:4-51`
 - **Cel:** tylko **dwie** reguły (termin, kolor), domyślnie **termin → kolor**; wywalić „maks. przerób".
 - **Zrobione:** usunięto `ScheduleRuleKey.CHANGEOVER` i jego wpis w katalogu oraz gałąź sortowania/`_colour_group_totals`; domyślna kolejność to teraz termin → kolor. Stare configi z kluczem `"changeover"` degradują się łagodnie (nieznane klucze są pomijane). `app/manager/enums.py`, `app/manager/scheduler.py`.
 
-### #7 — Wywalić zgadywanie jasności z kodu RAL  *(zmiana)*
+### #7 — Wywalić zgadywanie jasności z kodu RAL  *(zmiana)* — ✅ ZROBIONE 2026-06-26
 - **Teraz:** jasność koloru przybliżana z kodu RAL (pierwsza cyfra + ręczne nadpisania) pod zamiatanie jasny→ciemny. `app/manager/colour.py:43-102`
 - **Cel:** usunąć. Razem z #5 planowanie kolorów w ciągu dnia sprowadza się do **grupowania identycznych kolorów** (koszt = liczba zmian × 15/30 min wg wielkości).
+- **Zrobione:** skasowano `ral_lightness` i tablice `_RAL_*`; `light_to_dark_order` → `group_identical_colours` (grupy alfabetycznie wg tożsamości koloru, „bez koloru" na końcu). Pola `ral_code` w `ColourOrderable`/`SequencedOrder`/`AutomaticPassObservation` (już martwe) usunięto. `app/manager/colour.py`, `app/manager/measurement.py`, `app/manager/service.py`.
 
 ### #8 — Oznaczać kolory nieśledzone zamiast cichego OK  *(zmiana)*
 - **Teraz:** kolor bez historii stanu (tylko placeholder 0 kg) traktowany po cichu jako „OK" — planer nic nie twierdzi. `app/manager/paint_feasibility.py:120-133`
