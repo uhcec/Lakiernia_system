@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 
 import { fetchAuditEvents, getAuditEventsExportUrl, type AuditEventSearchParams } from "../api/auditApi";
+import { downloadAuthedFile } from "../utils/download";
 import type { AuditEvent, AuditStationId } from "../types/audit";
 
 const stationOptions: Array<{ value: AuditStationId; label: string }> = [
@@ -127,6 +128,15 @@ export function AuditEventsPage() {
     setAppliedFilters(initialFilters);
   }
 
+  async function handleExport() {
+    setErrorMessage(null);
+    try {
+      await downloadAuthedFile(exportUrl, "audit-events.csv");
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Nie udało się wyeksportować CSV");
+    }
+  }
+
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-7xl flex-col gap-6 px-4 py-8 sm:px-6 lg:px-8">
       <section className="rounded-[2rem] border border-white/70 bg-white/80 p-6 shadow-panel backdrop-blur sm:p-8">
@@ -231,12 +241,13 @@ export function AuditEventsPage() {
             >
               Wyczyść
             </button>
-            <a
+            <button
+              type="button"
               className="inline-flex items-center justify-center rounded-full border border-line bg-white px-5 py-3 text-sm font-medium text-ink transition hover:text-accent"
-              href={exportUrl}
+              onClick={handleExport}
             >
               Eksport CSV
-            </a>
+            </button>
             <button
               type="submit"
               className="inline-flex items-center justify-center rounded-full bg-accent px-5 py-3 text-sm font-medium text-white transition hover:bg-teal-700"

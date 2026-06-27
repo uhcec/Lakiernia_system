@@ -29,6 +29,7 @@ import {
   moveWorkOrderWithinQueueSlots,
 } from "../utils/queueReorder";
 import { buildWorkOrderDetailHref } from "../api/stationContext";
+import { downloadAuthedFile } from "../utils/download";
 import { WorkOrderPrimaryInfoLine } from "../components/WorkOrderPrimaryInfoLine";
 import { CapacityBoard } from "../components/CapacityBoard";
 import {
@@ -235,6 +236,15 @@ export function ManagerPanelPage() {
 
   const isAllQueueFilter = queueFilter === "ALL";
   const correctionReasonReportExportUrl = getCorrectionReasonReportExportUrl();
+
+  async function handleExportCorrectionReport() {
+    setErrorMessage(null);
+    try {
+      await downloadAuthedFile(correctionReasonReportExportUrl, "correction-reason-report.csv");
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Nie udało się wyeksportować CSV");
+    }
+  }
 
   const filteredUnplannedWorkOrders = sortUnplannedWorkOrders(
     filterQueueByType(unplannedWorkOrders, queueFilter),
@@ -1339,12 +1349,13 @@ export function ManagerPanelPage() {
           <div>
             <h3 className="text-2xl font-semibold text-ink">Statystyka poprawek</h3>
           </div>
-          <a
-            href={correctionReasonReportExportUrl}
+          <button
+            type="button"
+            onClick={handleExportCorrectionReport}
             className="inline-flex items-center justify-center rounded-full border border-line bg-white px-5 py-3 text-sm font-medium text-accent transition hover:border-accent/50"
           >
             Eksport CSV
-          </a>
+          </button>
         </div>
 
         {isLoading ? (

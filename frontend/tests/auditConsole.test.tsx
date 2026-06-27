@@ -8,9 +8,14 @@ vi.mock("../src/api/auditApi", () => ({
   getAuditEventsExportUrl: vi.fn(),
 }));
 
+vi.mock("../src/utils/download", () => ({
+  downloadAuthedFile: vi.fn().mockResolvedValue(undefined),
+}));
+
 const auditApi = await import("../src/api/auditApi");
 const fetchAuditEventsMock = vi.mocked(auditApi.fetchAuditEvents);
 const getAuditEventsExportUrlMock = vi.mocked(auditApi.getAuditEventsExportUrl);
+const downloadAuthedFileMock = vi.mocked((await import("../src/utils/download")).downloadAuthedFile);
 
 describe("audit console", () => {
   beforeEach(() => {
@@ -38,14 +43,19 @@ describe("audit console", () => {
     });
   });
 
-  it("renders audit events and export link", async () => {
+  it("renders audit events and exports CSV through the authed download (not a bare link)", async () => {
+    downloadAuthedFileMock.mockClear();
     render(<AuditEventsPage />);
 
     await screen.findByText("Created work order WO-AUDIT.");
     expect(screen.getByText("work_order.created")).toBeTruthy();
     expect(screen.getAllByText("Biuro").length).toBeGreaterThan(0);
     expect(screen.getByText("trace-audit-1")).toBeTruthy();
-    expect(screen.getByRole("link", { name: "Eksport CSV" }).getAttribute("href")).toBe("/audit/events/export.csv?limit=100");
+    // Export must fetch with the Bearer token (a plain <a href> can't), so it is a button that calls
+    // the shared authed-download helper — not a navigable link.
+    expect(screen.queryByRole("link", { name: "Eksport CSV" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Eksport CSV" }));
+    expect(downloadAuthedFileMock).toHaveBeenCalledWith("/audit/events/export.csv?limit=100", "audit-events.csv");
   });
 
   it("submits filters to audit search", async () => {

@@ -20,11 +20,15 @@ same way `docs/CHANGES.md` was built. Severity is the engineer's estimate, not a
   its thin intake wrappers (`Hanging`/`SurfacePreparation`/`Manual`/`AutomaticProductionPage`),
   `CreateWorkOrderPage`, `StatystykiPage`, `PaintInventoryPage`, `WorkOrdersListPage`,
   `OfficeWorkOrdersTable`, `AppLayout`.
-- **Light / not yet deep-read:** the remaining CRUD/display pages — `ClientsPage`, `FoilsPage`,
-  `EmployeesPage`, `AuditEventsPage` — plus the small presentational components (`BarChart`, `RalColorDot`,
-  `StationPresenceWidget`, `TechnicalDrawingLinks`, `WorkOrderPrimaryInfoLine`) and the thin
-  clients/foils/employees/audit/paints API wrappers. Standard CRUD; lower risk. The core flows above are
-  now verified.
+- **Deep-read 2026-06-27 (was light):** `ClientsPage`, `FoilsPage` (covered via D2 + live verify),
+  `EmployeesPage`, `AuditEventsPage`, and the small presentational components (`BarChart`, `RalColorDot`,
+  `StationPresenceWidget`, `TechnicalDrawingLinks`, `WorkOrderPrimaryInfoLine`) + the thin
+  clients/foils/employees/audit/paints API wrappers. **Coverage is now complete** — every page/component has
+  been deep-read. One real bug surfaced (**B7**, CSV exports); the rest is clean standard CRUD with only
+  trivial notes (`EmployeesPage`: the operator-stats "Brak aktywności" empty row renders *below* the
+  zero-value operator rows rather than replacing them, `:315` — cosmetic; `formatDateTime` omits the year,
+  `:45`. `AuditEventsPage`: `stationLabels[event.station_id]` has no fallback for an unknown station,
+  `:286` — renders blank. All trivial, left as-is.)
 - **Resolved non-findings (read, then cleared):** `AutomaticProductionPage` using `stage="PRODUCTION"` is
   intentional (the backend aggregates HANGING+PRODUCTION for the automat operator + paint consumption, not
   a missing-stage drift); `StatystykiPage`'s coating split correctly excludes `m2_decoral_pass` (backend:
@@ -139,6 +143,22 @@ same way `docs/CHANGES.md` was built. Severity is the engineer's estimate, not a
 - **Done:** the row now uses the backend `workOrder.is_overdue` ("pickup past AND not yet READY") and
   `getDaysLabel` only says "Po terminie" when overdue (past-date-but-done → "—"). Pinned by
   `OfficeWorkOrdersTable.test.tsx`. `frontend/src/components/OfficeWorkOrdersTable.tsx`.
+
+### B7 — CSV exports were broken under auth (`<a href>` to a Bearer-gated endpoint) — ✅ DONE (fixed) 2026-06-27
+- **Was:** the audit console **and** the manager corrections report exported CSV via a plain
+  `<a href={exportUrl}>` (`AuditEventsPage`, `ManagerPanelPage`). A browser link navigation can't carry the
+  `Authorization: Bearer` header that the global fetch interceptor injects (`main.tsx`), but both endpoints
+  are behind `dependencies=[Depends(get_current_user)]` (`app/api/router.py:31,35`; `get_current_user`
+  raises 401 on missing credentials, `app/auth/dependencies.py:18-19`). **Verified live:** both
+  `GET /audit/events/export.csv` and `GET /manager/corrections/reason-report/export.csv` return **401
+  without a token, 200 with one** — so the links silently 401'd. (The QC-document download already did this
+  correctly via `fetch`+blob — the two CSV links were the outliers.)
+- **Done:** new shared helper `utils/download.ts` `downloadAuthedFile(url, filename)` — `fetch` (interceptor
+  adds the token) → save the blob. Both exports are now buttons calling it; the working QC download was
+  refactored onto the same helper (3rd copy removed). Pinned by `utils/download.test.ts` and the updated
+  audit/manager component tests. **Verified live** end-to-end: clicking each "Eksport CSV" now downloads
+  (`audit-events.csv` 30.6 kB, `correction-reason-report.csv` 130 B). `frontend/src/utils/download.ts`,
+  `frontend/src/pages/{AuditEventsPage,ManagerPanelPage,WorkOrderDetailPage}.tsx`.
 
 ---
 

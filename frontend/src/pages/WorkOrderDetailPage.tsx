@@ -17,6 +17,7 @@ import {
 import type { AuditEvent, AuditStationId } from "../types/audit";
 import type { UpdateWorkOrderRequest, WorkOrder, WorkOrderAttachment, WorkOrderAttachmentCategory } from "../types/workOrders";
 import { useConfirm } from "../components/ConfirmDialog";
+import { downloadAuthedFile } from "../utils/download";
 import { NumberInput } from "../components/NumberInput";
 import { WorkOrderPrimaryInfoLine } from "../components/WorkOrderPrimaryInfoLine";
 import {
@@ -249,17 +250,7 @@ export function WorkOrderDetailPage() {
     setIsDownloadingQcDoc(true);
     setQcDocErrorMessage(null);
     try {
-      const response = await fetch(getQualityControlDocumentUrl(wo.id));
-      if (!response.ok) throw new Error("Błąd pobierania dokumentu");
-      const blob = await response.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `KJ_${wo.order_number}.pdf`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
+      await downloadAuthedFile(getQualityControlDocumentUrl(wo.id), `KJ_${wo.order_number}.pdf`);
     } catch {
       setQcDocErrorMessage("Nie udało się pobrać karty kontroli jakości.");
     } finally {

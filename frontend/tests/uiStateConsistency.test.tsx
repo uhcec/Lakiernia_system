@@ -49,6 +49,10 @@ vi.mock("../src/api/managerApi", () => ({
   updateScheduleConfig: vi.fn(),
 }));
 
+vi.mock("../src/utils/download", () => ({
+  downloadAuthedFile: vi.fn().mockResolvedValue(undefined),
+}));
+
 vi.mock("../src/api/auditApi", () => ({
   fetchWorkOrderAuditEvents: vi.fn(),
 }));
@@ -821,8 +825,14 @@ describe("frontend state consistency", () => {
     expect(await screen.findByText("niedomalowanie")).toBeTruthy();
     expect(screen.getByText("Bez kategorii")).toBeTruthy();
     expect(screen.getByText("7 szt.")).toBeTruthy();
-    expect(screen.getByRole("link", { name: "Eksport CSV" }).getAttribute("href")).toBe(
+    // Export goes through the authed-download helper (fetch + Bearer), not a bare link that would 401.
+    const downloadAuthedFileMock = vi.mocked((await import("../src/utils/download")).downloadAuthedFile);
+    downloadAuthedFileMock.mockClear();
+    expect(screen.queryByRole("link", { name: "Eksport CSV" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Eksport CSV" }));
+    expect(downloadAuthedFileMock).toHaveBeenCalledWith(
       "/manager/corrections/reason-report/export.csv",
+      "correction-reason-report.csv",
     );
   });
 
