@@ -1,0 +1,10 @@
+# Normalize line endings: store LF in the repo and check out LF everywhere
+# (incl. Windows), so Git stops warning "LF will be replaced by CRLF" and the
+# working tree matches what's committed. Binary assets are left untouched.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.xlsx binary
+*.db binary
