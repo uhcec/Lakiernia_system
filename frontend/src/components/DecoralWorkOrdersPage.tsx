@@ -81,13 +81,15 @@ export function DecoralWorkOrdersPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [warningMessage, setWarningMessage] = useState<string | null>(null);
-  const [activeWorkOrderId, setActiveWorkOrderId] = useState<number | null>(null);
+  const [activeWorkOrderId, setActiveWorkOrderId] = useState<string | null>(null);
   const [showCompleted, setShowCompleted] = useState(false);
-  const [drafts, setDrafts] = useState<Record<number, DecoralDraft>>({});
+  const [drafts, setDrafts] = useState<Record<string, DecoralDraft>>({});
   const [correctionContextByOrderId, setCorrectionContextByOrderId] = useState<Record<number, CorrectionContext>>({});
 
-  function getDraftKey(workOrder: StageWorkOrder): number {
-    return workOrder.batch_id ?? workOrder.id;
+  // Namespace the draft key by ID space: batch IDs and work-order IDs come from different sequences,
+  // so a bare `batch_id ?? id` could collide a batch with a batchless order sharing the same integer.
+  function getDraftKey(workOrder: StageWorkOrder): string {
+    return workOrder.batch_id != null ? `b${workOrder.batch_id}` : `w${workOrder.id}`;
   }
 
   const filteredWorkOrders = workOrders.filter((workOrder) => {
@@ -115,7 +117,7 @@ export function DecoralWorkOrdersPage() {
       }
       // In background mode preserve drafts being edited; only seed newly appeared orders.
       setDrafts((prev) => {
-        const nextDrafts: Record<number, DecoralDraft> = background ? { ...prev } : {};
+        const nextDrafts: Record<string, DecoralDraft> = background ? { ...prev } : {};
         for (const item of items) {
           const draftKey = getDraftKey(item);
           if (background && draftKey in nextDrafts) {
@@ -151,7 +153,7 @@ export function DecoralWorkOrdersPage() {
     activeWorkOrderId === null,
   );
 
-  function updateDraft(draftKey: number, fieldName: keyof DecoralDraft, value: string) {
+  function updateDraft(draftKey: string, fieldName: keyof DecoralDraft, value: string) {
     setDrafts((current) => ({
       ...current,
       [draftKey]: {

@@ -96,16 +96,22 @@ same way `docs/CHANGES.md` was built. Severity is the engineer's estimate, not a
   `updated_at` ISO strings. Correct only while the backend always emits the same format/zone; worth pinning
   with a test against a real payload.
 
-### B4 — Rule config loaded for AUTOMATIC, saved to `editLine`  *(severity: low, latent)*
-- `ManagerPanelPage.tsx:426` fetches the rule config hardcoded as `"AUTOMATIC"`, but `handleSaveRules`
-  (`:502`) saves to `editLine`. Today the rules effect is gated to AUTOMATIC (`:419`), so it can't misfire —
-  but the mismatch is a latent bug if the rules UI is ever exposed on the MANUAL line.
+### B4 — Rule config loaded for AUTOMATIC, saved to `editLine` — ✅ DONE 2026-06-27
+- **Was:** `ManagerPanelPage.tsx` fetched the rule config hardcoded as `"AUTOMATIC"`, but `handleSaveRules`
+  saved to `editLine`. The effect is gated to `editLine === "AUTOMATIC"`, so it couldn't misfire today — but
+  the read/write asymmetry was a latent bug if the rules UI is ever exposed on the MANUAL line.
+- **Done:** the effect now fetches `fetchScheduleConfig(editLine)` / `fetchAutoScheduleProposal(editLine)`
+  (symmetric with the save). Behaviour-preserving today (`editLine` is `"AUTOMATIC"` inside the gated effect).
+  `frontend/src/pages/ManagerPanelPage.tsx`.
 
-### B5 — Packing/Decoral draft key mixes two ID spaces  *(severity: low)*
-- Both `PackingWorkOrdersPage.tsx:200` and `DecoralWorkOrdersPage.tsx:146` key the per-card draft by
+### B5 — Packing/Decoral draft key mixes two ID spaces — ✅ DONE 2026-06-27
+- **Was:** both `PackingWorkOrdersPage` and `DecoralWorkOrdersPage` keyed the per-card draft by
   `batch_id ?? id`. `batch_id` (quantity-batch IDs) and `id` (work-order IDs) come from different sequences,
-  so a batch and a batchless order sharing the same integer would collide into one draft. Low probability,
-  but the key isn't provably unique; a namespaced key (`b{batch_id}` / `w{id}`) would remove the risk.
+  so a batch and a batchless order sharing the same integer could collide into one draft.
+- **Done:** `getDraftKey` now returns a namespaced string (`b{batch_id}` / `w{id}`), provably unique across
+  the two ID spaces; `drafts` / `activeWorkOrderId` / `updateDraft` are threaded as `string`. (`activeWorkOrderId`
+  was already a draft-key marker, never a real work-order id sent to the backend.) Behaviour-preserving; the
+  existing draft-flow suite (122 green) covers it. `frontend/src/components/{Packing,Decoral}WorkOrdersPage.tsx`.
 
 ### B6 — Office list recomputed "overdue" client-side, ignoring the not-READY rule — ✅ DONE 2026-06-27
 - **Was:** the office list row recomputed its own `isOverdue = planned_pickup_date < now` (and `getDaysLabel`
@@ -199,9 +205,9 @@ Remaining, recommended order:
    so **A5** (#2 second Decoral pass) and any future correction change land in one place, not three. The
    `is_correction_round` divergence under C3 is a live symptom. This is the one medium-weight item left.
 2. **A5** (#2) — make the second Decoral pass legible; cleanest to do on top of C3/C4's shared helper.
-3. **B6** — small correctness fix (office list use `is_overdue`), and **B1** (auth `window.fetch` patch) if
-   you want the security hardening.
-4. **A6 / C1 / C2 / C5 / B2 / B5 / C6 / D1–D4** — trivial cleanups + UX polish, batchable.
+3. ✅ **B4 / B5** — latent correctness fixes (rule-config line symmetry; namespaced draft key) — done 2026-06-27.
+4. **B1** (auth `window.fetch` patch) if you want the security hardening; **B3** (queue-revision compare) pin.
+5. **C5 / B2 / C6 / D1–D4** — trivial cleanups + UX polish, batchable. **C3c** (card-header dedup) optional/low-value.
 
 Deep read is essentially complete (see coverage map); only standard CRUD pages remain light-read. Items the
 owner confirms become entries in `docs/CHANGES.md` (frontend section) and carry a `file:line` + confirmation

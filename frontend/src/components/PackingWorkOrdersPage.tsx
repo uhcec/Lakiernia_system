@@ -121,13 +121,15 @@ export function PackingWorkOrdersPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [warningMessage, setWarningMessage] = useState<string | null>(null);
-  const [activeWorkOrderId, setActiveWorkOrderId] = useState<number | null>(null);
+  const [activeWorkOrderId, setActiveWorkOrderId] = useState<string | null>(null);
   const [showCompleted, setShowCompleted] = useState(false);
-  const [drafts, setDrafts] = useState<Record<number, PackingDraft>>({});
+  const [drafts, setDrafts] = useState<Record<string, PackingDraft>>({});
   const [correctionContextByOrderId, setCorrectionContextByOrderId] = useState<Record<number, CorrectionContext>>({});
 
-  function getDraftKey(workOrder: StageWorkOrder): number {
-    return workOrder.batch_id ?? workOrder.id;
+  // Namespace the draft key by ID space: batch IDs and work-order IDs come from different sequences,
+  // so a bare `batch_id ?? id` could collide a batch with a batchless order sharing the same integer.
+  function getDraftKey(workOrder: StageWorkOrder): string {
+    return workOrder.batch_id != null ? `b${workOrder.batch_id}` : `w${workOrder.id}`;
   }
 
   const filteredWorkOrders = workOrders.filter((workOrder) => {
@@ -166,7 +168,7 @@ export function PackingWorkOrdersPage() {
       // In background mode preserve drafts the operator is editing; only seed orders
       // that just appeared so a poll never wipes an in-progress packing count.
       setDrafts((prev) => {
-        const nextDrafts: Record<number, PackingDraft> = background ? { ...prev } : {};
+        const nextDrafts: Record<string, PackingDraft> = background ? { ...prev } : {};
         for (const item of items) {
           const draftKey = getDraftKey(item);
           if (background && draftKey in nextDrafts) {
@@ -213,11 +215,11 @@ export function PackingWorkOrdersPage() {
     activeWorkOrderId === null,
   );
 
-  function updateDraft(workOrderId: number, fieldName: keyof PackingDraft, value: string | boolean) {
+  function updateDraft(draftKey: string, fieldName: keyof PackingDraft, value: string | boolean) {
     setDrafts((current) => ({
       ...current,
-      [workOrderId]: {
-        ...(current[workOrderId] ?? buildEmptyPackingDraft()),
+      [draftKey]: {
+        ...(current[draftKey] ?? buildEmptyPackingDraft()),
         [fieldName]: value,
       },
     }));
