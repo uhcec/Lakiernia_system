@@ -15,12 +15,13 @@ same way `docs/CHANGES.md` was built. Severity is the engineer's estimate, not a
 
 - **Deep-read:** `main.tsx`, `AuthContext`, `ProtectedRoute`, `stationContext`, all three `api/*` clients,
   `types/workOrders|process|manager`, `utils/*`, `hooks/usePolling`, `CapacityBoard`, `WorkOrderDetailPage`,
-  `ManagerPanelPage` (core logic).
-- **Grep-swept only (deep read pending):** `StageWorkOrdersPage`, `PackingWorkOrdersPage`,
-  `DecoralWorkOrdersPage`, `StatystykiPage`, `CreateWorkOrderPage`, `ClientsPage`, `FoilsPage`,
-  `EmployeesPage`, `AuditEventsPage`, `PaintInventoryPage`, `OfficeWorkOrdersTable`, presence/number/chart
-  components. **These almost certainly hold more findings** (esp. the packing/correction/Decoral flows the
-  backend flags as subtle). Treat bucket A/B below as the verified core, not the full set.
+  `ManagerPanelPage` (core logic), `PackingWorkOrdersPage`, `DecoralWorkOrdersPage` (the subtle
+  correction/packing/Decoral flows). `StageWorkOrdersPage` confirmed (grep) as a third copy of the same
+  machinery — see C3.
+- **Grep-swept only (deep read pending):** `StatystykiPage`, `CreateWorkOrderPage`, `ClientsPage`,
+  `FoilsPage`, `EmployeesPage`, `AuditEventsPage`, `PaintInventoryPage`, `HangingPage`,
+  `SurfacePreparationPage`, `Manual/AutomaticProductionPage`, presence/number/chart components.
+  **These likely hold more findings.** Treat bucket A/B below as the verified core, not the full set.
 
 ---
 
@@ -57,10 +58,12 @@ same way `docs/CHANGES.md` was built. Severity is the engineer's estimate, not a
   *discrepancy* (`:732-739`) but not the leak flag.
 - **Effect:** the leak is back to invisible on the surface the human actually looks at.
 
-### A5 — Second, separate Decoral pass not called out (#2, already open)  *(severity: medium)*
-- #2 (still open on CHANGES) wants the returned-pieces "second Decoral pass" made obvious. No dedicated
-  treatment exists on the front (grep across Decoral views shows only the generic `POPRAWKA`/`DECORAL`
-  badges). Logged here so the frontend end of #2 is tracked alongside A1–A4.
+### A5 — Second, separate Decoral pass only hinted by a cryptic `N` prefix (#2, already open)  *(severity: medium)*
+- #2 (still open on CHANGES) wants the returned-pieces "second Decoral pass" made obvious. On the front the
+  only signal is the order number silently rendered as `N{number}` when `is_decoral_incomplete`
+  (`DecoralWorkOrdersPage.tsx:358`), plus the generic `POPRAWKA`/`DECORAL` badges — no plain-language "this
+  is a separate, second Decoral round on the returned pieces" callout. Note the `N`/`P` prefix rule is
+  duplicated verbatim in 4 files (see C4), so #2's surfacing touches all of them.
 
 ### A6 — Stale type: `ScheduleRuleKey` still lists `"changeover"` (#6)  *(severity: low)*
 - `types/manager.ts:121` keeps the removed rule key. Harmless at runtime (list is server-driven) — pure
@@ -90,6 +93,12 @@ same way `docs/CHANGES.md` was built. Severity is the engineer's estimate, not a
   (`:502`) saves to `editLine`. Today the rules effect is gated to AUTOMATIC (`:419`), so it can't misfire —
   but the mismatch is a latent bug if the rules UI is ever exposed on the MANUAL line.
 
+### B5 — Packing/Decoral draft key mixes two ID spaces  *(severity: low)*
+- Both `PackingWorkOrdersPage.tsx:200` and `DecoralWorkOrdersPage.tsx:146` key the per-card draft by
+  `batch_id ?? id`. `batch_id` (quantity-batch IDs) and `id` (work-order IDs) come from different sequences,
+  so a batch and a batchless order sharing the same integer would collide into one draft. Low probability,
+  but the key isn't provably unique; a namespaced key (`b{batch_id}` / `w{id}`) would remove the risk.
+
 ---
 
 ## Bucket C — Dead code / duplication
@@ -102,6 +111,23 @@ same way `docs/CHANGES.md` was built. Severity is the engineer's estimate, not a
 - The same `createApiUrl` helper + the `.startsWith("http")` absolute/relative dance is copy-pasted across
   `workOrdersApi.ts:11-23`, `processApi.ts:8-20`, `managerApi.ts:23-35` (and repeated inline ~6×). One shared
   helper would remove it.
+
+### C3 — Stage-completion pages are a triplicated copy  *(severity: medium)*
+- `StageWorkOrdersPage`, `PackingWorkOrdersPage`, `DecoralWorkOrdersPage` share ~80% of their code as
+  copy-paste: the correction helpers (`buildCorrectionReference` / `buildCorrectionQuantityContext` /
+  `buildMergedCorrectionDeltaText` exist verbatim in all three — e.g. `StageWorkOrdersPage.tsx:75,101`,
+  `DecoralWorkOrdersPage.tsx:110,126`), `badgeClasses`, `balanceClasses`, `parseQuantity`, `getActionLabel`,
+  and the whole draft/poll/correction-split card machinery. A change to the correction flow currently has to
+  be made in three places — and the backend marks corrections as the subtle, regression-prone path. Strong
+  candidate to factor into one shared stage-completion component/hook.
+
+### C4 — `N`/`P` order-number prefix rule duplicated in 4 files  *(severity: low-med)*
+- The exact ternary that rebuilds the displayed order number (`is_decoral_incomplete → N…`, partial → `P…`)
+  is copy-pasted byte-for-byte in `StageWorkOrdersPage.tsx:503`, `DecoralWorkOrdersPage.tsx:358`,
+  `PackingWorkOrdersPage.tsx:545`, `OfficeWorkOrdersTable.tsx:65` (with a further variant of the `P`-logic in
+  `WorkOrderPrimaryInfoLine.tsx:28`). The prefix meaning is *reconstructed on the client* rather than
+  supplied by the backend. One `formatDisplayOrderNumber()` helper (ideally a backend-supplied field) would
+  both de-duplicate and give #2 (A5) a single place to make the second Decoral pass legible.
 
 ---
 
@@ -126,9 +152,11 @@ same way `docs/CHANGES.md` was built. Severity is the engineer's estimate, not a
 
 1. **A1** (shift length unsettable) — the only item that leaves an agreed change non-functional.
 2. **A2 / A3 / A4** — three small surfacing/copy fixes that make #8, #7, #10 actually land for the user.
-3. Finish the **deep read** of the grep-swept pages (packing / correction / Decoral flows first — the
-   backend marks those subtle) before committing to a B/C/D cleanup sweep.
-4. **A6 / C1 / C2 / B2** — trivial cleanups, batchable.
+3. **C3** — de-duplicate the triplicated stage-completion pages *before* doing more correction-flow work,
+   so #2 (A5) and any future correction change land in one place, not three. **C4** rides along with it.
+4. Finish the **deep read** of the remaining grep-swept pages (stats / create / clients / intake stages)
+   before committing to the rest of the cleanup sweep.
+5. **A6 / C1 / C2 / B2 / B5** — trivial cleanups, batchable.
 
 Items the owner confirms become entries in `docs/CHANGES.md` (frontend section) and carry a `file:line` +
 confirmation marker, exactly like the backend list.
