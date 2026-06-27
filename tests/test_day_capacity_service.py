@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.audit.context import StationContext
 from app.manager.capacity import FLOOR_SHORT_M2, ShiftLength
+from app.shared import clock
 from app.manager.repository import ManagerRepository
 from app.manager.schemas import WorkOrderPlanAssignRequest
 from app.manager.service import ManagerService
@@ -104,14 +105,16 @@ def test_grouped_colours_cost_by_size(db_session: Session) -> None:
     assert day.net_ceiling_m2 < day.gross_ceiling_m2
 
 
-def test_caller_can_force_shift_length(db_session: Session) -> None:
+def test_day_capacity_reads_the_persisted_shift(db_session: Session) -> None:
     work_order_service, manager_service = _build(db_session)
     _plan_automatic(work_order_service, manager_service, "A1", "RAL 9010", 100.0)
 
-    day = manager_service.get_day_capacity(
-        shift_length=ShiftLength.SHORT, station_context=MANAGER
-    )
-    # The manager's explicit choice is honoured over the LONG default.
+    # Unset → LONG default.
+    assert manager_service.get_day_capacity(station_context=MANAGER).shift_length is ShiftLength.LONG
+
+    # The manager records today's shift as SHORT (CHANGES #4/#9); the day capacity then reads it.
+    manager_service.set_day_shift_length(clock.now().date(), ShiftLength.SHORT, station_context=MANAGER)
+    day = manager_service.get_day_capacity(station_context=MANAGER)
     assert day.shift_length is ShiftLength.SHORT
     assert day.floor_m2 == FLOOR_SHORT_M2
 

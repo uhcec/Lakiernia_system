@@ -139,6 +139,7 @@ def place_orders(
     changeover_minutes: float,
     ceiling_rate_m2_per_h: float = CEILING_BOOTH_RATE_M2_PER_H,
     first_day_hours: float | None = None,
+    day_shifts: Sequence[ShiftLength] | None = None,
 ) -> MultiDayPlan:
     """Place orders earliest-deadline-first into net-ceiling-bounded working days.
 
@@ -159,43 +160,37 @@ def place_orders(
     edge). Days beyond the supplied ``working_days`` horizon are still returned (dateless) so their orders
     carry an infeasible verdict — the caller/UI shows only the in-horizon (dated) days.
 
-    Each **later** day is *judged* against its own shift (NA57): the fill above always uses the plan-level
-    (physical full-day) ceiling to decide day boundaries, but for display a day that holds little work is
-    classified SHORT — and measured against the short floor (500), not the long floor (800) — when its m²
-    fit a short day's net ceiling. So an under-filled overflow day (e.g. 550 m²) reads as a sensible short
-    day rather than a "failed" long day, while a genuinely under-target long day (e.g. 700 m²) still flags
-    below floor. SHORT is only chosen when the work fits, so a day is never flagged over its own ceiling.
+    Each day runs the shift the **manager set** for it (CHANGES #4/#9): ``day_shifts[i]`` is the shift for
+    ``working_days[i]`` (a day with no stored value falls back to the plan-level ``shift_length`` default,
+    LONG). That per-day shift drives the FILL — a SHORT day's smaller net ceiling holds less, pushing
+    overflow onto later days — *and* how the day is judged (its floor 800/500, hours 14/8). There is no
+    load-based advising: an under-filled day is judged at its own set shift, not silently relabelled to fit.
+    Day 0 keeps its set shift but is hours-pro-rated to the time left in today's shift (NA56).
     """
-    full_hours = shift_hours(shift_length)
-    floor = floor_m2(shift_length)
+    def effective_shift(day_index: int) -> ShiftLength:
+        if day_shifts is not None and 0 <= day_index < len(day_shifts):
+            return day_shifts[day_index]
+        return shift_length
+
+    day0_full_hours = shift_hours(effective_shift(0))
     # Day 0 may be a partial day (planned mid-shift); every later day is a full working day for the FILL.
-    day0_hours = first_day_hours if first_day_hours is not None else full_hours
-    day0_fraction = day0_hours / full_hours if full_hours > 0 else 1.0
+    day0_hours = first_day_hours if first_day_hours is not None else day0_full_hours
+    day0_fraction = day0_hours / day0_full_hours if day0_full_hours > 0 else 1.0
 
     def gross_ceiling_for(day_index: int) -> float:
-        hours = day0_hours if day_index == 0 else full_hours
+        hours = day0_hours if day_index == 0 else shift_hours(effective_shift(day_index))
         return ceiling_rate_m2_per_h * hours
 
     def floor_for(day_index: int) -> float:
-        return floor * day0_fraction if day_index == 0 else floor
+        if day_index == 0:
+            return floor_m2(effective_shift(0)) * day0_fraction
+        return floor_m2(effective_shift(day_index))
 
     def changeover_loss(changeover_count: int) -> float:
         return changeover_loss_m2(changeover_count, changeover_minutes, ceiling_rate_m2_per_h)
 
     def net_ceiling(day_index: int, changeover_count: int) -> float:
         return max(gross_ceiling_for(day_index) - changeover_loss(changeover_count), 0.0)
-
-    def display_shift_for(day_index: int, placed_m2: float, changeover_count: int) -> ShiftLength:
-        """The shift a day is *judged* against for display (NA57). Day 0 keeps the plan-level shift (its
-        floor is hours-pro-rated, NA56). A later day is SHORT when its work fits a short day's net ceiling
-        AND is below the long-day floor — so an overflow day is measured against the short floor, not the
-        long one — else LONG. SHORT only when the work fits, so it is never flagged over its own ceiling."""
-        if day_index == 0:
-            return shift_length
-        short_net = max(ceiling_rate_m2_per_h * shift_hours(ShiftLength.SHORT) - changeover_loss(changeover_count), 0.0)
-        if placed_m2 <= short_net and placed_m2 < floor_m2(ShiftLength.LONG):
-            return ShiftLength.SHORT
-        return ShiftLength.LONG
 
     ordered = sorted(orders, key=lambda order: (order.planned_pickup_date, order.work_order_id))
 
@@ -206,11 +201,11 @@ def place_orders(
     # can't even take the first order — yet that order would fit a full day — keep today as an empty
     # (closed) column and start the work tomorrow, instead of stranding the order on a near-zero "today"
     # flagged over-ceiling. A genuinely oversized order (won't fit even a full day) still lands + flags it.
-    today_is_reduced = first_day_hours is not None and first_day_hours < full_hours
+    today_is_reduced = first_day_hours is not None and first_day_hours < day0_full_hours
     if ordered and today_is_reduced:
         first_area = max(ordered[0].total_area_m2 or 0.0, 0.0)
         today_net = net_ceiling(0, count_colour_changeovers([ordered[0].colour_key]))
-        full_day_net = ceiling_rate_m2_per_h * full_hours
+        full_day_net = ceiling_rate_m2_per_h * day0_full_hours
         if today_net < first_area <= full_day_net:
             closed_days.append(current)  # today stays as an empty closed column; work begins next day
             current = _OpenDay()
@@ -231,16 +226,11 @@ def place_orders(
     placement_day: dict[int, int] = {}
     for day_index, open_day in enumerate(closed_days):
         changeover_count = count_colour_changeovers(open_day.colours)
-        # Display shift/floor/ceiling are judged PER DAY (NA57); day 0 keeps the plan-level shift with its
-        # hours-pro-rated floor (NA56). The fill above already used the plan-level ceiling, so the day
-        # membership is unchanged — only how each day is *labelled and measured* changes here.
-        day_shift = display_shift_for(day_index, open_day.placed_m2, changeover_count)
-        if day_index == 0:
-            day_gross = gross_ceiling_for(0)
-            day_floor = floor_for(0)
-        else:
-            day_gross = ceiling_rate_m2_per_h * shift_hours(day_shift)
-            day_floor = floor_m2(day_shift)
+        # Each day is labelled + measured against the shift the manager set for it (CHANGES #4/#9), the
+        # same shift that sized its net ceiling in the FILL above. Day 0 is hours-pro-rated (NA56).
+        day_shift = effective_shift(day_index)
+        day_gross = gross_ceiling_for(day_index)
+        day_floor = floor_for(day_index)
         net = max(day_gross - changeover_loss(changeover_count), 0.0)
         scheduled_date = working_days[day_index] if day_index < len(working_days) else None
         for order_id in open_day.order_ids:

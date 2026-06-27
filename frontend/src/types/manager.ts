@@ -153,6 +153,14 @@ export interface AutoScheduleProposal {
 // Multi-day capacity plan (N49-4..N49-8) rendered by the capacity board (N49-9).
 export type PaintFeasibilityStatus = "OK" | "WARNING" | "BLOCKED";
 
+// The shift length a day runs (CHANGES #4/#9): the manager sets it per day; an unset day defaults to LONG.
+export type ShiftLength = "LONG" | "SHORT";
+
+export interface DayShiftLength {
+  day: string;
+  shift_length: ShiftLength;
+}
+
 export interface OrderPlacement {
   work_order_id: number;
   order_number: string;

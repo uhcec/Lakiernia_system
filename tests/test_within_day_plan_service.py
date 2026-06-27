@@ -98,7 +98,7 @@ def test_grouping_lowers_day_changeover_count(db_session: Session) -> None:
     _plan(work_order_service, manager_service, "A2", "RAL 1000", 100.0)
     _plan(work_order_service, manager_service, "B2", "RAL 5005", 100.0)
 
-    plan = manager_service.get_multi_day_plan(shift_length=None, station_context=MANAGER, now=_MORNING)
+    plan = manager_service.get_multi_day_plan(station_context=MANAGER, now=_MORNING)
     assert len(plan.days) == 1
     assert plan.days[0].changeover_count == 1
     # Size-band cost (N49-6): one change, next order small (≤100 m²) → the 15-min band.
@@ -112,7 +112,7 @@ def test_large_orders_incur_changeover_cost(db_session: Session) -> None:
     _plan(work_order_service, manager_service, "BigWhite", "RAL 9010", 300.0)
     _plan(work_order_service, manager_service, "BigBlack", "RAL 9005", 300.0)
 
-    plan = manager_service.get_multi_day_plan(shift_length=None, station_context=MANAGER, now=_MORNING)
+    plan = manager_service.get_multi_day_plan(station_context=MANAGER, now=_MORNING)
     day = next(d for d in plan.days if d.changeover_count == 1)
     # Large band = 30 min, no direction discount.
     assert day.changeover_minutes == 30.0

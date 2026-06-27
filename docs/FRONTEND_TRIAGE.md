@@ -27,15 +27,17 @@ same way `docs/CHANGES.md` was built. Severity is the engineer's estimate, not a
 
 ## Bucket A — Drift vs the backend changes #1–#10
 
-### A1 — Manager can't actually set the shift length (#4 / #9 half-shipped)  *(severity: high)*
-- **Backend done:** the manager is meant to set the day length explicitly (CHANGE #4), and #9 added
-  `GET/PUT /manager/day-shift-length` to persist it. The capacity model reads `shift_length` and defaults to
-  LONG when unset.
-- **Frontend gap:** there is **no UI to set it**. The front only *displays* the value
-  (`components/CapacityBoard.tsx:133`); `fetchMultiDayPlan` never sends a `shift_length` param
-  (`api/managerApi.ts:122-142`); the `/manager/day-shift-length` endpoints are called **nowhere** (grep: 0).
-- **Effect:** in practice the shift is always the LONG default — the agreed "manager sets the shift" change
-  has no operator-facing half. **This is the biggest functional gap found.**
+### A1 — Manager can't actually set the shift length (#4 / #9 half-shipped) — ✅ DONE 2026-06-27
+- **Was:** there was **no UI to set it**. The front only *displayed* the value; the
+  `/manager/day-shift-length` endpoints were called nowhere, and the plan ignored the persisted table —
+  so the shift was always the LONG default.
+- **Done:** the capacity board now has a per-day LONG/SHORT toggle (`ShiftToggle`) that PUTs
+  `/manager/day-shift-length` and refetches. The planner reads the persisted per-day shift as the single
+  source of truth (drives both the plan fill/judging and good-day stats); the old load-derived
+  `display_shift_for` advisory was removed; an unset day defaults LONG. Owner-decided 2026-06-27 (per-day
+  shift drives plan + stats; unset day = LONG). See `docs/DECISIONS.md` (2026-06-27 — A1) and `SPEC.md`
+  §capacity. `frontend/src/components/CapacityBoard.tsx`, `frontend/src/api/managerApi.ts`,
+  `app/manager/placement.py`, `app/manager/service.py`, `app/manager/router.py`.
 
 ### A2 — `STOCK_NOT_ENTERED` is invisible on the board (#8 defeated on the frontend)  *(severity: medium)*
 - #8 added a distinct `STOCK_NOT_ENTERED` paint status precisely so an un-entered stock is **not** silently OK.

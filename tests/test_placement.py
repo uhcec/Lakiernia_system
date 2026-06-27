@@ -161,10 +161,10 @@ def test_first_day_hours_prorates_day_zero_only() -> None:
     assert plan.days[1].below_floor is True
 
 
-def test_underfilled_later_day_is_judged_as_a_short_day() -> None:
-    # 3 × 550 m² same colour: day 0 fills to 1100 (LONG), the trailing 550 spills to day 1. 550 fits a
-    # short day (≤ 640) and is below the long floor → judged SHORT (floor 500), so it clears 500 and is
-    # NOT flagged below floor (it's a fine short day, not a failed long day). NA57.
+def test_underfilled_later_day_defaults_to_long_and_flags_below_floor() -> None:
+    # 3 × 550 m² same colour: day 0 fills to 1100 (LONG), the trailing 550 spills to day 1. With no
+    # manager-set shift, day 1 defaults to LONG (CHANGES #4: no load-based advising) and is judged against
+    # the long floor (800), so 550 is flagged below floor — until the manager marks it short.
     plan = place_orders(
         [_order(i, 550.0, date(2026, 7, 10)) for i in range(1, 4)],
         working_days=_WORKING_WEEK,
@@ -175,26 +175,43 @@ def test_underfilled_later_day_is_judged_as_a_short_day() -> None:
     assert plan.days[0].shift_length is ShiftLength.LONG
     assert plan.days[0].placed_m2 == 1100.0
     assert plan.days[1].placed_m2 == 550.0
-    assert plan.days[1].shift_length is ShiftLength.SHORT
-    assert plan.days[1].floor_m2 == FLOOR_SHORT_M2
-    assert plan.days[1].below_floor is False
-    assert plan.days[1].over_ceiling is False  # SHORT only when it fits → never over its own ceiling
+    assert plan.days[1].shift_length is ShiftLength.LONG
+    assert plan.days[1].floor_m2 == 800.0
+    assert plan.days[1].below_floor is True
+    assert plan.days[1].over_ceiling is False
 
 
-def test_tiny_later_day_is_short_and_below_its_own_floor() -> None:
-    # day 0 = 1100, day 1 = 200. 200 fits a short day but is below the short floor too → SHORT + below,
-    # but measured against 500, not the long 800.
+def test_manager_set_short_day_is_judged_short() -> None:
+    # The manager marks day 1 SHORT (CHANGES #4/#9): that day is judged against the short floor (500), so a
+    # 550 m² overflow day clears it and is not flagged below. ``day_shifts`` aligns to ``working_days``.
     plan = place_orders(
-        [_order(1, 550.0, date(2026, 7, 10)), _order(2, 550.0, date(2026, 7, 10)), _order(3, 200.0, date(2026, 7, 10))],
+        [_order(i, 550.0, date(2026, 7, 10)) for i in range(1, 4)],
         working_days=_WORKING_WEEK,
         shift_length=ShiftLength.LONG,
         changeover_minutes=20.0,
+        day_shifts=[ShiftLength.LONG] + [ShiftLength.SHORT] * (len(_WORKING_WEEK) - 1),
     )
-    assert plan.days[1].placed_m2 == 200.0
+    assert plan.days[1].placed_m2 == 550.0
     assert plan.days[1].shift_length is ShiftLength.SHORT
     assert plan.days[1].floor_m2 == FLOOR_SHORT_M2
-    assert plan.days[1].below_floor is True
+    assert plan.days[1].below_floor is False
     assert plan.days[1].over_ceiling is False
+
+
+def test_manager_set_short_first_day_holds_less_and_pushes_overflow() -> None:
+    # day 0 marked SHORT drives the FILL, not just the label: its smaller net ceiling (80 × 8 = 640) takes
+    # only two of three 300 m² same-colour orders; the third spills to a default-LONG day 1.
+    plan = place_orders(
+        [_order(i, 300.0, date(2026, 7, 10)) for i in range(1, 4)],
+        working_days=_WORKING_WEEK,
+        shift_length=ShiftLength.LONG,
+        changeover_minutes=20.0,
+        day_shifts=[ShiftLength.SHORT] + [ShiftLength.LONG] * (len(_WORKING_WEEK) - 1),
+    )
+    assert plan.days[0].shift_length is ShiftLength.SHORT
+    assert plan.days[0].gross_ceiling_m2 == 640.0
+    assert plan.days[0].placed_m2 == 600.0
+    assert plan.days[1].placed_m2 == 300.0
 
 
 def test_underfilled_long_day_still_flags_below_the_long_floor() -> None:

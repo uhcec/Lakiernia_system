@@ -23,6 +23,56 @@ Every entry carries these fields (a field may say "none" but is never silently d
 
 ---
 
+## 2026-06-27 — A1: per-day shift length drives the plan (frontend + planner)
+
+**Decision:** the manager sets each day's shift length (LONG/SHORT) from the capacity board; the value
+is persisted per day (`day_shift_lengths`) and is the **single source of truth** read by **both** the
+forward multi-day plan and the "good day" stats. A day's shift drives its floor/hours **and** the fill —
+a SHORT day's smaller net ceiling holds less and pushes overflow onto later days. A day with no stored
+value defaults to **LONG** (judged against 800). The old load-derived per-day advisory
+(`display_shift_for`, NA57) is removed.
+
+**Why** — owner-confirmed **2026-06-27** (this session, completing `CHANGES.md #4/#9` and triage item
+**A1** in `docs/FRONTEND_TRIAGE.md`). Two questions were put to the owner: *what should setting a day's
+shift affect?* → **the plan and the stats, persisted** (one coherent control, not an ephemeral toggle);
+and *how to judge a day the manager hasn't set yet?* → **default LONG / 800**, no guessing. Factory why:
+a short day physically runs fewer booth hours, so the plan must hold less and shift work forward to stay
+truthful; and an unset day must not be silently shrunk to "look OK" — the manager declares the day's
+length as an explicit operational fact (consistent with #4 dropping all advising).
+
+**Rejected:**
+- *Plan-only, ephemeral* (pass `shift_length` as a query param to the plan): the board would react but
+  nothing persists and good-day stats stay blind — rejected as a second, drifting mechanism.
+- *Stats-only, persisted* (PUT day-shift-length but the plan ignores it): the plan would keep showing
+  LONG regardless of what the manager set — rejected as a board that lies.
+- *Keep `display_shift_for`'s load-derived SHORT relabel*: rejected — it is exactly the kind of advising
+  #4 removed, and it silently re-judged under-filled days as short, hiding genuine below-floor days.
+
+**Implementation notes:**
+- `place_orders` gains `day_shifts: Sequence[ShiftLength] | None` aligned to `working_days`; per-day
+  effective shift sizes each day's gross ceiling/floor in the FILL and labels it. `display_shift_for`
+  deleted. `app/manager/placement.py:134-198`.
+- `get_multi_day_plan` builds the per-day map from `list_day_shift_lengths(...)` (default LONG) and drops
+  its `shift_length` param; `get_day_capacity` reads `get_day_shift_length(today)`. The `shift_length`
+  query param is removed from `/manager/planner/multi-day` and `/planner/day-capacity`.
+  `app/manager/service.py:1123-1124`, `1248-1252`; `app/manager/router.py`.
+- Frontend: `ShiftToggle` on each capacity-board day column → `PUT /manager/day-shift-length?day=…` →
+  refetch. `frontend/src/components/CapacityBoard.tsx`, `frontend/src/api/managerApi.ts`.
+- Tests: `tests/test_placement.py` (per-day shift drives fill + judging), `test_multi_day_plan_service.py`
+  ::`test_plan_honours_the_manager_set_shift_for_a_day`, `test_day_capacity_service.py`
+  ::`test_day_capacity_reads_the_persisted_shift`. Verified live over HTTP: setting day 0 SHORT flipped
+  the plan's day shift LONG→SHORT and floor 800→500.
+
+**Expected:** marking a day SHORT re-sizes its column (holds less, overflow forward) and judges it
+against 500/8; unset days read LONG/800; the value is per-day and **shop-wide** (the table is keyed by
+day only), so both lines share a day's shift.
+
+**Review-by:** the owner's next look at the board — confirm a day no longer reads "poniżej progu" once
+marked short, and that overflow lands where expected; also confirm sharing one shift across both lines
+matches the floor reality.
+
+---
+
 ## 2026-06-26 — CHANGE #6: two scheduling rules (deadline → colour)
 
 **Decision:** the painting auto-scheduler keeps only two ordering rules — `DEADLINE` and `COLOUR` —

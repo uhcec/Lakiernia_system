@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { fetchMultiDayPlan, reorderWorkOrderQueue } from "../api/managerApi";
+import { fetchMultiDayPlan, reorderWorkOrderQueue, setDayShiftLength } from "../api/managerApi";
 import { STATION_POLL_INTERVAL_MS, usePolling } from "../hooks/usePolling";
-import type { MultiDayPlan, OrderPlacement, PlannedDay } from "../types/manager";
+import type { MultiDayPlan, OrderPlacement, PlannedDay, ShiftLength } from "../types/manager";
 import type { ProductionTypeValue } from "../types/workOrders";
 
 // Multi-day capacity board (N49-9): a line's planned work laid across the next working days — each day a
@@ -108,7 +108,48 @@ function PlacementRow({ placement }: { placement: OrderPlacement }) {
   );
 }
 
-function DayColumn({ day }: { day: PlannedDay }) {
+function ShiftToggle({
+  day,
+  saving,
+  onSetShift,
+}: {
+  day: PlannedDay;
+  saving: boolean;
+  onSetShift: (day: PlannedDay, next: ShiftLength) => void;
+}) {
+  // The shift length is the manager's choice for the whole shop on that day (CHANGES #4/#9) — it sizes
+  // the day's floor/ceiling and drives the fill, so both lines share it.
+  return (
+    <div className="inline-flex rounded-full border border-line bg-white p-0.5" role="group" aria-label="Długość zmiany" title="Długość zmiany (cała hala na ten dzień)">
+      {(["LONG", "SHORT"] as ShiftLength[]).map((value) => (
+        <button
+          key={value}
+          type="button"
+          disabled={saving || day.shift_length === value}
+          onClick={() => onSetShift(day, value)}
+          aria-pressed={day.shift_length === value}
+          className={[
+            "rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide transition",
+            day.shift_length === value ? "bg-accent text-white" : "text-steel hover:text-ink",
+            saving ? "opacity-60" : "",
+          ].join(" ")}
+        >
+          {value === "LONG" ? "dług." : "krót."}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function DayColumn({
+  day,
+  saving,
+  onSetShift,
+}: {
+  day: PlannedDay;
+  saving: boolean;
+  onSetShift: (day: PlannedDay, next: ShiftLength) => void;
+}) {
   const fill = fillPercent(day.placed_m2, day.net_ceiling_m2);
   const floorLine = floorPercent(day.floor_m2, day.net_ceiling_m2);
   // A day with no capacity left (today, planned after the shift ends — NA56): show it as closed rather
@@ -128,9 +169,9 @@ function DayColumn({ day }: { day: PlannedDay }) {
   }
   return (
     <div className="flex w-60 shrink-0 flex-col rounded-2xl border border-line bg-mist/40 p-3">
-      <div className="flex items-baseline justify-between">
+      <div className="flex items-center justify-between gap-2">
         <span className="text-sm font-semibold text-ink">{formatDayHeader(day.scheduled_date, day.day_index)}</span>
-        <span className="text-[10px] uppercase tracking-wide text-steel">{day.shift_length === "LONG" ? "dług." : "krót."}</span>
+        <ShiftToggle day={day} saving={saving} onSetShift={onSetShift} />
       </div>
       <div className="mt-1 text-xs text-steel">
         <span className={day.below_floor ? "font-semibold text-amber-700" : "font-semibold text-emerald-700"}>
@@ -172,6 +213,8 @@ export function CapacityBoard() {
   const [error, setError] = useState<string | null>(null);
   const [applying, setApplying] = useState(false);
   const [applyError, setApplyError] = useState<string | null>(null);
+  const [savingShiftDayIndex, setSavingShiftDayIndex] = useState<number | null>(null);
+  const [shiftError, setShiftError] = useState<string | null>(null);
   // The line currently requested, so a response that arrives after the manager switched lines is ignored.
   const lineRef = useRef(line);
   lineRef.current = line;
@@ -195,6 +238,7 @@ export function CapacityBoard() {
     setPlan(null);
     setError(null);
     setApplyError(null);
+    setShiftError(null);
     load();
   }, [line, load]);
 
@@ -226,6 +270,28 @@ export function CapacityBoard() {
       setApplying(false);
     }
   }, [plan, load]);
+
+  // Record the manager's shift length for a day (CHANGES #4/#9), then refetch so the plan reflects it
+  // (a SHORT day holds less and re-sizes the column). The value is per-day and shop-wide, so it applies
+  // to both lines; the board reloads from the backend's recomputed plan.
+  const setDayShift = useCallback(
+    async (day: PlannedDay, next: ShiftLength) => {
+      if (!day.scheduled_date || day.shift_length === next) {
+        return;
+      }
+      setSavingShiftDayIndex(day.day_index);
+      setShiftError(null);
+      try {
+        await setDayShiftLength(day.scheduled_date, next);
+        load();
+      } catch (caught) {
+        setShiftError(caught instanceof Error ? caught.message : "Nie udało się zapisać długości zmiany");
+      } finally {
+        setSavingShiftDayIndex(null);
+      }
+    },
+    [load],
+  );
 
   // Only the in-horizon (dated) days are shown as columns — today + the next 2 working days (NA56 /
   // 3-day plan). Orders that overflow the horizon live in dateless buckets; they never render as extra
@@ -316,10 +382,20 @@ export function CapacityBoard() {
       {error ? (
         <div className="rounded-2xl border border-rose-200 bg-rose-50 px-5 py-4 text-sm text-rose-700">{error}</div>
       ) : !plan ? null : hasWork ? (
-        <div className="flex gap-3 overflow-x-auto pb-2">
-          {visibleDays.map((day) => (
-            <DayColumn key={day.day_index} day={day} />
-          ))}
+        <div className="space-y-3">
+          {shiftError ? (
+            <div className="rounded-2xl border border-rose-200 bg-rose-50 px-5 py-3 text-sm text-rose-700">{shiftError}</div>
+          ) : null}
+          <div className="flex gap-3 overflow-x-auto pb-2">
+            {visibleDays.map((day) => (
+              <DayColumn
+                key={day.day_index}
+                day={day}
+                saving={savingShiftDayIndex === day.day_index}
+                onSetShift={setDayShift}
+              />
+            ))}
+          </div>
         </div>
       ) : (
         <div className="rounded-3xl border border-dashed border-line bg-mist px-6 py-10 text-center text-sm text-steel">

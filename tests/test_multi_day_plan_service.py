@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.audit.context import StationContext
 from app.manager.capacity import ShiftLength
+from app.manager.placement import working_days_from
 from app.manager.repository import ManagerRepository
 from app.manager.schemas import (
     WorkOrderPlanAssignRequest,
@@ -107,9 +108,7 @@ def test_overflow_spills_to_second_day(db_session: Session) -> None:
     for i in range(3):
         _plan_automatic(work_order_service, manager_service, f"A{i}", "RAL 9010", 500.0, _COMFORTABLE)
 
-    plan = manager_service.get_multi_day_plan(
-        shift_length=ShiftLength.LONG, station_context=MANAGER, now=_MORNING
-    )
+    plan = manager_service.get_multi_day_plan(station_context=MANAGER, now=_MORNING)
 
     assert len(plan.days) == 2
     assert plan.days[0].placed_m2 == 1000.0
@@ -140,9 +139,7 @@ def test_day_zero_is_prorated_when_planned_mid_shift(db_session: Session) -> Non
     _plan_automatic(work_order_service, manager_service, "A2", "RAL 9010", 700.0, _COMFORTABLE)
     afternoon = datetime(_TODAY.year, _TODAY.month, _TODAY.day, 16, 0)
 
-    plan = manager_service.get_multi_day_plan(
-        shift_length=ShiftLength.LONG, station_context=MANAGER, now=afternoon
-    )
+    plan = manager_service.get_multi_day_plan(station_context=MANAGER, now=afternoon)
 
     assert len(plan.days) == 2
     assert plan.days[0].gross_ceiling_m2 == 400.0
@@ -151,19 +148,34 @@ def test_day_zero_is_prorated_when_planned_mid_shift(db_session: Session) -> Non
     assert plan.days[1].placed_m2 == 700.0
 
 
-def test_underfilled_later_day_reads_as_a_short_day(db_session: Session) -> None:
+def test_underfilled_later_day_defaults_to_long_until_manager_sets_it(db_session: Session) -> None:
     work_order_service, manager_service = _build(db_session)
-    # 3 × 550 m² (same colour): day 0 = 1100 (LONG), the trailing 550 spills to day 1 — judged as a SHORT
-    # day (fits ≤ 640, below the long floor) so it clears the short floor and isn't flagged below (NA57).
+    # 3 × 550 m² (same colour): day 0 = 1100 (LONG), the trailing 550 spills to day 1. With no manager-set
+    # shift, day 1 defaults to LONG and is flagged below the long floor (CHANGES #4: no advising).
     for i in range(3):
         _plan_automatic(work_order_service, manager_service, f"A{i}", "RAL 9010", 550.0, _COMFORTABLE)
 
-    plan = manager_service.get_multi_day_plan(
-        shift_length=ShiftLength.LONG, station_context=MANAGER, now=_MORNING
-    )
+    plan = manager_service.get_multi_day_plan(station_context=MANAGER, now=_MORNING)
 
     assert len(plan.days) == 2
     assert plan.days[0].shift_length is ShiftLength.LONG
+    assert plan.days[1].placed_m2 == 550.0
+    assert plan.days[1].shift_length is ShiftLength.LONG
+    assert plan.days[1].below_floor is True
+
+
+def test_plan_honours_the_manager_set_shift_for_a_day(db_session: Session) -> None:
+    work_order_service, manager_service = _build(db_session)
+    # Same 3 × 550 m² layout, but the manager marks day 1 SHORT (CHANGES #4/#9). The plan must then judge
+    # that day against the short floor (500), so the 550 m² overflow day is no longer below floor.
+    for i in range(3):
+        _plan_automatic(work_order_service, manager_service, f"A{i}", "RAL 9010", 550.0, _COMFORTABLE)
+    day_one = working_days_from(_TODAY, 3)[1]
+    manager_service.set_day_shift_length(day_one, ShiftLength.SHORT, station_context=MANAGER)
+
+    plan = manager_service.get_multi_day_plan(station_context=MANAGER, now=_MORNING)
+
+    assert plan.days[1].scheduled_date == day_one
     assert plan.days[1].placed_m2 == 550.0
     assert plan.days[1].shift_length is ShiftLength.SHORT
     assert plan.days[1].below_floor is False

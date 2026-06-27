@@ -10,7 +10,6 @@ from sqlalchemy.orm import Session
 from app.audit.context import StationContext, get_station_context
 from app.database.session import get_db_session
 from app.manager.repository import ManagerRepository
-from app.manager.capacity import ShiftLength
 from app.manager.schemas import (
     AutoScheduleProposal,
     CorrectionReasonReportItem,
@@ -140,12 +139,9 @@ def set_day_shift_length(
 def get_day_capacity(
     station_context: Annotated[StationContext, Depends(get_station_context)],
     production_type: Annotated[ProductionType, Query()] = ProductionType.AUTOMATIC,
-    shift_length: Annotated[ShiftLength | None, Query()] = None,
     service: Annotated[ManagerService, Depends(get_manager_service)] = ...,
 ) -> DayCapacityRead:
-    return service.get_day_capacity(
-        production_type, shift_length, station_context=station_context
-    )
+    return service.get_day_capacity(production_type, station_context=station_context)
 
 
 @router.get("/planner/multi-day", response_model=MultiDayPlanRead)
@@ -155,11 +151,10 @@ def get_multi_day_plan(
     horizon_working_days: Annotated[
         int, Query(ge=1, le=_MAX_PLAN_HORIZON_WORKING_DAYS)
     ] = _DEFAULT_PLAN_HORIZON_WORKING_DAYS,
-    shift_length: Annotated[ShiftLength | None, Query()] = None,
     service: Annotated[ManagerService, Depends(get_manager_service)] = ...,
 ) -> MultiDayPlanRead:
     return service.get_multi_day_plan(
-        production_type, horizon_working_days, shift_length, station_context=station_context
+        production_type, horizon_working_days, station_context=station_context
     )
 
 

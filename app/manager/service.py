@@ -1101,7 +1101,6 @@ class ManagerService:
     def get_day_capacity(
         self,
         production_type: ProductionType = ProductionType.AUTOMATIC,
-        shift_length: ShiftLength | None = None,
         station_context: StationContext | None = None,
     ) -> DayCapacityRead:
         """Day-capacity snapshot for a line's currently-planned work (N49-3, the planner foundation).
@@ -1113,14 +1112,18 @@ class ManagerService:
         so the m² loss reflects size, not a flat per-change count. ``changeover_minutes`` returns the
         average per-change cost of that order; ``changeover_is_measured`` reflects whether the learned
         seed was refined (kept for the read model, though the bands themselves are structural). The
-        ``shift_length`` is set by the manager (CHANGES #4); when omitted the planner defaults to LONG.
-        Pure arithmetic lives in ``app/manager/capacity.py`` / ``app/manager/colour.py``.
+        The day runs the shift length the manager set for today (CHANGES #4/#9), read from
+        ``day_shift_lengths``; an unset day defaults to LONG. Pure arithmetic lives in
+        ``app/manager/capacity.py`` / ``app/manager/colour.py``.
         """
         self._ensure_manager_station_action(station_context)
 
         active_orders = self._active_planned_orders_for_line(production_type)
 
-        resolved_shift = shift_length if shift_length is not None else ShiftLength.LONG
+        persisted_today = self.repository.get_day_shift_length(clock.now().date())
+        resolved_shift = (
+            ShiftLength(persisted_today.shift_length) if persisted_today is not None else ShiftLength.LONG
+        )
 
         # Reorder the day to group identical colours (N49-5) so the changeover count + cost reflect the
         # arrangement the planner would actually run, not the raw queue order.
@@ -1186,7 +1189,6 @@ class ManagerService:
         self,
         production_type: ProductionType = ProductionType.AUTOMATIC,
         horizon_working_days: int = _DEFAULT_PLAN_HORIZON_WORKING_DAYS,
-        shift_length: ShiftLength | None = None,
         station_context: StationContext | None = None,
         now: datetime | None = None,
     ) -> MultiDayPlanRead:
@@ -1198,8 +1200,9 @@ class ManagerService:
         N49-2). **Within each placed day** the orders are then reordered to **group identical colours**
         (N49-5) and that day's **size-band-aware** changeover cost is reported (N49-6). Each order also
         carries a **suggested line** (N49-8: small-m² colour-orphan → manual, else automatic — a
-        manager-overridable hint). The ``shift_length`` is set by the manager (CHANGES #4); when omitted
-        the planner defaults to LONG.
+        manager-overridable hint). Each day runs the shift length the manager set for it (CHANGES #4/#9),
+        read per-day from ``day_shift_lengths``; an unset day defaults to LONG. A SHORT day's smaller net
+        ceiling holds less and pushes overflow forward.
         ``infeasible_order_ids`` is the "won't make it" set — orders whose scheduled day is past their
         hard pickup deadline or beyond the horizon. Pure placement arithmetic lives in
         ``app/manager/placement.py``; colour ordering / line lever in ``app/manager/colour.py``.
@@ -1208,8 +1211,6 @@ class ManagerService:
 
         active_orders = self._active_planned_orders_for_line(production_type)
         orders_by_id = {work_order.id: work_order for work_order in active_orders}
-
-        resolved_shift = shift_length if shift_length is not None else ShiftLength.LONG
 
         placeable = [
             PlaceableOrder(
@@ -1240,9 +1241,18 @@ class ManagerService:
             [orders_by_id[order_id] for order_id in line_swept_ids]
         )
         working_days = working_days_from(clock.now().date(), horizon_working_days)
+        # The shift length each working day runs is the manager's per-day value (CHANGES #4/#9); an unset
+        # day defaults to LONG. This per-day shift drives both the fill (a SHORT day holds less) and how
+        # each day is judged (its floor/hours).
+        shift_by_day = {
+            row.day: ShiftLength(row.shift_length)
+            for row in self.repository.list_day_shift_lengths(working_days[0], working_days[-1])
+        } if working_days else {}
+        day_shifts = [shift_by_day.get(day, ShiftLength.LONG) for day in working_days]
+        first_day_shift = day_shifts[0] if day_shifts else ShiftLength.LONG
         # Pro-rate day 0 to the hours left in today's shift (NA56) so a plan built mid-shift doesn't
         # promise a whole day today. ``now`` is factory-local wall-clock (defaults to the server clock).
-        first_day_hours = remaining_shift_hours(now if now is not None else clock.now_naive_local(), resolved_shift)
+        first_day_hours = remaining_shift_hours(now if now is not None else clock.now_naive_local(), first_day_shift)
 
         # Paint-stock feasibility (N49-7): per-order OK / WARNING / BLOCKED in execution order, so the
         # board can mark out-of-stock (metered) colours that the plan-time gate also refuses.
@@ -1252,9 +1262,10 @@ class ManagerService:
         plan = place_orders(
             placeable,
             working_days=working_days,
-            shift_length=resolved_shift,
+            shift_length=ShiftLength.LONG,
             changeover_minutes=line_avg_changeover_minutes,
             first_day_hours=first_day_hours,
+            day_shifts=day_shifts,
         )
 
         placement_by_id = {placement.work_order_id: placement for placement in plan.placements}

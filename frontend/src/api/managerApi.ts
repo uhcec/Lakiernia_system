@@ -5,12 +5,14 @@ import type {
   AutoScheduleProposal,
   CorrectionReasonReportItem,
   CycleTimeStats,
+  DayShiftLength,
   GoodDayStats,
   MultiDayPlan,
   ReorderQueueRequest,
   ScheduleRuleConfigRead,
   ScheduleRuleConfigUpdate,
   SetPlanningPriorityRequest,
+  ShiftLength,
   ThroughputStats,
   UpdateProductionTypeRequest,
   UpdateQueuePositionRequest,
@@ -310,6 +312,25 @@ export async function fetchAutoScheduleProposal(productionType: ProductionTypeVa
   }
 
   return response.json() as Promise<AutoScheduleProposal>;
+}
+
+export async function setDayShiftLength(day: string, shiftLength: ShiftLength): Promise<DayShiftLength> {
+  const base = createApiUrl("/manager/day-shift-length");
+  const response = await fetch(`${base}?day=${encodeURIComponent(day)}`, {
+    method: "PUT",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+      ...getCurrentStationHeaders(),
+    },
+    body: JSON.stringify({ shift_length: shiftLength }),
+  });
+
+  if (!response.ok) {
+    throw await createApiError(response, "Nie udało się zapisać długości zmiany");
+  }
+
+  return response.json() as Promise<DayShiftLength>;
 }
 
 export async function reorderWorkOrderQueue(
