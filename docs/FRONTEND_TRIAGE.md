@@ -132,13 +132,18 @@ same way `docs/CHANGES.md` was built. Severity is the engineer's estimate, not a
   `parseQuantity`) are now single definitions in `utils/workOrderDisplay.ts`, imported by all three pages
   (and `badgeClasses` also de-duplicated from `WorkOrderDetailPage`), pinned by a new unit test
   (`utils/workOrderDisplay.test.ts`) and the existing component suite (111 green).
-- **Remaining (C3b/C3c):** the JSX-level duplication — the shared **correction-split sub-form**
-  (profiles/accessories + reason + note, near-identical in Packing/Decoral) and the **card header** block —
-  is still per-page. Doing this is what lets **A5** (#2) land in one place. Higher risk (stateful JSX), so
-  staged separately on top of C3a.
-- **Concrete divergence to fix when unifying:** `StageWorkOrdersPage` gates the correction card on
-  `is_correction` only (`:430`, `:530`), while Packing/Decoral use `is_correction || is_correction_round` —
-  so a correction-**round** order on a stage page silently loses the "runda" label the other two give it.
+- **C3b done 2026-06-27:** the **correction-split sub-form** (profiles/accessories + balance + reason +
+  optional note, byte-identical in Packing/Decoral, incl. the duplicated `correctionReasonOptions`) is now
+  one component `components/CorrectionSplitFields.tsx`, used by both pages; the packing-only "Rodzaj
+  poprawki" disposition stays in the packing card. Pinned by `CorrectionSplitFields.test.tsx` + the existing
+  component suite (116 green). Behaviour-preserving.
+- **Remaining (C3c):** the **card header** block (line label / N-P number / status badge / primary info /
+  badges / technical-drawings / correction-context) is still copy-pasted across the three pages. Unifying it
+  is what lets **A5** (#2) land in one place — and is where the divergence below gets fixed.
+- **Concrete divergence to fix in C3c (a deliberate behaviour change, with a test):**
+  `StageWorkOrdersPage` gates the correction card on `is_correction` only, while Packing/Decoral use
+  `is_correction || is_correction_round` — so a correction-**round** order on a stage page silently loses the
+  "runda" label the other two give it.
 
 ### C4 — `N`/`P` order-number prefix rule duplicated in 4 files — ✅ DONE 2026-06-27
 - The ternary that rebuilds the displayed order number (`is_decoral_incomplete → N…`, partial → `P…`) was

@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { usePolling, STATION_POLL_INTERVAL_MS } from "../hooks/usePolling";
 import { getMutationErrorMessage } from "../utils/mutationError";
 import { buildWorkOrderDetailHref, getStationIdForLocation } from "../api/stationContext";
+import { CorrectionSplitFields } from "./CorrectionSplitFields";
 import { NumberInput } from "./NumberInput";
 import { StationPresenceWidget } from "./StationPresenceWidget";
 import { TechnicalDrawingLinks } from "./TechnicalDrawingLinks";
@@ -11,7 +12,6 @@ import type { StageWorkOrder, StageStatusValue } from "../types/process";
 import { loadCorrectionContexts, type CorrectionContext } from "../utils/correctionContext";
 import {
   badgeClasses,
-  balanceClasses,
   buildCorrectionQuantityContext,
   buildCorrectionReference,
   buildMergedCorrectionDeltaText,
@@ -33,13 +33,6 @@ interface DecoralDraft {
   correctionReasonCategory: string;
   correctionReasonNote: string;
 }
-
-const correctionReasonOptions = [
-  { value: "niedomalowanie", label: "Niedomalowanie" },
-  { value: "za grubo", label: "Za grubo" },
-  { value: "wtrącenia", label: "Wtrącenia" },
-  { value: "inne", label: "Inne" },
-];
 
 function getActionLabel(status: StageStatusValue): string {
   switch (status) {
@@ -412,63 +405,14 @@ export function DecoralWorkOrdersPage() {
 
                       {correctionQuantity > 0 ? (
                         <div className="space-y-3">
-                          <div className="grid gap-3 sm:grid-cols-2">
-                            <label className="space-y-1 text-sm font-medium text-steel">
-                              <span>Profile do poprawki</span>
-                              <NumberInput
-                                min="0"
-                                step="1"
-                                value={draft.correctionProfilesQuantity}
-                                onValueChange={(value) => updateDraft(draftKey, "correctionProfilesQuantity", value)}
-                                className="w-full rounded-lg border border-line bg-white px-3 py-2 text-base font-semibold text-ink outline-none transition focus:border-accent"
-                              />
-                            </label>
-                            <label className="space-y-1 text-sm font-medium text-steel">
-                              <span>Akcesoria do poprawki</span>
-                              <NumberInput
-                                min="0"
-                                step="1"
-                                value={draft.correctionAccessoriesQuantity}
-                                onValueChange={(value) => updateDraft(draftKey, "correctionAccessoriesQuantity", value)}
-                                className="w-full rounded-lg border border-line bg-white px-3 py-2 text-base font-semibold text-ink outline-none transition focus:border-accent"
-                              />
-                            </label>
-                          </div>
-
-                          <div className={["rounded-lg border px-3 py-2 text-sm font-semibold", balanceClasses(splitBalance.tone)].join(" ")}>
-                            Podział poprawki: {splitBalance.text}
-                          </div>
-
-                          <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-                            <label className="space-y-1 text-sm font-medium text-steel">
-                              <span>Powód poprawki</span>
-                              <select
-                                value={draft.correctionReasonCategory}
-                                onChange={(event) => updateDraft(draftKey, "correctionReasonCategory", event.target.value)}
-                                className="w-full rounded-lg border border-line bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-accent"
-                              >
-                                <option value="">Wybierz</option>
-                                {correctionReasonOptions.map((option) => (
-                                  <option key={option.value} value={option.value}>
-                                    {option.label}
-                                  </option>
-                                ))}
-                              </select>
-                            </label>
-                            {draft.correctionReasonCategory === "inne" ? (
-                              <label className="space-y-1 text-sm font-medium text-steel">
-                                <span>Notatka</span>
-                                <input
-                                  type="text"
-                                  maxLength={500}
-                                  value={draft.correctionReasonNote}
-                                  onChange={(event) => updateDraft(draftKey, "correctionReasonNote", event.target.value)}
-                                  placeholder="Notatka"
-                                  className="w-full rounded-lg border border-line bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-accent"
-                                />
-                              </label>
-                            ) : null}
-                          </div>
+                          <CorrectionSplitFields
+                            correctionProfilesQuantity={draft.correctionProfilesQuantity}
+                            correctionAccessoriesQuantity={draft.correctionAccessoriesQuantity}
+                            correctionReasonCategory={draft.correctionReasonCategory}
+                            correctionReasonNote={draft.correctionReasonNote}
+                            splitBalance={splitBalance}
+                            onFieldChange={(field, value) => updateDraft(draftKey, field, value)}
+                          />
                         </div>
                       ) : null}
 
