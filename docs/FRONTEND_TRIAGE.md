@@ -39,26 +39,23 @@ same way `docs/CHANGES.md` was built. Severity is the engineer's estimate, not a
   §capacity. `frontend/src/components/CapacityBoard.tsx`, `frontend/src/api/managerApi.ts`,
   `app/manager/placement.py`, `app/manager/service.py`, `app/manager/router.py`.
 
-### A2 — `STOCK_NOT_ENTERED` is invisible on the board (#8 defeated on the frontend)  *(severity: medium)*
-- #8 added a distinct `STOCK_NOT_ENTERED` paint status precisely so an un-entered stock is **not** silently OK.
-- **Frontend gap:** `types/manager.ts:154` `PaintFeasibilityStatus = "OK" | "WARNING" | "BLOCKED"` — the new
-  status is missing from the type. `CapacityBoard.tsx:100-105` only renders a chip for `BLOCKED` / `WARNING`,
-  so a `STOCK_NOT_ENTERED` placement shows **no chip → looks OK**. The new `stock_not_entered_order_ids`
-  (PaintForwardView) is surfaced nowhere (grep: 0).
-- **Effect:** exactly the "silent OK" #8 set out to kill.
+### A2 — `STOCK_NOT_ENTERED` is invisible on the board (#8) — ✅ DONE 2026-06-27
+- **Was:** `PaintFeasibilityStatus` lacked the status and the board only chipped `BLOCKED`/`WARNING`, so a
+  `STOCK_NOT_ENTERED` placement showed no chip → looked OK (the "silent OK" #8 set out to kill).
+- **Done:** added `STOCK_NOT_ENTERED` to the type (`types/manager.ts`) and a "wpisz stan farby" chip on the
+  board placement row (`CapacityBoard.tsx`).
 
-### A3 — False on-screen copy: "od jasnych do ciemnych kolorów" (#7)  *(severity: medium)*
-- #7 dropped RAL-lightness; within-day colour planning is now **pure grouping**, not a light→dark sweep.
-- **Frontend gap:** the capacity board still *tells the manager* it sorts "w kolejności od jasnych do
-  ciemnych kolorów" (`CapacityBoard.tsx:268-269`), and the module comment repeats it (`:11`, `:20`).
-- **Effect:** user-visible copy describes behaviour the system no longer has.
+### A3 — False on-screen copy: "od jasnych do ciemnych kolorów" (#7) — ✅ DONE 2026-06-27
+- **Was:** the board told the manager it sorts "w kolejności od jasnych do ciemnych kolorów"; #7 dropped
+  that — within-day planning is pure colour grouping.
+- **Done:** copy now reads "grupując zlecenia w tym samym kolorze obok siebie"; the stale module comment
+  was corrected too. `CapacityBoard.tsx`.
 
-### A4 — Quantity-leak flag never surfaced (#10)  *(severity: medium)*
-- #10 added `work_orders.quantity_leak_flagged` to make the leak **human-visible** (exposed in `WorkOrderRead`).
-- **Frontend gap:** the field isn't even in the type (`types/workOrders.ts` `WorkOrder` has no
-  `quantity_leak_flagged`), and is rendered nowhere (grep: 0). `WorkOrderDetailPage` shows the prep
-  *discrepancy* (`:732-739`) but not the leak flag.
-- **Effect:** the leak is back to invisible on the surface the human actually looks at.
+### A4 — Quantity-leak flag never surfaced (#10) — ✅ DONE 2026-06-27
+- **Was:** `quantity_leak_flagged` wasn't in the type and was rendered nowhere.
+- **Done:** added the field to the `WorkOrder` type; a "WYCIEK ILOŚCI" attention badge (shows on the detail
+  page + manager panel) plus an explanatory banner on `WorkOrderDetailPage` so the leak is investigated
+  rather than invisible. `types/workOrders.ts`, `utils/workOrderDisplay.ts`, `pages/WorkOrderDetailPage.tsx`.
 
 ### A5 — Second, separate Decoral pass only hinted by a cryptic `N` prefix (#2, already open)  *(severity: medium)*
 - #2 (still open on CHANGES) wants the returned-pieces "second Decoral pass" made obvious. On the front the

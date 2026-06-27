@@ -151,7 +151,9 @@ export interface AutoScheduleProposal {
 }
 
 // Multi-day capacity plan (N49-4..N49-8) rendered by the capacity board (N49-9).
-export type PaintFeasibilityStatus = "OK" | "WARNING" | "BLOCKED";
+// STOCK_NOT_ENTERED (CHANGES #8): a coloured order whose stock was never entered — surfaced distinctly so
+// it is not silently treated as OK; it is never hard-blocked.
+export type PaintFeasibilityStatus = "OK" | "WARNING" | "BLOCKED" | "STOCK_NOT_ENTERED";
 
 // The shift length a day runs (CHANGES #4/#9): the manager sets it per day; an unset day defaults to LONG.
 export type ShiftLength = "LONG" | "SHORT";

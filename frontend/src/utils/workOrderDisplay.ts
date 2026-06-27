@@ -136,6 +136,10 @@ export function getWorkOrderAttentionBadges(workOrder: WorkOrder): DisplayBadge[
     badges.push({ label: "PO TERMINIE", tone: "danger" });
   }
 
+  if (workOrder.quantity_leak_flagged) {
+    badges.push({ label: "WYCIEK ILOŚCI", tone: "danger" });
+  }
+
   return badges;
 }
 

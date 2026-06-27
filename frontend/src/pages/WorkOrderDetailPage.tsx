@@ -737,6 +737,16 @@ export function WorkOrderDetailPage() {
                     </dd>
                   </div>
                 ) : null}
+                {workOrder.quantity_leak_flagged ? (
+                  <div className="md:col-span-2">
+                    <dt className="text-sm font-medium text-steel">Wyciek ilości</dt>
+                    <dd className="mt-1 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-base font-medium text-rose-800">
+                      Zarejestrowane sztuki nie zgadzały się z całością przy zamknięciu zlecenia. Zlecenie
+                      domknięto do pełnej ilości, ale rozbieżność wymaga sprawdzenia — prawdopodobny błąd
+                      liczenia wyżej w procesie.
+                    </dd>
+                  </div>
+                ) : null}
                 {!isHistoricalWorkOrder(workOrder) ? (
                   <div>
                     <dt className="text-sm font-medium text-steel">Aktywna ilość</dt>

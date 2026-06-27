@@ -165,6 +165,9 @@ export interface WorkOrder {
   is_incomplete_on_arrival: boolean;
   surface_preparation_counted_quantity: number | null;
   surface_preparation_quantity_difference: number | null;
+  // CHANGES #10: set at finalize when credited pieces ≠ total (an upstream quantity leak). The order still
+  // force-closes to total, but this flag makes the leak human-visible so it gets investigated.
+  quantity_leak_flagged: boolean;
   profiles_quantity: number | null;
   profiles_to_count: boolean;
   accessories_quantity: number | null;

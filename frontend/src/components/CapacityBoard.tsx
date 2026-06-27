@@ -5,8 +5,9 @@ import type { MultiDayPlan, OrderPlacement, PlannedDay, ShiftLength } from "../t
 import type { ProductionTypeValue } from "../types/workOrders";
 
 // Multi-day capacity board (N49-9): a line's planned work laid across the next working days — each day a
-// column filling toward its floor/ceiling, orders in the backend's light→dark sweep order, with
-// below-floor / at-risk-deadline / paint flags. The line is selectable (MANUAL / AUTOMATIC, NA55) and the
+// column filling toward its floor/ceiling, orders grouped by identical colour (CHANGES #7: no light→dark
+// sweep), with below-floor / at-risk-deadline / paint flags. The line is selectable (MANUAL / AUTOMATIC,
+// NA55) and the
 // board refreshes on the station poll cadence. The columns show the system's *suggested* order; a
 // comparison strip (NA51) shows the manager's *actual* queue order beside it with an "Zastosuj plan"
 // action that writes the suggested order back to the live queue (reusing the queue-reorder endpoint).
@@ -74,6 +75,7 @@ function PlacementRow({ placement }: { placement: OrderPlacement }) {
   const atRisk = !placement.meets_deadline;
   const paintBlocked = placement.paint_status === "BLOCKED";
   const paintWarn = placement.paint_status === "WARNING";
+  const paintStockNotEntered = placement.paint_status === "STOCK_NOT_ENTERED";
   return (
     <li
       className={[
@@ -102,6 +104,9 @@ function PlacementRow({ placement }: { placement: OrderPlacement }) {
         ) : null}
         {paintWarn ? (
           <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700">farba na wyczerpaniu</span>
+        ) : null}
+        {paintStockNotEntered ? (
+          <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800">wpisz stan farby</span>
         ) : null}
       </div>
     </li>
@@ -331,8 +336,8 @@ export function CapacityBoard() {
         </div>
         <p className="mt-2 text-sm text-steel">
           Zaplanowana praca linii rozłożona na kolejne dni robocze — każda kolumna wypełnia się do progu
-          zysku i limitu kabiny, w kolejności od jasnych do ciemnych kolorów. Terminy są twarde: zlecenia
-          po terminie i z brakiem farby są oznaczone na czerwono.
+          zysku i limitu kabiny, grupując zlecenia w tym samym kolorze obok siebie. Terminy są twarde:
+          zlecenia po terminie i z brakiem farby są oznaczone na czerwono.
         </p>
         {plan && plan.infeasible_order_ids.length > 0 ? (
           <p className="mt-2 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-700">
