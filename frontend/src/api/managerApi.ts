@@ -1,5 +1,6 @@
 import { createApiError } from "./apiError";
 import { getCurrentStationHeaders } from "./stationContext";
+import { createApiUrl } from "./workOrdersApi";
 import type {
   AssignWorkOrderPlanRequest,
   AutoScheduleProposal,
@@ -19,22 +20,6 @@ import type {
   WipAgingStats,
 } from "../types/manager";
 import type { ProductionTypeValue, WorkOrder } from "../types/workOrders";
-
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL?.trim();
-
-function createApiUrl(pathname: string): string {
-  const normalizedPath = pathname.startsWith("/") ? pathname : `/${pathname}`;
-
-  if (!API_BASE_URL) {
-    return normalizedPath;
-  }
-
-  if (API_BASE_URL.startsWith("http://") || API_BASE_URL.startsWith("https://")) {
-    return new URL(normalizedPath, API_BASE_URL).toString();
-  }
-
-  return `${API_BASE_URL.replace(/\/$/, "")}${normalizedPath}`;
-}
 
 export async function fetchUnplannedWorkOrders(): Promise<WorkOrder[]> {
   const response = await fetch(createApiUrl("/manager/work-orders/unplanned"), {
@@ -261,10 +246,7 @@ export async function setWorkOrderPlanningPriority(
 }
 
 function schedulerConfigUrl(productionType: ProductionTypeValue): string {
-  const base = createApiUrl("/manager/scheduler/config");
-  return base.startsWith("http")
-    ? `${base}?production_type=${productionType}`
-    : `${base}?production_type=${productionType}`;
+  return `${createApiUrl("/manager/scheduler/config")}?production_type=${productionType}`;
 }
 
 export async function fetchScheduleConfig(productionType: ProductionTypeValue): Promise<ScheduleRuleConfigRead> {

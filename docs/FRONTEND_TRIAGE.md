@@ -73,9 +73,9 @@ same way `docs/CHANGES.md` was built. Severity is the engineer's estimate, not a
   `utils/workOrderDisplay.ts`, pinned by tests; rendered in `DecoralWorkOrdersPage.tsx`. Owner chose the
   narrow form (badge on the second pass only). See `docs/DECISIONS.md` (2026-06-27 — #2) and `CHANGES.md #2`.
 
-### A6 — Stale type: `ScheduleRuleKey` still lists `"changeover"` (#6)  *(severity: low)*
-- `types/manager.ts:121` keeps the removed rule key. Harmless at runtime (list is server-driven) — pure
-  type cleanup.
+### A6 — Stale type: `ScheduleRuleKey` still listed `"changeover"` (#6) — ✅ DONE 2026-06-27
+- Removed; now `ScheduleRuleKey = "colour" | "deadline"` (`types/manager.ts`). Harmless at runtime (the list
+  is server-driven), pure type cleanup.
 
 ---
 
@@ -118,14 +118,14 @@ same way `docs/CHANGES.md` was built. Severity is the engineer's estimate, not a
 
 ## Bucket C — Dead code / duplication
 
-### C1 — Identical dead ternary branch  *(severity: low)*
-- `api/managerApi.ts:263-265`: `base.startsWith("http") ? \`${base}?…\` : \`${base}?…\`` — both branches are
-  byte-identical. Collapse to one expression.
+### C1 — Identical dead ternary branch — ✅ DONE 2026-06-27
+- `schedulerConfigUrl` in `api/managerApi.ts` had a ternary whose two branches were byte-identical; collapsed
+  to one expression.
 
-### C2 — `createApiUrl` triplicated  *(severity: low)*
-- The same `createApiUrl` helper + the `.startsWith("http")` absolute/relative dance is copy-pasted across
-  `workOrdersApi.ts:11-23`, `processApi.ts:8-20`, `managerApi.ts:23-35` (and repeated inline ~6×). One shared
-  helper would remove it.
+### C2 — `createApiUrl` triplicated — ✅ DONE 2026-06-27
+- `createApiUrl` was already exported from `workOrdersApi` and imported by 5 helper API files; only
+  `processApi` and `managerApi` kept their own copies. Both now import the shared one (3 copies → 1). The
+  inline `.startsWith("http")` URL-building repetitions were left as-is (separate, lower-value pattern).
 
 ### C3 — Stage-completion pages are a triplicated copy  *(severity: medium)* — 🟡 IN PROGRESS
 - `StageWorkOrdersPage`, `PackingWorkOrdersPage`, `DecoralWorkOrdersPage` share ~80% of their code as
@@ -142,10 +142,11 @@ same way `docs/CHANGES.md` was built. Severity is the engineer's estimate, not a
 - **Remaining (C3c):** the **card header** block (line label / N-P number / status badge / primary info /
   badges / technical-drawings / correction-context) is still copy-pasted across the three pages. Unifying it
   is what lets **A5** (#2) land in one place — and is where the divergence below gets fixed.
-- **Concrete divergence to fix in C3c (a deliberate behaviour change, with a test):**
-  `StageWorkOrdersPage` gates the correction card on `is_correction` only, while Packing/Decoral use
-  `is_correction || is_correction_round` — so a correction-**round** order on a stage page silently loses the
-  "runda" label the other two give it.
+- **Concrete divergence — ✅ FIXED 2026-06-27 (ahead of C3c):** `StageWorkOrdersPage` gated the correction
+  card (amber border + "runda" text) on `is_correction` only, while Packing/Decoral use
+  `is_correction || is_correction_round` — so a correction-**round** order on a stage page lost the "runda"
+  label. The stage page now uses the same `isCorrection = is_correction || is_correction_round` gate. (Pure
+  card-header *dedup* C3c — folding the three headers into one component — remains optional/low-value.)
 
 ### C4 — `N`/`P` order-number prefix rule duplicated in 4 files — ✅ DONE 2026-06-27
 - The ternary that rebuilds the displayed order number (`is_decoral_incomplete → N…`, partial → `P…`) was

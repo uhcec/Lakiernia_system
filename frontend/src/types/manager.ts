@@ -118,7 +118,8 @@ export interface WipAgingStats {
   breakdown: WipAgingBreakdown;
 }
 
-export type ScheduleRuleKey = "colour" | "deadline" | "changeover";
+// Only two scheduling rules remain after CHANGES #6 (the "changeover"/max-throughput rule was dropped).
+export type ScheduleRuleKey = "colour" | "deadline";
 
 export interface ScheduleRuleConfigItem {
   key: ScheduleRuleKey;

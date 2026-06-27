@@ -420,6 +420,9 @@ export function StageWorkOrdersPage({
           const countedDraft = countedQuantities[workOrder.id] ?? "";
           const correctionContext = correctionContextByOrderId[workOrder.id];
           const isMergedHistoricalCorrection = workOrder.is_historical_correction;
+          // A correction child OR a same-order correction round both read as "a correction" for the card's
+          // amber styling + "runda/poprawka" label, matching the packing & Decoral pages (FRONTEND_TRIAGE C3).
+          const isCorrection = workOrder.is_correction || workOrder.is_correction_round;
           const showHistoricalResult = status === "DONE" && !workOrder.is_correction;
           const showBatchProgress = status !== "DONE" || (workOrder.is_correction && !isMergedHistoricalCorrection);
 
@@ -428,7 +431,7 @@ export function StageWorkOrdersPage({
               key={rowKey}
               className={[
                 "rounded-lg border bg-white p-5 text-ink shadow-sm",
-                workOrder.is_correction ? "border-amber-200 bg-amber-50/40" : "border-line/80",
+                isCorrection ? "border-amber-200 bg-amber-50/40" : "border-line/80",
               ].join(" ")}
             >
               <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(14rem,18rem)]">
@@ -528,7 +531,7 @@ export function StageWorkOrdersPage({
                     {showHistoricalResult ? (
                       <p className="font-medium text-emerald-700">{getHistoricalStageWorkOrderResultText(workOrder)}</p>
                     ) : null}
-                    {workOrder.is_correction ? (
+                    {isCorrection ? (
                       <>
                         <p className="font-medium text-amber-800">{buildCorrectionReference(workOrder, correctionContext)}</p>
                         <p className="text-amber-700">

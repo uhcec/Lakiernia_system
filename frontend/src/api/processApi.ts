@@ -1,23 +1,8 @@
 import { createApiError } from "./apiError";
 import { getCurrentStationHeaders } from "./stationContext";
+import { createApiUrl } from "./workOrdersApi";
 import type { ProcessStageValue, StageWorkOrder } from "../types/process";
 import type { ProductionTypeValue } from "../types/workOrders";
-
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL?.trim();
-
-function createApiUrl(pathname: string): string {
-  const normalizedPath = pathname.startsWith("/") ? pathname : `/${pathname}`;
-
-  if (!API_BASE_URL) {
-    return normalizedPath;
-  }
-
-  if (API_BASE_URL.startsWith("http://") || API_BASE_URL.startsWith("https://")) {
-    return new URL(normalizedPath, API_BASE_URL).toString();
-  }
-
-  return `${API_BASE_URL.replace(/\/$/, "")}${normalizedPath}`;
-}
 
 export async function fetchSurfacePreparationWorkOrders(): Promise<StageWorkOrder[]> {
   return fetchStageWorkOrders("SURFACE_PREPARATION");
