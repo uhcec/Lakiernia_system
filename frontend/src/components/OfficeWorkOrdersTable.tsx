@@ -38,11 +38,13 @@ function formatDate(dateStr: string): string {
   }).format(new Date(dateStr));
 }
 
-function getDaysLabel(dateStr: string | null): string {
+function getDaysLabel(dateStr: string | null, isOverdue: boolean): string {
   if (!dateStr) return "—";
+  if (isOverdue) return "Po terminie";
   const dayMs = 24 * 60 * 60 * 1000;
   const days = Math.ceil((new Date(dateStr).getTime() - Date.now()) / dayMs);
-  if (days < 0) return "Po terminie";
+  // Past pickup but not overdue (e.g. the order is already READY) → no "po terminie" framing.
+  if (days < 0) return "—";
   if (days === 0) return "Dzisiaj";
   if (days === 1) return "1 dzień";
   return `${days} dni`;
@@ -50,10 +52,10 @@ function getDaysLabel(dateStr: string | null): string {
 
 function OfficeWorkOrderRow({ workOrder }: { workOrder: WorkOrder }) {
   const navigate = useNavigate();
-  const daysLabel = getDaysLabel(workOrder.planned_pickup_date);
-  const isOverdue =
-    workOrder.planned_pickup_date != null &&
-    new Date(workOrder.planned_pickup_date).getTime() < Date.now();
+  // Overdue is the backend's definition (pickup past AND not yet READY), never a client clock compare —
+  // so a completed order picked up late is not falsely flagged "Po terminie" (FRONTEND_TRIAGE B6).
+  const isOverdue = workOrder.is_overdue;
+  const daysLabel = getDaysLabel(workOrder.planned_pickup_date, isOverdue);
 
   return (
     <div

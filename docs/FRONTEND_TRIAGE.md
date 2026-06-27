@@ -107,12 +107,12 @@ same way `docs/CHANGES.md` was built. Severity is the engineer's estimate, not a
   so a batch and a batchless order sharing the same integer would collide into one draft. Low probability,
   but the key isn't provably unique; a namespaced key (`b{batch_id}` / `w{id}`) would remove the risk.
 
-### B6 — Office list recomputes "overdue" client-side, ignoring the not-READY rule  *(severity: low-med)*
-- The backend exposes `is_overdue` = "pickup before today **AND** not yet READY" (SPEC §2). The office list
-  row instead recomputes its own `isOverdue = planned_pickup_date < now` (`OfficeWorkOrdersTable.tsx:53-55`)
-  and `getDaysLabel` does the same (`:40-48`), so a **completed (READY)** order picked up after its date
-  still shows a red "Po terminie" on the date column. The list's own delayed counter correctly uses
-  `workOrder.is_overdue` (`WorkOrdersListPage.tsx:72`) — only the row drifted. Use `workOrder.is_overdue`.
+### B6 — Office list recomputed "overdue" client-side, ignoring the not-READY rule — ✅ DONE 2026-06-27
+- **Was:** the office list row recomputed its own `isOverdue = planned_pickup_date < now` (and `getDaysLabel`
+  did the same), so a **completed (READY)** order picked up after its date showed a false red "Po terminie".
+- **Done:** the row now uses the backend `workOrder.is_overdue` ("pickup past AND not yet READY") and
+  `getDaysLabel` only says "Po terminie" when overdue (past-date-but-done → "—"). Pinned by
+  `OfficeWorkOrdersTable.test.tsx`. `frontend/src/components/OfficeWorkOrdersTable.tsx`.
 
 ---
 
