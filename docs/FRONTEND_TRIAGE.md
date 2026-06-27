@@ -95,9 +95,12 @@ same way `docs/CHANGES.md` was built. Severity is the engineer's estimate, not a
   sites, and doing SPA-router logout instead of a reload, is a larger non-self-contained change left for
   later — the security leak (the actual risk) is closed; the reload is cosmetic.
 
-### B2 — Auth storage keys duplicated in three places  *(severity: low)*
-- `"auth_token"`/`"auth_user"` are defined as constants in `AuthContext.tsx:3-4` but re-hardcoded as string
-  literals in `main.tsx:12,22-23` and `ProtectedRoute.tsx:16`. Drift risk if the key ever changes.
+### B2 — Auth storage keys duplicated in several places — ✅ DONE 2026-06-27
+- **Was:** `"auth_token"`/`"auth_user"` were defined as constants in `AuthContext.tsx` but re-hardcoded as
+  string literals in `main.tsx`, `ProtectedRoute.tsx` **and** `LoginPage.tsx` (four spots, not three).
+- **Done:** `TOKEN_KEY`/`USER_KEY` are now exported from `AuthContext.tsx` and imported by all three other
+  readers; no literal copies remain (verified by grep). `frontend/src/{main.tsx, context/AuthContext.tsx,
+  components/ProtectedRoute.tsx, pages/LoginPage.tsx}`.
 
 ### B3 — Queue revision via lexicographic `updated_at` compare — ✅ DONE (fixed) 2026-06-27
 - **Was:** `utils/queueReorder.ts` derived the optimistic-concurrency revision by string-`>`-comparing
@@ -192,9 +195,11 @@ same way `docs/CHANGES.md` was built. Severity is the engineer's estimate, not a
 - Minor sibling: `AppLayout.getSectionTitle` (`:85-102`) re-maps every route→title, duplicating the nav
   label list a few lines above.
 
-### D1 — Inconsistent error surface: `alert()` vs inline banners  *(severity: low)*
-- The QC-document download failure uses a native `alert()` (`WorkOrderDetailPage.tsx:277`); the rest of the
-  app uses inline rose banners. Jarring and easy to miss on a shop tablet.
+### D1 — Inconsistent error surface: `alert()` vs inline banners — ✅ DONE 2026-06-27
+- **Was:** the QC-document download failure used a native `alert()`; the rest of the app uses inline rose
+  banners. **Done:** a dedicated `qcDocErrorMessage` state renders a rose banner under the action-button row
+  (matching the existing `uploadErrorMessage`/`attachmentsErrorMessage` pattern; not reusing the page-level
+  `errorMessage`, which replaces the whole detail view). `frontend/src/pages/WorkOrderDetailPage.tsx`.
 
 ### D2 — Native `window.confirm` for destructive actions  *(severity: low)*
 - Delete/confirm flows use the browser `confirm` dialog (`ClientsPage.tsx:355`, `FoilsPage.tsx:153`,
@@ -205,9 +210,10 @@ same way `docs/CHANGES.md` was built. Severity is the engineer's estimate, not a
 - Station boards poll (`usePolling`), but `WorkOrderDetailPage` is a one-shot fetch. Acceptable for an
   office detail view; noted so it's a conscious choice, not an oversight.
 
-### D4 — Create form: "Data przyjęcia" required but unmarked  *(severity: trivial)*
-- `received_date` is validated as required (`CreateWorkOrderPage.tsx:385-388`) but its label has no `*`,
-  while "Termin odbioru *" does (`:630`). Cosmetic label inconsistency.
+### D4 — Create form: "Data przyjęcia" required but unmarked — ✅ DONE 2026-06-27
+- `received_date` is validated as required but its label lacked the `*` that "Termin odbioru *" has. Added
+  the `*` (label now "Data przyjęcia *"); the three create-form tests that select it by label were updated.
+  `frontend/src/pages/CreateWorkOrderPage.tsx`, `frontend/tests/uiStateConsistency.test.tsx`.
 
 ---
 
@@ -225,7 +231,23 @@ Remaining, recommended order:
 3. ✅ **B4 / B5** — latent correctness fixes (rule-config line symmetry; namespaced draft key) — done 2026-06-27.
 4. ✅ **B1** — auth token/401 scoped to our API origin (security leak closed) — done 2026-06-27.
 5. ✅ **B3** — queue-revision compare now chronological (zero-microsecond edge fixed) — done 2026-06-27.
-6. **C5 / B2 / C6 / D1–D4** — trivial cleanups + UX polish, batchable. **C3c** (card-header dedup) optional/low-value.
+6. ✅ **B2 / D1 / D4** — trivial cleanups (auth-key dedup, alert→banner, required-label asterisk) — done 2026-06-27.
+
+### Deliberately deferred (logged, not done — engineer's call 2026-06-27)
+- **C5** (predicted-paint formula re-derived in the create form): the "proper" fix is a backend preview
+  endpoint round-tripped on every keystroke — over-engineering for a pre-submit *hint*. Accepted as-is;
+  the divisor/threshold drift risk is documented. Revisit only if the backend formula actually changes.
+- **C6** (cross-component "add" via global DOM CustomEvents): works; replacing it with context/router state
+  touches `AppLayout` + `ClientsPage` + `FoilsPage` for no behaviour gain. The "sibling" `getSectionTitle`
+  is **not** a true duplicate — several titles intentionally differ from the nav labels ("Dodaj zlecenie" vs
+  "Nowe zlecenie", "Przygotowanie powierzchni"), so folding it into the nav list would change on-screen copy.
+  Left as a documented smell.
+- **D2** (native `window.confirm` for destructive actions): a real fix needs a shared `ConfirmDialog`
+  component (none exists yet) wired across 6 call sites — that's a small *build*, not a polish, so it's out
+  of this cleanup batch. Worth doing as its own PR if kiosk styling matters.
+- **D3** (no auto-refresh on the detail page): explicitly a conscious choice for an office view; no action.
+- **C3c** (card-header dedup across the three stage pages): optional/low-value — the live divergence it
+  guarded against is already fixed; folding the headers is pure churn.
 
 Deep read is essentially complete (see coverage map); only standard CRUD pages remain light-read. Items the
 owner confirms become entries in `docs/CHANGES.md` (frontend section) and carry a `file:line` + confirmation

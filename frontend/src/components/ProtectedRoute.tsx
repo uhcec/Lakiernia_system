@@ -1,5 +1,5 @@
 import { Navigate, useLocation } from "react-router-dom";
-import { isFullAccessUser, useAuth, type AuthUser } from "../context/AuthContext";
+import { isFullAccessUser, useAuth, USER_KEY, type AuthUser } from "../context/AuthContext";
 import { getStationPanelPath, type StationId } from "../api/stationContext";
 
 const stationRouteMap: Record<string, string[]> = {
@@ -13,7 +13,7 @@ const stationRouteMap: Record<string, string[]> = {
 
 function readUserFromStorage(): AuthUser | null {
   try {
-    const stored = localStorage.getItem("auth_user");
+    const stored = localStorage.getItem(USER_KEY);
     return stored ? (JSON.parse(stored) as AuthUser) : null;
   } catch {
     return null;

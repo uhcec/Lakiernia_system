@@ -4,7 +4,7 @@ import { BrowserRouter } from "react-router-dom";
 
 import App from "./App";
 import { isApiRequest } from "./api/workOrdersApi";
-import { AuthProvider } from "./context/AuthContext";
+import { AuthProvider, TOKEN_KEY, USER_KEY } from "./context/AuthContext";
 import "./styles.css";
 
 // Global fetch interceptor — injects the Authorization header and handles 401s, but only for
@@ -13,7 +13,7 @@ import "./styles.css";
 const _originalFetch = window.fetch.bind(window);
 window.fetch = async (input, init) => {
   const targetsApi = isApiRequest(input);
-  const token = targetsApi ? localStorage.getItem("auth_token") : null;
+  const token = targetsApi ? localStorage.getItem(TOKEN_KEY) : null;
   const patchedInit: RequestInit = {
     ...init,
     headers: {
@@ -23,8 +23,8 @@ window.fetch = async (input, init) => {
   };
   const response = await _originalFetch(input, patchedInit);
   if (targetsApi && response.status === 401 && window.location.pathname !== "/login") {
-    localStorage.removeItem("auth_token");
-    localStorage.removeItem("auth_user");
+    localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(USER_KEY);
     window.location.href = "/login";
   }
   return response;

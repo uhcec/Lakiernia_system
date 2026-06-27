@@ -1,7 +1,9 @@
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 
-const TOKEN_KEY = "auth_token";
-const USER_KEY = "auth_user";
+// Single source of truth for the localStorage keys — imported by the fetch interceptor (main.tsx)
+// and ProtectedRoute so the key strings can't drift out of sync across the three readers.
+export const TOKEN_KEY = "auth_token";
+export const USER_KEY = "auth_user";
 
 export type AuthUser = {
   login: string;

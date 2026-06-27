@@ -392,7 +392,7 @@ describe("frontend state consistency", () => {
     fireEvent.change(screen.getByLabelText("Producent farby"), { target: { value: "AkzoNobel" } });
     fireEvent.change(screen.getByLabelText("Kod farby"), { target: { value: "P-7016" } });
     await screen.findByText(/aktualny stan 30 kg/i);
-    fireEvent.change(screen.getByLabelText("Data przyjęcia"), { target: { value: "2026-05-30" } });
+    fireEvent.change(screen.getByLabelText("Data przyjęcia *"), { target: { value: "2026-05-30" } });
     fireEvent.change(screen.getByLabelText(/Termin odbioru/i), { target: { value: "2026-06-06" } });
     fireEvent.change(screen.getByLabelText(/Powierzchnia całkowita/i), { target: { value: "84" } });
     expect(screen.getByText(/Predykcja zużycia: 21 kg/i)).toBeTruthy();
@@ -452,7 +452,7 @@ describe("frontend state consistency", () => {
     fireEvent.change(screen.getByLabelText("Producent farby"), { target: { value: "AkzoNobel" } });
     fireEvent.change(screen.getByLabelText("Kod farby"), { target: { value: "P-D200" } });
     await screen.findByText(/aktualny stan 30 kg/i);
-    fireEvent.change(screen.getByLabelText("Data przyjęcia"), { target: { value: "2026-05-30" } });
+    fireEvent.change(screen.getByLabelText("Data przyjęcia *"), { target: { value: "2026-05-30" } });
     fireEvent.change(screen.getByLabelText(/Termin odbioru/i), { target: { value: "2026-06-06" } });
     fireEvent.change(screen.getByLabelText(/Powierzchnia całkowita/i), { target: { value: "12" } });
     screen.getAllByLabelText("Do policzenia na produkcji").forEach((checkbox) => fireEvent.click(checkbox));
@@ -521,7 +521,7 @@ describe("frontend state consistency", () => {
     fireEvent.change(screen.getByLabelText("Producent farby"), { target: { value: "AkzoNobel" } });
     fireEvent.change(screen.getByLabelText("Kod farby"), { target: { value: "P-7016" } });
     await screen.findByText(/aktualny stan 30 kg/i);
-    fireEvent.change(screen.getByLabelText("Data przyjęcia"), { target: { value: "2026-05-30" } });
+    fireEvent.change(screen.getByLabelText("Data przyjęcia *"), { target: { value: "2026-05-30" } });
     fireEvent.change(screen.getByLabelText("Ilość całkowita"), { target: { value: "10" } });
     fireEvent.change(screen.getByLabelText(/Powierzchnia całkowita/i), { target: { value: "96" } });
     const categoryInputs = screen.getAllByPlaceholderText("Podaj ilość");

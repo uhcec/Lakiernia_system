@@ -219,6 +219,7 @@ export function WorkOrderDetailPage() {
   const canGenerateQualityControlDocument = effectiveStationId === "OFFICE";
   const canEditWorkOrder = effectiveStationId === "OFFICE" || effectiveStationId === "MANAGER";
   const [isDownloadingQcDoc, setIsDownloadingQcDoc] = useState(false);
+  const [qcDocErrorMessage, setQcDocErrorMessage] = useState<string | null>(null);
   const [workOrder, setWorkOrder] = useState<WorkOrder | null>(null);
   const [attachments, setAttachments] = useState<WorkOrderAttachment[]>([]);
   const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
@@ -244,6 +245,7 @@ export function WorkOrderDetailPage() {
 
   const handleDownloadQcDocument = useCallback(async (wo: WorkOrder) => {
     setIsDownloadingQcDoc(true);
+    setQcDocErrorMessage(null);
     try {
       const response = await fetch(getQualityControlDocumentUrl(wo.id));
       if (!response.ok) throw new Error("Błąd pobierania dokumentu");
@@ -257,7 +259,7 @@ export function WorkOrderDetailPage() {
       a.remove();
       URL.revokeObjectURL(url);
     } catch {
-      alert("Nie udało się pobrać karty kontroli jakości.");
+      setQcDocErrorMessage("Nie udało się pobrać karty kontroli jakości.");
     } finally {
       setIsDownloadingQcDoc(false);
     }
@@ -613,6 +615,11 @@ export function WorkOrderDetailPage() {
               Wróć do listy
             </Link>
           </div>
+          {qcDocErrorMessage ? (
+            <div className="mt-3 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+              {qcDocErrorMessage}
+            </div>
+          ) : null}
         </div>
       </section>
 

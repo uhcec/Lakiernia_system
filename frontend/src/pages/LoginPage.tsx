@@ -1,6 +1,6 @@
 import { FormEvent, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { isFullAccessUser, useAuth } from "../context/AuthContext";
+import { isFullAccessUser, useAuth, USER_KEY } from "../context/AuthContext";
 import { getStationPanelPath, type StationId } from "../api/stationContext";
 
 export function LoginPage() {
@@ -18,7 +18,7 @@ export function LoginPage() {
     try {
       await login({ login: loginValue, password });
       // Redirect based on station
-      const user = JSON.parse(localStorage.getItem("auth_user") ?? "{}") as { station_id: string; is_admin: boolean };
+      const user = JSON.parse(localStorage.getItem(USER_KEY) ?? "{}") as { station_id: string; is_admin: boolean };
       const target = isFullAccessUser({ login: loginValue, station_id: user.station_id, is_admin: user.is_admin })
         ? "/zlecenia"
         : getStationPanelPath(user.station_id as StationId);

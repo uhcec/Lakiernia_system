@@ -617,7 +617,7 @@ export function CreateWorkOrderPage() {
             </div>
 
             <label className="flex flex-col gap-2">
-              <span className="text-sm font-medium text-ink">Data przyjęcia</span>
+              <span className="text-sm font-medium text-ink">Data przyjęcia *</span>
               <input
                 type="date"
                 value={formState.received_date}
