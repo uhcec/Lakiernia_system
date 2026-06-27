@@ -3,13 +3,17 @@ import ReactDOM from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
 
 import App from "./App";
+import { isApiRequest } from "./api/workOrdersApi";
 import { AuthProvider } from "./context/AuthContext";
 import "./styles.css";
 
-// Global fetch interceptor — injects Authorization header and handles 401
+// Global fetch interceptor — injects the Authorization header and handles 401s, but only for
+// requests that target our own API (see isApiRequest). Scoping it this way keeps the Bearer token
+// and the auth-expiry redirect from leaking to any third-party origin a fetch might hit.
 const _originalFetch = window.fetch.bind(window);
 window.fetch = async (input, init) => {
-  const token = localStorage.getItem("auth_token");
+  const targetsApi = isApiRequest(input);
+  const token = targetsApi ? localStorage.getItem("auth_token") : null;
   const patchedInit: RequestInit = {
     ...init,
     headers: {
@@ -18,7 +22,7 @@ window.fetch = async (input, init) => {
     },
   };
   const response = await _originalFetch(input, patchedInit);
-  if (response.status === 401 && window.location.pathname !== "/login") {
+  if (targetsApi && response.status === 401 && window.location.pathname !== "/login") {
     localStorage.removeItem("auth_token");
     localStorage.removeItem("auth_user");
     window.location.href = "/login";

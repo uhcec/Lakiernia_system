@@ -81,11 +81,19 @@ same way `docs/CHANGES.md` was built. Severity is the engineer's estimate, not a
 
 ## Bucket B — Correctness risks in the unverified frontend
 
-### B1 — Global `window.fetch` monkey-patch for auth  *(severity: medium)*
-- `main.tsx:10-27` overwrites `window.fetch` to inject `Authorization: Bearer` on **every** request and to
-  hard-redirect on any 401. Two concerns: (a) the Bearer token is attached even to cross-origin requests, so
-  if `VITE_API_BASE_URL` ever points at another origin the token leaks there; (b) a single 401 anywhere does
-  `window.location.href = "/login"` (full reload, loses SPA state). Works today; fragile by design.
+### B1 — Global `window.fetch` monkey-patch for auth — ✅ DONE (hardened) 2026-06-27
+- **Was:** `main.tsx` overwrote `window.fetch` to inject `Authorization: Bearer` on **every** request and to
+  hard-redirect on any 401. Concern (a): the Bearer token was attached even to cross-origin requests, so a
+  third-party fetch (or an absolute `VITE_API_BASE_URL` pointing elsewhere) could leak the token off-site.
+  Concern (b): a 401 from *any* origin did `window.location.href = "/login"`.
+- **Done:** the interceptor now attaches the token **and** acts on 401s only when the request targets our own
+  API origin (`isApiRequest` / `API_ORIGIN` in `api/workOrdersApi.ts` — the configured absolute base origin,
+  else the app's own origin). A third-party origin gets neither the token nor the redirect. Pinned by
+  `api/workOrdersApi.test.ts`. `frontend/src/main.tsx`, `frontend/src/api/workOrdersApi.ts`.
+- **Deliberately not done:** the interceptor is *still a global monkey-patch* and the 401 path is *still a
+  full reload* (loses SPA state). Replacing the patch with a threaded `apiFetch` wrapper across ~30 call
+  sites, and doing SPA-router logout instead of a reload, is a larger non-self-contained change left for
+  later — the security leak (the actual risk) is closed; the reload is cosmetic.
 
 ### B2 — Auth storage keys duplicated in three places  *(severity: low)*
 - `"auth_token"`/`"auth_user"` are defined as constants in `AuthContext.tsx:3-4` but re-hardcoded as string
@@ -206,8 +214,9 @@ Remaining, recommended order:
    `is_correction_round` divergence under C3 is a live symptom. This is the one medium-weight item left.
 2. **A5** (#2) — make the second Decoral pass legible; cleanest to do on top of C3/C4's shared helper.
 3. ✅ **B4 / B5** — latent correctness fixes (rule-config line symmetry; namespaced draft key) — done 2026-06-27.
-4. **B1** (auth `window.fetch` patch) if you want the security hardening; **B3** (queue-revision compare) pin.
-5. **C5 / B2 / C6 / D1–D4** — trivial cleanups + UX polish, batchable. **C3c** (card-header dedup) optional/low-value.
+4. ✅ **B1** — auth token/401 scoped to our API origin (security leak closed) — done 2026-06-27.
+5. **B3** (queue-revision compare) pin; **C5 / B2 / C6 / D1–D4** — trivial cleanups + UX polish, batchable.
+   **C3c** (card-header dedup) optional/low-value.
 
 Deep read is essentially complete (see coverage map); only standard CRUD pages remain light-read. Items the
 owner confirms become entries in `docs/CHANGES.md` (frontend section) and carry a `file:line` + confirmation

@@ -22,6 +22,23 @@ export function createApiUrl(pathname: string): string {
   return `${API_BASE_URL.replace(/\/$/, "")}${normalizedPath}`;
 }
 
+// The single origin our auth token may be sent to: the configured API base origin when it is
+// absolute, otherwise the app's own origin (relative paths are same-origin). Used to scope the
+// global fetch interceptor so the Bearer token and 401 redirect never leak to a third-party origin.
+export const API_ORIGIN =
+  API_BASE_URL && (API_BASE_URL.startsWith("http://") || API_BASE_URL.startsWith("https://"))
+    ? new URL(API_BASE_URL).origin
+    : window.location.origin;
+
+export function isApiRequest(input: RequestInfo | URL): boolean {
+  try {
+    const href = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+    return new URL(href, window.location.origin).origin === API_ORIGIN;
+  } catch {
+    return false;
+  }
+}
+
 export async function fetchWorkOrders(params: WorkOrderSearchParams = {}): Promise<WorkOrdersListResponse> {
   const response = await fetch(buildWorkOrdersUrl(params), {
     headers: {
