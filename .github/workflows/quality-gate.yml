@@ -27,6 +27,9 @@ jobs:
       - name: Check Alembic schema drift
         run: python -m alembic upgrade head && python -m alembic check
 
+      - name: Check docs cite live code (anti-drift)
+        run: python scripts/check_spec_citations.py
+
   frontend-build:
     name: Frontend Build
     runs-on: ubuntu-latest
