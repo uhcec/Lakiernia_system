@@ -4,9 +4,55 @@ Drives ``summarize_day`` / ``summarize_period`` with plain value objects — no 
 on-time %, changeover-loss, and idle/utilisation arithmetic and the period roll-up.
 """
 
-from datetime import date
+from datetime import date, datetime
 
-from app.manager.good_day import DayActivity, summarize_day, summarize_period
+from app.manager.good_day import (
+    AutomaticPassObservation,
+    DayActivity,
+    summarize_day,
+    summarize_period,
+    union_active_hours,
+)
+
+
+def _pass(work_order_id: int, hang_at: datetime, pack_at: datetime) -> AutomaticPassObservation:
+    return AutomaticPassObservation(
+        work_order_id=work_order_id,
+        colour_key="RAL9010",
+        total_area_m2=200.0,
+        hanging_started_at=hang_at,
+        packing_done_at=pack_at,
+    )
+
+
+def test_union_active_hours_counts_overlap_once() -> None:
+    base = datetime(2026, 6, 11, 7, 0)
+    # Two passes overlapping within the same hour → the union is 1 h, not the 2 h sum.
+    hours = union_active_hours(
+        [
+            _pass(1, base, base.replace(hour=8)),
+            _pass(2, base.replace(minute=30), base.replace(hour=8)),
+        ]
+    )
+    assert hours == 1.0
+
+
+def test_union_active_hours_excludes_idle_gaps_and_bad_brackets() -> None:
+    base = datetime(2026, 6, 11, 7, 0)
+    # A 1 h pass, an overnight gap, then another 1 h pass → 2 h occupied (the gap falls out); a
+    # zero/negative bracket contributes nothing.
+    hours = union_active_hours(
+        [
+            _pass(1, base, base.replace(hour=8)),
+            _pass(2, base.replace(day=12), base.replace(day=12, hour=8)),
+            _pass(3, base.replace(hour=9), base.replace(hour=9)),  # packing == hanging → dropped
+        ]
+    )
+    assert hours == 2.0
+
+
+def test_union_active_hours_empty_is_zero() -> None:
+    assert union_active_hours([]) == 0.0
 
 
 def _summarize(activity: DayActivity, *, floor=800.0, shift=14.0, change_min=20.0, rate=80.0):

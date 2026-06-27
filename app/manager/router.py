@@ -18,7 +18,6 @@ from app.manager.schemas import (
     DayShiftLengthRead,
     DayShiftLengthUpdate,
     GoodDayStats,
-    LineMeasurementStats,
     MultiDayPlanRead,
     PaintForwardViewRead,
     ScheduleRuleConfigRead,
@@ -88,19 +87,6 @@ def get_work_in_progress_aging(
     service: Annotated[ManagerService, Depends(get_manager_service)] = ...,
 ) -> WipAgingStats:
     return service.get_work_in_progress_aging(station_context=station_context)
-
-
-@router.get("/stats/line-measurements", response_model=LineMeasurementStats)
-def get_line_measurements(
-    date_from: Annotated[date, Query()],
-    date_to: Annotated[date, Query()],
-    station_context: Annotated[StationContext, Depends(get_station_context)],
-    production_type: Annotated[ProductionType, Query()] = ProductionType.AUTOMATIC,
-    service: Annotated[ManagerService, Depends(get_manager_service)] = ...,
-) -> LineMeasurementStats:
-    return service.get_line_measurements(
-        date_from, date_to, production_type, station_context=station_context
-    )
 
 
 @router.get("/stats/good-day", response_model=GoodDayStats)

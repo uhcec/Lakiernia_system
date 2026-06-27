@@ -410,3 +410,53 @@ endpoint no longer exposes the inflated learned changeover; `changeover_is_measu
 
 **Review-by:** none required — pure removal of an unconsumed diagnostic; covered by the reworked NA52
 regression + the full backend suite.
+
+## 2026-06-27 — Remove the learned effective line rate too (planner review, part 2)
+
+**Decision:** delete the last learned number in the planner — the "effective automatic line rate"
+(`measure_automatic_rate`, seed 57 m²/h, ≥3-pass threshold), its `LineRateMeasurement` /
+`LineMeasurementStats` schemas, the whole `app/manager/measurement.py` module, the `GET /manager/stats/
+line-measurements` route, and the `rate_m2_per_h` / `rate_is_measured` fields on the good-day totals
+(plus the "Tempo kabiny" tile in `StatystykiPage`). The honest wall-clock **occupancy** measurement the
+idle/utilisation diagnostic needs (`union_active_hours`, the union of each pass's hanging→packing
+interval) is kept and moved into `good_day.py` — that is a plain measurement, not learning (no seed,
+no threshold).
+
+**Why:** owner-decided 2026-06-27, continuing the planner review that removed the learned changeover
+(above). The owner's concern: the "it learns" features feel **premature and possibly unnecessary** for
+where the shop is. Verified on the code: the learned rate **drives no planning decision** — the
+multi-day plan and single-day capacity ceilings use the fixed gross booth constant (80 m²/h,
+`CEILING_BOOTH_RATE_M2_PER_H`), the floors (800/500), the manager-set shift, and the size-band
+changeover (15/30 min). The learned rate surfaced in exactly two read-only places: a "zmierzone /
+szacunkowo" badge in the Statystyki panel, and `/manager/stats/line-measurements` — a route **no
+frontend consumes** (already noted above). So it was a second informational-only learned number with a
+seed/threshold whose only effect was a stats badge that could mislead ("szacunkowo, za mało
+przejazdów") about a figure that changes nothing. Given remove / keep-in-stats / show-a-fixed-number,
+the owner chose remove: don't carry an adaptive estimate the factory doesn't yet need.
+
+**Rejected:** (a) *keep it in the good-day panel* — rejected; the owner doesn't want a learned
+throughput readout yet, and it never fed a decision. (b) *replace with a raw observed rate (no seed/
+threshold)* — rejected as the same thing in lighter clothing; if a measured throughput is wanted
+later it can be reintroduced deliberately, against a real need.
+
+**Implementation notes:**
+- `app/manager/measurement.py` deleted; `AutomaticPassObservation` + `union_active_hours` (the union
+  arithmetic) moved into `good_day.py`, its only consumer. `get_good_day_stats` now computes the day's
+  `active_hours` via `union_active_hours`; utilisation / idle are unchanged.
+- Dropped tests `test_measurement.py`, `test_line_measurements.py`, and the two `rate_*` cases in
+  `test_good_day_service.py`; added `union_active_hours` overlap/idle/empty cases to `test_good_day.py`
+  (the moved subtle path).
+- SPEC unchanged: the learned rate was never confirmed into `SPEC.md` (it lived only in code + the
+  stats panel), so there is no spec line to retract. `§9` line 125 ("60–100 m²/h, midpoint 80") is the
+  fixed ceiling and stays true.
+- Doc-drift swept in the same PR: stale `docs/FACTORY_DOMAIN_MODEL.md §7` citations (a deleted doc) and
+  the now-false "the changeover cost is learned in measurement.py" claims in `capacity.py` / `service.py`
+  / `placement.py` / `good_day.py` / `schemas.py` were corrected to point at `docs/SPEC.md §9/§11` and
+  to describe the bounded size-band cost.
+
+**Expected:** the planner is byte-for-byte unchanged (it never read the learned rate); the Statystyki
+panel loses the booth-rate tile; the dead line-measurements route is gone. 601 backend tests + 134
+frontend tests green, `tsc -b` clean.
+
+**Review-by:** none required — removal of an unconsumed/stats-only learned number; the kept occupancy
+measurement is pinned by new unit tests and the full suite.

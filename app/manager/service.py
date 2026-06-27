@@ -33,10 +33,12 @@ from app.manager.capacity import (
     shift_hours,
 )
 from app.manager.good_day import (
+    AutomaticPassObservation,
     DayActivity,
     GoodDayMetrics,
     summarize_day,
     summarize_period,
+    union_active_hours,
 )
 from app.manager.colour import (
     ColourOrderable,
@@ -46,10 +48,6 @@ from app.manager.colour import (
     group_identical_colours,
     sequence_changeover_minutes,
     suggest_line,
-)
-from app.manager.measurement import (
-    AutomaticPassObservation,
-    measure_automatic_rate,
 )
 from app.manager.placement import (
     PlaceableOrder,
@@ -83,7 +81,6 @@ from app.manager.schemas import (
     GoodDayMetricsRead,
     GoodDayStats,
     GoodDayTotalsRead,
-    LineMeasurementStats,
     MultiDayPlanRead,
     OrderPaintFeasibilityRead,
     OrderPlacementRead,
@@ -151,7 +148,7 @@ _STAGE_LABELS_PL: dict[ProcessStage, str] = {
 
 # Two independent cross-sections every production stat is split along (NA23): by production method
 # and by order coating. Each is a full partition of any order cohort (an order is exactly one method
-# and exactly one coating), so segment values reconcile to the whole — see FACTORY_DOMAIN_MODEL §4.1.
+# and exactly one coating), so segment values reconcile to the whole — see docs/SPEC.md §11 (statistics).
 _METHOD_SEGMENTS: tuple[tuple[str, str, ProductionType], ...] = (
     ("manual", "Ręczna", ProductionType.MANUAL),
     ("automatic", "Automat", ProductionType.AUTOMATIC),
@@ -767,31 +764,6 @@ class ManagerService:
         )
         return WipAgingStats(generated_at=reference_now, items=items, breakdown=breakdown)
 
-    def get_line_measurements(
-        self,
-        date_from: date,
-        date_to: date,
-        production_type: ProductionType = ProductionType.AUTOMATIC,
-        station_context: StationContext | None = None,
-    ) -> LineMeasurementStats:
-        """Learned effective rate + colour-changeover cost for a line (N49-2, the planner's read-side).
-
-        Cohort: non-correction orders on ``production_type`` whose latest ``PACKING``->``DONE`` falls in
-        ``[date_from, date_to]`` and that carry a ``HANGING``->``IN_PROGRESS`` start — the two events
-        bracket the automatic pass (``docs/FACTORY_DOMAIN_MODEL.md`` §7). MANUAL has no HANGING stage,
-        so it yields no observations and always reports the seed (manual is the unmeasured overflow
-        valve). Pure derivation lives in ``app/manager/measurement.py``; this just supplies the brackets.
-        """
-        self._ensure_stats_viewer(station_context)
-        observations = self._automatic_pass_observations(date_from, date_to, production_type)
-
-        return LineMeasurementStats(
-            production_type=production_type,
-            date_from=date_from,
-            date_to=date_to,
-            rate=measure_automatic_rate(observations),
-        )
-
     def get_good_day_stats(
         self,
         date_from: date,
@@ -799,13 +771,13 @@ class ManagerService:
         production_type: ProductionType = ProductionType.AUTOMATIC,
         station_context: StationContext | None = None,
     ) -> GoodDayStats:
-        """Per-day "good day" metrics for a line — floor, on-time %, changeover loss + rate/idle (NA50).
+        """Per-day "good day" metrics for a line — floor, on-time %, changeover loss + idle (NA50).
 
-        The capacity model (``docs/FACTORY_DOMAIN_MODEL.md`` §7) defines a good day as one that clears the
-        profitable m² floor, ships on time (deadlines are hard), and loses little capacity to colour
+        The capacity model (``docs/SPEC.md`` §9 "Planner numbers") defines a good day as one that clears
+        the profitable m² floor, ships on time (deadlines are hard), and loses little capacity to colour
         changes. This reads those off the append-only stage-transition log: per day, the output m² + the
         on-time completions from that day's ``PACKING`` completions, and the colour-change count +
-        booth-active hours + effective rate from that day's bracketed automatic passes (HANGING start →
+        booth-active hours from that day's bracketed automatic passes (HANGING start →
         PACKING done). Pure arithmetic lives in ``app/manager/good_day.py``.
 
         Each day is measured against the shift length actually run that day (CHANGES #9): the manager's
@@ -871,12 +843,12 @@ class ManagerService:
             .order_by(day_expr)
         ).all()
 
-        # Bracketed automatic passes for the same window, grouped by completion day for changeover +
-        # booth-active hours + effective rate. NA52: the changeover loss is valued with the **bounded
-        # N49-6 size+direction** cost of the day's actual run, NOT a statistical inter-start-gap
-        # estimate — that estimate absorbs overnight/idle gaps (≈250 min/change) and would report a
-        # "changeover loss" larger than the day's real output. (That learned estimate drove nothing and
-        # was removed 2026-06-27; only the union-based effective rate is still learned.)
+        # Bracketed automatic passes for the same window, grouped by completion day for the changeover
+        # count + booth-active hours. NA52: the changeover loss is valued with the **bounded N49-6
+        # size-band** cost of the day's actual run, NOT a statistical inter-start-gap estimate — that
+        # estimate absorbs overnight/idle gaps (≈250 min/change) and would report a "changeover loss"
+        # larger than the day's real output. (That learned estimate drove nothing and was removed
+        # 2026-06-27; the learned effective line rate was removed too — neither drove a decision.)
         observations = self._automatic_pass_observations(date_from, date_to, production_type)
         passes_by_day: dict[date, list[AutomaticPassObservation]] = {}
         for observation in observations:
@@ -908,9 +880,8 @@ class ManagerService:
                     for observation in day_passes
                 ]
             )
-            # The day's booth-active hours (union of its passes) drive utilisation/idle; the *rate* is a
-            # period figure (NA53), so we only need active_hours here, not the per-day effective rate.
-            day_active_hours = measure_automatic_rate(day_passes).active_hours
+            # The day's booth-active hours (union of its passes) drive utilisation/idle.
+            day_active_hours = union_active_hours(day_passes)
 
             day_shift = shift_by_day.get(day, ShiftLength.LONG)
             metrics = summarize_day(
@@ -965,11 +936,6 @@ class ManagerService:
                 )
             ]
         )
-        # Effective booth rate is a PERIOD figure (NA53): one day rarely has the ≥ 3 bracketed passes
-        # needed to measure it, so the whole window's passes give a real rate (idle gaps fall out of the
-        # union) instead of a per-day column that just echoes the seed.
-        period_rate = measure_automatic_rate(observations)
-
         return GoodDayStats(
             production_type=production_type,
             date_from=date_from,
@@ -989,8 +955,6 @@ class ManagerService:
                 total_changeover_count=totals.total_changeover_count,
                 total_changeover_loss_m2=totals.total_changeover_loss_m2,
                 avg_utilisation_pct=totals.avg_utilisation_pct,
-                rate_m2_per_h=period_rate.effective_rate_m2_per_h,
-                rate_is_measured=period_rate.is_measured,
             ),
         )
 
@@ -1042,7 +1006,7 @@ class ManagerService:
         date_to: date,
         production_type: ProductionType,
     ) -> list[AutomaticPassObservation]:
-        """Bracketed automatic passes (HANGING start → PACKING done) for the measurement engine (N49-2)."""
+        """Bracketed automatic passes (HANGING start → PACKING done) for the good-day reads (NA50)."""
         session = self.repository.session
 
         hanging_started = (
@@ -1105,8 +1069,8 @@ class ManagerService:
         orders are first reordered to **group identical colours** (N49-5), then the day's changeover
         cost is computed **size-band-aware** (N49-6): each colour change costs the 100 m² odzysk band,
         so the m² loss reflects size, not a flat per-change count. ``changeover_minutes`` returns the
-        average per-change cost of that order; ``changeover_is_measured`` reflects whether the learned
-        seed was refined (kept for the read model, though the bands themselves are structural). The
+        average per-change cost of that order; ``changeover_is_measured`` is always True (the bands are
+        structural constants, measured by construction — the field is kept only for the read model).
         The day runs the shift length the manager set for today (CHANGES #4/#9), read from
         ``day_shift_lengths``; an unset day defaults to LONG. Pure arithmetic lives in
         ``app/manager/capacity.py`` / ``app/manager/colour.py``.
@@ -1184,8 +1148,8 @@ class ManagerService:
 
         Lays the line's active planned orders across the next ``horizon_working_days`` working days,
         earliest-deadline-first, into net-ceiling-bounded day buckets (floor 800/500, gross booth
-        ceiling minus the m² lost to each day's colour changes — the learned changeover cost from
-        N49-2). **Within each placed day** the orders are then reordered to **group identical colours**
+        ceiling minus the m² lost to each day's colour changes — the bounded N49-6 size-band changeover
+        cost). **Within each placed day** the orders are then reordered to **group identical colours**
         (N49-5) and that day's **size-band-aware** changeover cost is reported (N49-6). Each order also
         carries a **suggested line** (N49-8: small-m² colour-orphan → manual, else automatic — a
         manager-overridable hint). Each day runs the shift length the manager set for it (CHANGES #4/#9),

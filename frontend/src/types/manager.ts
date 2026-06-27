@@ -244,9 +244,6 @@ export interface GoodDayTotals {
   total_changeover_count: number;
   total_changeover_loss_m2: number;
   avg_utilisation_pct: number | null;
-  // Effective booth rate over the whole period (NA53) — measured once ≥ 3 passes are bracketed, else seed.
-  rate_m2_per_h: number;
-  rate_is_measured: boolean;
 }
 
 export interface GoodDayStats {

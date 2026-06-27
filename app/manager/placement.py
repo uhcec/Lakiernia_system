@@ -18,10 +18,10 @@ shrinks as more distinct colours pile onto it — the same arithmetic the single
 the two never drift. Packing against the *net* ceiling keeps the deadline promise conservative: a day is
 only called feasible for work it can paint *after* paying for its colour changes.
 
-Like ``scheduler.py`` / ``capacity.py`` / ``measurement.py`` this module is deliberately DB-free: it
-takes plain value objects (the orders + the working-day calendar + the learned changeover cost) and
-returns a ``MultiDayPlan`` value object, so the placement arithmetic is fully unit-testable and the
-service layer only supplies the data.
+Like ``scheduler.py`` / ``capacity.py`` this module is deliberately DB-free: it takes plain value
+objects (the orders + the working-day calendar + the size-band changeover cost) and returns a
+``MultiDayPlan`` value object, so the placement arithmetic is fully unit-testable and the service layer
+only supplies the data.
 """
 
 from collections.abc import Sequence

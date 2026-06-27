@@ -2,21 +2,80 @@
 
 The volume/composition stats (throughput, cycle-time, WIP-aging) answer the *old* question — how much
 went through, split how — but not the one the multi-day capacity model now makes the **definition of a
-good day** (``docs/FACTORY_DOMAIN_MODEL.md`` §7): did the day clear the **profitable m² floor**, did we
+good day** (``docs/SPEC.md`` §9 "Planner numbers"): did the day clear the **profitable m² floor**, did we
 ship **on time** (deadlines are hard), and how much capacity did **colour changeovers** burn. This module
 is the pure, DB-free arithmetic that turns a day's raw activity (output m², completions vs deadlines,
-colour changes, booth-active hours) into those metrics, plus the two diagnostics — booth **rate** and
-**idle** ("fabryka nie stała"). The service layer supplies the activity from the stage-transition log.
+colour changes, booth-active hours) into those metrics, plus the **idle** diagnostic ("fabryka nie
+stała"). The service layer supplies the activity from the stage-transition log.
 
-Like ``capacity.py`` / ``measurement.py`` it is deliberately free of any DB/ORM dependency so the
-arithmetic is fully unit-testable.
+It also owns the bracketed-pass value object and the honest booth **occupancy** measurement
+(``union_active_hours``) the idle/utilisation diagnostic needs: the union of each pass's
+``[hanging_start, packing_done]`` interval, so overlapping in-flight orders count once and overnight
+idle gaps fall out. This is a plain wall-clock measurement — no seed, no learned line rate (the
+premature effective-rate estimate was removed, owner-decided; it drove no decision, only a stats badge).
+
+Like ``capacity.py`` it is deliberately free of any DB/ORM dependency so the arithmetic is fully
+unit-testable.
 """
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 
 from app.manager.capacity import changeover_loss_m2
+
+
+@dataclass(frozen=True)
+class AutomaticPassObservation:
+    """One automatic order's bracketed pass, as seen in the stage-transition log.
+
+    ``hanging_started_at`` / ``packing_done_at`` must be consistent (both naive UTC or both aware) so
+    they subtract cleanly; the service normalises them. ``colour_key`` is the colour identity used to
+    decide whether a consecutive pair is a changeover (``None`` = no colour).
+    """
+
+    work_order_id: int
+    colour_key: str | None
+    total_area_m2: float | None
+    hanging_started_at: datetime
+    packing_done_at: datetime
+
+
+def _union_seconds(intervals: Sequence[tuple[datetime, datetime]]) -> float:
+    """Total wall-clock seconds covered by a set of intervals, counting overlaps once."""
+    ordered = sorted(intervals, key=lambda interval: interval[0])
+    total = 0.0
+    current_start: datetime | None = None
+    current_end: datetime | None = None
+    for start, end in ordered:
+        if current_start is None:
+            current_start, current_end = start, end
+            continue
+        if start > current_end:  # type: ignore[operator]
+            total += (current_end - current_start).total_seconds()  # type: ignore[operator]
+            current_start, current_end = start, end
+        elif end > current_end:  # type: ignore[operator]
+            current_end = end
+    if current_start is not None:
+        total += (current_end - current_start).total_seconds()  # type: ignore[operator]
+    return total
+
+
+def union_active_hours(observations: Sequence[AutomaticPassObservation]) -> float:
+    """Wall-clock hours the line was occupied across the bracketed passes (overlaps counted once).
+
+    Drives the day's utilisation / idle diagnostic. Only well-formed brackets
+    (``packing_done_at > hanging_started_at``) count; overnight gaps between passes fall out of the union.
+    """
+    valid = [
+        observation
+        for observation in observations
+        if observation.packing_done_at > observation.hanging_started_at
+    ]
+    active_seconds = _union_seconds(
+        [(observation.hanging_started_at, observation.packing_done_at) for observation in valid]
+    )
+    return round(active_seconds / 3600.0, 2)
 
 
 @dataclass(frozen=True)

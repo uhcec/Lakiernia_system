@@ -204,45 +204,13 @@ class ScheduleRuleConfigUpdate(BaseModel):
         return self
 
 
-class LineRateMeasurement(BaseModel):
-    """Effective automatic line throughput learned from the stage-transition log (N49-2).
-
-    ``effective_rate_m2_per_h`` is the number the day-capacity planner consumes: the measured rate once
-    enough passes are bracketed, otherwise the seed. ``measured_rate_m2_per_h`` is ``None`` until the
-    sample is large enough, and ``is_measured`` says which of the two ``effective`` reflects.
-    """
-
-    sample_order_count: int
-    observed_m2: float
-    # Wall-clock hours the line was occupied (union of the bracketed passes, overlaps counted once).
-    active_hours: float
-    measured_rate_m2_per_h: float | None
-    seed_rate_m2_per_h: float
-    effective_rate_m2_per_h: float
-    is_measured: bool
-
-
-class LineMeasurementStats(BaseModel):
-    """The learned per-line rate over a window — read-side of N49-2.
-
-    Only the effective rate is learned. The colour-changeover *cost* is sized from the bounded N49-6
-    size bands in the planner, not learned here (the old statistical estimate was overnight-contaminated
-    and drove nothing; removed 2026-06-27)."""
-
-    production_type: ProductionType
-    date_from: date
-    date_to: date
-    rate: LineRateMeasurement
-
-
 class GoodDayMetricsRead(BaseModel):
     """One day measured against the capacity model's definition of a good day (NA50).
 
     Headline trio: ``output_m2`` vs the profitable ``floor_m2`` (``met_floor``), ``on_time_pct``
     (deadlines are hard), and the colour-``changeover_loss_m2`` capacity burned. Diagnostic:
-    ``utilisation_pct`` / ``idle_hours`` ("fabryka nie stała"). The effective booth **rate** is a
-    *period* figure (``GoodDayTotalsRead.rate_m2_per_h``), not per-day — a single day rarely has the
-    ≥ 3 bracketed passes needed to measure it, so a per-day rate would just echo the seed (NA53).
+    ``utilisation_pct`` / ``idle_hours`` ("fabryka nie stała"), from the union of the day's bracketed
+    passes (overlaps counted once).
     """
 
     day: date
@@ -272,18 +240,14 @@ class GoodDayTotalsRead(BaseModel):
     total_changeover_count: int
     total_changeover_loss_m2: float
     avg_utilisation_pct: float | None
-    # Effective booth rate over the whole period (measured once ≥ 3 passes are bracketed, else the seed) —
-    # a period figure because a single day rarely has enough passes to measure it (NA53).
-    rate_m2_per_h: float
-    rate_is_measured: bool
 
 
 class GoodDayStats(BaseModel):
     """Per-day good-day metrics for a line over a window, plus the period roll-up (NA50).
 
-    ``floor_m2`` / ``shift_hours`` are the bar each day is measured against (the long-day full-shift
-    constants — historical shift length is not yet persisted, see the service note);
-    ``changeover_minutes_each`` is the learned per-change cost (N49-2) used to value the changeover loss.
+    ``floor_m2`` / ``shift_hours`` are the long-day reference bar for the headline; each day is actually
+    measured against its own persisted shift length (CHANGES #9, see the service note).
+    ``changeover_minutes_each`` is the bounded N49-6 size-band per-change cost used to value the loss.
     """
 
     production_type: ProductionType

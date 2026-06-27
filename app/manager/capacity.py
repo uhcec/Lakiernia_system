@@ -1,26 +1,24 @@
 """Day-capacity model — the floor + ceiling of one working day (N49-3 under NA49).
 
 The multi-day capacity planner treats each working day as a bucket bounded by two numbers
-(``docs/FACTORY_DOMAIN_MODEL.md`` §7 "Planning ground truth"):
+(``docs/SPEC.md`` §9 "Planner numbers"):
 
 * a **floor** — the minimum *profitable* m² (800 on a long day, 500 on a short day). A day is *bad*
   when it falls **below** the floor (too little product), not when it is busy. The floors are fixed
   economic constants, not a function of the booth speed.
 * a **ceiling** — the *physical* booth capacity over the shift. The automatic booth's gross painting
   speed is the confirmed **60–100 m²/h** band; over a 14 h (long) / 8 h (short) shift that bounds the
-  most product the day can physically hold. This is deliberately the *gross* booth rate, distinct from
-  the *effective* rate learned in ``measurement.py`` (N49-2, ≈57 m²/h) which already folds idle +
-  changeover into a realistic-output number — here we want the raw physical bound and then subtract
-  the day's changeover loss explicitly.
+  most product the day can physically hold. Everything here is a fixed constant — there is no learned
+  line rate (the premature effective-rate estimate was removed; it drove no planning decision).
 
 A **colour change consumes capacity**: the booth is not painting during a changeover, so each change
 costs ``changeover_minutes`` of booth time, i.e. m² of ceiling that can no longer be filled. The model
 folds that loss into a *net* ceiling so "fill vs ceiling" already accounts for the day's colour
-changes (the changeover cost itself is learned in ``measurement.py``).
+changes. The changeover cost itself is the bounded N49-6 size band (15/30 min), not a learned estimate.
 
-Like ``scheduler.py`` / ``measurement.py`` this module is deliberately DB-free: it takes plain value
-objects (the placed orders + the learned changeover cost) and returns a ``DayCapacity`` value object,
-so the arithmetic is fully unit-testable and the service layer only supplies the data.
+Like ``scheduler.py`` this module is deliberately DB-free: it takes plain value objects (the placed
+orders + the size-band changeover cost) and returns a ``DayCapacity`` value object, so the arithmetic
+is fully unit-testable and the service layer only supplies the data.
 """
 
 from collections.abc import Sequence
@@ -28,8 +26,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
 
-# Economic floors (minimum profitable m²) and shift lengths — confirmed 2026-06-23
-# (``docs/FACTORY_DOMAIN_MODEL.md`` §7). A long day is the 07:00–21:00 shift, a short day 07:00–15:00.
+# Economic floors (minimum profitable m²) and shift lengths — owner-confirmed (``docs/SPEC.md`` §9).
+# A long day is the 07:00–21:00 shift, a short day 07:00–15:00.
 FLOOR_LONG_M2 = 800.0
 FLOOR_SHORT_M2 = 500.0
 SHIFT_LONG_HOURS = 14.0
@@ -38,8 +36,8 @@ SHIFT_SHORT_HOURS = 8.0
 SHIFT_START_HOUR = 7.0
 
 # Physical (gross, instantaneous) automatic-booth painting rate — the confirmed 60–100 m²/h band;
-# seed = the band midpoint. Used for the physical ceiling and for costing changeover capacity loss.
-# NOT the effective rate (N49-2, ≈57) which folds idle/changeover in — see the module docstring.
+# the band midpoint. Used for the physical ceiling and for costing changeover capacity loss. A fixed
+# constant, not a learned rate (the effective-rate estimate was removed) — see the module docstring.
 CEILING_BOOTH_RATE_M2_PER_H = 80.0
 
 # Size changeover-cost bands (N49-6). A colour change costs time scaled by the NEXT order's size
@@ -142,7 +140,7 @@ def remaining_shift_hours(now: datetime, shift_length: ShiftLength) -> float:
     """Hours left in *today's* shift from the wall-clock ``now`` (NA56), clamped to ``[0, full shift]``.
 
     The planner's first horizon day is today, so a plan computed mid-shift cannot promise a whole day's
-    capacity (``docs/FACTORY_DOMAIN_MODEL.md`` §7): a long-day plan built at 16:00 has only ~5 h left. Before
+    capacity (``docs/SPEC.md`` §9): a long-day plan built at 16:00 has only ~5 h left. Before
     the 07:00 start the full shift remains; after the shift end nothing remains. ``now`` is interpreted in
     its own clock (the caller passes factory-local time), using only its hour-of-day.
     """
@@ -161,7 +159,7 @@ def compute_day_capacity(
     changeover_minutes: float,
     ceiling_rate_m2_per_h: float = CEILING_BOOTH_RATE_M2_PER_H,
 ) -> DayCapacity:
-    """Compute a day's floor/ceiling fill from its placed orders and the learned changeover cost."""
+    """Compute a day's floor/ceiling fill from its placed orders and the size-band changeover cost."""
     hours = shift_hours(shift_length)
     floor = floor_m2(shift_length)
     gross_ceiling = ceiling_rate_m2_per_h * hours
