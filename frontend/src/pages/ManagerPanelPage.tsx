@@ -422,14 +422,16 @@ export function ManagerPanelPage() {
     let cancelled = false;
     void (async () => {
       try {
+        // editLine === "AUTOMATIC" here (effect is gated above); use it instead of a hardcoded
+        // line so the config we fetch always matches the line handleSaveRules writes back to.
         if (scheduleRules === null) {
-          const config = await fetchScheduleConfig("AUTOMATIC");
+          const config = await fetchScheduleConfig(editLine);
           if (!cancelled) {
             setScheduleRules(config.rules);
           }
         }
         if (!hasPendingQueueChanges && !isSavingQueueOrder && !isLoading) {
-          const proposal = await fetchAutoScheduleProposal("AUTOMATIC");
+          const proposal = await fetchAutoScheduleProposal(editLine);
           if (!cancelled) {
             setScheduleProposal(proposal);
           }
