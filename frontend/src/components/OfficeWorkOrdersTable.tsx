@@ -2,6 +2,7 @@ import { Calendar, Clock } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 
 import type { WorkOrder } from "../types/workOrders";
+import { formatDisplayOrderNumber } from "../utils/workOrderDisplay";
 import { RalColorDot } from "./RalColorDot";
 
 function stageClasses(value: WorkOrder["process_status"]["value"]): string {
@@ -62,7 +63,7 @@ function OfficeWorkOrderRow({ workOrder }: { workOrder: WorkOrder }) {
       {/* ZLECENIE */}
       <div className="w-52 flex-none px-5 py-3.5">
         <p className={`text-lg font-bold leading-tight ${workOrder.completed_quantity > 0 && workOrder.completed_quantity < workOrder.total_quantity ? "text-amber-700" : "text-brand-ink"}`}>
-          {workOrder.is_decoral_incomplete ? `N${workOrder.order_number}` : !workOrder.order_number.startsWith("P") && workOrder.completed_quantity > 0 && workOrder.completed_quantity < workOrder.total_quantity ? `P${workOrder.order_number}` : workOrder.order_number}
+          {formatDisplayOrderNumber(workOrder)}
         </p>
         <p className="mt-0.5 truncate text-sm leading-snug text-brand-muted">
           {workOrder.customer_name}

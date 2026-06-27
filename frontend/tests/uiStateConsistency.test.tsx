@@ -81,7 +81,11 @@ vi.mock("../src/api/foilsApi", () => ({
   deleteFoil: vi.fn(),
 }));
 
-vi.mock("../src/utils/workOrderDisplay", () => ({
+vi.mock("../src/utils/workOrderDisplay", async (importOriginal) => ({
+  // Spread the real module so pure helpers (formatDisplayOrderNumber, isPartiallyComplete, the correction
+  // builders, badge/balance classes, parseQuantity) resolve normally; only the display strings the
+  // assertions depend on are stubbed below.
+  ...(await importOriginal<typeof import("../src/utils/workOrderDisplay")>()),
   formatWorkOrderPrimaryInfo: (workOrder: { order_number: string; customer_name?: string | null }) =>
     `${workOrder.order_number} :: ${workOrder.customer_name ?? "Brak firmy"}`,
   getHistoricalStageWorkOrderResultText: (workOrder: { counted_quantity?: number | null; batch_quantity?: number | null; planned_quantity: number }) =>

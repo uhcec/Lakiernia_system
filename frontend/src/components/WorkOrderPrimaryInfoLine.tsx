@@ -1,5 +1,6 @@
 import type { StageWorkOrder } from "../types/process";
 import type { WorkOrder, WorkOrderRelationSummary } from "../types/workOrders";
+import { formatDisplayOrderNumber, isPartiallyComplete } from "../utils/workOrderDisplay";
 import { RalColorDot } from "./RalColorDot";
 
 type DisplayableWorkOrder =
@@ -15,19 +16,15 @@ function formatArea(totalAreaM2: number | null | undefined): string {
   return `${totalAreaM2.toLocaleString("pl-PL")} m2`;
 }
 
-function hasPendingCorrections(wo: DisplayableWorkOrder): boolean {
-  return wo.completed_quantity > 0 && wo.completed_quantity < wo.total_quantity;
-}
-
 export function WorkOrderPrimaryInfoLine({ workOrder }: { workOrder: DisplayableWorkOrder }) {
   const ralCode = "ral_code" in workOrder ? workOrder.ral_code : null;
-  const pending = hasPendingCorrections(workOrder);
-  const decoralIncomplete = (workOrder as { is_decoral_incomplete?: boolean }).is_decoral_incomplete === true;
-  const displayNumber = decoralIncomplete
-    ? `N${workOrder.order_number}`
-    : workOrder.order_number.startsWith("P") || !pending
-      ? workOrder.order_number
-      : `P${workOrder.order_number}`;
+  const pending = isPartiallyComplete(workOrder);
+  const displayNumber = formatDisplayOrderNumber({
+    order_number: workOrder.order_number,
+    completed_quantity: workOrder.completed_quantity,
+    total_quantity: workOrder.total_quantity,
+    is_decoral_incomplete: (workOrder as { is_decoral_incomplete?: boolean }).is_decoral_incomplete,
+  });
 
   return (
     <>

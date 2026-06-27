@@ -1,5 +1,6 @@
 import type { StageWorkOrder } from "../types/process";
 import type { WorkOrder, WorkOrderRelationSummary } from "../types/workOrders";
+import type { CorrectionContext } from "./correctionContext";
 
 type DisplayableWorkOrder = Pick<WorkOrder, "order_number" | "ral_code" | "total_area_m2" | "customer_name">;
 type DisplayableStageWorkOrder = Pick<StageWorkOrder, "order_number" | "customer_name"> & {
@@ -181,4 +182,116 @@ export function getStageWorkOrderProgressText(workOrder: StageWorkOrder): string
 export function getHistoricalStageWorkOrderResultText(workOrder: StageWorkOrder): string {
   const finalQuantity = workOrder.counted_quantity ?? workOrder.batch_quantity ?? workOrder.planned_quantity;
   return `Wynik końcowy: ${finalQuantity} szt.`;
+}
+
+// ── Shared display helpers (de-duplicated from the stage-completion pages — FRONTEND_TRIAGE C3/C4) ──
+
+interface PartiallyCompletable {
+  completed_quantity: number;
+  total_quantity: number;
+}
+
+/** An order with some — but not all — of its pieces credited (a partial / correction-in-flight state). */
+export function isPartiallyComplete(workOrder: PartiallyCompletable): boolean {
+  return workOrder.completed_quantity > 0 && workOrder.completed_quantity < workOrder.total_quantity;
+}
+
+interface DisplayOrderNumber extends PartiallyCompletable {
+  order_number: string;
+  is_decoral_incomplete?: boolean | null;
+}
+
+/**
+ * The order number as the boards show it: `N…` for a Decoral-incomplete root, `P…` for a partially-done
+ * order not already P-prefixed, else the raw number. One definition for all boards (was copy-pasted in 5
+ * places). The prefix meaning is reconstructed here, not supplied by the backend.
+ */
+export function formatDisplayOrderNumber(workOrder: DisplayOrderNumber): string {
+  if (workOrder.is_decoral_incomplete) {
+    return `N${workOrder.order_number}`;
+  }
+  if (!workOrder.order_number.startsWith("P") && isPartiallyComplete(workOrder)) {
+    return `P${workOrder.order_number}`;
+  }
+  return workOrder.order_number;
+}
+
+interface CorrectionDisplayable {
+  is_correction: boolean;
+  is_correction_round: boolean;
+  order_number: string;
+  total_quantity: number;
+}
+
+export function buildCorrectionReference(workOrder: CorrectionDisplayable, context: CorrectionContext | undefined): string {
+  if (workOrder.is_correction_round) {
+    return `Poprawka — runda ${workOrder.order_number}`;
+  }
+  if (!workOrder.is_correction) {
+    return "";
+  }
+  if (context?.parentOrderNumber) {
+    return `Poprawka do ${context.parentOrderNumber}`;
+  }
+  return "Poprawka do zlecenia nadrzędnego";
+}
+
+export function buildCorrectionQuantityContext(workOrder: CorrectionDisplayable, context: CorrectionContext | undefined): string {
+  if (workOrder.is_correction_round) {
+    return `${workOrder.total_quantity} szt. poprawki`;
+  }
+  if (!workOrder.is_correction) {
+    return "";
+  }
+  if (typeof context?.parentTotalQuantity === "number") {
+    return `${workOrder.total_quantity} szt. poprawki z ${context.parentTotalQuantity}`;
+  }
+  return `${workOrder.total_quantity} szt. poprawki`;
+}
+
+export function buildMergedCorrectionDeltaText(workOrder: CorrectionDisplayable, context: CorrectionContext | undefined): string {
+  if (typeof context?.parentTotalQuantity === "number") {
+    return `Poprawiono ${workOrder.total_quantity} z ${context.parentTotalQuantity} szt.`;
+  }
+  return `Poprawiono ${workOrder.total_quantity} szt.`;
+}
+
+/** Tailwind classes for a DisplayBadge tone (the badge stacks on every board). */
+export function badgeClasses(tone: DisplayBadgeTone): string {
+  switch (tone) {
+    case "info":
+      return "bg-sky-100 text-sky-800";
+    case "warning":
+      return "bg-amber-100 text-amber-800";
+    case "success":
+      return "bg-emerald-100 text-emerald-700";
+    case "accent":
+      return "bg-violet-100 text-violet-800";
+    case "danger":
+      return "bg-rose-100 text-rose-700";
+    case "neutral":
+      return "bg-slate-100 text-slate-700";
+  }
+}
+
+export type BalanceTone = "neutral" | "success" | "warning";
+
+/** Tailwind classes for a quantity-balance box tone (packing / Decoral correction split). */
+export function balanceClasses(tone: BalanceTone): string {
+  switch (tone) {
+    case "success":
+      return "border-emerald-200 bg-emerald-50 text-emerald-700";
+    case "warning":
+      return "border-amber-200 bg-amber-50 text-amber-800";
+    case "neutral":
+      return "border-line bg-mist text-steel";
+  }
+}
+
+/** Parse a quantity draft string: blank → 0, otherwise the numeric value (validation happens at submit). */
+export function parseQuantity(value: string): number {
+  if (value.trim() === "") {
+    return 0;
+  }
+  return Number(value);
 }

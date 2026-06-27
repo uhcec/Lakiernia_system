@@ -125,26 +125,28 @@ same way `docs/CHANGES.md` was built. Severity is the engineer's estimate, not a
   `workOrdersApi.ts:11-23`, `processApi.ts:8-20`, `managerApi.ts:23-35` (and repeated inline ~6×). One shared
   helper would remove it.
 
-### C3 — Stage-completion pages are a triplicated copy  *(severity: medium)*
+### C3 — Stage-completion pages are a triplicated copy  *(severity: medium)* — 🟡 IN PROGRESS
 - `StageWorkOrdersPage`, `PackingWorkOrdersPage`, `DecoralWorkOrdersPage` share ~80% of their code as
-  copy-paste: the correction helpers (`buildCorrectionReference` / `buildCorrectionQuantityContext` /
-  `buildMergedCorrectionDeltaText` exist verbatim in all three — e.g. `StageWorkOrdersPage.tsx:75,101`,
-  `DecoralWorkOrdersPage.tsx:110,126`), `badgeClasses`, `balanceClasses`, `parseQuantity`, `getActionLabel`,
-  and the whole draft/poll/correction-split card machinery. A change to the correction flow currently has to
-  be made in three places — and the backend marks corrections as the subtle, regression-prone path. Strong
-  candidate to factor into one shared stage-completion component/hook.
-- **Concrete divergence already present:** `StageWorkOrdersPage` gates the correction card (amber border +
-  reference text) on `is_correction` only (`:478`, `:578`), while Packing/Decoral use
-  `is_correction || is_correction_round` — so a correction-**round** order on a stage page silently loses
-  the "runda" label/styling the other two give it. Exactly the drift triplication breeds.
+  copy-paste. **C3a done 2026-06-27:** the *pure* duplicated helpers (`buildCorrectionReference` /
+  `buildCorrectionQuantityContext` / `buildMergedCorrectionDeltaText`, `badgeClasses`, `balanceClasses`,
+  `parseQuantity`) are now single definitions in `utils/workOrderDisplay.ts`, imported by all three pages
+  (and `badgeClasses` also de-duplicated from `WorkOrderDetailPage`), pinned by a new unit test
+  (`utils/workOrderDisplay.test.ts`) and the existing component suite (111 green).
+- **Remaining (C3b/C3c):** the JSX-level duplication — the shared **correction-split sub-form**
+  (profiles/accessories + reason + note, near-identical in Packing/Decoral) and the **card header** block —
+  is still per-page. Doing this is what lets **A5** (#2) land in one place. Higher risk (stateful JSX), so
+  staged separately on top of C3a.
+- **Concrete divergence to fix when unifying:** `StageWorkOrdersPage` gates the correction card on
+  `is_correction` only (`:430`, `:530`), while Packing/Decoral use `is_correction || is_correction_round` —
+  so a correction-**round** order on a stage page silently loses the "runda" label the other two give it.
 
-### C4 — `N`/`P` order-number prefix rule duplicated in 4 files  *(severity: low-med)*
-- The exact ternary that rebuilds the displayed order number (`is_decoral_incomplete → N…`, partial → `P…`)
-  is copy-pasted byte-for-byte in `StageWorkOrdersPage.tsx:503`, `DecoralWorkOrdersPage.tsx:358`,
-  `PackingWorkOrdersPage.tsx:545`, `OfficeWorkOrdersTable.tsx:65` (with a further variant of the `P`-logic in
-  `WorkOrderPrimaryInfoLine.tsx:28`). The prefix meaning is *reconstructed on the client* rather than
-  supplied by the backend. One `formatDisplayOrderNumber()` helper (ideally a backend-supplied field) would
-  both de-duplicate and give #2 (A5) a single place to make the second Decoral pass legible.
+### C4 — `N`/`P` order-number prefix rule duplicated in 4 files — ✅ DONE 2026-06-27
+- The ternary that rebuilds the displayed order number (`is_decoral_incomplete → N…`, partial → `P…`) was
+  copy-pasted byte-for-byte in 4 files plus a restructured variant in `WorkOrderPrimaryInfoLine`. Now one
+  `formatDisplayOrderNumber()` (+ `isPartiallyComplete`) in `utils/workOrderDisplay.ts`, used by all five
+  (`StageWorkOrdersPage`, `PackingWorkOrdersPage`, `DecoralWorkOrdersPage`, `OfficeWorkOrdersTable`,
+  `WorkOrderPrimaryInfoLine`), pinned by `utils/workOrderDisplay.test.ts`. Still client-reconstructed (a
+  backend-supplied display number remains the cleaner long-term fix) but no longer duplicated.
 
 ### C5 — Predicted-paint formula re-derived client-side  *(severity: low)*
 - `CreateWorkOrderPage.tsx:126-132` reimplements the backend's paint prediction (`area < 100 ? /4 : /6`) to

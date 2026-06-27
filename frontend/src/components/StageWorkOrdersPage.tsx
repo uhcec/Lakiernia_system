@@ -11,11 +11,15 @@ import type { ProcessStageValue, StageWorkOrder, StageStatusValue } from "../typ
 import type { ProductionTypeValue } from "../types/workOrders";
 import { loadCorrectionContexts, type CorrectionContext } from "../utils/correctionContext";
 import {
+  badgeClasses,
+  buildCorrectionQuantityContext,
+  buildCorrectionReference,
+  buildMergedCorrectionDeltaText,
+  formatDisplayOrderNumber,
   formatWorkOrderPrimaryInfo,
   getHistoricalStageWorkOrderResultText,
   getStageWorkOrderBadgeStack,
   getStageWorkOrderProgressText,
-  type DisplayBadge,
 } from "../utils/workOrderDisplay";
 
 type QueueFilter = "ALL" | "NORMAL" | "CORRECTIONS";
@@ -69,57 +73,6 @@ function getStageAction(status: StageStatusValue): "start" | "finish" | "reopen"
       return "finish";
     case "DONE":
       return "reopen";
-  }
-}
-
-function buildCorrectionReference(workOrder: StageWorkOrder, context: CorrectionContext | undefined): string {
-  if (workOrder.is_correction_round) {
-    return `Poprawka — runda ${workOrder.order_number}`;
-  }
-  if (!workOrder.is_correction) {
-    return "";
-  }
-  if (context?.parentOrderNumber) {
-    return `Poprawka do ${context.parentOrderNumber}`;
-  }
-  return "Poprawka do zlecenia nadrzędnego";
-}
-
-function buildCorrectionQuantityContext(workOrder: StageWorkOrder, context: CorrectionContext | undefined): string {
-  if (workOrder.is_correction_round) {
-    return `${workOrder.total_quantity} szt. poprawki`;
-  }
-  if (!workOrder.is_correction) {
-    return "";
-  }
-  if (typeof context?.parentTotalQuantity === "number") {
-    return `${workOrder.total_quantity} szt. poprawki z ${context.parentTotalQuantity}`;
-  }
-  return `${workOrder.total_quantity} szt. poprawki`;
-}
-
-function buildMergedCorrectionDeltaText(workOrder: StageWorkOrder, context: CorrectionContext | undefined): string {
-  if (typeof context?.parentTotalQuantity === "number") {
-    return `Poprawiono ${workOrder.total_quantity} z ${context.parentTotalQuantity} szt.`;
-  }
-
-  return `Poprawiono ${workOrder.total_quantity} szt.`;
-}
-
-function badgeClasses(tone: DisplayBadge["tone"]): string {
-  switch (tone) {
-    case "info":
-      return "bg-sky-100 text-sky-800";
-    case "warning":
-      return "bg-amber-100 text-amber-800";
-    case "success":
-      return "bg-emerald-100 text-emerald-700";
-    case "accent":
-      return "bg-violet-100 text-violet-800";
-    case "danger":
-      return "bg-rose-100 text-rose-700";
-    case "neutral":
-      return "bg-slate-100 text-slate-700";
   }
 }
 
@@ -500,7 +453,7 @@ export function StageWorkOrdersPage({
                           </span>
                         )}
                         <span className={`text-lg font-semibold ${workOrder.completed_quantity > 0 && workOrder.completed_quantity < workOrder.total_quantity ? "text-amber-700" : "text-ink"}`}>
-                          {workOrder.is_decoral_incomplete ? `N${workOrder.order_number}` : !workOrder.order_number.startsWith("P") && workOrder.completed_quantity > 0 && workOrder.completed_quantity < workOrder.total_quantity ? `P${workOrder.order_number}` : workOrder.order_number}
+                          {formatDisplayOrderNumber(workOrder)}
                         </span>
                         {workOrder.completed_quantity > 0 && workOrder.completed_quantity < workOrder.total_quantity && (
                           <span className="inline-flex rounded-full bg-amber-100 px-2 py-1 text-xs font-semibold text-amber-700">

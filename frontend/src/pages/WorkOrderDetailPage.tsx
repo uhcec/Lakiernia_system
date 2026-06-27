@@ -27,7 +27,7 @@ import {
   getWorkOrderDiscrepancyText,
   getHistoricalWorkOrderResultText,
   getWorkOrderProgressText,
-  type DisplayBadge,
+  badgeClasses,
 } from "../utils/workOrderDisplay";
 
 const ALLOWED_ATTACHMENT_MIME_TYPES = ["application/pdf", "image/png", "image/jpeg"];
@@ -158,23 +158,6 @@ function formatAuditDetailsJson(details: AuditEvent["details"]): string {
   }
 
   return JSON.stringify(details, null, 2);
-}
-
-function badgeClasses(tone: DisplayBadge["tone"]): string {
-  switch (tone) {
-    case "info":
-      return "bg-sky-100 text-sky-800";
-    case "warning":
-      return "bg-amber-100 text-amber-800";
-    case "success":
-      return "bg-emerald-100 text-emerald-700";
-    case "accent":
-      return "bg-violet-100 text-violet-800";
-    case "danger":
-      return "bg-rose-100 text-rose-700";
-    case "neutral":
-      return "bg-slate-100 text-slate-700";
-  }
 }
 
 function isHistoricalWorkOrder(workOrder: WorkOrder): boolean {

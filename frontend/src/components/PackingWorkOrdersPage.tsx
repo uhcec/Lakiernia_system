@@ -10,11 +10,17 @@ import { completePacking, fetchStageWorkOrders, releasePacking, startPacking, tr
 import type { StageWorkOrder, StageStatusValue } from "../types/process";
 import { loadCorrectionContexts, type CorrectionContext } from "../utils/correctionContext";
 import {
+  badgeClasses,
+  balanceClasses,
+  buildCorrectionQuantityContext,
+  buildCorrectionReference,
+  buildMergedCorrectionDeltaText,
+  formatDisplayOrderNumber,
   formatWorkOrderPrimaryInfo,
   getHistoricalStageWorkOrderResultText,
   getStageWorkOrderBadgeStack,
   getStageWorkOrderProgressText,
-  type DisplayBadge,
+  parseQuantity,
 } from "../utils/workOrderDisplay";
 
 type QueueFilter = "ALL" | "NORMAL" | "CORRECTIONS";
@@ -46,14 +52,6 @@ function getActionLabel(status: StageStatusValue): string {
     case "IN_PROGRESS":
       return "Zakończ pakowanie";
   }
-}
-
-function parseQuantity(value: string): number {
-  if (value.trim() === "") {
-    return 0;
-  }
-
-  return Number(value);
 }
 
 function buildEmptyPackingDraft(): PackingDraft {
@@ -88,40 +86,6 @@ function getPackingRowSummary(workOrder: StageWorkOrder): string {
   return workOrder.stage_status.status.value === "DONE" ? "Pakowanie zakończone" : "W pakowaniu";
 }
 
-function buildCorrectionReference(workOrder: StageWorkOrder, context: CorrectionContext | undefined): string {
-  if (workOrder.is_correction_round) {
-    return `Poprawka — runda ${workOrder.order_number}`;
-  }
-  if (!workOrder.is_correction) {
-    return "";
-  }
-  if (context?.parentOrderNumber) {
-    return `Poprawka do ${context.parentOrderNumber}`;
-  }
-  return "Poprawka do zlecenia nadrzędnego";
-}
-
-function buildCorrectionQuantityContext(workOrder: StageWorkOrder, context: CorrectionContext | undefined): string {
-  if (workOrder.is_correction_round) {
-    return `${workOrder.total_quantity} szt. poprawki`;
-  }
-  if (!workOrder.is_correction) {
-    return "";
-  }
-  if (typeof context?.parentTotalQuantity === "number") {
-    return `${workOrder.total_quantity} szt. poprawki z ${context.parentTotalQuantity}`;
-  }
-  return `${workOrder.total_quantity} szt. poprawki`;
-}
-
-function buildMergedCorrectionDeltaText(workOrder: StageWorkOrder, context: CorrectionContext | undefined): string {
-  if (typeof context?.parentTotalQuantity === "number") {
-    return `Poprawiono ${workOrder.total_quantity} z ${context.parentTotalQuantity} szt.`;
-  }
-
-  return `Poprawiono ${workOrder.total_quantity} szt.`;
-}
-
 function formatPackingBalance(countedQuantity: number, okQuantity: number, correctionQuantity: number): { text: string; tone: "neutral" | "success" | "warning" } {
   if (countedQuantity <= 0) {
     return { text: "Wpisz policzoną ilość", tone: "neutral" };
@@ -154,34 +118,6 @@ function formatCorrectionSplitBalance(correctionQuantity: number, profilesQuanti
   }
 
   return { text: `O ${Math.abs(balance)} szt. za dużo`, tone: "warning" };
-}
-
-function balanceClasses(tone: ReturnType<typeof formatPackingBalance>["tone"]): string {
-  switch (tone) {
-    case "success":
-      return "border-emerald-200 bg-emerald-50 text-emerald-700";
-    case "warning":
-      return "border-amber-200 bg-amber-50 text-amber-800";
-    case "neutral":
-      return "border-line bg-mist text-steel";
-  }
-}
-
-function badgeClasses(tone: DisplayBadge["tone"]): string {
-  switch (tone) {
-    case "info":
-      return "bg-sky-100 text-sky-800";
-    case "warning":
-      return "bg-amber-100 text-amber-800";
-    case "success":
-      return "bg-emerald-100 text-emerald-700";
-    case "accent":
-      return "bg-violet-100 text-violet-800";
-    case "danger":
-      return "bg-rose-100 text-rose-700";
-    case "neutral":
-      return "bg-slate-100 text-slate-700";
-  }
 }
 
 export function PackingWorkOrdersPage() {
@@ -542,7 +478,7 @@ export function PackingWorkOrdersPage() {
                           {workOrder.shared_stage_line_label ?? `Poz. ${workOrder.queue_position ?? "-"}`}
                         </span>
                         <span className={`text-lg font-semibold ${workOrder.completed_quantity > 0 && workOrder.completed_quantity < workOrder.total_quantity ? "text-amber-700" : "text-ink"}`}>
-                          {workOrder.is_decoral_incomplete ? `N${workOrder.order_number}` : !workOrder.order_number.startsWith("P") && workOrder.completed_quantity > 0 && workOrder.completed_quantity < workOrder.total_quantity ? `P${workOrder.order_number}` : workOrder.order_number}
+                          {formatDisplayOrderNumber(workOrder)}
                         </span>
                         {workOrder.completed_quantity > 0 && workOrder.completed_quantity < workOrder.total_quantity && (
                           <span className="inline-flex rounded-full bg-amber-100 px-2 py-1 text-xs font-semibold text-amber-700">
