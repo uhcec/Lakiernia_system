@@ -375,3 +375,38 @@ explicit operational fact instead.
 
 **Review-by:** frontend review — give the manager a control to record the day's shift; until then the
 LONG fallback means short days can still read as "bad", so confirm the measure once recording is live.
+
+## 2026-06-27 — Remove the learned colour-changeover estimate (planner review)
+
+**Decision:** delete the statistical "learned colour-changeover cost" (`estimate_colour_changeover`,
+N49-2) entirely — the function, its `ColourChangeoverMeasurement` schema/seed constants, the
+`changeover` field on `GET /manager/stats/line-measurements`, and the `_learned_changeover` helper. The
+day-capacity `changeover_is_measured` flag is now `True` by construction (the shown figure is the
+bounded size-band cost). Only the union-based **effective rate** is still learned in `measurement.py`.
+
+**Why:** owner-decided 2026-06-27 during a planner correctness review. The estimate (avg inter-start
+gap when colour changes − when it stays) summed gaps **across overnight/weekend boundaries** (only
+negative gaps were filtered, `measurement.py`), so it learned idle time as "changeover" and inflated to
+hundreds of minutes. Crucially it **drove nothing**: since NA52 both the multi-day plan and the
+single-day capacity view size changeovers from the bounded N49-6 size bands
+(`capacity.changeover_minutes_for_transition`); the learned estimate survived only as a diagnostic on
+`/manager/stats/line-measurements` — an endpoint **no frontend view consumes**. So it was a misleading
+number with no consumer. Given the choice (remove / fix the overnight contamination / leave), the owner
+chose remove: the bounded figure that actually plans is the honest one to show.
+
+**Rejected:** (a) *fix the method* — filter overnight/weekend gaps — rejected as polishing a metric
+nothing reads and nothing plans on; (b) *leave it* — rejected as a live, misleading number.
+
+**Implementation notes:**
+- Deleted from `app/manager/{measurement.py, schemas.py, service.py}`; tests in
+  `tests/test_measurement.py` + `tests/test_line_measurements.py` dropped; `tests/test_planner_
+  changeover_bound_na52.py` reworked to pin "plan uses the bounded cost on a contaminated log" without
+  asserting on the removed estimate.
+- `GET /manager/stats/line-measurements` now returns `{production_type, date_from, date_to, rate}` —
+  the `changeover` object is gone (no frontend consumer, so no UI change).
+
+**Expected:** the planner is unchanged (it already used the bounded cost); the line-measurements
+endpoint no longer exposes the inflated learned changeover; `changeover_is_measured` is always True.
+
+**Review-by:** none required — pure removal of an unconsumed diagnostic; covered by the reworked NA52
+regression + the full backend suite.

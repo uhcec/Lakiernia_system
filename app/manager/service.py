@@ -49,7 +49,6 @@ from app.manager.colour import (
 )
 from app.manager.measurement import (
     AutomaticPassObservation,
-    estimate_colour_changeover,
     measure_automatic_rate,
 )
 from app.manager.placement import (
@@ -176,9 +175,6 @@ def _order_segment_keys(
             keys.append(key)
     return keys
 
-
-# Trailing window over which the day-capacity model learns the changeover cost (N49-3 reuses N49-2).
-_MEASUREMENT_WINDOW_DAYS = 90
 
 # Rolling horizon (working days) the multi-day placement lays orders across (N49-4 / board N49-9).
 # Owner policy (2026-06-24): you cannot plan more than 3 working days ahead — today plus the next two
@@ -794,7 +790,6 @@ class ManagerService:
             date_from=date_from,
             date_to=date_to,
             rate=measure_automatic_rate(observations),
-            changeover=estimate_colour_changeover(observations),
         )
 
     def get_good_day_stats(
@@ -878,10 +873,10 @@ class ManagerService:
 
         # Bracketed automatic passes for the same window, grouped by completion day for changeover +
         # booth-active hours + effective rate. NA52: the changeover loss is valued with the **bounded
-        # N49-6 size+direction** cost of the day's actual run, NOT the N49-2 statistical estimate — that
-        # estimate absorbs overnight/idle gaps (≈250 min/change) and would report a "changeover loss"
-        # larger than the day's real output. The statistical estimate stays a diagnostic on
-        # ``/manager/stats/line-measurements``.
+        # N49-6 size+direction** cost of the day's actual run, NOT a statistical inter-start-gap
+        # estimate — that estimate absorbs overnight/idle gaps (≈250 min/change) and would report a
+        # "changeover loss" larger than the day's real output. (That learned estimate drove nothing and
+        # was removed 2026-06-27; only the union-based effective rate is still learned.)
         observations = self._automatic_pass_observations(date_from, date_to, production_type)
         passes_by_day: dict[date, list[AutomaticPassObservation]] = {}
         for observation in observations:
@@ -1146,7 +1141,6 @@ class ManagerService:
         colour_by_id = {work_order.id: self._order_colour_key(work_order) for work_order in swept_orders}
         changeover_count = colour_changeovers_for_order_ids(swept_ids, colour_by_id)
         _total_minutes, avg_change_minutes = self._day_changeover_minutes(swept_orders)
-        changeover = self._learned_changeover(production_type)
 
         day = compute_day_capacity(
             resolved_shift,
@@ -1167,22 +1161,16 @@ class ManagerService:
             changeover_minutes=day.changeover_minutes_each,
             changeover_minutes_total=day.changeover_minutes_total,
             changeover_loss_m2=day.changeover_loss_m2,
-            changeover_is_measured=changeover.is_measured,
+            # The shown changeover cost is the bounded N49-6 size-band figure (avg_change_minutes),
+            # derived from the day's real order sizes — measured by construction, never a seed
+            # (matches the multi-day plan's stance). The old learned estimate was removed 2026-06-27.
+            changeover_is_measured=True,
             placed_order_count=day.placed_order_count,
             placed_m2=day.placed_m2,
             below_floor=day.below_floor,
             over_ceiling=day.over_ceiling,
             spill_m2=day.spill_m2,
             headroom_m2=day.headroom_m2,
-        )
-
-    def _learned_changeover(self, production_type: ProductionType):
-        """The colour-changeover estimate (N49-2) over the trailing window, for the capacity planner."""
-        today = clock.now().date()
-        return estimate_colour_changeover(
-            self._automatic_pass_observations(
-                today - timedelta(days=_MEASUREMENT_WINDOW_DAYS), today, production_type
-            )
         )
 
     def get_multi_day_plan(
@@ -1222,12 +1210,12 @@ class ManagerService:
             for work_order in active_orders
         ]
         # NA52: size each day's net ceiling with the **bounded N49-6 size-band** changeover cost —
-        # the same cost the single-day capacity view uses — NOT the N49-2 statistical estimate. That
-        # estimate is contaminated by overnight/idle gaps in the log (it learns idle time as "changeover",
-        # inflating to ≈250 min), which collapses every day's net ceiling and fragments the board. The
-        # statistical estimate stays a diagnostic (``GET /manager/stats/line-measurements``); here we use
-        # the bounded cost of the whole line's colour-grouped order so "what you see per day" (N49-6)
-        # equals "what placed the orders" (the net ceiling).
+        # the same cost the single-day capacity view uses — NOT a statistical inter-start-gap estimate.
+        # Such an estimate is contaminated by overnight/idle gaps in the log (it learns idle time as
+        # "changeover", inflating to ≈250 min), which would collapse every day's net ceiling and fragment
+        # the board; it drove nothing and was removed 2026-06-27. Here we use the bounded cost of the
+        # whole line's colour-grouped order so "what you see per day" (N49-6) equals "what placed the
+        # orders" (the net ceiling).
         line_swept_ids = group_identical_colours(
             [
                 ColourOrderable(

@@ -126,37 +126,6 @@ def test_manual_line_has_no_brackets_and_reports_seed(db_session: Session) -> No
     assert stats.rate.effective_rate_m2_per_h == SEED_AUTOMATIC_RATE_M2_PER_H
 
 
-def test_learns_colour_changeover_residual(db_session: Session) -> None:
-    work_order_service, manager_service = _build_services(db_session)
-    t0 = datetime(2026, 6, 11, 7, 0, tzinfo=UTC)
-    # Starts spaced 60 min within a colour and 80 min across a colour change → 20 min learned cost.
-    plan = [
-        ("RAL 9010", 0),
-        ("RAL 9010", 60),
-        ("RAL 9010", 120),
-        ("RAL 7016", 200),
-        ("RAL 7016", 260),
-        ("RAL 5010", 340),
-        ("RAL 5010", 400),
-        ("RAL 3000", 480),
-    ]
-    for i, (ral, offset) in enumerate(plan):
-        order = _create_order(work_order_service, f"Auto {i}", ral_code=ral, m2=100.0)
-        _set_line(db_session, order.id, ProductionType.AUTOMATIC)
-        hang = t0 + timedelta(minutes=offset)
-        _bracket(db_session, order.id, hang, hang + timedelta(minutes=30))
-    db_session.flush()
-
-    stats = manager_service.get_line_measurements(
-        date(2026, 6, 11), date(2026, 6, 11), station_context=MANAGER
-    )
-
-    assert stats.changeover.is_measured is True
-    assert stats.changeover.same_colour_pair_count == 4
-    assert stats.changeover.changed_colour_pair_count == 3
-    assert stats.changeover.measured_changeover_minutes == 20.0
-
-
 def test_line_measurements_requires_manager(db_session: Session) -> None:
     _, manager_service = _build_services(db_session)
     with pytest.raises(StationActionForbiddenError):

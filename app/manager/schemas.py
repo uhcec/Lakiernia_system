@@ -222,32 +222,17 @@ class LineRateMeasurement(BaseModel):
     is_measured: bool
 
 
-class ColourChangeoverMeasurement(BaseModel):
-    """Statistical colour-changeover cost learned from the log, with the confirmed band seed (N49-2).
-
-    ``estimated_changeover_minutes`` is what the planner consumes (measured residual once enough pairs
-    are seen, else the seed midpoint). The structural ``band_*`` fields are the confirmed 15/30-min
-    bands keyed off the 100 m² odzysk threshold — reference for a size-aware cost model (N49-6)."""
-
-    same_colour_pair_count: int
-    changed_colour_pair_count: int
-    measured_changeover_minutes: float | None
-    seed_changeover_minutes: float
-    estimated_changeover_minutes: float
-    is_measured: bool
-    band_threshold_m2: float
-    band_small_minutes: float
-    band_large_minutes: float
-
-
 class LineMeasurementStats(BaseModel):
-    """The learned per-line numbers (rate + changeover) over a window — read-side of N49-2."""
+    """The learned per-line rate over a window — read-side of N49-2.
+
+    Only the effective rate is learned. The colour-changeover *cost* is sized from the bounded N49-6
+    size bands in the planner, not learned here (the old statistical estimate was overnight-contaminated
+    and drove nothing; removed 2026-06-27)."""
 
     production_type: ProductionType
     date_from: date
     date_to: date
     rate: LineRateMeasurement
-    changeover: ColourChangeoverMeasurement
 
 
 class GoodDayMetricsRead(BaseModel):

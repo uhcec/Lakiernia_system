@@ -4,9 +4,7 @@ from datetime import datetime, timedelta
 
 from app.manager.measurement import (
     SEED_AUTOMATIC_RATE_M2_PER_H,
-    SEED_CHANGEOVER_MINUTES,
     AutomaticPassObservation,
-    estimate_colour_changeover,
     measure_automatic_rate,
 )
 
@@ -80,50 +78,3 @@ def test_rate_ignores_passes_without_area_or_with_bad_bracket() -> None:
     rate = measure_automatic_rate(good + [no_area, bad_bracket])
     assert rate.sample_order_count == 3
     assert rate.observed_m2 == 300.0
-
-
-def test_changeover_falls_back_to_seed_when_sparse() -> None:
-    changeover = estimate_colour_changeover([_pass(1), _pass(2, hang_offset_min=60)])
-    assert changeover.is_measured is False
-    assert changeover.estimated_changeover_minutes == SEED_CHANGEOVER_MINUTES
-    assert changeover.band_threshold_m2 == 100.0
-    assert changeover.band_small_minutes == 15.0
-    assert changeover.band_large_minutes == 30.0
-
-
-def test_changeover_learns_extra_gap_on_colour_change() -> None:
-    # Same-colour starts are 60 min apart; a colour change inserts an extra 20 min (80 min gap).
-    # Pattern of starts (minutes): A@0, A@60, A@120 (same, 60), B@200 (changed, 80), B@260 (same, 60),
-    # C@340 (changed, 80), C@400 (same, 60), D@480 (changed, 80).
-    passes = [
-        _pass(1, colour="A", hang_offset_min=0),
-        _pass(2, colour="A", hang_offset_min=60),
-        _pass(3, colour="A", hang_offset_min=120),
-        _pass(4, colour="B", hang_offset_min=200),
-        _pass(5, colour="B", hang_offset_min=260),
-        _pass(6, colour="C", hang_offset_min=340),
-        _pass(7, colour="C", hang_offset_min=400),
-        _pass(8, colour="D", hang_offset_min=480),
-    ]
-    changeover = estimate_colour_changeover(passes)
-    assert changeover.is_measured is True
-    assert changeover.same_colour_pair_count == 4
-    assert changeover.changed_colour_pair_count == 3
-    # avg changed gap (80) − avg same gap (60) = 20 min learned changeover.
-    assert changeover.measured_changeover_minutes == 20.0
-    assert changeover.estimated_changeover_minutes == 20.0
-
-
-def test_changeover_clamps_negative_residual_to_zero() -> None:
-    # Same-colour gaps larger than changed-colour gaps would give a negative residual → clamp to 0.
-    passes = [
-        _pass(1, colour="A", hang_offset_min=0),
-        _pass(2, colour="A", hang_offset_min=90),
-        _pass(3, colour="A", hang_offset_min=180),
-        _pass(4, colour="B", hang_offset_min=210),
-        _pass(5, colour="C", hang_offset_min=240),
-        _pass(6, colour="D", hang_offset_min=270),
-    ]
-    changeover = estimate_colour_changeover(passes)
-    assert changeover.is_measured is True
-    assert changeover.measured_changeover_minutes == 0.0

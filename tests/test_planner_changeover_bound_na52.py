@@ -1,11 +1,11 @@
-"""Regression: the capacity model is driven by the bounded N49-6 changeover cost, not N49-2 (NA52).
+"""Regression: the capacity model is driven by the bounded N49-6 changeover cost (NA52).
 
-The N49-2 statistical changeover estimate (``estimate_colour_changeover``) is the *extra* average gap
-between consecutive automatic starts when the colour changes. When real passes are spread across days,
-that gap is dominated by overnight/idle time, so the estimate learns idle time as "changeover" and
-inflates to hundreds of minutes. Feeding that into the capacity model collapsed every day's net ceiling
-(NA52). These tests pin the fix: regardless of how contaminated the learned estimate is, both the
-multi-day board and the good-day loss use the bounded **size + direction** cost (≤ the 30-min band).
+An inter-start-gap estimate of the changeover cost is dominated by overnight/idle time when real passes
+are spread across days, so it learns idle time as "changeover" and inflates to hundreds of minutes;
+feeding that into the capacity model collapsed every day's net ceiling (NA52). The fix routed the
+planner to the bounded **size-band** cost instead, and the contaminated learned estimate — which drove
+nothing — was removed entirely (2026-06-27). These tests pin that both the multi-day board and the
+good-day loss use the bounded cost (≤ the 30-min band), even on a deliberately overnight-spread log.
 """
 
 from datetime import UTC, date, datetime, timedelta
@@ -112,16 +112,12 @@ def _seed_contaminated_log(work_order_service: WorkOrderService, db_session: Ses
         _packed_pass(db_session, order.id, hang_at=hang, pack_at=hang + timedelta(minutes=30))
 
 
-def test_learned_estimate_is_inflated_but_plan_uses_the_bounded_cost(db_session: Session) -> None:
+def test_plan_uses_bounded_changeover_cost_despite_contaminated_log(db_session: Session) -> None:
     work_order_service, manager_service = _build(db_session)
+    # The log is deliberately contaminated: passes spread across days, so an inter-start-gap estimate
+    # would learn overnight idle as "changeover" (hundreds of minutes). The old learned estimate was
+    # removed (2026-06-27); this pins that the plan sizes changeovers from the bounded N49-6 band.
     _seed_contaminated_log(work_order_service, db_session)
-
-    # Sanity: the N49-2 estimate is indeed contaminated (well above the confirmed 15/30-min bands).
-    measurements = manager_service.get_line_measurements(
-        date(2026, 6, 1), _TODAY, station_context=MANAGER
-    )
-    assert measurements.changeover.is_measured is True
-    assert measurements.changeover.estimated_changeover_minutes > 100.0
 
     # Two comfortably-deadlined automatic orders, one colour change between them.
     light = _create(work_order_service, "Plan-light", ral="RAL 9010", m2=400.0, pickup=_COMFORTABLE)
