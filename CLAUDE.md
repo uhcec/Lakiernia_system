@@ -33,6 +33,28 @@ let the owner decide. Do not make the owner manage the process.
 
 Follow the rules below without exception.
 
+## Architectural memory (you own it)
+
+The owner has fully delegated the engineering workflow **and the upkeep of architectural memory** to
+you. He has no preferences on *how* the repo is run; he wants it run properly per this method. So:
+
+- **You own** every process and ordering decision: PR shape, when a regression test is written, when to
+  verify on the live backend, the ADR format, keeping `SPEC.md` from drifting from the code, catching
+  debt and over-engineering, and carrying state across sessions. Set sensible defaults, write them
+  here, and just follow them. The owner does not track or remember any of this.
+- **The owner owns** the factory's **why**, not just its **what**. The one thing you cannot read from
+  code or guess is *why the factory works the way it does*. When a requirement's rationale is genuinely
+  unclear, ask for the **why** before coding — that rationale is what protects a decision from being
+  silently undone later (by a human or a future session). Ask only when the why is actually unclear;
+  never ceremonially on trivial changes.
+- **Capture the why where the decision lives:** owner-given rationale goes into `DECISIONS.md` (domain
+  *why*) and, for changed behavior, into `SPEC.md`'s confirmation marker. An undocumented why is a
+  future bug.
+- **Transparency window:** because the owner does not approve work step by step, every PR states in a
+  few sentences *what changed*, *what assumption you made*, and *what you deliberately did not do and
+  why* — so the owner has a window to say "stop, wrong" before anything grows. This replaces
+  step-by-step management, it does not reintroduce it.
+
 ## Ground truth
 
 The owner (the physical paint shop) is the only authority on how the factory works. You are not.
