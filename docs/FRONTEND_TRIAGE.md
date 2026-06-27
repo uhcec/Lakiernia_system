@@ -13,15 +13,22 @@ same way `docs/CHANGES.md` was built. Severity is the engineer's estimate, not a
 
 ## Coverage map (be honest about what was actually read)
 
-- **Deep-read:** `main.tsx`, `AuthContext`, `ProtectedRoute`, `stationContext`, all three `api/*` clients,
-  `types/workOrders|process|manager`, `utils/*`, `hooks/usePolling`, `CapacityBoard`, `WorkOrderDetailPage`,
-  `ManagerPanelPage` (core logic), `PackingWorkOrdersPage`, `DecoralWorkOrdersPage` (the subtle
-  correction/packing/Decoral flows). `StageWorkOrdersPage` confirmed (grep) as a third copy of the same
-  machinery — see C3.
-- **Grep-swept only (deep read pending):** `StatystykiPage`, `CreateWorkOrderPage`, `ClientsPage`,
-  `FoilsPage`, `EmployeesPage`, `AuditEventsPage`, `PaintInventoryPage`, `HangingPage`,
-  `SurfacePreparationPage`, `Manual/AutomaticProductionPage`, presence/number/chart components.
-  **These likely hold more findings.** Treat bucket A/B below as the verified core, not the full set.
+- **Deep-read (2026-06-27):** `main.tsx`, `AuthContext`, `ProtectedRoute`, `stationContext`, all three
+  `api/*` clients, `types/workOrders|process|manager`, `utils/*`, `hooks/usePolling`, `NumberInput`,
+  `CapacityBoard`, `WorkOrderDetailPage`, `ManagerPanelPage` (core logic), `PackingWorkOrdersPage`,
+  `DecoralWorkOrdersPage`, `StageWorkOrdersPage` (the three triplicated stage-completion pages — C3) and
+  its thin intake wrappers (`Hanging`/`SurfacePreparation`/`Manual`/`AutomaticProductionPage`),
+  `CreateWorkOrderPage`, `StatystykiPage`, `PaintInventoryPage`, `WorkOrdersListPage`,
+  `OfficeWorkOrdersTable`, `AppLayout`.
+- **Light / not yet deep-read:** the remaining CRUD/display pages — `ClientsPage`, `FoilsPage`,
+  `EmployeesPage`, `AuditEventsPage` — plus the small presentational components (`BarChart`, `RalColorDot`,
+  `StationPresenceWidget`, `TechnicalDrawingLinks`, `WorkOrderPrimaryInfoLine`) and the thin
+  clients/foils/employees/audit/paints API wrappers. Standard CRUD; lower risk. The core flows above are
+  now verified.
+- **Resolved non-findings (read, then cleared):** `AutomaticProductionPage` using `stage="PRODUCTION"` is
+  intentional (the backend aggregates HANGING+PRODUCTION for the automat operator + paint consumption, not
+  a missing-stage drift); `StatystykiPage`'s coating split correctly excludes `m2_decoral_pass` (backend:
+  it overlaps the base coat and is NOT part of `m2_total`, shown as its own chart/column).
 
 ---
 
@@ -98,6 +105,13 @@ same way `docs/CHANGES.md` was built. Severity is the engineer's estimate, not a
   so a batch and a batchless order sharing the same integer would collide into one draft. Low probability,
   but the key isn't provably unique; a namespaced key (`b{batch_id}` / `w{id}`) would remove the risk.
 
+### B6 — Office list recomputes "overdue" client-side, ignoring the not-READY rule  *(severity: low-med)*
+- The backend exposes `is_overdue` = "pickup before today **AND** not yet READY" (SPEC §2). The office list
+  row instead recomputes its own `isOverdue = planned_pickup_date < now` (`OfficeWorkOrdersTable.tsx:53-55`)
+  and `getDaysLabel` does the same (`:40-48`), so a **completed (READY)** order picked up after its date
+  still shows a red "Po terminie" on the date column. The list's own delayed counter correctly uses
+  `workOrder.is_overdue` (`WorkOrdersListPage.tsx:72`) — only the row drifted. Use `workOrder.is_overdue`.
+
 ---
 
 ## Bucket C — Dead code / duplication
@@ -119,6 +133,10 @@ same way `docs/CHANGES.md` was built. Severity is the engineer's estimate, not a
   and the whole draft/poll/correction-split card machinery. A change to the correction flow currently has to
   be made in three places — and the backend marks corrections as the subtle, regression-prone path. Strong
   candidate to factor into one shared stage-completion component/hook.
+- **Concrete divergence already present:** `StageWorkOrdersPage` gates the correction card (amber border +
+  reference text) on `is_correction` only (`:478`, `:578`), while Packing/Decoral use
+  `is_correction || is_correction_round` — so a correction-**round** order on a stage page silently loses
+  the "runda" label/styling the other two give it. Exactly the drift triplication breeds.
 
 ### C4 — `N`/`P` order-number prefix rule duplicated in 4 files  *(severity: low-med)*
 - The exact ternary that rebuilds the displayed order number (`is_decoral_incomplete → N…`, partial → `P…`)
@@ -128,9 +146,18 @@ same way `docs/CHANGES.md` was built. Severity is the engineer's estimate, not a
   supplied by the backend. One `formatDisplayOrderNumber()` helper (ideally a backend-supplied field) would
   both de-duplicate and give #2 (A5) a single place to make the second Decoral pass legible.
 
----
+### C5 — Predicted-paint formula re-derived client-side  *(severity: low)*
+- `CreateWorkOrderPage.tsx:126-132` reimplements the backend's paint prediction (`area < 100 ? /4 : /6`) to
+  show a live hint at create time (before an order exists). Fine as a hint, but it's backend math duplicated
+  on the client — if the divisor/threshold ever changes server-side, the create-form hint drifts silently.
 
-## Bucket D — UX / visual (full-pass scope per owner)
+### C6 — Cross-component "add" triggers via global DOM CustomEvents  *(severity: low)*
+- The header's "Dodaj klienta" / "Dodaj folię" buttons fire `document.dispatchEvent(new CustomEvent(
+  "clients:open-add-form"))` / `"foils:open-add-form"` (`AppLayout.tsx:230,240`) which `ClientsPage` /
+  `FoilsPage` listen for. A global DOM event bus for parent→page comms is unidiomatic in React (vs context /
+  router state / a shared store) and easy to break silently (string-keyed, untyped). Low risk, real smell.
+- Minor sibling: `AppLayout.getSectionTitle` (`:85-102`) re-maps every route→title, duplicating the nav
+  label list a few lines above.
 
 ### D1 — Inconsistent error surface: `alert()` vs inline banners  *(severity: low)*
 - The QC-document download failure uses a native `alert()` (`WorkOrderDetailPage.tsx:277`); the rest of the
@@ -145,17 +172,27 @@ same way `docs/CHANGES.md` was built. Severity is the engineer's estimate, not a
 - Station boards poll (`usePolling`), but `WorkOrderDetailPage` is a one-shot fetch. Acceptable for an
   office detail view; noted so it's a conscious choice, not an oversight.
 
+### D4 — Create form: "Data przyjęcia" required but unmarked  *(severity: trivial)*
+- `received_date` is validated as required (`CreateWorkOrderPage.tsx:385-388`) but its label has no `*`,
+  while "Termin odbioru *" does (`:630`). Cosmetic label inconsistency.
+
 ---
 
 ## Suggested adjudication order (engineer's recommendation, owner decides)
 
-1. **A1** (shift length unsettable) — the only item that leaves an agreed change non-functional.
-2. **A2 / A3 / A4** — three small surfacing/copy fixes that make #8, #7, #10 actually land for the user.
-3. **C3** — de-duplicate the triplicated stage-completion pages *before* doing more correction-flow work,
-   so #2 (A5) and any future correction change land in one place, not three. **C4** rides along with it.
-4. Finish the **deep read** of the remaining grep-swept pages (stats / create / clients / intake stages)
-   before committing to the rest of the cleanup sweep.
-5. **A6 / C1 / C2 / B2 / B5** — trivial cleanups, batchable.
+- ✅ **A1** (shift length unsettable) — done 2026-06-27.
+- ✅ **A2 / A3 / A4** (#8 / #7 / #10 surfaced) — done 2026-06-27.
 
-Items the owner confirms become entries in `docs/CHANGES.md` (frontend section) and carry a `file:line` +
-confirmation marker, exactly like the backend list.
+Remaining, recommended order:
+
+1. **C3 (+ C4)** — de-duplicate the triplicated stage-completion pages *before* more correction-flow work,
+   so **A5** (#2 second Decoral pass) and any future correction change land in one place, not three. The
+   `is_correction_round` divergence under C3 is a live symptom. This is the one medium-weight item left.
+2. **A5** (#2) — make the second Decoral pass legible; cleanest to do on top of C3/C4's shared helper.
+3. **B6** — small correctness fix (office list use `is_overdue`), and **B1** (auth `window.fetch` patch) if
+   you want the security hardening.
+4. **A6 / C1 / C2 / C5 / B2 / B5 / C6 / D1–D4** — trivial cleanups + UX polish, batchable.
+
+Deep read is essentially complete (see coverage map); only standard CRUD pages remain light-read. Items the
+owner confirms become entries in `docs/CHANGES.md` (frontend section) and carry a `file:line` + confirmation
+marker, exactly like the backend list.
