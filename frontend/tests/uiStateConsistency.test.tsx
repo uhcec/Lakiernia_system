@@ -1,7 +1,10 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render as rtlRender, screen, waitFor, within } from "@testing-library/react";
+import type { RenderOptions } from "@testing-library/react";
+import type { ReactElement } from "react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { ConfirmProvider } from "../src/components/ConfirmDialog";
 import { PackingWorkOrdersPage } from "../src/components/PackingWorkOrdersPage";
 import { StageWorkOrdersPage } from "../src/components/StageWorkOrdersPage";
 import { ApiError } from "../src/api/apiError";
@@ -14,6 +17,12 @@ import { WorkOrdersListPage } from "../src/pages/WorkOrdersListPage";
 import { WorkOrderDetailPage } from "../src/pages/WorkOrderDetailPage";
 import type { StageWorkOrder } from "../src/types/process";
 import type { WorkOrder, WorkOrderRelationSummary } from "../src/types/workOrders";
+
+// Pages now use useConfirm() (the app-styled confirm modal, FRONTEND_TRIAGE D2), so every render must
+// sit under ConfirmProvider. Wrap the standard render once instead of touching ~20 call sites.
+function render(ui: ReactElement, options?: Omit<RenderOptions, "wrapper">) {
+  return rtlRender(ui, { wrapper: ConfirmProvider, ...options });
+}
 
 vi.mock("../src/api/managerApi", () => ({
   assignWorkOrderPlan: vi.fn(),
@@ -1470,8 +1479,6 @@ describe("frontend state consistency", () => {
     ]);
     startPackingMock.mockResolvedValue({} as never);
 
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
-
     render(<PackingWorkOrdersPage />);
 
     await screen.findByText("WO-MANUAL-WAIT :: Klient");
@@ -1479,10 +1486,12 @@ describe("frontend state consistency", () => {
     expect(screen.queryByText(/WO-AUTO-RESERVED \(14 szt./)).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Otwórz drugie stanowisko" }));
 
-    // The warning (with the reserving automatic order's piece count) appears in the confirm prompt.
-    expect(confirmSpy).toHaveBeenCalledWith(expect.stringContaining("WO-AUTO-RESERVED (14 szt., automat)"));
+    // The warning (with the reserving automatic order's piece count) appears in the confirm dialog.
+    const dialog = await screen.findByRole("alertdialog");
+    expect(within(dialog).getByText(/WO-AUTO-RESERVED \(14 szt., automat\)/)).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Otwórz mimo to" }));
+
     await waitFor(() => expect(startPackingMock).toHaveBeenCalledWith(52, undefined, true));
-    confirmSpy.mockRestore();
   });
 
   it("keeps stage list visible when one correction detail fetch fails", async () => {
@@ -2219,21 +2228,19 @@ describe("frontend state consistency", () => {
       is_released_to_client: true,
       released_to_client_at: "2026-05-30T12:00:00Z",
     };
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
     fetchWorkOrderMock.mockResolvedValueOnce(readyWorkOrder).mockResolvedValueOnce(releasedWorkOrder);
     updateWorkOrderReleaseStatusMock.mockResolvedValue(releasedWorkOrder);
 
-    try {
-      renderWorkOrderDetail(74);
+    renderWorkOrderDetail(74);
 
-      fireEvent.click(await screen.findByRole("button", { name: "Oznacz jako wydane" }));
+    // The page button opens the confirm dialog; confirming it runs the release.
+    fireEvent.click(await screen.findByRole("button", { name: "Oznacz jako wydane" }));
+    const dialog = await screen.findByRole("alertdialog");
+    expect(within(dialog).getByText("Czy oznaczyć to zlecenie jako wydane klientowi?")).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Oznacz jako wydane" }));
 
-      await waitFor(() => expect(updateWorkOrderReleaseStatusMock).toHaveBeenCalledWith(74, true));
-      expect(confirmSpy).toHaveBeenCalledWith("Czy oznaczyć to zlecenie jako wydane klientowi?");
-      expect(await screen.findByText("Wydane")).toBeTruthy();
-    } finally {
-      confirmSpy.mockRestore();
-    }
+    await waitFor(() => expect(updateWorkOrderReleaseStatusMock).toHaveBeenCalledWith(74, true));
+    expect(await screen.findByText("Wydane")).toBeTruthy();
   });
 
   it("does not show release status action in manager station context", async () => {

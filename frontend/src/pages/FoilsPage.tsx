@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { Check, ChevronDown, ChevronUp, Layers, Plus, Search, Trash2, Truck, X } from "lucide-react";
 
+import { useConfirm } from "../components/ConfirmDialog";
 import { createFoil, deleteFoil, fetchFoils, updateFoil } from "../api/foilsApi";
 import type { Foil } from "../types/foils";
 
@@ -8,6 +9,7 @@ const inputClass =
   "w-full rounded-2xl border border-[#ece7f4] bg-[#f4f0fb] px-4 py-3 text-sm text-[#2e1a47] outline-none transition placeholder:text-[#a89fba] focus-visible:border-[#f2761b] focus-visible:ring-2 focus-visible:ring-[#f2761b]/30";
 
 export function FoilsPage() {
+  const confirm = useConfirm();
   const [foils, setFoils] = useState<Foil[]>([]);
   const [search, setSearch] = useState("");
   const [selectedFoilId, setSelectedFoilId] = useState<number | null>(null);
@@ -150,7 +152,13 @@ export function FoilsPage() {
 
   async function handleDelete() {
     if (selectedFoil === null) return;
-    if (!window.confirm(`Usunąć folię "${selectedFoil.name}"? Powiązane zlecenia stracą wybór folii.`)) {
+    const confirmed = await confirm({
+      title: "Usunąć folię?",
+      message: `Usunąć folię "${selectedFoil.name}"? Powiązane zlecenia stracą wybór folii.`,
+      confirmLabel: "Usuń",
+      tone: "danger",
+    });
+    if (!confirmed) {
       return;
     }
     setDetailError(null);

@@ -201,10 +201,17 @@ same way `docs/CHANGES.md` was built. Severity is the engineer's estimate, not a
   (matching the existing `uploadErrorMessage`/`attachmentsErrorMessage` pattern; not reusing the page-level
   `errorMessage`, which replaces the whole detail view). `frontend/src/pages/WorkOrderDetailPage.tsx`.
 
-### D2 — Native `window.confirm` for destructive actions  *(severity: low)*
-- Delete/confirm flows use the browser `confirm` dialog (`ClientsPage.tsx:355`, `FoilsPage.tsx:153`,
-  `PackingWorkOrdersPage.tsx:382`, `WorkOrderDetailPage.tsx:446,472,551`) instead of the app's own modal
-  styling. Functional, but off-brand and unstyleable on kiosk browsers.
+### D2 — Native `window.confirm` for destructive actions — ✅ DONE 2026-06-27
+- **Was:** delete/confirm flows used the browser `confirm` dialog (6 call sites across `ClientsPage`,
+  `FoilsPage`, `PackingWorkOrdersPage`, `WorkOrderDetailPage`) — off-brand and unstyleable on kiosk browsers.
+- **Done:** new `components/ConfirmDialog.tsx` exposes a promise-based `useConfirm()` under a `ConfirmProvider`
+  (mounted in `main.tsx`), so call sites stay one-liners (`if (!(await confirm({...}))) return;`). The modal
+  matches the app's styling, supports a `danger` tone (rose confirm button for deletes), multi-line messages
+  (the packing-override occupant list), Escape-to-cancel, backdrop-cancel and confirm-button autofocus
+  (Enter = confirm, parity with native). All 6 sites migrated; no `window.confirm` remains. Pinned by
+  `components/ConfirmDialog.test.tsx`; the two tests that spied on `window.confirm` now drive the modal, and
+  a shared `render` wrapper injects `ConfirmProvider` in `tests/uiStateConsistency.test.tsx`. 132 tests green,
+  `vite build` clean.
 
 ### D3 — Work-order detail has no auto-refresh  *(severity: info)*
 - Station boards poll (`usePolling`), but `WorkOrderDetailPage` is a one-shot fetch. Acceptable for an
@@ -242,9 +249,6 @@ Remaining, recommended order:
   is **not** a true duplicate — several titles intentionally differ from the nav labels ("Dodaj zlecenie" vs
   "Nowe zlecenie", "Przygotowanie powierzchni"), so folding it into the nav list would change on-screen copy.
   Left as a documented smell.
-- **D2** (native `window.confirm` for destructive actions): a real fix needs a shared `ConfirmDialog`
-  component (none exists yet) wired across 6 call sites — that's a small *build*, not a polish, so it's out
-  of this cleanup batch. Worth doing as its own PR if kiosk styling matters.
 - **D3** (no auto-refresh on the detail page): explicitly a conscious choice for an office view; no action.
 - **C3c** (card-header dedup across the three stage pages): optional/low-value — the live divergence it
   guarded against is already fixed; folding the headers is pure churn.

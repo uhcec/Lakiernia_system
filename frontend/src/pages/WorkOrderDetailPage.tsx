@@ -16,6 +16,7 @@ import {
 } from "../api/workOrdersApi";
 import type { AuditEvent, AuditStationId } from "../types/audit";
 import type { UpdateWorkOrderRequest, WorkOrder, WorkOrderAttachment, WorkOrderAttachmentCategory } from "../types/workOrders";
+import { useConfirm } from "../components/ConfirmDialog";
 import { NumberInput } from "../components/NumberInput";
 import { WorkOrderPrimaryInfoLine } from "../components/WorkOrderPrimaryInfoLine";
 import {
@@ -210,6 +211,7 @@ function buildHistoricalCorrectionDeltaText(
 }
 
 export function WorkOrderDetailPage() {
+  const confirm = useConfirm();
   const { id } = useParams();
   const location = useLocation();
   const effectiveStationId = getStationIdForLocation(location.pathname, location.search);
@@ -428,7 +430,10 @@ export function WorkOrderDetailPage() {
       return;
     }
 
-    const shouldContinue = window.confirm("Czy oznaczyć to zlecenie jako kompletne i przenieść do planowania?");
+    const shouldContinue = await confirm({
+      message: "Czy oznaczyć to zlecenie jako kompletne i przenieść do planowania?",
+      confirmLabel: "Oznacz jako kompletne",
+    });
     if (!shouldContinue) {
       return;
     }
@@ -451,10 +456,12 @@ export function WorkOrderDetailPage() {
       return;
     }
 
-    const confirmationMessage = nextReleaseState
-      ? "Czy oznaczyć to zlecenie jako wydane klientowi?"
-      : "Czy cofnąć oznaczenie wydania klientowi?";
-    const shouldContinue = window.confirm(confirmationMessage);
+    const shouldContinue = await confirm({
+      message: nextReleaseState
+        ? "Czy oznaczyć to zlecenie jako wydane klientowi?"
+        : "Czy cofnąć oznaczenie wydania klientowi?",
+      confirmLabel: nextReleaseState ? "Oznacz jako wydane" : "Cofnij wydanie",
+    });
     if (!shouldContinue) {
       return;
     }
@@ -533,7 +540,12 @@ export function WorkOrderDetailPage() {
       return;
     }
 
-    const shouldContinue = window.confirm(`Czy usunąć załącznik ${attachment.original_filename}?`);
+    const shouldContinue = await confirm({
+      title: "Usunąć załącznik?",
+      message: `Czy usunąć załącznik ${attachment.original_filename}?`,
+      confirmLabel: "Usuń",
+      tone: "danger",
+    });
     if (!shouldContinue) {
       return;
     }

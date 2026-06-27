@@ -13,6 +13,7 @@ import {
   X,
 } from "lucide-react";
 
+import { useConfirm } from "../components/ConfirmDialog";
 import { createClient, deleteClient, fetchClientDetail, fetchClients, updateClient } from "../api/clientsApi";
 import { buildWorkOrderDetailHref } from "../api/stationContext";
 import type { Client, ClientDetail, ClientOrderHistoryItem } from "../types/clients";
@@ -197,6 +198,7 @@ function OrderHistoryCard({ order }: { order: ClientOrderHistoryItem }) {
 // ─── Main component ────────────────────────────────────────────────────────────
 
 export function ClientsPage() {
+  const confirm = useConfirm();
   const [clients, setClients] = useState<Client[]>([]);
   const [search, setSearch] = useState("");
   const [selectedClientId, setSelectedClientId] = useState<number | null>(null);
@@ -352,7 +354,13 @@ export function ClientsPage() {
 
   async function handleDelete() {
     if (selectedClientId === null || detail === null) return;
-    if (!window.confirm(`Usunąć klienta "${detail.company_name}"? Zlecenia pozostaną bez zmian.`)) {
+    const confirmed = await confirm({
+      title: "Usunąć klienta?",
+      message: `Usunąć klienta "${detail.company_name}"? Zlecenia pozostaną bez zmian.`,
+      confirmLabel: "Usuń",
+      tone: "danger",
+    });
+    if (!confirmed) {
       return;
     }
     setDetailError(null);

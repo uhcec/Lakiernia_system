@@ -4,6 +4,7 @@ import { BrowserRouter } from "react-router-dom";
 
 import App from "./App";
 import { isApiRequest } from "./api/workOrdersApi";
+import { ConfirmProvider } from "./components/ConfirmDialog";
 import { AuthProvider, TOKEN_KEY, USER_KEY } from "./context/AuthContext";
 import "./styles.css";
 
@@ -34,7 +35,9 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <BrowserRouter>
       <AuthProvider>
-        <App />
+        <ConfirmProvider>
+          <App />
+        </ConfirmProvider>
       </AuthProvider>
     </BrowserRouter>
   </React.StrictMode>,

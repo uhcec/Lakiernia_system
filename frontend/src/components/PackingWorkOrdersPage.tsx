@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 
+import { useConfirm } from "./ConfirmDialog";
 import { usePolling, STATION_POLL_INTERVAL_MS } from "../hooks/usePolling";
 import { getMutationErrorMessage } from "../utils/mutationError";
 import { buildWorkOrderDetailHref, getStationIdForLocation } from "../api/stationContext";
@@ -115,6 +116,7 @@ function formatCorrectionSplitBalance(correctionQuantity: number, profilesQuanti
 }
 
 export function PackingWorkOrdersPage() {
+  const confirm = useConfirm();
   const detailStationId = getStationIdForLocation(window.location.pathname, window.location.search);
   const [workOrders, setWorkOrders] = useState<StageWorkOrder[]>([]);
   const [queueFilter, setQueueFilter] = useState<QueueFilter>("ALL");
@@ -296,7 +298,7 @@ export function PackingWorkOrdersPage() {
     }
   }
 
-  function handleOverridePacking(workOrder: StageWorkOrder, occupants: StageWorkOrder[]) {
+  async function handleOverridePacking(workOrder: StageWorkOrder, occupants: StageWorkOrder[]) {
     // The warning is shown only at the moment of opening a second station (not persistently), because
     // an automatic order reserves packing at hanging start — parts may not have reached packing yet.
     const occupantLines = occupants
@@ -311,7 +313,7 @@ export function PackingWorkOrdersPage() {
       "Uwaga: automat rezerwuje pakowanie już przy rozpoczęciu zawieszania — części mogą jeszcze nie " +
       "dotrzeć z linii, więc stanowisko może wyglądać na wolne.\n\nZajęte przez:\n" +
       `${occupantLines}\n\nOtworzyć drugie stanowisko mimo to?`;
-    if (window.confirm(message)) {
+    if (await confirm({ title: "Otworzyć drugie stanowisko?", message, confirmLabel: "Otwórz mimo to" })) {
       void handleStartPacking(workOrder, true);
     }
   }
