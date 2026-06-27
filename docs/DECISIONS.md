@@ -23,6 +23,46 @@ Every entry carries these fields (a field may say "none" but is never silently d
 
 ---
 
+## 2026-06-27 — #2 / A5: make the second, separate Decoral pass visible
+
+**Decision:** on the Decoral station, a card that is the **returned-pieces second Decoral pass** gets a
+distinct badge **"DRUGI PRZEBIEG · poprawione sztuki"**. The signal (no backend change) is a *partial*
+Decoral batch (`batch_is_partial`) on the root order with **no open corrections left**
+(`!is_decoral_incomplete`, `!is_correction`) — encoded as the pure predicate `isReturnedDecoralPass`. The
+**first** pass (OK pieces painted while a correction is still out) is deliberately **not** badged.
+
+**Why** — owner-confirmed **2026-06-27** (completing `CHANGES.md #2`, triage **A5**). Factory why: when
+corrected pieces come back after the root's Decoral was already finished, they form a fresh Decoral batch
+(`app/process/service.py:2060-2091`) — a correct but easy-to-miss "second pass". A Decoral operator could
+mistake the returned pieces for the original run. The owner wanted exactly that returned-pieces card called
+out, and chose the **narrowest** form (one badge, second pass only) over also labelling the first pass.
+
+**Rejected:**
+- *Use the `N` / `is_decoral_incomplete` marker as the signal* — rejected: `N` means "root still has open
+  corrections" (the **first** pass while pieces are out), not the returned second pass; after the pieces
+  return the correction closes and `is_decoral_incomplete` goes false. Using it would badge the wrong card.
+- *Badge both passes differently* (e.g. "Sztuki OK · część w poprawce" + "Drugi przebieg") — considered and
+  rejected by the owner as more UI than #2 asks for.
+- *`batch_is_partial` alone* — insufficient: the first pass's OK batch is also partial
+  (`app/process/service.py:2031`), so partiality alone can't tell first from second pass; the
+  `!is_decoral_incomplete` clause is what distinguishes the returned pieces.
+
+**Implementation notes:**
+- `isReturnedDecoralPass(workOrder)` in `frontend/src/utils/workOrderDisplay.ts`, unit-tested
+  (`workOrderDisplay.test.ts`); badge rendered in `frontend/src/components/DecoralWorkOrdersPage.tsx`.
+- Signal verified against the backend's authoritative scenario-2 test
+  (`tests/test_process_service.py::test_decoral_correction_returns_to_root_decoral_scenario2_park`): the
+  returned batch is the root's active partial Decoral batch, created only after the correction closed.
+- Pure presentation; no backend or API change.
+
+**Expected:** the Decoral operator sees "DRUGI PRZEBIEG · poprawione sztuki" only on returned-pieces cards;
+a normal Decoral order and the first (corrections-pending) pass show no such badge.
+
+**Review-by:** the owner's next look at a real correction round at the Decoral station — confirm the badge
+appears on the right card and the wording reads clearly on the shop tablet.
+
+---
+
 ## 2026-06-27 — A1: per-day shift length drives the plan (frontend + planner)
 
 **Decision:** the manager sets each day's shift length (LONG/SHORT) from the capacity board; the value

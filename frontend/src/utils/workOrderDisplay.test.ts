@@ -6,6 +6,7 @@ import {
   buildMergedCorrectionDeltaText,
   formatDisplayOrderNumber,
   isPartiallyComplete,
+  isReturnedDecoralPass,
 } from "./workOrderDisplay";
 
 // Pins the shared display helpers de-duplicated from the stage-completion pages (FRONTEND_TRIAGE C3/C4),
@@ -94,5 +95,20 @@ describe("buildMergedCorrectionDeltaText", () => {
   });
   it("shows corrected count alone otherwise", () => {
     expect(buildMergedCorrectionDeltaText(child, undefined)).toBe("Poprawiono 3 szt.");
+  });
+});
+
+describe("isReturnedDecoralPass", () => {
+  it("is true for a returned-pieces partial batch with no open corrections (the second pass)", () => {
+    expect(isReturnedDecoralPass({ batch_is_partial: true, is_decoral_incomplete: false, is_correction: false })).toBe(true);
+  });
+  it("is false for the first pass (OK pieces while a correction is still open)", () => {
+    expect(isReturnedDecoralPass({ batch_is_partial: true, is_decoral_incomplete: true, is_correction: false })).toBe(false);
+  });
+  it("is false for a normal Decoral order (batch not partial)", () => {
+    expect(isReturnedDecoralPass({ batch_is_partial: false, is_decoral_incomplete: false, is_correction: false })).toBe(false);
+  });
+  it("is false for a correction child/round", () => {
+    expect(isReturnedDecoralPass({ batch_is_partial: true, is_decoral_incomplete: false, is_correction: true })).toBe(false);
   });
 });

@@ -223,6 +223,24 @@ interface CorrectionDisplayable {
   total_quantity: number;
 }
 
+interface DecoralPassFlags {
+  batch_is_partial: boolean;
+  is_decoral_incomplete?: boolean | null;
+  is_correction: boolean;
+}
+
+/**
+ * True when a Decoral card is the **second, separate Decoral pass** on corrected pieces that have
+ * returned to the root (CHANGES #2). The returned pieces form a *partial* Decoral batch
+ * (`batch_is_partial`) created only after the correction closed, so there are no open corrections left
+ * (`!is_decoral_incomplete`) and it is the root order, not a correction child (`!is_correction`). A normal
+ * Decoral order's batch is never partial, and the *first* pass (OK pieces while a correction is still
+ * open) is excluded by `is_decoral_incomplete`. Apply only on the Decoral station view.
+ */
+export function isReturnedDecoralPass(workOrder: DecoralPassFlags): boolean {
+  return workOrder.batch_is_partial && !workOrder.is_decoral_incomplete && !workOrder.is_correction;
+}
+
 export function buildCorrectionReference(workOrder: CorrectionDisplayable, context: CorrectionContext | undefined): string {
   if (workOrder.is_correction_round) {
     return `Poprawka — runda ${workOrder.order_number}`;

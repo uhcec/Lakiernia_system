@@ -20,6 +20,7 @@ import {
   getHistoricalStageWorkOrderResultText,
   getStageWorkOrderBadgeStack,
   getStageWorkOrderProgressText,
+  isReturnedDecoralPass,
   parseQuantity,
 } from "../utils/workOrderDisplay";
 
@@ -328,6 +329,13 @@ export function DecoralWorkOrdersPage() {
                         {badge.label}
                       </span>
                     ))}
+                    {/* CHANGES #2: the returned corrected pieces are a separate, second Decoral pass — make it
+                        explicit so the operator doesn't mistake them for the original run. */}
+                    {isReturnedDecoralPass(workOrder) ? (
+                      <span className="inline-flex rounded-full bg-violet-100 px-2 py-1 text-[11px] font-semibold text-violet-800">
+                        DRUGI PRZEBIEG · poprawione sztuki
+                      </span>
+                    ) : null}
                   </div>
 
                   <dl className="grid gap-x-6 gap-y-3 text-sm sm:grid-cols-2 xl:grid-cols-4">

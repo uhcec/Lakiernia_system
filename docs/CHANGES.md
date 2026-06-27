@@ -6,7 +6,7 @@ code does now (`file:line`), what the owner wants, and why. See `docs/SPEC.md` f
 | # | Type | Title |
 |---|------|-------|
 | 1 | bug | A correction must not lose its pin/urgent lock ✅ |
-| 2 | UX | Make the second, separate Decoral pass visible |
+| 2 | UX | Make the second, separate Decoral pass visible ✅ |
 | 3 | change | Completed orders leave the queue (release their position) ✅ |
 | 4 | change | Manager sets the shift length (drop auto-advising) ✅ |
 | 5 | change | Colour-change cost by size only (drop direction) ✅ |
@@ -24,9 +24,10 @@ code does now (`file:line`), what the owner wants, and why. See `docs/SPEC.md` f
 - **Note:** the DB allows a planning lock only on a planned order (`app/work_orders/models.py:71-74`), so a returned (unplanned) order can't literally hold one — the intended priority likely needs to be remembered and re-applied when the order is re-planned.
 - **Done:** added `work_orders.pending_planning_priority` (migration `20260626_0042`, unconstrained). The replan-in-place parks the live `planning_priority` there before clearing it; `assign_plan` re-applies it (and clears the parked value) when the order is re-planned. Regression test `test_correction_round_remembers_and_restores_pin_NA_CHANGES1`. `app/process/service.py`, `app/manager/service.py`, `app/work_orders/models.py`.
 
-### #2 — Make the second, separate Decoral pass visible  *(UX)*
+### #2 — Make the second, separate Decoral pass visible  *(UX)* — ✅ DONE 2026-06-27
 - **Now:** when corrected pieces return after the root's Decoral was already done, they start a fresh Decoral batch — a correct but easy-to-miss "second pass". `app/process/service.py:2060-2091`
 - **Want:** show the operator clearly that this is a separate, second Decoral pass on the returned pieces. Backend logic stays; this is presentation.
+- **Done:** the Decoral station now shows a distinct **"DRUGI PRZEBIEG · poprawione sztuki"** badge on exactly that card. Signal (no backend change): a partial Decoral batch (`batch_is_partial`) with no open corrections left (`!is_decoral_incomplete`) on the root order — the returned pieces. The *first* pass (OK pieces while a correction is still open) is deliberately left unmarked. Owner-decided 2026-06-27 (narrow badge, second pass only). New pure predicate `isReturnedDecoralPass` + tests. `frontend/src/utils/workOrderDisplay.ts`, `frontend/src/components/DecoralWorkOrdersPage.tsx`. See `docs/DECISIONS.md` (2026-06-27 — #2).
 
 ### #3 — Completed orders leave the queue  *(change)* — ✅ DONE 2026-06-26
 - **Now:** a completed (READY) order keeps its line + queue position and stays in the queue as a trailing block; elaborate "trailing/shuffle" logic manages it. `app/manager/service.py:1498-1519`, `2094-2176`

@@ -64,12 +64,14 @@ same way `docs/CHANGES.md` was built. Severity is the engineer's estimate, not a
   page + manager panel) plus an explanatory banner on `WorkOrderDetailPage` so the leak is investigated
   rather than invisible. `types/workOrders.ts`, `utils/workOrderDisplay.ts`, `pages/WorkOrderDetailPage.tsx`.
 
-### A5 — Second, separate Decoral pass only hinted by a cryptic `N` prefix (#2, already open)  *(severity: medium)*
-- #2 (still open on CHANGES) wants the returned-pieces "second Decoral pass" made obvious. On the front the
-  only signal is the order number silently rendered as `N{number}` when `is_decoral_incomplete`
-  (`DecoralWorkOrdersPage.tsx:358`), plus the generic `POPRAWKA`/`DECORAL` badges — no plain-language "this
-  is a separate, second Decoral round on the returned pieces" callout. Note the `N`/`P` prefix rule is
-  duplicated verbatim in 4 files (see C4), so #2's surfacing touches all of them.
+### A5 — Second, separate Decoral pass made visible (#2) — ✅ DONE 2026-06-27
+- **Was:** the only hint that returned corrected pieces were a separate "second Decoral pass" was the
+  cryptic `N` prefix (which actually marks "open corrections", not the second pass) — easy to miss.
+- **Done:** the Decoral station shows a distinct **"DRUGI PRZEBIEG · poprawione sztuki"** badge on the
+  returned-pieces card. The precise signal (verified against the backend's scenario-2 test): a partial
+  Decoral batch with no open corrections left on the root — `isReturnedDecoralPass` in
+  `utils/workOrderDisplay.ts`, pinned by tests; rendered in `DecoralWorkOrdersPage.tsx`. Owner chose the
+  narrow form (badge on the second pass only). See `docs/DECISIONS.md` (2026-06-27 — #2) and `CHANGES.md #2`.
 
 ### A6 — Stale type: `ScheduleRuleKey` still lists `"changeover"` (#6)  *(severity: low)*
 - `types/manager.ts:121` keeps the removed rule key. Harmless at runtime (list is server-driven) — pure
