@@ -3,6 +3,24 @@
 *Why* a domain decision was made. New entries at the bottom. Each entry cites the change it
 implements (`CHANGES.md #n`) and the owner confirmation behind it. Method per `CLAUDE.md`.
 
+## Entry template
+
+Every entry carries these fields (a field may say "none" but is never silently dropped):
+
+- **Decision** — what we settled on, concretely.
+- **Why** — the owner-confirmed rationale (the factory *why* you cannot read from code). Cite the
+  confirmation date + `CHANGES.md #n`.
+- **Rejected** — the alternative(s) we considered and did **not** take, and why. This is what stops a
+  future reader (human or a fresh session) from silently undoing a deliberate trade-off.
+- **Implementation notes** — how it lands in code (`file:line`, migrations, compatibility).
+- **Expected** — the observable consequence we expect, stated so it can later be checked. Turns the
+  ADR from a record of the past into a feedback loop (per the architectural-memory method).
+- **Review-by** — the date or trigger at which we look back to confirm the decision actually worked.
+
+> Fields **Rejected / Expected / Review-by** were added to the template on **2026-06-27**. Entries
+> below from 2026-06-26 were backfilled the same day — *only* from rationale already grounded in their
+> own Why/notes or in code; nothing new about the factory was invented in the backfill.
+
 ---
 
 ## 2026-06-26 — CHANGE #6: two scheduling rules (deadline → colour)
@@ -15,6 +33,10 @@ with the default priority **deadline → colour**. The third rule, "maksymalny p
 owner plans by promise dates first and colour-grouping second; the third rule added a lever nobody
 tuned and competed with the deadline intent.
 
+**Rejected:** keeping CHANGEOVER as an optional third rule the manager could switch on — rejected
+because it was an untuned lever that actively competed with the deadline intent (the owner plans by
+promise dates first), so it could only ever pull the schedule away from what the owner wanted.
+
 **Implementation notes:**
 - `ScheduleRuleKey.CHANGEOVER` and its catalog row removed; `DEFAULT_RULE_ORDER` is now
   `(DEADLINE, COLOUR)` (catalog tuple order = default order).
@@ -25,6 +47,12 @@ tuned and competed with the deadline intent.
 - **Frontend (unreviewed):** `frontend/src/types/manager.ts` may still type a `'changeover'` rule key;
   it sends back whatever GET returns (now only deadline/colour), so it works at runtime. Clean up the
   type when the frontend is reviewed.
+
+**Expected:** scheduler proposals order by deadline then colour and never by single-colour run length;
+a stored config naming `"changeover"` loads without error (the key is silently dropped).
+
+**Review-by:** the first real auto-schedule the manager runs after this — confirm the proposed order
+matches the deadline→colour intent and nobody misses the throughput lever.
 
 ## 2026-06-26 — CHANGE #5 + #7: colour planning = grouping identical colours
 
@@ -38,6 +66,11 @@ a light→dark move (the direction factor was an unvalidated model assumption), 
 "lightness" was *guessed* from the RAL code — a guess dressed as data, exactly the kind of invented
 domain fact `CLAUDE.md` forbids. Without lightness there is nothing to sweep, so colour planning
 collapses to grouping identical colours, which is all the owner wanted.
+
+**Rejected:** keeping the light→dark direction discount and the RAL-code lightness sweep (even
+"corrected" with better lightness data) — rejected because the factory pays no such direction
+discount (unvalidated assumption) and the lightness was guessed from the RAL code, not measured.
+Keeping either would dress invented data as fact.
 
 **Implementation notes:**
 - Shipped together because they are coupled: `sequence_changeover_minutes` fed the direction factor
@@ -55,6 +88,12 @@ collapses to grouping identical colours, which is all the owner wanted.
   manager's rule-based proposal vs. the capacity-costing sweep). Not unified now to keep the change
   targeted; worth revisiting if a third caller appears.
 
+**Expected:** a colour change costs 15/30 min purely by size band, identical in both directions; no
+code path reads a per-colour lightness; colour planning output is just identical colours grouped.
+
+**Review-by:** when a **third** caller of "group identical colours" appears — revisit unifying
+`scheduler.py`'s COLOUR rule with `colour.group_identical_colours` (the noted duplication).
+
 ## 2026-06-26 — CHANGE #4: manager sets the shift length (no advising)
 
 **Decision:** the day-capacity / multi-day planner no longer advises LONG vs SHORT from the available
@@ -66,11 +105,22 @@ manager makes from real-world context (staffing, urgency) the system can't see; 
 manager just overrode. LONG is the safe default because it shows the most capacity/headroom — the
 manager narrows to SHORT when they decide to run a short day.
 
+**Rejected:** keeping the m²-based LONG/SHORT advice (even as a non-binding hint) — rejected because
+it second-guessed a call the manager makes from staffing/urgency context the system can't see, so it
+was a guess the manager just overrode. A default of SHORT was also rejected: LONG shows the most
+headroom, so the manager narrows down rather than discovering hidden capacity.
+
 **Implementation notes:**
 - `advise_shift_length` deleted from `capacity.py`.
 - `shift_advised` removed from `DayCapacityRead` / `MultiDayPlanRead` and the (unused) `manager.ts`
   type — the flag only existed to mark an advised shift, which no longer happens.
 - Connects to CHANGE #9 (persist the *actual* shift length run, for the "good day" measure).
+
+**Expected:** an omitted `shift_length` yields a LONG-day plan; the manager's explicit LONG/SHORT is
+always honoured unchanged; no payload carries a `shift_advised` flag.
+
+**Review-by:** once CHANGE #9 (persisted actual shift) is in real use — confirm the planning shift and
+the recorded run shift stay consistent and the manager isn't entering the same fact twice.
 
 ## 2026-06-26 — CHANGE #10: quantity-leak tripwire made human-visible
 
@@ -83,6 +133,10 @@ models) plus a SYSTEM audit event `work_order.quantity_leak_detected`. The techn
 wrote it only to the server log, so a 7/10 → 10/10 silent auto-complete (verified live 2026-06-26) was
 invisible to the shop. Force-closing is kept (don't trap the order) but it must be investigable.
 
+**Rejected:** (a) leaving the leak in the server log only — rejected, it kept a real bug invisible to
+the shop; (b) hard-blocking / refusing to close a leaking order — rejected, it would trap legitimate
+work over a symptom. So: force-close **and** flag.
+
 **Implementation notes:**
 - Migration `20260626_0041` adds the column with `server_default 0`; the model also carries
   `server_default=text("0")` so raw-SQL inserts (the DB-constraint tests) and metadata-built schemas
@@ -91,6 +145,12 @@ invisible to the shop. Force-closing is kept (don't trap the order) but it must 
   `station_context=None` → recorded under `StationId.SYSTEM` (no operator triggered it).
 - This is a safety net, not the fix: the quantity model should prevent leaks in the first place. The
   flag is the tripwire that makes a model bug visible.
+
+**Expected:** a leak both sets `quantity_leak_flagged` and emits the SYSTEM audit event while still
+force-closing to total; the verified 7/10 → 10/10 case now shows the flag instead of closing silently.
+
+**Review-by:** the first leak flagged in real production — treat it as a tripwire and investigate the
+upstream quantity model (this decision is the alarm, not the fix).
 
 ## 2026-06-26 — CHANGE #1: a correction round must not lose pin/urgent
 
@@ -103,6 +163,11 @@ invisible to the shop. Force-closing is kept (don't trap the order) but it must 
 priority every time it bounced through a correction round, so the manager's intent evaporated exactly
 when the order most needed to keep its place.
 
+**Rejected:** relaxing the `planning_priority_requires_planned` constraint so an unplanned order could
+hold its lock directly — rejected because the constraint encodes a real invariant (a priority is a
+position in a queue the order isn't currently in). Parking the intent in a separate, unconstrained
+column keeps the invariant intact.
+
 **Implementation notes:**
 - `pending_planning_priority` (migration `20260626_0042`) is deliberately NOT bound by
   `planning_priority_requires_planned`, so it can hold the intent through the unplanned window.
@@ -111,6 +176,13 @@ when the order most needed to keep its place.
 - A deliberate **line switch** still clears the lock and does not restore (that path doesn't touch
   `pending_planning_priority`, which is only set by the correction round) — switching lines is an
   explicit "give up the slot" action, distinct from a correction bounce.
+
+**Expected:** a pinned/urgent order that bounces through a correction round comes back re-pinned on
+replan; a deliberate line switch does **not** restore the old lock.
+
+**Review-by:** covered by regression test `test_correction_round_remembers_and_restores_pin`
+(`tests/test_process_service.py`) — revisit if a second path ever parks into
+`pending_planning_priority` (today only the correction round does).
 
 ## 2026-06-26 — CHANGE #8: flag untracked colours (STOCK_NOT_ENTERED)
 
@@ -123,6 +195,11 @@ truly colourless order still reports OK (it makes no paint claim).
 hid exactly the gap the manager needs to act on ("enter the stock"); but we can't hard-block on the
 unknown (the paint may well be there), so it's a visible-but-non-blocking state.
 
+**Rejected:** (a) the status quo of reporting untracked colour as a silent OK — rejected, it hid the
+exact gap the manager must act on; (b) hard-blocking the order on untracked colour — rejected, the
+paint may physically be there, so blocking on the unknown would stop good work. Hence visible but
+non-blocking.
+
 **Implementation notes:**
 - New enum value (string `"STOCK_NOT_ENTERED"`); the schema reuses the same enum, so it serialises
   automatically. **Frontend (unreviewed)** likely enumerates only OK/WARNING/BLOCKED — it will receive
@@ -130,6 +207,13 @@ unknown (the paint may well be there), so it's a visible-but-non-blocking state.
 - Two untracked situations both map to it: no stock row (`stock is None` with a non-null colour) and a
   present-but-untracked placeholder (`is_tracked False`). The hard-block predicate already excludes
   untracked colours, so nothing that was OK and safe becomes blocked.
+
+**Expected:** an untracked coloured order reports `STOCK_NOT_ENTERED` and appears in
+`stock_not_entered_order_ids` but is never blocked; a colourless order still reports OK; nothing
+previously OK-and-safe becomes blocked.
+
+**Review-by:** frontend review — add a distinct badge for `STOCK_NOT_ENTERED` (today the new string
+arrives at a UI that knows only OK/WARNING/BLOCKED).
 
 ## 2026-06-26 — CHANGE #3: completed orders leave the queue
 
@@ -142,6 +226,11 @@ operator station views (manager + station both work the active queue only).
 **Why:** owner-confirmed 2026-06-26 (CHANGES #3). Completed orders piled up as a trailing block, forcing
 elaborate shuffle logic just to keep their positions valid while new orders were inserted (a recent NA60
 500 came straight from that). Releasing the position removes the whole problem.
+
+**Rejected:** (a) keeping completed orders parked in the queue and merely hiding them in the UI —
+rejected, it kept two sources of truth about a queue position and preserved the trailing/shuffle
+machinery; (b) nulling the line on completion — rejected, statistics split throughput by
+`production_type`, so the line must survive. Hence: release the position, keep the line.
 
 **Two dependencies the owner flagged, resolved:**
 - **Statistics** split throughput by `WorkOrder.production_type`, so we could NOT null the line.
@@ -159,6 +248,13 @@ elaborate shuffle logic just to keep their positions valid while new orders were
   of the manager board and the scheduler set automatically once their position is released.
 - **MUST sim-verify** the live completion+queue path before this is considered shippable (CLAUDE.md).
 
+**Expected:** on completion the order releases `queue_position` + planning lock but keeps
+`production_type`; the trailing/shuffle code is gone; completed orders are absent from the manager
+board, the scheduler set, and the station views, while throughput-by-line stats stay intact.
+
+**Review-by:** sim-verify the live completion+queue path (already required above) before shipping, then
+confirm on the first real completion in production that no completed order lingers on any board.
+
 ## 2026-06-26 — CHANGE #9: persist the actual shift length per day for "good day"
 
 **Decision:** the shift length the manager actually ran on a day is **persisted explicitly** (a new
@@ -171,6 +267,10 @@ unfairly marked legitimately-short days as "bad". The owner chose to record the 
 (a deliberate operational fact) rather than infer it from worked hours, which can be noisy. Connects to
 CHANGE #4 (the manager already sets the planning shift length).
 
+**Rejected:** deriving the day's run shift from booth/worked hours — rejected as noisy (hours fluctuate
+for reasons unrelated to whether it was a planned short day). The owner chose to record the shift as an
+explicit operational fact instead.
+
 **Implementation notes:**
 - `day_shift_lengths` (migration `20260626_0044`): one row per day, `shift_length` as the enum value.
 - `GET/PUT /manager/day-shift-length?day=…` read/record it (PUT is manager-gated + audited
@@ -179,3 +279,9 @@ CHANGE #4 (the manager already sets the planning shift length).
   the pure `summarize_day`.
 - **Frontend (unreviewed):** needs a control for the manager to record the day's shift length; the
   backend endpoint is ready. Until then, all days default to LONG (current behaviour preserved).
+
+**Expected:** a day with a recorded shift is judged against that shift's floor/hours (800/14 LONG,
+500/8 SHORT); an unrecorded day falls back to the LONG bar; recording is manager-gated and audited.
+
+**Review-by:** frontend review — give the manager a control to record the day's shift; until then the
+LONG fallback means short days can still read as "bad", so confirm the measure once recording is live.
