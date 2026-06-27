@@ -59,4 +59,32 @@ describe("queueReorder", () => {
       ] as never[]),
     ).toBe("2026-05-27T08:35:00Z");
   });
+
+  it("picks chronologically, not lexicographically, when the backend omits zero microseconds (B3)", () => {
+    // The real backend (Pydantic v2 + datetime.now(UTC)) drops the fractional part when microseconds
+    // are exactly zero. The whole-second stamp is EARLIER but sorts LATER as a raw string ('Z' > '.'),
+    // so a string compare would wrongly return it. The latest here is the .500000 one.
+    expect(
+      getQueueRevisionFromPlannedOrders([
+        { updated_at: "2026-05-27T08:35:00Z" },
+        { updated_at: "2026-05-27T08:35:00.500000Z" },
+      ] as never[]),
+    ).toBe("2026-05-27T08:35:00.500000Z");
+
+    // ...and the order in the array must not matter.
+    expect(
+      getQueueRevisionFromPlannedOrders([
+        { updated_at: "2026-05-27T08:35:00.500000Z" },
+        { updated_at: "2026-05-27T08:35:00Z" },
+      ] as never[]),
+    ).toBe("2026-05-27T08:35:00.500000Z");
+
+    // A fractional stamp in a strictly later second still wins (microseconds don't outrank seconds).
+    expect(
+      getQueueRevisionFromPlannedOrders([
+        { updated_at: "2026-05-27T08:35:00.900000Z" },
+        { updated_at: "2026-05-27T08:36:00Z" },
+      ] as never[]),
+    ).toBe("2026-05-27T08:36:00Z");
+  });
 });

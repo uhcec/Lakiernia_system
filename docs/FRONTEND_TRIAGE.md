@@ -99,10 +99,19 @@ same way `docs/CHANGES.md` was built. Severity is the engineer's estimate, not a
 - `"auth_token"`/`"auth_user"` are defined as constants in `AuthContext.tsx:3-4` but re-hardcoded as string
   literals in `main.tsx:12,22-23` and `ProtectedRoute.tsx:16`. Drift risk if the key ever changes.
 
-### B3 — Queue revision via lexicographic `updated_at` compare  *(severity: low-med)*
-- `utils/queueReorder.ts:77-86` derives the optimistic-concurrency revision by string-`>`-comparing
-  `updated_at` ISO strings. Correct only while the backend always emits the same format/zone; worth pinning
-  with a test against a real payload.
+### B3 — Queue revision via lexicographic `updated_at` compare — ✅ DONE (fixed) 2026-06-27
+- **Was:** `utils/queueReorder.ts` derived the optimistic-concurrency revision by string-`>`-comparing
+  `updated_at` ISO strings. Verified against the real serialiser (Pydantic v2 + `datetime.now(UTC)`): it
+  emits UTC `Z` and **omits the fractional part when microseconds are exactly zero** — so a whole-second
+  stamp (`...08:35:00Z`) is chronologically *earlier* than `...08:35:00.5Z` but sorts *later* as a string
+  (`'Z'` 0x5A > `'.'` 0x2E). The frontend would then send a stale revision → backend rejects the reorder
+  (the backend compares it as a parsed datetime against `func.max(updated_at)`, `manager/service.py:1762`,
+  `repository.py:148-156`). Near-impossible with real wall-clock micros, but the dev/virtual clock sets
+  whole-second times, so it bites in sim/tests.
+- **Done:** compare chronologically via `Date.parse` and return the exact original string of the latest
+  order. Pinned by `tests/queueReorder.test.ts` (zero-microsecond edge + array-order independence).
+  `frontend/src/utils/queueReorder.ts`. (Residual: `Date` is millisecond-precision; two planned orders
+  updated within the same millisecond isn't reachable at the shop's human queue pace — noted in-code.)
 
 ### B4 — Rule config loaded for AUTOMATIC, saved to `editLine` — ✅ DONE 2026-06-27
 - **Was:** `ManagerPanelPage.tsx` fetched the rule config hardcoded as `"AUTOMATIC"`, but `handleSaveRules`
@@ -215,8 +224,8 @@ Remaining, recommended order:
 2. **A5** (#2) — make the second Decoral pass legible; cleanest to do on top of C3/C4's shared helper.
 3. ✅ **B4 / B5** — latent correctness fixes (rule-config line symmetry; namespaced draft key) — done 2026-06-27.
 4. ✅ **B1** — auth token/401 scoped to our API origin (security leak closed) — done 2026-06-27.
-5. **B3** (queue-revision compare) pin; **C5 / B2 / C6 / D1–D4** — trivial cleanups + UX polish, batchable.
-   **C3c** (card-header dedup) optional/low-value.
+5. ✅ **B3** — queue-revision compare now chronological (zero-microsecond edge fixed) — done 2026-06-27.
+6. **C5 / B2 / C6 / D1–D4** — trivial cleanups + UX polish, batchable. **C3c** (card-header dedup) optional/low-value.
 
 Deep read is essentially complete (see coverage map); only standard CRUD pages remain light-read. Items the
 owner confirms become entries in `docs/CHANGES.md` (frontend section) and carry a `file:line` + confirmation

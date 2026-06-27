@@ -74,13 +74,21 @@ export function buildQueueReorderRequest(
   };
 }
 
+// The queue revision is the latest planned-order updated_at, echoed verbatim so the backend can
+// compare it (as a parsed datetime) against its own func.max(updated_at) for optimistic concurrency
+// (manager/service.py + repository.get_planned_queue_revision). The backend serialises UTC timestamps
+// and OMITS the fractional part when microseconds are zero ("...10:00:00Z" vs "...10:00:00.5Z"), so a
+// plain string compare is wrong: 'Z' (0x5A) > '.' (0x2E) would rank the earlier, whole-second stamp as
+// later and we'd send a stale revision (spurious 409). Compare chronologically and return the exact
+// original string of the latest order. (Date precision is milliseconds; two planned orders updated
+// inside the same millisecond is not reachable at this shop's human queue pace.)
 export function getQueueRevisionFromPlannedOrders(workOrders: WorkOrder[]): string | null {
   if (workOrders.length === 0) {
     return null;
   }
 
   return workOrders.reduce(
-    (latestRevision, workOrder) => (workOrder.updated_at > latestRevision ? workOrder.updated_at : latestRevision),
-    workOrders[0].updated_at,
-  );
+    (latest, workOrder) => (Date.parse(workOrder.updated_at) > Date.parse(latest.updated_at) ? workOrder : latest),
+    workOrders[0],
+  ).updated_at;
 }
