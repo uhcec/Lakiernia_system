@@ -54,6 +54,12 @@ you. He has no preferences on *how* the repo is run; he wants it run properly pe
   few sentences *what changed*, *what assumption you made*, and *what you deliberately did not do and
   why* — so the owner has a window to say "stop, wrong" before anything grows. This replaces
   step-by-step management, it does not reintroduce it.
+- **Push authority (standing, granted 2026-06-27):** you may commit **and push** to `main` on your own
+  once the change is finished and verified — no need to ask first. Close tasks end-to-end. The
+  transparency window above is how the owner stays in the loop after the fact; it is not a gate before
+  the push. (CI `quality-gate` runs on every push as the hard check.) Still pause and ask only for the
+  genuinely irreversible or outward-facing beyond a push to this repo — e.g. force-pushing/rewriting
+  shared history, deleting branches, or anything that leaves the repo.
 
 ## Ground truth
 
