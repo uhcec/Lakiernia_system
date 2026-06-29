@@ -116,7 +116,7 @@ def check_doc(doc: Path) -> list[str]:
                 # Lines are 1-based in citations; slice the inclusive [start, end] range.
                 cited_text = "\n".join(lines[start - 1 : end])
                 if anchor not in cited_text:
-                    shown = cited_text.strip().replace("\n", " ⏎ ")
+                    shown = cited_text.strip().replace("\n", " / ")
                     if len(shown) > 120:
                         shown = shown[:117] + "..."
                     problems.append(
@@ -129,6 +129,13 @@ def check_doc(doc: Path) -> list[str]:
 
 
 def main() -> int:
+    # The guard's own output must never crash on a non-UTF-8 console (Windows cp1252),
+    # or a real drift failure turns into an unrelated UnicodeEncodeError. Force UTF-8.
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            reconfigure(encoding="utf-8", errors="replace")
+
     all_problems: list[str] = []
     for name in LIVING_SPECS:
         doc = DOCS_DIR / name
