@@ -215,7 +215,7 @@ def test_surface_preparation_start_does_not_require_counted_quantity_but_finish_
     with pytest.raises(InvalidProcessStageTransitionError) as exc_info:
         process_service.finish_stage(created.id, ProcessStage.SURFACE_PREPARATION)
 
-    assert str(exc_info.value) == "Counted quantity is required to finish surface preparation."
+    assert str(exc_info.value) == "Policzona ilość jest wymagana, aby zakończyć przygotowanie powierzchni."
 
 
 def test_surface_preparation_finish_persists_counted_quantity(db_session: Session) -> None:
@@ -1211,7 +1211,7 @@ def test_correction_round_cannot_enter_surface_preparation(db_session: Session) 
         process_service.start_stage(created.id, ProcessStage.SURFACE_PREPARATION, counted_quantity=10)
 
     planned_correction = process_repository.get_work_order_with_stage_states(created.id)
-    assert str(exc_info.value) == "Correction rounds do not go through surface preparation."
+    assert str(exc_info.value) == "Rundy poprawkowe nie przechodzą przez przygotowanie powierzchni."
     assert planned_correction is not None
     stage_states = {stage_state.stage: stage_state.status for stage_state in planned_correction.stage_states}
     assert stage_states[ProcessStage.SURFACE_PREPARATION] == StageStatus.DONE
@@ -1752,7 +1752,7 @@ def test_fully_packed_order_cannot_reopen_any_stage(db_session: Session) -> None
     with pytest.raises(InvalidProcessStageTransitionError) as exc_info:
         process_service.reopen_stage(created.id, ProcessStage.PACKING)
 
-    assert str(exc_info.value) == "Cannot reopen process stages because the work order has no active quantity remaining."
+    assert str(exc_info.value) == "Nie można ponownie otworzyć etapów, ponieważ w zleceniu nie pozostała żadna aktywna ilość."
 
 
 def test_order_in_correction_round_cannot_reopen_stages_before_replanning(db_session: Session) -> None:
@@ -2019,7 +2019,7 @@ def test_finished_decoral_tracked_batch_cannot_be_reopened_and_quantities_remain
     after_parent = process_repository.get_work_order_with_stage_states(created.id)
     after_correction = process_repository.get_work_order_with_stage_states(correction_order.id)
 
-    assert str(exc_info.value) == "Finished tracked batches cannot be reopened."
+    assert str(exc_info.value) == "Zakończonych śledzonych partii nie można ponownie otworzyć."
     assert after_parent is not None
     assert after_correction is not None
     assert after_parent.completed_quantity == before_parent.completed_quantity == 7
@@ -2068,7 +2068,7 @@ def test_finished_returned_correction_decoral_batch_cannot_be_reopened_after_rea
 
     after_parent = process_repository.get_work_order_with_stage_states(created.id)
 
-    assert str(exc_info.value) == "Finished tracked batches cannot be reopened."
+    assert str(exc_info.value) == "Zakończonych śledzonych partii nie można ponownie otworzyć."
     assert after_parent is not None
     assert after_parent.completed_quantity == before_parent.completed_quantity == 10
     assert after_parent.current_active_quantity == before_parent.current_active_quantity == 0

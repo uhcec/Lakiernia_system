@@ -241,7 +241,7 @@ def test_automatic_production_station_authorization_precedes_manual_action_confl
     )
     assert automatic_station_response.status_code == 409
     assert automatic_station_response.json()["detail"] == (
-        "Automatic production does not use manual start/finish. Finish HANGING to enter automatic production and complete from PACKING."
+        "Produkcja automatyczna nie korzysta z ręcznego rozpoczęcia/zakończenia. Zakończ ZAWIESZANIE, aby wejść na produkcję automatyczną, a zlecenie zakończ z poziomu PAKOWANIA."
     )
 
 
