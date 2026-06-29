@@ -71,7 +71,7 @@ Na zleceniu DECORAL są dwa punkty kontroli, bo dwie rzeczy mogą się zepsuć:
 Szczegóły:
 - ✅ Trzy rodzaje poprawki w jednym punkcie decyzyjnym: poprawione od razu (tylko statystyka), to samo zlecenie wraca, dziecko „P". `app/process/enums.py:113-123`, `app/process/service.py:1864-1879`
 - ✅ „Poprawione od razu" zapisuje tylko statystykę — bez dziecka i partii; sztuki liczą się jako dobre, zlecenie kończy się jak jest. `app/process/service.py:1881-1909`
-- ✅ **(ZMIANA #1 zrobiona 2026-06-26)** „to samo zlecenie wraca" nadal kasuje *żywy* zamek (nie może być na niezaplanowanym zleceniu), ale teraz **pamięta** intencję pin/pilne w `pending_planning_priority` i **przywraca** ją przy ponownym zaplanowaniu. `app/process/service.py:2237-2245`, `app/manager/service.py:1497-1503`
+- ✅ **(ZMIANA #1 zrobiona 2026-06-26)** „to samo zlecenie wraca" nadal kasuje *żywy* zamek (nie może być na niezaplanowanym zleceniu), ale teraz **pamięta** intencję pin/pilne w `pending_planning_priority` i **przywraca** ją przy ponownym zaplanowaniu. `app/process/service.py:2237-2245`, `app/manager/service.py:1399-1404@pending_planning_priority`
 - ✅ Numery poprawek od **korzenia**: `P{korzeń}`, potem `P{korzeń}-2`, `-3`… niezależnie od zagnieżdżenia. `app/process/service.py:2101-2123`
 - ✅ Dziecko poprawkowe dziedziczy farbę/kolor/klienta/daty/powierzchnię i jest zawsze rodzaju STANDARD. (Rodzaj nie wpływa na pominięcie przygotowania — to wynika z bycia poprawką.) `app/process/service.py:2125-2169`, `1461-1465`
 - ✅ Jest dokładnie **jeden przebieg Decoral, na korzeniu**; sztuki w pełni poprawionego dziecka wracają na Decoral korzenia, a dziecko zamyka się bez własnego Decoralu. `app/process/service.py:2001-2021`, `2093-2099`
@@ -107,27 +107,27 @@ Szczegóły:
 
 ## 8. Kolejka planowania
 
-- ✅ Tylko kierownik planuje / przegląda statystyki. `app/manager/service.py:2039-2053`
-- ✅ Planowanie wymaga zlecenia niezaplanowanego i nie niekompletnego. `app/manager/service.py:1479-1482`
-- ✅ Kierownik **wybiera linię przy planowaniu**; zaplanowanie **jako automat** jest twardo blokowane, gdy mierzony kolor jest poza magazynem / nie starcza (ręcznej się nie sprawdza). `app/manager/service.py:1487-1488`, `1426-1468`
-- ✅ Planowanie bez podanej pozycji dopisuje na **koniec aktywnej kolejki** linii. `app/manager/service.py:1489-1495`
+- ✅ Tylko kierownik planuje / przegląda statystyki. `app/manager/service.py:1899-1912@allowed_station_ids={StationId.MANAGER}`
+- ✅ Planowanie wymaga zlecenia niezaplanowanego i nie niekompletnego. `app/manager/service.py:1377-1380@Cannot plan incomplete order`
+- ✅ Kierownik **wybiera linię przy planowaniu**; zaplanowanie **jako automat** jest twardo blokowane, gdy mierzony kolor jest poza magazynem / nie starcza (ręcznej się nie sprawdza). `app/manager/service.py:1382-1397@_assert_paint_available_for_automatic`, `1324-1366@def _assert_paint_available_for_automatic`
+- ✅ Planowanie bez podanej pozycji dopisuje na **koniec aktywnej kolejki** linii. `app/manager/service.py:1387-1393@_next_active_queue_position_for_line`
 - ✅ **(ZMIANA #3 zrobiona 2026-06-26)** przy zakończeniu zlecenie **wychodzi z aktywnej kolejki linii i zwalnia pozycję** (zachowując linię); maszynerię odsuwania/trailing usunięto. Zakończone korekty-dzieci też zwalniają pozycje, gdy root się finalizuje. `app/process/service.py:2375-2410`
-- ✅ Pozycja „zajęta" tylko przez zlecenie nie-gotowe. `app/manager/service.py:2079-2092`
-- ✅ Zmiana linii zablokowana po starcie zawieszania/produkcji; przełączenie dopisuje na koniec i kasuje pin. `app/manager/service.py:1671`, `2182-2190`, `1695-1697`
-- ✅ Przeciąganie kolejki ma ochronę przed nieświeżymi danymi i musi obejmować wszystkie aktywne zlecenia tej linii, tylko tej linii, bez duplikatów. `app/manager/service.py:1748-1750`, `1755-1784`
+- ✅ Pozycja „zajęta" tylko przez zlecenie nie-gotowe. `app/manager/service.py:1950-1951@ProcessDisplayStatus.READY`
+- ✅ Zmiana linii zablokowana po starcie zawieszania/produkcji; przełączenie dopisuje na koniec i kasuje pin. `app/manager/service.py:1542-1562@work_order.planning_priority = None`
+- ✅ Przeciąganie kolejki ma ochronę przed nieświeżymi danymi i musi obejmować wszystkie aktywne zlecenia tej linii, tylko tej linii, bez duplikatów. `app/manager/service.py:1608-1645@must include all active planned work orders`
 - ✅ PIN = przypnij do slotu; PILNE = na przód; brak = swobodnie przestawialne. `app/shared/enums.py:78-92`
-- ✅ „Ułóż automatycznie" tylko **proponuje**; kierownik zatwierdza. `app/manager/service.py:1983-1994`
+- ✅ „Ułóż automatycznie" tylko **proponuje**; kierownik zatwierdza. `app/manager/service.py:1843-1855@without committing anything`
 
 ## 9. Liczby planera
 
 - ✅ Próg opłacalności: 800 m² (długi dzień) / 500 m² (krótki). `app/manager/capacity.py:33-36`
 - ✅ Zmiany: długa = 07:00–21:00 (14 h), krótka = 07:00–15:00 (8 h). `app/manager/capacity.py:32-38`
 - ✅ Pasmo prędkości kabiny 60–100 m²/h, używany środek **80**. `app/manager/capacity.py:41-43`
-- ✅ **(ZMIANA #4 zrobiona 2026-06-26; front podłączony 2026-06-27)** długość zmiany **ustawia kierownik per dzień** (LONG/SHORT) z tablicy kabiny; jest zapisywana w `day_shift_lengths` i czytana per dzień, napędzając plan — zarówno próg/godziny dnia, **jak i** wypełnienie (krótki dzień ma mniejszy limit netto, mieści mniej i spycha nadmiar dalej). Dzień bez ustawienia domyślnie LONG; doradzanie wg m² (w tym dawne per-dniowe `display_shift_for` wyliczane z obłożenia) usunięto. `app/manager/service.py:1123-1124` (dzień-kabina), `1248-1252` (plan per dzień), `app/manager/placement.py:134-198`
+- ✅ **(ZMIANA #4 zrobiona 2026-06-26; front podłączony 2026-06-27)** długość zmiany **ustawia kierownik per dzień** (LONG/SHORT) z tablicy kabiny; jest zapisywana w `day_shift_lengths` i czytana per dzień, napędzając plan — zarówno próg/godziny dnia, **jak i** wypełnienie (krótki dzień ma mniejszy limit netto, mieści mniej i spycha nadmiar dalej). Dzień bez ustawienia domyślnie LONG; doradzanie wg m² (w tym dawne per-dniowe `display_shift_for` wyliczane z obłożenia) usunięto. `app/manager/service.py:1102-1106@shift_by_day` (plan per dzień), `855-861@shift_by_day` (dobry dzień per dzień), `app/manager/placement.py:134-198`
 - ✅ Koszt zmiany koloru **tylko wg wielkości**: następne ≤100 m² → 15 min; >100 m² → 30 min. `app/manager/capacity.py:48-52`, `app/manager/capacity.py:82-97`
   - ✅ **(ZMIANA #5 zrobiona 2026-06-26)** czynnik **kierunku** koloru (jasny→ciemny taniej) usunięto — zmiana koloru kosztuje swoje pasmo wielkości niezależnie od kierunku.
 - ✅ Próg 100 m² to ten sam co próg farby/odzysku. `app/manager/capacity.py:53`
-- ✅ Horyzont planowania = **3 dni robocze** (dziś + dwa), domyślny i twardy limit. `app/manager/service.py:182-185`
+- ✅ Horyzont planowania = **3 dni robocze** (dziś + dwa), domyślny i twardy limit. `app/manager/service.py:173-177@_MAX_PLAN_HORIZON_WORKING_DAYS`
 - ✅ Kalendarz: pon–pt robocze, sob/niedz wolne, brak świąt. `app/manager/placement.py:40-45`
 - ✅ Dzień 0 skracany proporcjonalnie do godzin pozostałych w zmianie. `app/manager/placement.py:205-216`
 - ✅ Układanie: najwcześniejszy termin pierwszy, w dni ograniczone pułapem netto; zlecenie większe od dnia stoi samo i jest oznaczone „przekracza pułap"; zlecenie po terminie / poza horyzontem oznaczone „nie zdąży". `app/manager/placement.py:134-284`
@@ -148,10 +148,10 @@ Szczegóły:
 
 ## 11. Statystyki
 
-- ✅ Przerób (m²) przypisywany do **dnia zakończenia pakowania**; poprawki **wykluczone** (ich sztuki policzono już na rodzicu — bez podwójnego liczenia). `app/manager/service.py:253-346`
-- ✅ Przebieg Decoral to **osobna, dodatkowa** seria m² w dniu jego zakończenia. `app/manager/service.py:387-421`
-- ✅ Każda statystyka produkcji cięta dwojako naraz: wg metody (ręczna/automat) i powłoki (RAL/Decoral). `app/manager/service.py:151-175`
+- ✅ Przerób (m²) przypisywany do **dnia zakończenia pakowania**; poprawki **wykluczone** (ich sztuki policzono już na rodzicu — bez podwójnego liczenia). `app/manager/service.py:253-346@WorkOrder.is_correction == False`
+- ✅ Przebieg Decoral to **osobna, dodatkowa** seria m² w dniu jego zakończenia. `app/manager/service.py:387-421@decoral_done_events`
+- ✅ Każda statystyka produkcji cięta dwojako naraz: wg metody (ręczna/automat) i powłoki (RAL/Decoral). `app/manager/service.py:149-156@_COATING_SEGMENTS`
 - ✅ „Zdarzenie poprawki" ma jedną wspólną definicję łączącą partie poprawkowe + dzieci „P" + poprawione od razu. `app/manager/repository.py:105-128`
-- ✅ Czas cyklu = najświeższy zakończony przebieg etapu; czas wiodący = pierwszy start → zakończenie pakowania. `app/manager/service.py:462-678`
-- ✅ Starzenie WIP = zlecenia aktualnie „w trakcie", liczone od ostatniego wejścia w trakcie. `app/manager/service.py:680-770`
-- ✅ **(ZMIANA #9 zrobiona 2026-06-26)** długość zmiany per dzień jest **zapisywana** (`day_shift_lengths`, ustawia kierownik) i wyznacza próg 800/500 + godziny 14/8 dnia — używana przez **oba**: miarę „dobrego dnia" **i** plan przyszłości (ZMIANA #4); dzień bez zapisu domyślnie LONG. `app/manager/service.py:805-825`, `app/manager/models.py` (`DayShiftLength`)
+- ✅ Czas cyklu = najświeższy zakończony przebieg etapu; czas wiodący = pierwszy start → zakończenie pakowania. `app/manager/service.py:454-671@def get_cycle_time_stats`
+- ✅ Starzenie WIP = zlecenia aktualnie „w trakcie", liczone od ostatniego wejścia w trakcie. `app/manager/service.py:672-763@def get_work_in_progress_aging`
+- ✅ **(ZMIANA #9 zrobiona 2026-06-26)** długość zmiany per dzień jest **zapisywana** (`day_shift_lengths`, ustawia kierownik) i wyznacza próg 800/500 + godziny 14/8 dnia — używana przez **oba**: miarę „dobrego dnia" **i** plan przyszłości (ZMIANA #4); dzień bez zapisu domyślnie LONG. `app/manager/service.py:884-898@floor_m2(day_shift)`, `app/manager/models.py` (`DayShiftLength`)

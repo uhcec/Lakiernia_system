@@ -71,7 +71,7 @@ There are two quality checkpoints on a DECORAL order, because two things can go 
 Details:
 - ✅ Three correction kinds, chosen at one seam: fixed-on-the-spot (stat only), same-order replan, spin-off child. `app/process/enums.py:113-123`, `app/process/service.py:1864-1879`
 - ✅ "Fixed on the spot" records only a statistic — no child, no batch; pieces count as good, order completes as-is. `app/process/service.py:1881-1909`
-- ✅ **(CHANGE #1 done 2026-06-26)** same-order replan still clears the *live* lock (it can't sit on an unplanned order) but now **remembers** the pin/urgent intent in `pending_planning_priority` and **re-applies** it when the order is re-planned. `app/process/service.py:2237-2245`, `app/manager/service.py:1497-1503`
+- ✅ **(CHANGE #1 done 2026-06-26)** same-order replan still clears the *live* lock (it can't sit on an unplanned order) but now **remembers** the pin/urgent intent in `pending_planning_priority` and **re-applies** it when the order is re-planned. `app/process/service.py:2237-2245`, `app/manager/service.py:1399-1404@pending_planning_priority`
 - ✅ Correction numbers come from the **root**: `P{root}`, then `P{root}-2`, `P{root}-3`… regardless of nesting. `app/process/service.py:2101-2123`
 - ✅ A correction child inherits paint/colour/customer/dates/area and is always STANDARD kind. (Kind is irrelevant to the prep-skip — that comes from being a correction.) `app/process/service.py:2125-2169`, `1461-1465`
 - ✅ There is exactly **one Decoral pass, on the root**; a fully-fixed child's good pieces return to the root's Decoral and the child closes without its own Decoral. `app/process/service.py:2001-2021`, `2093-2099`
@@ -107,27 +107,27 @@ Details:
 
 ## 8. Planning queue
 
-- ✅ Only the MANAGER plans / views statistics. `app/manager/service.py:2039-2053`
-- ✅ Planning requires the order to be unplanned and not incomplete-on-arrival. `app/manager/service.py:1479-1482`
-- ✅ The manager **picks the line at plan time**; planning an order **as AUTOMATIC** is hard-blocked if its metered colour is out of stock / insufficient (MANUAL is not checked). `app/manager/service.py:1487-1488`, `1426-1468`
-- ✅ Planning with no explicit position appends to the **end of the line's active queue**. `app/manager/service.py:1489-1495`
+- ✅ Only the MANAGER plans / views statistics. `app/manager/service.py:1899-1912@allowed_station_ids={StationId.MANAGER}`
+- ✅ Planning requires the order to be unplanned and not incomplete-on-arrival. `app/manager/service.py:1377-1380@Cannot plan incomplete order`
+- ✅ The manager **picks the line at plan time**; planning an order **as AUTOMATIC** is hard-blocked if its metered colour is out of stock / insufficient (MANUAL is not checked). `app/manager/service.py:1382-1397@_assert_paint_available_for_automatic`, `1324-1366@def _assert_paint_available_for_automatic`
+- ✅ Planning with no explicit position appends to the **end of the line's active queue**. `app/manager/service.py:1387-1393@_next_active_queue_position_for_line`
 - ✅ **(CHANGE #3 done 2026-06-26)** on completion an order **leaves the line's active queue and releases its position** (keeping its line); the trailing/shuffle machinery was removed. Completed correction children release their slots too when the root finalizes. `app/process/service.py:2375-2410`
-- ✅ A position is "taken" only by a non-READY order. `app/manager/service.py:2079-2092`
-- ✅ A line switch is blocked once hanging/production started; switching re-appends at the end and clears the pin. `app/manager/service.py:1671`, `2182-2190`, `1695-1697`
-- ✅ Drag-reorder uses staleness protection and must include all active orders of that line, that line only, no duplicates. `app/manager/service.py:1748-1750`, `1755-1784`
+- ✅ A position is "taken" only by a non-READY order. `app/manager/service.py:1950-1951@ProcessDisplayStatus.READY`
+- ✅ A line switch is blocked once hanging/production started; switching re-appends at the end and clears the pin. `app/manager/service.py:1542-1562@work_order.planning_priority = None`
+- ✅ Drag-reorder uses staleness protection and must include all active orders of that line, that line only, no duplicates. `app/manager/service.py:1608-1645@must include all active planned work orders`
 - ✅ PIN = lock to slot; URGENT = force to front; none = freely re-orderable. `app/shared/enums.py:78-92`
-- ✅ "Arrange automatically" only **proposes**; the manager applies it. `app/manager/service.py:1983-1994`
+- ✅ "Arrange automatically" only **proposes**; the manager applies it. `app/manager/service.py:1843-1855@without committing anything`
 
 ## 9. Planner numbers
 
 - ✅ Profitable **floor**: 800 m² (long day) / 500 m² (short day). `app/manager/capacity.py:33-36`
 - ✅ Shifts: long = 07:00–21:00 (14 h), short = 07:00–15:00 (8 h). `app/manager/capacity.py:32-38`
 - ✅ Booth physical rate band 60–100 m²/h, midpoint **80** used. `app/manager/capacity.py:41-43`
-- ✅ **(CHANGE #4 done 2026-06-26; frontend wired 2026-06-27)** the manager **sets** the shift length **per day** (LONG/SHORT) from the capacity board; it is persisted in `day_shift_lengths` and read per-day to drive the plan — both the day's floor/hours **and** the fill (a SHORT day's smaller net ceiling holds less and pushes overflow forward). An unset day defaults to LONG; the m²-based advising (incl. the old load-derived per-day `display_shift_for`) was removed. `app/manager/service.py:1102-1106` (per-day plan shift), `855-861` (good-day per-day shift), `app/manager/placement.py:134-198`
+- ✅ **(CHANGE #4 done 2026-06-26; frontend wired 2026-06-27)** the manager **sets** the shift length **per day** (LONG/SHORT) from the capacity board; it is persisted in `day_shift_lengths` and read per-day to drive the plan — both the day's floor/hours **and** the fill (a SHORT day's smaller net ceiling holds less and pushes overflow forward). An unset day defaults to LONG; the m²-based advising (incl. the old load-derived per-day `display_shift_for`) was removed. `app/manager/service.py:1102-1106@shift_by_day` (per-day plan shift), `855-861@shift_by_day` (good-day per-day shift), `app/manager/placement.py:134-198`
 - ✅ Colour-change cost by **size only**: next order ≤100 m² → 15 min; >100 m² → 30 min. `app/manager/capacity.py:48-52`, `app/manager/capacity.py:82-97`
   - ✅ **(CHANGE #5 done 2026-06-26)** the colour-**direction** factor (light→dark cheaper) was removed — a colour change costs its size band regardless of direction.
 - ✅ The 100 m² threshold equals the paint/odzysk threshold. `app/manager/capacity.py:48`
-- ✅ Planning horizon = **3 working days** (today + next two), default and hard cap. `app/manager/service.py:182-185`
+- ✅ Planning horizon = **3 working days** (today + next two), default and hard cap. `app/manager/service.py:173-177@_MAX_PLAN_HORIZON_WORKING_DAYS`
 - ✅ Calendar: Mon–Fri working, Sat/Sun off, no holiday list. `app/manager/placement.py:40-45`
 - ✅ Day 0 is pro-rated to hours left in today's shift. `app/manager/placement.py:205-216`
 - ✅ Placement is earliest-deadline-first into net-ceiling days; an order bigger than a day stands alone and is flagged over-ceiling; an order past its deadline / horizon is flagged "won't make it". `app/manager/placement.py:134-284`
@@ -148,10 +148,10 @@ Details:
 
 ## 11. Statistics
 
-- ✅ Throughput m² is attributed to the **packing-completion day**; correction orders are **excluded** (their pieces were already counted on the parent — avoids double-counting). `app/manager/service.py:253-346`
-- ✅ The Decoral pass is a **separate, additional** m² series at its own completion day. `app/manager/service.py:387-421`
-- ✅ Every production stat is cut two ways at once: by method (manual/automatic) and by coating (RAL-only/decoral). `app/manager/service.py:151-175`
+- ✅ Throughput m² is attributed to the **packing-completion day**; correction orders are **excluded** (their pieces were already counted on the parent — avoids double-counting). `app/manager/service.py:253-346@WorkOrder.is_correction == False`
+- ✅ The Decoral pass is a **separate, additional** m² series at its own completion day. `app/manager/service.py:387-421@decoral_done_events`
+- ✅ Every production stat is cut two ways at once: by method (manual/automatic) and by coating (RAL-only/decoral). `app/manager/service.py:149-156@_COATING_SEGMENTS`
 - ✅ A "correction event" has one shared definition unioning correction batches + child "P" orders + fixed-on-the-spot. `app/manager/repository.py:105-128`
-- ✅ Cycle time = most-recent completed pass per stage; lead time = first start → packing done. `app/manager/service.py:462-678`
-- ✅ WIP aging = orders currently IN_PROGRESS, aged from the last entry into progress. `app/manager/service.py:680-770`
-- ✅ **(CHANGE #9 done 2026-06-26)** the shift length per day is **persisted** (`day_shift_lengths`, set by the manager) and judges each day against its floor 800/500 + hours 14/8 — used by **both** the "good day" measure **and** the forward plan (CHANGE #4); a day with no stored length falls back to LONG. `app/manager/service.py:805-825`, `app/manager/models.py` (`DayShiftLength`)
+- ✅ Cycle time = most-recent completed pass per stage; lead time = first start → packing done. `app/manager/service.py:454-671@def get_cycle_time_stats`
+- ✅ WIP aging = orders currently IN_PROGRESS, aged from the last entry into progress. `app/manager/service.py:672-763@def get_work_in_progress_aging`
+- ✅ **(CHANGE #9 done 2026-06-26)** the shift length per day is **persisted** (`day_shift_lengths`, set by the manager) and judges each day against its floor 800/500 + hours 14/8 — used by **both** the "good day" measure **and** the forward plan (CHANGE #4); a day with no stored length falls back to LONG. `app/manager/service.py:884-898@floor_m2(day_shift)`, `app/manager/models.py` (`DayShiftLength`)
