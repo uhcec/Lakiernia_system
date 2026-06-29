@@ -1,28 +1,55 @@
 #!/usr/bin/env python3
-"""Anti-drift guard: every `file:line` citation in docs/ must still resolve.
+"""Anti-drift guard: every `file:line` citation in docs/ must still resolve — and,
+when anchored, still point at the code it claims to.
 
 The spec method (CLAUDE.md) grounds each documented behaviour in a `file:line`
 citation. When code moves, those citations rot — and a rotten citation is the
 first visible sign that SPEC/DECISIONS have drifted from the code.
 
-This guard catches the two mechanical failures:
-  * the cited file no longer exists, or
-  * the cited line (or the end of a `start-end` range) is past the file's end.
+Two failure modes, two levels of guard:
 
-It deliberately does NOT check that the cited lines still say the right thing —
-that needs a human. It only flags citations that can no longer point anywhere,
-i.e. the cheapest, surest drift signal. Run over the living specs on every
-commit (not just changed docs), because a citation usually dies from a *code*
-edit, not a doc edit.
+  1. **Existence / range** (always checked): the cited file is gone, or the cited
+     line (or the end of a `start-end` range) is past the file's end. The cheapest,
+     surest drift signal.
 
-Scope: only the **living** specs (SPEC.md + its Polish mirror), which describe
-what the code does *today*, so every citation there must resolve. The ledgers
-(CHANGES.md / ZMIANY.md) and the decision log (DECISIONS.md) are deliberately
-EXCLUDED: their "Now:" / implementation citations are point-in-time snapshots of
-code that a shipped change has since deleted — they are *meant* to rot, and
-flagging them would be a false alarm.
+  2. **Content** (checked when the citation carries an `@anchor`): the cited lines
+     no longer contain the anchored token. A bare `path:line` only proves the line
+     *exists*, so when code is inserted/deleted above it the citation silently slides
+     onto unrelated code while still "resolving". The anchor closes that hole — see
+     below.
 
-Exit code 0 = all citations resolve; 1 = at least one dead citation (printed).
+## Anchored citations
+
+Grammar:  `` `<path>:<start>[-<end>][@<anchor>]` ``
+
+`<anchor>` is a short **literal substring** (a symbol name like `assign_plan`, or any
+distinctive code fragment) that MUST appear somewhere within the cited line range.
+Examples:
+
+    `app/manager/service.py:1409-1412@def assign_plan`
+    `app/manager/capacity.py:48@CHANGEOVER_ODZYSK_THRESHOLD_M2`
+
+Because the anchor pins both *where* (the line range) and *what* (the token on those
+lines), it fails loudly the moment the code moves: the line range no longer holds the
+token, so a human must re-point the citation and re-confirm it still describes current
+behaviour. That re-confirmation is exactly the drift check a bare line number cannot do.
+
+Anchors are **optional and backward-compatible**: an un-anchored `path:line` is still
+checked for existence/range (the legacy behaviour), so this can be rolled out file by
+file. High-churn files (e.g. the large service modules) are the ones worth anchoring.
+
+This guard is deliberately mechanical: it does NOT judge whether the prose is *correct*,
+only whether the citation still lands on the claimed token. Run over the living specs on
+every commit (not just changed docs), because a citation usually dies from a *code* edit,
+not a doc edit.
+
+Scope: only the **living** specs (SPEC.md + its Polish mirror), which describe what the
+code does *today*, so every citation there must resolve. The ledgers (CHANGES.md /
+ZMIANY.md) and the decision log (DECISIONS.md) are deliberately EXCLUDED: their "Now:" /
+implementation citations are point-in-time snapshots of code that a shipped change has
+since deleted — they are *meant* to rot, and flagging them would be a false alarm.
+
+Exit code 0 = all citations resolve; 1 = at least one dead/misanchored citation (printed).
 """
 
 from __future__ import annotations
@@ -43,22 +70,21 @@ LIVING_SPECS = ("SPEC.md", "SPECYFIKACJA.md")
 # are covered without a code change.
 CODE_EXTENSIONS = ("py", "ts", "tsx", "js", "jsx", "mjs", "sql")
 
-# Matches an inline-code citation like `app/process/service.py:2237-2240`
-# or `app/work_orders/models.py:52`. Group 1 = path, 2 = start, 3 = end (opt).
+# Matches an inline-code citation like `app/process/service.py:2237-2240`,
+# `app/work_orders/models.py:52`, or the anchored form
+# `app/manager/service.py:1409-1412@def assign_plan`.
+# Group: path, start, end (opt), anchor (opt — any text up to the closing backtick).
 _EXT_ALT = "|".join(CODE_EXTENSIONS)
 CITATION_RE = re.compile(
     r"`(?P<path>[A-Za-z0-9_./-]+\.(?:" + _EXT_ALT + r")):"
-    r"(?P<start>\d+)(?:-(?P<end>\d+))?`"
+    r"(?P<start>\d+)(?:-(?P<end>\d+))?"
+    r"(?:@(?P<anchor>[^`]+))?`"
 )
 
 
-def file_line_count(path: Path) -> int:
-    # Count lines tolerant of the final newline; encoding errors shouldn't crash
-    # the guard, so read as bytes and split.
-    data = path.read_bytes()
-    if not data:
-        return 0
-    return data.count(b"\n") + (0 if data.endswith(b"\n") else 1)
+def file_lines(path: Path) -> list[str]:
+    """The target file's lines (encoding-tolerant; errors shouldn't crash the guard)."""
+    return path.read_text(encoding="utf-8", errors="replace").splitlines()
 
 
 def check_doc(doc: Path) -> list[str]:
@@ -69,17 +95,36 @@ def check_doc(doc: Path) -> list[str]:
             cited = m.group("path")
             start = int(m.group("start"))
             end = int(m.group("end")) if m.group("end") else start
+            anchor = m.group("anchor")
             where = f"{doc.relative_to(REPO_ROOT).as_posix()}:{lineno}"
             target = REPO_ROOT / cited
+
             if not target.is_file():
                 problems.append(f"{where}: cited file does not exist -> `{cited}`")
                 continue
-            n = file_line_count(target)
+
+            lines = file_lines(target)
+            n = len(lines)
             hi = max(start, end)
             if hi > n:
                 problems.append(
                     f"{where}: `{cited}` cites line {hi} but the file has {n} lines"
                 )
+                continue
+
+            if anchor is not None:
+                # Lines are 1-based in citations; slice the inclusive [start, end] range.
+                cited_text = "\n".join(lines[start - 1 : end])
+                if anchor not in cited_text:
+                    shown = cited_text.strip().replace("\n", " ⏎ ")
+                    if len(shown) > 120:
+                        shown = shown[:117] + "..."
+                    problems.append(
+                        f"{where}: `{cited}:{start}"
+                        + (f"-{end}" if end != start else "")
+                        + f"` anchored on \"{anchor}\" but those lines now read: \"{shown}\""
+                        + " — re-point the citation and confirm it still describes current behaviour."
+                    )
     return problems
 
 
@@ -91,7 +136,7 @@ def main() -> int:
             continue
         all_problems.extend(check_doc(doc))
     if all_problems:
-        print("Dead `file:line` citation(s) — docs have drifted from the code:\n")
+        print("Dead/misanchored `file:line` citation(s) — docs have drifted from the code:\n")
         for p in all_problems:
             print(f"  {p}")
         print(
