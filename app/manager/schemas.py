@@ -222,7 +222,6 @@ class GoodDayMetricsRead(BaseModel):
     orders_on_time: int
     on_time_pct: float | None
     changeover_count: int
-    changeover_minutes_total: float
     changeover_loss_m2: float
     shift_hours: float
     active_hours: float
@@ -246,8 +245,8 @@ class GoodDayStats(BaseModel):
     """Per-day good-day metrics for a line over a window, plus the period roll-up (NA50).
 
     ``floor_m2`` / ``shift_hours`` are the long-day reference bar for the headline; each day is actually
-    measured against its own persisted shift length (CHANGES #9, see the service note).
-    ``changeover_minutes_each`` is the bounded N49-6 size-band per-change cost used to value the loss.
+    measured against its own persisted shift length (CHANGES #9, see the service note). The headline
+    changeover figure each day surfaces is its ``changeover_loss_m2`` (m² of booth capacity burned).
     """
 
     production_type: ProductionType
@@ -255,8 +254,6 @@ class GoodDayStats(BaseModel):
     date_to: date
     floor_m2: float
     shift_hours: float
-    changeover_minutes_each: float
-    changeover_is_measured: bool
     days: list[GoodDayMetricsRead]
     totals: GoodDayTotalsRead
 
@@ -279,10 +276,9 @@ class DayCapacityRead(BaseModel):
 
     Read-side of N49-3: the day-capacity foundation the multi-day placement (N49-4) and the capacity
     board (N49-9) build on. The ``shift_length`` is **set by the manager** (CHANGES #4); when the caller
-    omits it the planner defaults to LONG (it no longer advises from available work). ``changeover_minutes``
-    is the **average per-change** cost folded into the net ceiling — size-band-aware (N49-6): derived from
-    the line's actual colour-grouped order (the 100 m² odzysk band), not a flat constant.
-    ``changeover_minutes_total`` is that order's full changeover cost.
+    omits it the planner defaults to LONG (it no longer advises from available work). The day's colour
+    changes are surfaced as ``changeover_count`` (how many) and ``changeover_loss_m2`` (the m² of net
+    ceiling they burn — size-band-aware, N49-6, the 100 m² odzysk band).
     """
 
     production_type: ProductionType
@@ -293,10 +289,7 @@ class DayCapacityRead(BaseModel):
     gross_ceiling_m2: float
     net_ceiling_m2: float
     changeover_count: int
-    changeover_minutes: float
-    changeover_minutes_total: float
     changeover_loss_m2: float
-    changeover_is_measured: bool
     placed_order_count: int
     placed_m2: float
     below_floor: bool
@@ -308,8 +301,8 @@ class DayCapacityRead(BaseModel):
 class OrderPlacementRead(BaseModel):
     """Where one order landed in the multi-day plan and whether that still ships it on time (N49-4).
 
-    Within its day the orders are listed as a **light → dark colour sweep** (N49-5): ``sequence_position``
-    is the order's 0-based slot in that sweep. ``suggested_production_type`` is the planner's proposed
+    Within its day the orders are listed **grouped by identical colour** (N49-5): ``sequence_position``
+    is the order's 0-based slot in that grouping. ``suggested_production_type`` is the planner's proposed
     line (N49-8, small-m² colour-orphan → manual, else automatic) — a suggestion the manager can
     override; ``suggested_line_is_*`` expose the reason behind it.
     """
@@ -323,7 +316,7 @@ class OrderPlacementRead(BaseModel):
     # actual running order alongside the suggested plan order, and apply the suggestion back to the queue.
     queue_position: int | None
     day_index: int
-    # 0-based position within the day's light→dark sweep (N49-5).
+    # 0-based position within the day's colour grouping (N49-5).
     sequence_position: int
     scheduled_date: date | None
     planned_pickup_date: date
@@ -346,9 +339,9 @@ class OrderPlacementRead(BaseModel):
 class PlannedDayRead(BaseModel):
     """One working day in the multi-day plan: its capacity bucket and the orders placed in it (N49-4).
 
-    ``placements`` are ordered as the day's **light → dark colour sweep** (N49-5). ``changeover_minutes``
-    is the day's **size + direction-aware** total changeover cost for that sweep (N49-6) — identical
-    colours cost zero, light→dark cheap, dark→light the full size band — not a flat per-change count.
+    ``placements`` are ordered **grouped by identical colour** (N49-5); ``changeover_count`` is the number
+    of colour changes in that grouping (identical colours adjacent cost zero — CHANGES #5/#7), folded into
+    the day's ``net_ceiling_m2`` as the size-band loss (N49-6).
     """
 
     day_index: int
@@ -358,8 +351,6 @@ class PlannedDayRead(BaseModel):
     gross_ceiling_m2: float
     net_ceiling_m2: float
     changeover_count: int
-    # Size + direction-aware total changeover minutes for the day's light→dark sweep (N49-6).
-    changeover_minutes: float
     placed_order_count: int
     placed_m2: float
     below_floor: bool
@@ -373,16 +364,14 @@ class MultiDayPlanRead(BaseModel):
     Lays the line's active planned orders across the next ``horizon_working_days`` working days,
     earliest-deadline-first, into net-ceiling-bounded day buckets (``app/manager/placement.py``).
     The ``shift_length`` is **set by the manager** (CHANGES #4); when the caller omits it the planner
-    defaults to LONG. ``changeover_minutes`` is the per-change cost folded into each day's net ceiling.
-    ``infeasible_order_ids`` is the "won't make it" set — orders whose scheduled day is past their hard
-    pickup deadline or beyond the horizon.
+    defaults to LONG. Per-day colour-changeover cost is folded into each day's ``net_ceiling_m2`` (the
+    size-band loss). ``infeasible_order_ids`` is the "won't make it" set — orders whose scheduled day is
+    past their hard pickup deadline or beyond the horizon.
     """
 
     production_type: ProductionType
     shift_length: ShiftLength
     horizon_working_days: int
-    changeover_minutes: float
-    changeover_is_measured: bool
     days: list[PlannedDayRead]
     infeasible_order_ids: list[int]
     # The line's queue snapshot the plan was built from (NA51) — the board echoes it back to

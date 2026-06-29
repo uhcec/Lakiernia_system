@@ -870,8 +870,9 @@ class ManagerService:
             changeover_count = count_colour_changeovers(
                 [observation.colour_key for observation in day_passes]
             )
-            # Bounded per-change cost of the day's actual run order (size + direction, N49-6).
-            day_changeover_minutes_each = average_changeover_minutes(
+            # Bounded size-band cost of the day's actual run order (N49-6) — the total minutes its colour
+            # changes burned, which is what the m² loss is valued from.
+            day_changeover_minutes_total = sequence_changeover_minutes(
                 [
                     SequencedOrder(
                         colour_key=observation.colour_key,
@@ -895,7 +896,7 @@ class ManagerService:
                 ),
                 floor_m2=floor_m2(day_shift),
                 shift_hours=shift_hours(day_shift),
-                changeover_minutes_each=day_changeover_minutes_each,
+                changeover_minutes_total=day_changeover_minutes_total,
                 ceiling_rate_m2_per_h=CEILING_BOOTH_RATE_M2_PER_H,
             )
             day_metrics_core.append(metrics)
@@ -910,7 +911,6 @@ class ManagerService:
                     orders_on_time=metrics.orders_on_time,
                     on_time_pct=metrics.on_time_pct,
                     changeover_count=metrics.changeover_count,
-                    changeover_minutes_total=metrics.changeover_minutes_total,
                     changeover_loss_m2=metrics.changeover_loss_m2,
                     shift_hours=metrics.shift_hours,
                     active_hours=metrics.active_hours,
@@ -924,26 +924,12 @@ class ManagerService:
         # bounded N49-6 loss).
         totals = summarize_period(day_metrics_core)
 
-        # Period-wide bounded changeover cost (over all passes in completion order) for the headline.
-        period_changeover_minutes_each = average_changeover_minutes(
-            [
-                SequencedOrder(
-                    colour_key=observation.colour_key,
-                    total_area_m2=observation.total_area_m2,
-                )
-                for observation in sorted(
-                    observations, key=lambda observation: observation.hanging_started_at
-                )
-            ]
-        )
         return GoodDayStats(
             production_type=production_type,
             date_from=date_from,
             date_to=date_to,
             floor_m2=FLOOR_LONG_M2,
             shift_hours=SHIFT_LONG_HOURS,
-            changeover_minutes_each=round(period_changeover_minutes_each, 1),
-            changeover_is_measured=True,
             days=day_metrics,
             totals=GoodDayTotalsRead(
                 days_count=totals.days_count,
@@ -1068,9 +1054,7 @@ class ManagerService:
         (800/500 m²) and the net ceiling (physical booth capacity minus colour-changeover loss). The
         orders are first reordered to **group identical colours** (N49-5), then the day's changeover
         cost is computed **size-band-aware** (N49-6): each colour change costs the 100 m² odzysk band,
-        so the m² loss reflects size, not a flat per-change count. ``changeover_minutes`` returns the
-        average per-change cost of that order; ``changeover_is_measured`` is always True (the bands are
-        structural constants, measured by construction — the field is kept only for the read model).
+        so the m² loss (``changeover_loss_m2``) reflects size, not a flat per-change count.
         The day runs the shift length the manager set for today (CHANGES #4/#9), read from
         ``day_shift_lengths``; an unset day defaults to LONG. Pure arithmetic lives in
         ``app/manager/capacity.py`` / ``app/manager/colour.py``.
@@ -1104,13 +1088,13 @@ class ManagerService:
 
         colour_by_id = {work_order.id: self._order_colour_key(work_order) for work_order in swept_orders}
         changeover_count = colour_changeovers_for_order_ids(swept_ids, colour_by_id)
-        _total_minutes, avg_change_minutes = self._day_changeover_minutes(swept_orders)
+        day_changeover_minutes_total, _avg = self._day_changeover_minutes(swept_orders)
 
         day = compute_day_capacity(
             resolved_shift,
             placed_orders,
             changeover_count=changeover_count,
-            changeover_minutes=avg_change_minutes,
+            changeover_minutes_total=day_changeover_minutes_total,
         )
 
         return DayCapacityRead(
@@ -1122,13 +1106,7 @@ class ManagerService:
             gross_ceiling_m2=day.gross_ceiling_m2,
             net_ceiling_m2=day.net_ceiling_m2,
             changeover_count=day.changeover_count,
-            changeover_minutes=day.changeover_minutes_each,
-            changeover_minutes_total=day.changeover_minutes_total,
             changeover_loss_m2=day.changeover_loss_m2,
-            # The shown changeover cost is the bounded N49-6 size-band figure (avg_change_minutes),
-            # derived from the day's real order sizes — measured by construction, never a seed
-            # (matches the multi-day plan's stance). The old learned estimate was removed 2026-06-27.
-            changeover_is_measured=True,
             placed_order_count=day.placed_order_count,
             placed_m2=day.placed_m2,
             below_floor=day.below_floor,
@@ -1252,9 +1230,8 @@ class ManagerService:
                 ]
             )
             swept_orders = [orders_by_id[order_id] for order_id in swept_ids]
-            day_changeover_minutes, _avg = self._day_changeover_minutes(swept_orders)
-            # Count changes in the SWEPT order (grouped) so the displayed count and cost agree — the
-            # placement's own count is from the EDF order, used only to size the net ceiling.
+            # Count changes in the SWEPT order (grouped) so the displayed count is the one the manager
+            # sees — the placement's own count is from the EDF order, used only to size the net ceiling.
             swept_colour_by_id = {
                 work_order.id: self._order_colour_key(work_order) for work_order in swept_orders
             }
@@ -1299,7 +1276,6 @@ class ManagerService:
                     gross_ceiling_m2=day.gross_ceiling_m2,
                     net_ceiling_m2=day.net_ceiling_m2,
                     changeover_count=swept_changeover_count,
-                    changeover_minutes=round(day_changeover_minutes, 1),
                     placed_order_count=len(day.placed_order_ids),
                     placed_m2=day.placed_m2,
                     below_floor=day.below_floor,
@@ -1312,11 +1288,6 @@ class ManagerService:
             production_type=production_type,
             shift_length=plan.shift_length,
             horizon_working_days=plan.horizon_working_days,
-            # The headline cost is now the bounded N49-6 size-band figure that actually sized the
-            # plan (NA52). It is always determinate from the orders' sizes/colours — a structural model,
-            # not a learned-vs-seed fallback — so ``changeover_is_measured`` is True by construction.
-            changeover_minutes=round(line_avg_changeover_minutes, 1),
-            changeover_is_measured=True,
             days=days,
             infeasible_order_ids=plan.infeasible_order_ids,
             queue_revision=self.repository.get_planned_queue_revision(production_type),
@@ -1842,10 +1813,11 @@ class ManagerService:
     def _day_changeover_minutes(self, ordered_work_orders: list[WorkOrder]) -> tuple[float, float]:
         """(total, average-per-change) size-band changeover minutes for a day's colour-grouped order.
 
-        The total is what the day actually loses to colour changes (N49-6); the average is what the
-        per-change day-capacity model (``compute_day_capacity``) consumes as ``changeover_minutes`` so
-        its m² loss reflects size rather than a flat constant. Caller passes the orders already in their
-        within-day colour-grouped order (``group_identical_colours``)."""
+        The **total** is what the day actually loses to colour changes (N49-6) — what the fixed-sequence
+        models (``compute_day_capacity`` / ``summarize_day``) value their m² loss from. The **average**
+        per-change is what the multi-day placement uses as a flat rate, because its per-day changeover
+        count is only known mid-fill. Caller passes the orders already in their within-day colour-grouped
+        order (``group_identical_colours``)."""
         sequence = [self._sequenced_order(work_order) for work_order in ordered_work_orders]
         return sequence_changeover_minutes(sequence), average_changeover_minutes(sequence)
 

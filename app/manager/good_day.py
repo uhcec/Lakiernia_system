@@ -104,7 +104,6 @@ class GoodDayMetrics:
     # Percent of the day's completions shipped on/before their hard pickup date (None when none completed).
     on_time_pct: float | None
     changeover_count: int
-    changeover_minutes_total: float
     # m² of booth capacity burned by the day's colour changes (the same arithmetic the planner uses).
     changeover_loss_m2: float
     shift_hours: float
@@ -134,10 +133,14 @@ def summarize_day(
     *,
     floor_m2: float,
     shift_hours: float,
-    changeover_minutes_each: float,
+    changeover_minutes_total: float,
     ceiling_rate_m2_per_h: float,
 ) -> GoodDayMetrics:
-    """Turn one day's raw activity into the good-day metrics (floor, on-time, changeover, idle)."""
+    """Turn one day's raw activity into the good-day metrics (floor, on-time, changeover, idle).
+
+    ``changeover_minutes_total`` is the size-band cost of the day's colour changes (the planner's N49-6
+    number); it is what the m² loss is valued from.
+    """
     output = max(activity.output_m2, 0.0)
     met_floor = output >= floor_m2
     shortfall = max(floor_m2 - output, 0.0)
@@ -149,8 +152,7 @@ def summarize_day(
     )
 
     changeover_count = max(activity.changeover_count, 0)
-    changeover_minutes_total = changeover_count * max(changeover_minutes_each, 0.0)
-    loss_m2 = changeover_loss_m2(changeover_count, changeover_minutes_each, ceiling_rate_m2_per_h)
+    loss_m2 = changeover_loss_m2(changeover_minutes_total, ceiling_rate_m2_per_h)
 
     active = max(activity.active_hours, 0.0)
     idle = max(shift_hours - active, 0.0)
@@ -166,7 +168,6 @@ def summarize_day(
         orders_on_time=activity.orders_on_time,
         on_time_pct=on_time_pct,
         changeover_count=changeover_count,
-        changeover_minutes_total=round(changeover_minutes_total, 1),
         changeover_loss_m2=round(loss_m2, 2),
         shift_hours=round(shift_hours, 2),
         active_hours=round(active, 2),

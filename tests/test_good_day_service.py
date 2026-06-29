@@ -134,7 +134,6 @@ def test_changeover_loss_counts_colour_changes(db_session: Session) -> None:
 
     day = stats.days[0]
     assert day.changeover_count == 1
-    assert day.changeover_minutes_total > 0.0
     assert day.changeover_loss_m2 > 0.0
     assert day.active_hours > 0.0
 

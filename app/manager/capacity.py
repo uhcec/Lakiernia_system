@@ -76,8 +76,6 @@ class DayCapacity:
     # Physical ceiling before any colour-changeover loss (rate × shift hours).
     gross_ceiling_m2: float
     changeover_count: int
-    changeover_minutes_each: float
-    changeover_minutes_total: float
     # m² of physical ceiling consumed by the day's colour changes (booth not painting during a change).
     changeover_loss_m2: float
     # What is physically paintable today once changeover loss is removed (the real fill bound).
@@ -102,20 +100,19 @@ def floor_m2(shift_length: ShiftLength) -> float:
 
 
 def changeover_loss_m2(
-    changeover_count: int,
-    changeover_minutes: float,
+    changeover_minutes_total: float,
     ceiling_rate_m2_per_h: float = CEILING_BOOTH_RATE_M2_PER_H,
 ) -> float:
     """m² of physical ceiling consumed by colour changes (booth not painting during a change).
 
-    ``changeover_count`` × ``changeover_minutes`` of booth time, converted to m² at the booth rate.
-    Negative inputs are clamped to zero so a bad estimate never *adds* capacity. Shared by the
-    single-day model (``compute_day_capacity``) and the multi-day placement (``placement.py``), so the
-    two never drift in how a colour change costs capacity.
+    The day's *total* changeover minutes converted to m² at the booth rate. Negative input is clamped to
+    zero so a bad estimate never *adds* capacity. Each caller supplies the total in the way that fits it,
+    so the m²-loss arithmetic lives in one place: the single-day / good-day paths pass the size-band total
+    of the day's fixed sequence; the multi-day placement passes ``count × per-change`` because its per-day
+    changeover count is only known mid-fill (``placement.py``).
     """
-    count = max(changeover_count, 0)
-    minutes = max(changeover_minutes, 0.0)
-    return (count * minutes / 60.0) * ceiling_rate_m2_per_h
+    minutes = max(changeover_minutes_total, 0.0)
+    return (minutes / 60.0) * ceiling_rate_m2_per_h
 
 
 def changeover_minutes_for_transition(
@@ -156,18 +153,20 @@ def compute_day_capacity(
     placed_orders: Sequence[PlacedOrder],
     *,
     changeover_count: int,
-    changeover_minutes: float,
+    changeover_minutes_total: float,
     ceiling_rate_m2_per_h: float = CEILING_BOOTH_RATE_M2_PER_H,
 ) -> DayCapacity:
-    """Compute a day's floor/ceiling fill from its placed orders and the size-band changeover cost."""
+    """Compute a day's floor/ceiling fill from its placed orders and the size-band changeover cost.
+
+    ``changeover_count`` is the day's number of colour changes (informational); ``changeover_minutes_total``
+    is the size-band cost of those changes, which is what actually shrinks the net ceiling.
+    """
     hours = shift_hours(shift_length)
     floor = floor_m2(shift_length)
     gross_ceiling = ceiling_rate_m2_per_h * hours
 
     safe_changeover_count = max(changeover_count, 0)
-    each_minutes = max(changeover_minutes, 0.0)
-    changeover_minutes_total = safe_changeover_count * each_minutes
-    changeover_loss = changeover_loss_m2(safe_changeover_count, each_minutes, ceiling_rate_m2_per_h)
+    changeover_loss = changeover_loss_m2(changeover_minutes_total, ceiling_rate_m2_per_h)
     net_ceiling = max(gross_ceiling - changeover_loss, 0.0)
 
     placed_m2 = sum(max(order.total_area_m2 or 0.0, 0.0) for order in placed_orders)
@@ -182,8 +181,6 @@ def compute_day_capacity(
         ceiling_rate_m2_per_h=round(ceiling_rate_m2_per_h, 1),
         gross_ceiling_m2=round(gross_ceiling, 2),
         changeover_count=safe_changeover_count,
-        changeover_minutes_each=round(each_minutes, 1),
-        changeover_minutes_total=round(changeover_minutes_total, 1),
         changeover_loss_m2=round(changeover_loss, 2),
         net_ceiling_m2=round(net_ceiling, 2),
         placed_order_count=len(placed_orders),

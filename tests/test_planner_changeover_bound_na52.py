@@ -13,7 +13,7 @@ from datetime import UTC, date, datetime, timedelta
 from sqlalchemy.orm import Session
 
 from app.audit.context import StationContext
-from app.manager.capacity import CHANGEOVER_BAND_LARGE_MINUTES
+from app.manager.capacity import CEILING_BOOTH_RATE_M2_PER_H, CHANGEOVER_BAND_LARGE_MINUTES
 from app.manager.repository import ManagerRepository
 from app.manager.schemas import WorkOrderPlanAssignRequest
 from app.manager.service import ManagerService
@@ -131,8 +131,12 @@ def test_plan_uses_bounded_changeover_cost_despite_contaminated_log(db_session: 
 
     plan = manager_service.get_multi_day_plan(station_context=MANAGER, now=_MORNING)
 
-    # The headline + the cost that sized the plan stays within the bounded band, NOT the ≈inflated value.
-    assert plan.changeover_minutes <= CHANGEOVER_BAND_LARGE_MINUTES
+    # The cost that sized the plan stays within the bounded band, NOT the ≈inflated value: the day's
+    # net-ceiling loss (gross − net) is at most one large band, not the hundreds of minutes a contaminated
+    # learned estimate would have burned.
+    day0 = plan.days[0]
+    max_band_loss_m2 = CHANGEOVER_BAND_LARGE_MINUTES / 60.0 * CEILING_BOOTH_RATE_M2_PER_H
+    assert day0.gross_ceiling_m2 - day0.net_ceiling_m2 <= max_band_loss_m2
     # 800 m² of work + one cheap colour change fits one long day — the net ceiling is not collapsed.
     assert len(plan.days) == 1
     assert plan.days[0].placed_order_count == 2

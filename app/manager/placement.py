@@ -6,12 +6,12 @@ the factory's real job is to hit the daily m² floor while shipping every order 
 order can fill a whole day, so "what order, on which day?" is a capacity question, not a single-list
 sort.
 
-Objective hierarchy (``docs/WORKFLOW.md`` "Target planning model"): **hard deadline > daily floor >
+Objective hierarchy (``docs/SPEC.md`` §9 "Planner numbers"): **hard deadline > daily floor >
 colour grouping.** This module owns the first level — earliest-deadline-first (EDF) placement into
 day-buckets bounded by the day's *net* ceiling — and reports, per order, whether the day it lands on
-still meets its pickup date (a "won't make it" warning). Within-day line assignment and the light→dark
-colour sweep are the next levels (N49-5/N49-8) and deliberately out of scope here; within a day this
-keeps the EDF order.
+still meets its pickup date (a "won't make it" warning). Within-day line assignment and colour grouping
+(N49-5/N49-8 — identical colours adjacent; the light→dark sweep was removed in CHANGES #7) are the next
+levels and deliberately out of scope here; within a day this keeps the EDF order.
 
 A **colour change consumes capacity** (``capacity.changeover_loss_m2``), so each day's usable ceiling
 shrinks as more distinct colours pile onto it — the same arithmetic the single-day model uses, shared so
@@ -187,7 +187,9 @@ def place_orders(
         return floor_m2(effective_shift(day_index))
 
     def changeover_loss(changeover_count: int) -> float:
-        return changeover_loss_m2(changeover_count, changeover_minutes, ceiling_rate_m2_per_h)
+        # Per-day count is only known mid-fill, so value it at the flat per-change rate, then convert the
+        # day's total to m². (Single-day / good-day paths pass their fixed-sequence total directly.)
+        return changeover_loss_m2(changeover_count * changeover_minutes, ceiling_rate_m2_per_h)
 
     def net_ceiling(day_index: int, changeover_count: int) -> float:
         return max(gross_ceiling_for(day_index) - changeover_loss(changeover_count), 0.0)

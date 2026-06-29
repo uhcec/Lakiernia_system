@@ -98,10 +98,8 @@ def test_grouped_colours_cost_by_size(db_session: Session) -> None:
     day = manager_service.get_day_capacity(station_context=MANAGER)
 
     assert day.changeover_count == 1  # grouped, not the 2 of the interleaved queue order
-    # Size-band cost (N49-6): all orders ≤ 100 m² → small "bez odzysku" band = 15 min.
-    assert day.changeover_minutes == 15.0
-    assert day.changeover_minutes_total == round(day.changeover_minutes, 1)
-    assert day.changeover_loss_m2 > 0.0
+    # Size-band cost (N49-6): all orders ≤ 100 m² → small "bez odzysku" band = 15 min → 15/60 × 80 = 20 m².
+    assert day.changeover_loss_m2 == 20.0
     assert day.net_ceiling_m2 < day.gross_ceiling_m2
 
 

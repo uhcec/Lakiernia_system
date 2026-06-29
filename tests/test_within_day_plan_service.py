@@ -101,8 +101,9 @@ def test_grouping_lowers_day_changeover_count(db_session: Session) -> None:
     plan = manager_service.get_multi_day_plan(station_context=MANAGER, now=_MORNING)
     assert len(plan.days) == 1
     assert plan.days[0].changeover_count == 1
-    # Size-band cost (N49-6): one change, next order small (≤100 m²) → the 15-min band.
-    assert plan.days[0].changeover_minutes == 15.0
+    # The colour change burns capacity (N49-6): net ceiling falls below gross. The exact size-band
+    # minutes (small=15 / large=30) are unit-pinned in test_colour.py.
+    assert plan.days[0].net_ceiling_m2 < plan.days[0].gross_ceiling_m2
 
 
 def test_large_orders_incur_changeover_cost(db_session: Session) -> None:
@@ -114,8 +115,9 @@ def test_large_orders_incur_changeover_cost(db_session: Session) -> None:
 
     plan = manager_service.get_multi_day_plan(station_context=MANAGER, now=_MORNING)
     day = next(d for d in plan.days if d.changeover_count == 1)
-    # Large band = 30 min, no direction discount.
-    assert day.changeover_minutes == 30.0
+    # The large-order change (30-min band, no direction discount — CHANGES #5) burns net ceiling. The
+    # band value itself is unit-pinned in test_colour.py.
+    assert day.net_ceiling_m2 < day.gross_ceiling_m2
 
 
 def test_small_colour_orphan_is_suggested_manual(db_session: Session) -> None:

@@ -195,7 +195,6 @@ export interface PlannedDay {
   gross_ceiling_m2: number;
   net_ceiling_m2: number;
   changeover_count: number;
-  changeover_minutes: number;
   placed_order_count: number;
   placed_m2: number;
   below_floor: boolean;
@@ -207,8 +206,6 @@ export interface MultiDayPlan {
   production_type: ProductionTypeValue;
   shift_length: "LONG" | "SHORT";
   horizon_working_days: number;
-  changeover_minutes: number;
-  changeover_is_measured: boolean;
   days: PlannedDay[];
   infeasible_order_ids: number[];
   // Queue snapshot the plan was built from (NA51) — echoed back when applying the suggested order.
@@ -226,7 +223,6 @@ export interface GoodDayMetrics {
   orders_on_time: number;
   on_time_pct: number | null;
   changeover_count: number;
-  changeover_minutes_total: number;
   changeover_loss_m2: number;
   shift_hours: number;
   active_hours: number;
@@ -252,8 +248,6 @@ export interface GoodDayStats {
   date_to: string;
   floor_m2: number;
   shift_hours: number;
-  changeover_minutes_each: number;
-  changeover_is_measured: boolean;
   days: GoodDayMetrics[];
   totals: GoodDayTotals;
 }

@@ -27,7 +27,7 @@ def _orders(*areas: float) -> list[PlacedOrder]:
 
 def test_long_day_floor_and_gross_ceiling_with_no_changeover() -> None:
     day = compute_day_capacity(
-        ShiftLength.LONG, _orders(400.0, 400.0), changeover_count=0, changeover_minutes=20.0
+        ShiftLength.LONG, _orders(400.0, 400.0), changeover_count=0, changeover_minutes_total=0.0
     )
     assert day.shift_hours == 14.0
     assert day.floor_m2 == FLOOR_LONG_M2
@@ -44,7 +44,7 @@ def test_long_day_floor_and_gross_ceiling_with_no_changeover() -> None:
 
 def test_short_day_uses_short_floor_and_ceiling() -> None:
     day = compute_day_capacity(
-        ShiftLength.SHORT, _orders(300.0), changeover_count=0, changeover_minutes=20.0
+        ShiftLength.SHORT, _orders(300.0), changeover_count=0, changeover_minutes_total=0.0
     )
     assert day.shift_hours == 8.0
     assert day.floor_m2 == FLOOR_SHORT_M2
@@ -54,11 +54,11 @@ def test_short_day_uses_short_floor_and_ceiling() -> None:
 
 
 def test_changeover_consumes_capacity() -> None:
-    # Two 30-min changes = 60 min of booth time = 80 m² of ceiling lost (60/60 × 80).
+    # 60 min of booth time (two 30-min changes) = 80 m² of ceiling lost (60/60 × 80).
     day = compute_day_capacity(
-        ShiftLength.LONG, _orders(500.0), changeover_count=2, changeover_minutes=30.0
+        ShiftLength.LONG, _orders(500.0), changeover_count=2, changeover_minutes_total=60.0
     )
-    assert day.changeover_minutes_total == 60.0
+    assert day.changeover_count == 2
     assert day.changeover_loss_m2 == 80.0
     assert day.net_ceiling_m2 == 1040.0  # 1120 − 80
     assert day.gross_ceiling_m2 == 1120.0
@@ -67,7 +67,7 @@ def test_changeover_consumes_capacity() -> None:
 def test_over_ceiling_flags_spill_against_net_ceiling() -> None:
     # Net ceiling 1040 (1120 − 80 loss); placing 1100 m² spills 60 m².
     day = compute_day_capacity(
-        ShiftLength.LONG, _orders(600.0, 500.0), changeover_count=2, changeover_minutes=30.0
+        ShiftLength.LONG, _orders(600.0, 500.0), changeover_count=2, changeover_minutes_total=60.0
     )
     assert day.placed_m2 == 1100.0
     assert day.net_ceiling_m2 == 1040.0
@@ -78,7 +78,7 @@ def test_over_ceiling_flags_spill_against_net_ceiling() -> None:
 
 def test_empty_day_is_below_floor_with_full_headroom() -> None:
     day = compute_day_capacity(
-        ShiftLength.LONG, [], changeover_count=0, changeover_minutes=20.0
+        ShiftLength.LONG, [], changeover_count=0, changeover_minutes_total=0.0
     )
     assert day.placed_order_count == 0
     assert day.placed_m2 == 0.0
@@ -91,7 +91,7 @@ def test_negative_inputs_are_clamped() -> None:
         ShiftLength.LONG,
         [PlacedOrder(work_order_id=1, total_area_m2=None), PlacedOrder(work_order_id=2, total_area_m2=-50.0)],
         changeover_count=-3,
-        changeover_minutes=-10.0,
+        changeover_minutes_total=-10.0,
     )
     assert day.placed_m2 == 0.0
     assert day.changeover_count == 0

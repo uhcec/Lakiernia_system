@@ -460,3 +460,57 @@ frontend tests green, `tsc -b` clean.
 
 **Review-by:** none required — removal of an unconsumed/stats-only learned number; the kept occupancy
 measurement is pinned by new unit tests and the full suite.
+
+## 2026-06-29 — Drop the per-change changeover surface + the always-true "measured" flag (planner review)
+
+**Decision:** stop carrying the per-change changeover **minutes** as a model parameter and a read-model
+field, and delete the always-`True` `changeover_is_measured` flag. The day-capacity and good-day models
+now take the **total** changeover minutes directly (`changeover_loss_m2` is a pure `minutes → m²`
+function); the read models expose only the two numbers any UI actually shows — `changeover_count` (how
+many colour changes) and `changeover_loss_m2` (the m² of net ceiling they burn). Removed fields:
+`DayCapacityRead.changeover_minutes` / `changeover_minutes_total` / `changeover_is_measured`,
+`GoodDayMetricsRead.changeover_minutes_total`, `GoodDayStats.changeover_minutes_each` /
+`changeover_is_measured`, `PlannedDayRead.changeover_minutes`, `MultiDayPlanRead.changeover_minutes` /
+`changeover_is_measured` (and the matching TS types).
+
+**Why:** owner-decided 2026-06-29, continuing the planner review that removed the two learned estimates
+(above). Two leftovers from before the changeover cost became a real size-dependent **total** (CHANGES
+#5/#6): (a) the size-aware total was being divided by the change count into a per-change *average*, then
+handed to a model that multiplied it back by the count to recover the total — a pure round-trip
+(`count × average ≡ total`); (b) `changeover_is_measured` was the last vestige of the old learned-vs-seed
+distinction and was hardcoded `True` everywhere. Verified on the frontend: none of the per-change /
+total minute fields nor the flag are rendered anywhere — the board shows `changeover_count`, Statystyki
+shows `changeover_loss_m2`. So they were dead API weight whose only effect was inviting future drift.
+Given remove-the-dead-fields-too / internal-round-trip-only, the owner chose full removal — same stance
+as the learned-rate and line-measurements removals: don't carry a number the factory doesn't use.
+
+**Rejected:** *internal round-trip only* (collapse the arithmetic but keep the read fields) — rejected;
+it would leave dead, never-rendered fields in the API as drift bait, which is the thing the review is
+clearing.
+
+**Kept deliberately:** `colour.average_changeover_minutes` survives — the **multi-day placement** still
+needs a *per-change* rate, because each day's changeover count is only known mid-fill (it can't be
+handed a precomputed total). That is a legitimate, distinct use, not the round-trip. `place_orders` now
+computes its own per-day total (`count × per-change`) and calls the pure `changeover_loss_m2(total)`.
+
+**Implementation notes:**
+- `capacity.changeover_loss_m2(changeover_minutes_total, rate)` (was `(count, minutes, rate)`);
+  `compute_day_capacity(..., changeover_minutes_total=...)` keeps `changeover_count` only for display;
+  `DayCapacity` / `GoodDayMetrics` drop their minute fields. `summarize_day(..., changeover_minutes_total=...)`.
+- Service feeds the **total** (`sequence_changeover_minutes`) into the two fixed-sequence read paths
+  (single-day capacity, good-day); the multi-day path keeps the line average for `place_orders`.
+- Swept the same-vintage doc drift while here: the `placement.py` docstring's deleted-`docs/WORKFLOW.md`
+  citation + "light→dark sweep" (removed in CHANGES #7) and the "light → dark / direction-aware" prose
+  in `schemas.py` were corrected to "group identical colours".
+- No domain behaviour changed (the m² loss is identical — `count × average ≡ total`), so `SPEC.md` §9/§11
+  stay true and need no edit. Tests retargeted to the new signatures / observable
+  (`tests/test_capacity.py`, `test_good_day.py`, `test_good_day_service.py`, `test_day_capacity_service.py`,
+  `test_within_day_plan_service.py`, `test_planner_changeover_bound_na52.py`); the exact size-band minutes
+  stay unit-pinned in `test_colour.py`.
+
+**Expected:** the board / Statystyki render identically (`changeover_count`, `changeover_loss_m2`
+unchanged); the API sheds 8 never-rendered fields + an always-true flag; one fewer sequence walk in the
+two read paths. 601 backend + 134 frontend tests green, `tsc -b` + `vite build` + citation check clean.
+
+**Review-by:** none required — behaviour-preserving internal simplification + removal of unrendered API
+fields (frontend grepped clean); pinned by the retargeted suites.

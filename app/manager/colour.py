@@ -92,9 +92,10 @@ def sequence_changeover_minutes(orders: Sequence[SequencedOrder]) -> float:
 def average_changeover_minutes(orders: Sequence[SequencedOrder]) -> float:
     """Mean minutes per colour change for a sequence (total ÷ change count); 0 when no change occurs.
 
-    Lets the per-day capacity model — which costs ``changeover_count × minutes_each`` — consume a single
-    size-aware ``minutes_each`` derived from the real sequence, instead of a flat per-change constant
-    (N49-6). So the capacity m²-loss reflects size, not just a count.
+    Used by the **multi-day placement** (``placement.py``) as a single size-aware per-change rate: there
+    each day's changeover count is only known mid-fill, so the loss is valued as ``count × this rate``
+    rather than a flat per-change constant (N49-6). The fixed-sequence single-day / good-day models do
+    not need it — they value their m² loss from the sequence's total directly.
     """
     changes = 0
     for previous, current in zip(orders, orders[1:]):

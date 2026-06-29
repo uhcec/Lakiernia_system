@@ -55,12 +55,12 @@ def test_union_active_hours_empty_is_zero() -> None:
     assert union_active_hours([]) == 0.0
 
 
-def _summarize(activity: DayActivity, *, floor=800.0, shift=14.0, change_min=20.0, rate=80.0):
+def _summarize(activity: DayActivity, *, floor=800.0, shift=14.0, change_total=0.0, rate=80.0):
     return summarize_day(
         activity,
         floor_m2=floor,
         shift_hours=shift,
-        changeover_minutes_each=change_min,
+        changeover_minutes_total=change_total,
         ceiling_rate_m2_per_h=rate,
     )
 
@@ -81,12 +81,13 @@ def test_meets_floor_and_on_time() -> None:
 def test_below_floor_and_changeover_loss() -> None:
     metric = _summarize(
         DayActivity(date(2026, 6, 11), output_m2=500.0, orders_completed=2, orders_on_time=2,
-                    changeover_count=3, active_hours=8.0)
+                    changeover_count=3, active_hours=8.0),
+        change_total=60.0,  # 3 changes × 20 min
     )
     assert metric.met_floor is False
     assert metric.floor_shortfall_m2 == 300.0
-    assert metric.changeover_minutes_total == 60.0  # 3 × 20
-    # loss = 3 × 20 min / 60 × 80 m²/h = 80 m².
+    assert metric.changeover_count == 3
+    # loss = 60 min / 60 × 80 m²/h = 80 m².
     assert metric.changeover_loss_m2 == 80.0
     assert metric.on_time_pct == 100.0
 
@@ -105,7 +106,7 @@ def test_no_completions_yields_null_on_time() -> None:
 def test_summarize_period_rolls_up() -> None:
     days = [
         _summarize(DayActivity(date(2026, 6, 11), 900.0, 4, 3, 0, 12.0)),
-        _summarize(DayActivity(date(2026, 6, 12), 500.0, 2, 1, 3, 8.0)),
+        _summarize(DayActivity(date(2026, 6, 12), 500.0, 2, 1, 3, 8.0), change_total=60.0),
     ]
     totals = summarize_period(days)
     assert totals.days_count == 2
