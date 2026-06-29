@@ -23,7 +23,7 @@ def test_station_header_parser_rejects_invalid_value() -> None:
     with pytest.raises(InvalidStationIdentityError) as exc_info:
         parse_station_id("warehouse")
 
-    assert str(exc_info.value) == "Invalid station identity: warehouse."
+    assert str(exc_info.value) == "Nieprawidłowa tożsamość stanowiska: warehouse."
 
 
 def test_ensure_station_allowed_admin_bypasses_any_action() -> None:
@@ -82,7 +82,7 @@ def test_wrong_station_cannot_create_work_order(test_client: TestClient) -> None
 
     assert response.status_code == 403
     assert response.json()["detail"] == (
-        "Station PACKING is not allowed to perform office work-order actions. Allowed stations: OFFICE."
+        "Stanowisko PACKING nie może wykonać tej akcji (operacje biura na zleceniach). Dozwolone stanowiska: OFFICE."
     )
 
 
@@ -97,7 +97,7 @@ def test_wrong_station_cannot_assign_manager_plan(test_client: TestClient) -> No
 
     assert response.status_code == 403
     assert response.json()["detail"] == (
-        "Station OFFICE is not allowed to perform manager planning actions. Allowed stations: MANAGER."
+        "Stanowisko OFFICE nie może wykonać tej akcji (operacje planowania kierownika). Dozwolone stanowiska: MANAGER."
     )
 
 
@@ -116,7 +116,7 @@ def test_wrong_station_cannot_start_process_stage(test_client: TestClient) -> No
 
     assert blocked_response.status_code == 403
     assert blocked_response.json()["detail"] == (
-        "Station PACKING is not allowed to perform SURFACE_PREPARATION stage actions. Allowed stations: SURFACE_PREPARATION."
+        "Stanowisko PACKING nie może wykonać tej akcji (operacje etapu SURFACE_PREPARATION). Dozwolone stanowiska: SURFACE_PREPARATION."
     )
     assert allowed_response.status_code == 200
 
@@ -154,7 +154,7 @@ def test_wrong_station_cannot_complete_packing(test_client: TestClient) -> None:
     )
 
     assert response.status_code == 403
-    assert response.json()["detail"] == "Station HANGING is not allowed to perform PACKING actions. Allowed stations: PACKING."
+    assert response.json()["detail"] == "Stanowisko HANGING nie może wykonać tej akcji (operacje pakowania). Dozwolone stanowiska: PACKING."
 
 
 def test_stage_permissions_cover_hanging_manual_production_and_decoral(test_client: TestClient) -> None:
@@ -169,12 +169,12 @@ def test_stage_permissions_cover_hanging_manual_production_and_decoral(test_clie
 
     assert hanging_start_blocked.status_code == 403
     assert hanging_start_blocked.json()["detail"] == (
-        "Station PACKING is not allowed to perform HANGING stage actions. Allowed stations: HANGING."
+        "Stanowisko PACKING nie może wykonać tej akcji (operacje etapu HANGING). Dozwolone stanowiska: HANGING."
     )
     assert hanging_start_allowed.status_code == 200
     assert hanging_finish_blocked.status_code == 403
     assert hanging_finish_blocked.json()["detail"] == (
-        "Station MANUAL_PRODUCTION is not allowed to perform HANGING stage actions. Allowed stations: HANGING."
+        "Stanowisko MANUAL_PRODUCTION nie może wykonać tej akcji (operacje etapu HANGING). Dozwolone stanowiska: HANGING."
     )
     assert hanging_finish_allowed.status_code == 200
 
@@ -189,12 +189,12 @@ def test_stage_permissions_cover_hanging_manual_production_and_decoral(test_clie
 
     assert production_start_blocked.status_code == 403
     assert production_start_blocked.json()["detail"] == (
-        "Station HANGING is not allowed to perform PRODUCTION stage actions. Allowed stations: MANUAL_PRODUCTION."
+        "Stanowisko HANGING nie może wykonać tej akcji (operacje etapu PRODUCTION). Dozwolone stanowiska: MANUAL_PRODUCTION."
     )
     assert production_start_allowed.status_code == 200
     assert production_finish_blocked.status_code == 403
     assert production_finish_blocked.json()["detail"] == (
-        "Station PACKING is not allowed to perform PRODUCTION stage actions. Allowed stations: MANUAL_PRODUCTION."
+        "Stanowisko PACKING nie może wykonać tej akcji (operacje etapu PRODUCTION). Dozwolone stanowiska: MANUAL_PRODUCTION."
     )
     assert production_finish_allowed.status_code == 200
 
@@ -209,12 +209,12 @@ def test_stage_permissions_cover_hanging_manual_production_and_decoral(test_clie
 
     assert decoral_start_blocked.status_code == 403
     assert decoral_start_blocked.json()["detail"] == (
-        "Station PACKING is not allowed to perform DECORAL_PRODUCTION stage actions. Allowed stations: DECORAL_PRODUCTION."
+        "Stanowisko PACKING nie może wykonać tej akcji (operacje etapu DECORAL_PRODUCTION). Dozwolone stanowiska: DECORAL_PRODUCTION."
     )
     assert decoral_start_allowed.status_code == 200
     assert decoral_finish_blocked.status_code == 403
     assert decoral_finish_blocked.json()["detail"] == (
-        "Station MANUAL_PRODUCTION is not allowed to perform DECORAL_PRODUCTION stage actions. Allowed stations: DECORAL_PRODUCTION."
+        "Stanowisko MANUAL_PRODUCTION nie może wykonać tej akcji (operacje etapu DECORAL_PRODUCTION). Dozwolone stanowiska: DECORAL_PRODUCTION."
     )
     assert decoral_finish_allowed.status_code == 200
 
@@ -237,7 +237,7 @@ def test_automatic_production_station_authorization_precedes_manual_action_confl
 
     assert wrong_station_response.status_code == 403
     assert wrong_station_response.json()["detail"] == (
-        "Station HANGING is not allowed to perform PRODUCTION stage actions. Allowed stations: AUTOMATIC_PRODUCTION."
+        "Stanowisko HANGING nie może wykonać tej akcji (operacje etapu PRODUCTION). Dozwolone stanowiska: AUTOMATIC_PRODUCTION."
     )
     assert automatic_station_response.status_code == 409
     assert automatic_station_response.json()["detail"] == (
