@@ -1,3 +1,7 @@
 # Per-run simulation output (timelines, friction logs, invariant logs, transient state) is not
 # version-controlled — the harness is the reusable artifact; runs are reproducible output.
 runs/
+# Black-box UI simulation: screenshots + per-run insight reports (reproducible output, not source).
+ui_runs/
+# Throwaway sandbox DB seeded for the isolated UI sim run.
+sandbox/

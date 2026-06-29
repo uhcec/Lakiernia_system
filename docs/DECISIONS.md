@@ -514,3 +514,76 @@ two read paths. 601 backend + 134 frontend tests green, `tsc -b` + `vite build` 
 
 **Review-by:** none required — behaviour-preserving internal simplification + removal of unrendered API
 fields (frontend grepped clean); pinned by the retargeted suites.
+
+---
+
+## 2026-06-30 — undercount at surface prep silently redefines the order quantity is INTENDED
+
+**Decision:** when an operator finishes surface preparation with a counted quantity **below** the planned
+quantity (e.g. counts 3 of a planned 5), the order completes and its quantity is **redefined to the
+counted amount** (becomes a 3-piece order) with no warning. Overcount stays hard-blocked. This is
+**confirmed intended behaviour — not a bug.** No change to make.
+
+**Why** — owner-confirmed **2026-06-30**, full rationale given. The count the prep operator enters is the
+number of pieces that **physically arrived** at the station, which can differ from the quantity the
+client/office stated when the order was created. The factory must run the rest of the production chain
+(hanging, paint, packing) on **what is actually in the building**, not on the client's stated number — so
+the counted (physical) quantity *replaces* the ordered quantity and propagates downstream from that point.
+The client's figure was an expectation; the prep count is ground truth, and a shortfall is simply "fewer
+pieces showed up than ordered" — a normal fact to record, not an error to warn about. (This is why
+undercount silently shrinks the order and no warning is wanted; overcount is still blocked because you
+cannot prepare more pieces than the order is for.)
+
+**How this surfaced:** two independent zero-context UI-sim personas (2026-06-29/30 black-box run) flagged
+it as "[POSSIBLE BUG] undercount silently shrinks the order"; the simulation correctly observed the
+*behaviour*, and the owner's confirmation settles the *intent*. This is exactly the split the method
+expects: the sim surfaces, the owner adjudicates.
+
+**Rejected (by the owner's confirmation):** adding a shortfall warning, or splitting off the
+counted-short remainder as a separate quantity — both rejected as intended-away; the count *is* the order.
+
+**Implementation notes:** behaviour lives in the surface-prep finish path (`app/process/service.py`,
+`finish_stage` counted-quantity handling — the same method whose *overcount* guard at `:2486` raises the
+English string noted as a separate i18n issue). No code change from this decision; recorded so a future
+reader/session does not "fix" the intended shrink.
+
+**Expected:** undercount continues to redefine the order to the counted amount silently; overcount stays
+blocked. If a future change adds a shortfall warning, it must trace back to a *new* owner decision, not a
+silent reversal of this one.
+
+**Review-by:** none outstanding — the factory *why* is now captured (the physical prep count is ground
+truth and must propagate downstream in place of the client-stated quantity). Revisit only if a future
+requirement asks to surface the shortfall (e.g. notify the office that fewer pieces arrived), which would
+be an *addition* on top of this decision, not a reversal of the silent-shrink itself.
+
+---
+
+## 2026-06-30 — "Zastosuj plan" overriding a pin is INTENDED (explicit manager override)
+
+**Decision:** the multi-day "Zastosuj plan" (apply suggested order) **may move a PINNED order** — this is
+accepted behaviour, not a bug. Only the *other* arrangement action, "Ułóż automatycznie", honours pins.
+
+**Why** — owner-confirmed **2026-06-30**. "Zastosuj plan" is an **explicit** manager action: the board
+first shows "Twoja kolejność" vs "Sugerowana" side by side, and the manager deliberately chooses to apply
+the suggestion. An explicit, eyes-open apply is allowed to override a pin; the pin only protects against
+*implicit* auto-arrangement.
+
+**Code reality (traced 2026-06-30):** the suggested order comes from `place_orders`
+(`app/manager/placement.py:134`), pure earliest-deadline-first with no pin awareness, applied verbatim by
+`reorder_queue` (`app/manager/service.py:1596`). Pin-honouring lives only in `arrange_with_locks` /
+`scheduler.py:87-98` ("Ułóż automatycznie"). This asymmetry is now **intended**, not accidental.
+
+**Rejected:** making the suggested-order/apply path pin-aware like auto-arrange — rejected; the owner wants
+the explicit apply to be a genuine override.
+
+**Residual (NOT a logic change):** the pin badge copy over-promises — "Zlecenie przypięte — układanie
+automatyczne nie ruszy go z miejsca" / "układanie automatyczne nie ruszy go z miejsca"
+(`frontend/src/pages/ManagerPanelPage.tsx:626`) reads as if *all* automatic arrangement is blocked. A
+future copy tweak should scope it to "Ułóż automatycznie" so it doesn't imply protection from "Zastosuj
+plan". Pure wording; no behaviour change. Not done now (owner has not greenlit fixes).
+
+**Expected:** "Zastosuj plan" continues to apply the deadline-ordered suggestion even over pinned orders;
+"Ułóż automatycznie" continues to hold pins at their index. If anyone later makes the suggested apply
+pin-aware, it must trace to a new owner decision, not a silent reversal of this one.
+
+**Review-by:** none required — confirmed-intended behaviour; revisit only if the badge wording is corrected.
