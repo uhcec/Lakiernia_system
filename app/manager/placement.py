@@ -1,6 +1,6 @@
 """Deadline-feasible multi-day placement (N49-4 under NA49).
 
-The day-capacity model (``capacity.py``, N49-3) bounds *one* day; this module lays the line's orders
+The day-capacity helpers (``capacity.py``, N49-3) bound *one* day (floor + net ceiling); this module lays the line's orders
 across a sequence of working days so no hard pickup deadline is missed. It is the heart of the planner:
 the factory's real job is to hit the daily m² floor while shipping every order on time, and one large
 order can fill a whole day, so "what order, on which day?" is a capacity question, not a single-list

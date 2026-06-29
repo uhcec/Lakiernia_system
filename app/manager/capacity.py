@@ -1,7 +1,6 @@
-"""Day-capacity model — the floor + ceiling of one working day (N49-3 under NA49).
+"""Shared day-capacity constants + helpers (N49-3 under NA49).
 
-The multi-day capacity planner treats each working day as a bucket bounded by two numbers
-(``docs/SPEC.md`` §9 "Planner numbers"):
+The factory bounds each working day by two numbers (``docs/SPEC.md`` §9 "Planner numbers"):
 
 * a **floor** — the minimum *profitable* m² (800 on a long day, 500 on a short day). A day is *bad*
   when it falls **below** the floor (too little product), not when it is busy. The floors are fixed
@@ -12,17 +11,16 @@ The multi-day capacity planner treats each working day as a bucket bounded by tw
   line rate (the premature effective-rate estimate was removed; it drove no planning decision).
 
 A **colour change consumes capacity**: the booth is not painting during a changeover, so each change
-costs ``changeover_minutes`` of booth time, i.e. m² of ceiling that can no longer be filled. The model
-folds that loss into a *net* ceiling so "fill vs ceiling" already accounts for the day's colour
-changes. The changeover cost itself is the bounded N49-6 size band (15/30 min), not a learned estimate.
+costs booth time (``changeover_loss_m2``), i.e. m² of ceiling that can no longer be filled. The cost is
+the bounded N49-6 size band (15/30 min), not a learned estimate.
 
-Like ``scheduler.py`` this module is deliberately DB-free: it takes plain value objects (the placed
-orders + the size-band changeover cost) and returns a ``DayCapacity`` value object, so the arithmetic
-is fully unit-testable and the service layer only supplies the data.
+This module holds those constants and the DB-free helpers that turn them into a day's floor/ceiling
+(``shift_hours`` / ``floor_m2`` / ``remaining_shift_hours``) and value its colour changes
+(``changeover_minutes_for_transition`` / ``changeover_loss_m2``). The multi-day planner
+(``placement.py``) and good-day stats (``good_day.py``) compose them into per-day buckets; like
+``scheduler.py`` it stays free of any DB/ORM dependency so the arithmetic is fully unit-testable.
 """
 
-from collections.abc import Sequence
-from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
 
@@ -55,40 +53,6 @@ CHANGEOVER_BAND_LARGE_MINUTES = 30.0  # next order > threshold ("z odzysku")
 class ShiftLength(str, Enum):
     LONG = "LONG"
     SHORT = "SHORT"
-
-
-@dataclass(frozen=True)
-class PlacedOrder:
-    """The minimal projection of an order placed on a day the capacity model needs: its m²."""
-
-    work_order_id: int
-    total_area_m2: float | None
-
-
-@dataclass(frozen=True)
-class DayCapacity:
-    """One working day as a capacity bucket: its floor/ceiling and how the placed work fills it."""
-
-    shift_length: ShiftLength
-    shift_hours: float
-    floor_m2: float
-    ceiling_rate_m2_per_h: float
-    # Physical ceiling before any colour-changeover loss (rate × shift hours).
-    gross_ceiling_m2: float
-    changeover_count: int
-    # m² of physical ceiling consumed by the day's colour changes (booth not painting during a change).
-    changeover_loss_m2: float
-    # What is physically paintable today once changeover loss is removed (the real fill bound).
-    net_ceiling_m2: float
-    placed_order_count: int
-    placed_m2: float
-    # placed_m2 < floor_m2 — the day is below the profitable minimum (a bad day).
-    below_floor: bool
-    # placed_m2 > net_ceiling_m2 — the day is overcommitted; spill_m2 won't physically fit.
-    over_ceiling: bool
-    spill_m2: float
-    # net_ceiling_m2 − placed_m2 when not over (how much more the day can still take), else 0.
-    headroom_m2: float
 
 
 def shift_hours(shift_length: ShiftLength) -> float:
@@ -146,47 +110,3 @@ def remaining_shift_hours(now: datetime, shift_length: ShiftLength) -> float:
     if current_hour <= SHIFT_START_HOUR:
         return full
     return max(min(SHIFT_START_HOUR + full - current_hour, full), 0.0)
-
-
-def compute_day_capacity(
-    shift_length: ShiftLength,
-    placed_orders: Sequence[PlacedOrder],
-    *,
-    changeover_count: int,
-    changeover_minutes_total: float,
-    ceiling_rate_m2_per_h: float = CEILING_BOOTH_RATE_M2_PER_H,
-) -> DayCapacity:
-    """Compute a day's floor/ceiling fill from its placed orders and the size-band changeover cost.
-
-    ``changeover_count`` is the day's number of colour changes (informational); ``changeover_minutes_total``
-    is the size-band cost of those changes, which is what actually shrinks the net ceiling.
-    """
-    hours = shift_hours(shift_length)
-    floor = floor_m2(shift_length)
-    gross_ceiling = ceiling_rate_m2_per_h * hours
-
-    safe_changeover_count = max(changeover_count, 0)
-    changeover_loss = changeover_loss_m2(changeover_minutes_total, ceiling_rate_m2_per_h)
-    net_ceiling = max(gross_ceiling - changeover_loss, 0.0)
-
-    placed_m2 = sum(max(order.total_area_m2 or 0.0, 0.0) for order in placed_orders)
-    over_ceiling = placed_m2 > net_ceiling
-    spill = max(placed_m2 - net_ceiling, 0.0)
-    headroom = max(net_ceiling - placed_m2, 0.0)
-
-    return DayCapacity(
-        shift_length=shift_length,
-        shift_hours=hours,
-        floor_m2=round(floor, 2),
-        ceiling_rate_m2_per_h=round(ceiling_rate_m2_per_h, 1),
-        gross_ceiling_m2=round(gross_ceiling, 2),
-        changeover_count=safe_changeover_count,
-        changeover_loss_m2=round(changeover_loss, 2),
-        net_ceiling_m2=round(net_ceiling, 2),
-        placed_order_count=len(placed_orders),
-        placed_m2=round(placed_m2, 2),
-        below_floor=placed_m2 < floor,
-        over_ceiling=over_ceiling,
-        spill_m2=round(spill, 2),
-        headroom_m2=round(headroom, 2),
-    )

@@ -271,33 +271,6 @@ class DayShiftLengthUpdate(BaseModel):
     shift_length: ShiftLength
 
 
-class DayCapacityRead(BaseModel):
-    """One working day as a capacity bucket — floor + ceiling + how the line's planned work fills it.
-
-    Read-side of N49-3: the day-capacity foundation the multi-day placement (N49-4) and the capacity
-    board (N49-9) build on. The ``shift_length`` is **set by the manager** (CHANGES #4); when the caller
-    omits it the planner defaults to LONG (it no longer advises from available work). The day's colour
-    changes are surfaced as ``changeover_count`` (how many) and ``changeover_loss_m2`` (the m² of net
-    ceiling they burn — size-band-aware, N49-6, the 100 m² odzysk band).
-    """
-
-    production_type: ProductionType
-    shift_length: ShiftLength
-    shift_hours: float
-    floor_m2: float
-    ceiling_rate_m2_per_h: float
-    gross_ceiling_m2: float
-    net_ceiling_m2: float
-    changeover_count: int
-    changeover_loss_m2: float
-    placed_order_count: int
-    placed_m2: float
-    below_floor: bool
-    over_ceiling: bool
-    spill_m2: float
-    headroom_m2: float
-
-
 class OrderPlacementRead(BaseModel):
     """Where one order landed in the multi-day plan and whether that still ships it on time (N49-4).
 

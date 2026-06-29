@@ -123,17 +123,17 @@ Details:
 - ✅ Profitable **floor**: 800 m² (long day) / 500 m² (short day). `app/manager/capacity.py:33-36`
 - ✅ Shifts: long = 07:00–21:00 (14 h), short = 07:00–15:00 (8 h). `app/manager/capacity.py:32-38`
 - ✅ Booth physical rate band 60–100 m²/h, midpoint **80** used. `app/manager/capacity.py:41-43`
-- ✅ **(CHANGE #4 done 2026-06-26; frontend wired 2026-06-27)** the manager **sets** the shift length **per day** (LONG/SHORT) from the capacity board; it is persisted in `day_shift_lengths` and read per-day to drive the plan — both the day's floor/hours **and** the fill (a SHORT day's smaller net ceiling holds less and pushes overflow forward). An unset day defaults to LONG; the m²-based advising (incl. the old load-derived per-day `display_shift_for`) was removed. `app/manager/service.py:1123-1124` (day capacity), `1248-1252` (per-day plan), `app/manager/placement.py:134-198`
-- ✅ Colour-change cost by **size only**: next order ≤100 m² → 15 min; >100 m² → 30 min. `app/manager/capacity.py:45-55`, `app/manager/capacity.py:127-147`
+- ✅ **(CHANGE #4 done 2026-06-26; frontend wired 2026-06-27)** the manager **sets** the shift length **per day** (LONG/SHORT) from the capacity board; it is persisted in `day_shift_lengths` and read per-day to drive the plan — both the day's floor/hours **and** the fill (a SHORT day's smaller net ceiling holds less and pushes overflow forward). An unset day defaults to LONG; the m²-based advising (incl. the old load-derived per-day `display_shift_for`) was removed. `app/manager/service.py:1102-1106` (per-day plan shift), `855-861` (good-day per-day shift), `app/manager/placement.py:134-198`
+- ✅ Colour-change cost by **size only**: next order ≤100 m² → 15 min; >100 m² → 30 min. `app/manager/capacity.py:48-52`, `app/manager/capacity.py:82-97`
   - ✅ **(CHANGE #5 done 2026-06-26)** the colour-**direction** factor (light→dark cheaper) was removed — a colour change costs its size band regardless of direction.
-- ✅ The 100 m² threshold equals the paint/odzysk threshold. `app/manager/capacity.py:53`
+- ✅ The 100 m² threshold equals the paint/odzysk threshold. `app/manager/capacity.py:48`
 - ✅ Planning horizon = **3 working days** (today + next two), default and hard cap. `app/manager/service.py:182-185`
 - ✅ Calendar: Mon–Fri working, Sat/Sun off, no holiday list. `app/manager/placement.py:40-45`
 - ✅ Day 0 is pro-rated to hours left in today's shift. `app/manager/placement.py:205-216`
 - ✅ Placement is earliest-deadline-first into net-ceiling days; an order bigger than a day stands alone and is flagged over-ceiling; an order past its deadline / horizon is flagged "won't make it". `app/manager/placement.py:134-284`
 - ✅ **(CHANGE #6 done 2026-06-26)** Two scheduling rules only — **deadline → colour** (default order); the "max-throughput" rule was removed. `app/manager/enums.py:4-43`, `app/manager/scheduler.py:42-57`
 - ✅ **(CHANGE #7 done 2026-06-26)** colour-"lightness" guessing from the RAL code (and the light→dark sweep) was **removed**; within-day colour planning is now just **grouping identical colours** (groups ordered alphabetically by colour identity), cost = number of changes × the size band. `app/manager/colour.py:48-69`
-- ✅ Line suggestion: small (≤100 m²) **and** colour-orphan → manual; else automatic; manager-overridable. `app/manager/colour.py:128-150`
+- ✅ Line suggestion: small (≤100 m²) **and** colour-orphan → manual; else automatic; manager-overridable. `app/manager/colour.py:129-151`
 - ✅ Paint feasibility: BLOCKED (metered colour out / insufficient for first order), WARNING (runs short later, or manual-used low-confidence), OK otherwise. `app/manager/paint_feasibility.py:85-98`
   - ✅ **(CHANGE #8 done 2026-06-26)** an **untracked** coloured order (no stock entered — no row or only the 0-kg placeholder) is now a distinct **STOCK_NOT_ENTERED** state (surfaced via `stock_not_entered_order_ids`), not a silent OK; it is never hard-blocked. A truly colourless order stays OK. `app/manager/paint_feasibility.py:29-37`, `116-175`
 

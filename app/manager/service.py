@@ -25,9 +25,7 @@ from app.manager.capacity import (
     CEILING_BOOTH_RATE_M2_PER_H,
     FLOOR_LONG_M2,
     SHIFT_LONG_HOURS,
-    PlacedOrder,
     ShiftLength,
-    compute_day_capacity,
     floor_m2,
     remaining_shift_hours,
     shift_hours,
@@ -76,7 +74,6 @@ from app.manager.schemas import (
     CycleTimeBreakdown,
     CycleTimeSegment,
     CycleTimeStats,
-    DayCapacityRead,
     DayShiftLengthRead,
     GoodDayMetricsRead,
     GoodDayStats,
@@ -1043,78 +1040,6 @@ class ManagerService:
             for work_order, hanging_started_at, packing_done_at in rows
         ]
 
-    def get_day_capacity(
-        self,
-        production_type: ProductionType = ProductionType.AUTOMATIC,
-        station_context: StationContext | None = None,
-    ) -> DayCapacityRead:
-        """Day-capacity snapshot for a line's currently-planned work (N49-3, the planner foundation).
-
-        Buckets the line's active planned orders into one working day, showing fill vs the floor
-        (800/500 m²) and the net ceiling (physical booth capacity minus colour-changeover loss). The
-        orders are first reordered to **group identical colours** (N49-5), then the day's changeover
-        cost is computed **size-band-aware** (N49-6): each colour change costs the 100 m² odzysk band,
-        so the m² loss (``changeover_loss_m2``) reflects size, not a flat per-change count.
-        The day runs the shift length the manager set for today (CHANGES #4/#9), read from
-        ``day_shift_lengths``; an unset day defaults to LONG. Pure arithmetic lives in
-        ``app/manager/capacity.py`` / ``app/manager/colour.py``.
-        """
-        self._ensure_manager_station_action(station_context)
-
-        active_orders = self._active_planned_orders_for_line(production_type)
-
-        persisted_today = self.repository.get_day_shift_length(clock.now().date())
-        resolved_shift = (
-            ShiftLength(persisted_today.shift_length) if persisted_today is not None else ShiftLength.LONG
-        )
-
-        # Reorder the day to group identical colours (N49-5) so the changeover count + cost reflect the
-        # arrangement the planner would actually run, not the raw queue order.
-        swept_ids = group_identical_colours(
-            [
-                ColourOrderable(
-                    work_order_id=work_order.id,
-                    colour_key=self._order_colour_key(work_order),
-                )
-                for work_order in active_orders
-            ]
-        )
-        orders_by_id = {work_order.id: work_order for work_order in active_orders}
-        swept_orders = [orders_by_id[order_id] for order_id in swept_ids]
-        placed_orders = [
-            PlacedOrder(work_order_id=work_order.id, total_area_m2=work_order.total_area_m2)
-            for work_order in swept_orders
-        ]
-
-        colour_by_id = {work_order.id: self._order_colour_key(work_order) for work_order in swept_orders}
-        changeover_count = colour_changeovers_for_order_ids(swept_ids, colour_by_id)
-        day_changeover_minutes_total, _avg = self._day_changeover_minutes(swept_orders)
-
-        day = compute_day_capacity(
-            resolved_shift,
-            placed_orders,
-            changeover_count=changeover_count,
-            changeover_minutes_total=day_changeover_minutes_total,
-        )
-
-        return DayCapacityRead(
-            production_type=production_type,
-            shift_length=day.shift_length,
-            shift_hours=day.shift_hours,
-            floor_m2=day.floor_m2,
-            ceiling_rate_m2_per_h=day.ceiling_rate_m2_per_h,
-            gross_ceiling_m2=day.gross_ceiling_m2,
-            net_ceiling_m2=day.net_ceiling_m2,
-            changeover_count=day.changeover_count,
-            changeover_loss_m2=day.changeover_loss_m2,
-            placed_order_count=day.placed_order_count,
-            placed_m2=day.placed_m2,
-            below_floor=day.below_floor,
-            over_ceiling=day.over_ceiling,
-            spill_m2=day.spill_m2,
-            headroom_m2=day.headroom_m2,
-        )
-
     def get_multi_day_plan(
         self,
         production_type: ProductionType = ProductionType.AUTOMATIC,
@@ -1167,7 +1092,7 @@ class ManagerService:
                 for work_order in active_orders
             ]
         )
-        _line_total_minutes, line_avg_changeover_minutes = self._day_changeover_minutes(
+        line_avg_changeover_minutes = self._line_changeover_rate_per_change(
             [orders_by_id[order_id] for order_id in line_swept_ids]
         )
         working_days = working_days_from(clock.now().date(), horizon_working_days)
@@ -1810,16 +1735,15 @@ class ManagerService:
             total_area_m2=work_order.total_area_m2,
         )
 
-    def _day_changeover_minutes(self, ordered_work_orders: list[WorkOrder]) -> tuple[float, float]:
-        """(total, average-per-change) size-band changeover minutes for a day's colour-grouped order.
+    def _line_changeover_rate_per_change(self, ordered_work_orders: list[WorkOrder]) -> float:
+        """Average size-band minutes per colour change for a colour-grouped line (N49-6).
 
-        The **total** is what the day actually loses to colour changes (N49-6) — what the fixed-sequence
-        models (``compute_day_capacity`` / ``summarize_day``) value their m² loss from. The **average**
-        per-change is what the multi-day placement uses as a flat rate, because its per-day changeover
-        count is only known mid-fill. Caller passes the orders already in their within-day colour-grouped
-        order (``group_identical_colours``)."""
+        The multi-day placement uses this as a flat per-change rate, because each day's changeover count
+        is only known mid-fill. Caller passes the orders already in their within-day colour-grouped order
+        (``group_identical_colours``). The good-day path values its loss from the sequence *total*
+        directly (``sequence_changeover_minutes``), so it does not go through here."""
         sequence = [self._sequenced_order(work_order) for work_order in ordered_work_orders]
-        return sequence_changeover_minutes(sequence), average_changeover_minutes(sequence)
+        return average_changeover_minutes(sequence)
 
     def _resolve_rule_config(self, production_type: ProductionType) -> list[tuple[ScheduleRuleKey, bool]]:
         """The stored (key, enabled) priority list for a line, falling back to the all-enabled default.
