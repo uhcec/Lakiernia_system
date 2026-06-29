@@ -120,7 +120,7 @@ def test_przemalowanka_is_independent_and_skips_surface_preparation(db_session: 
     with pytest.raises(InvalidProcessStageTransitionError) as exc_info:
         process_service.start_stage(work_order_id, ProcessStage.SURFACE_PREPARATION)
 
-    assert str(exc_info.value) == "Przemalowanka work orders do not go through surface preparation."
+    assert str(exc_info.value) == "Przemalowanki nie przechodzą przez przygotowanie powierzchni."
 
     production_start = process_service.start_stage(work_order_id, ProcessStage.PRODUCTION)
     assert production_start.stage_status.status.value == StageStatus.IN_PROGRESS

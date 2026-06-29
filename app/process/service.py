@@ -60,14 +60,20 @@ class StageQuantities:
 
 
 class ProcessService:
+    # i18n convention for InvalidProcessStageTransitionError messages: the frontend surfaces a 4xx
+    # `detail` verbatim to the operator (see frontend getMutationErrorMessage), so **operator-facing
+    # reasons are written in Polish** (a rejection the operator can act on — wrong count, wrong state,
+    # missing paint, etc.). The remaining English messages are **internal state-machine guards** for
+    # illegal transitions the UI cannot produce (e.g. "Cannot transition stage X from A to B", "... is
+    # not configured for work order Y") — developer diagnostics, not operator copy, so they stay English.
     DEFAULT_CORRECTION_RETURN_STAGE = ProcessStage.PRODUCTION
     AUTOMATIC_PRODUCTION_MANUAL_ACTION_ERROR = (
-        "Automatic production does not use manual start/finish. Finish HANGING to enter automatic production and complete from PACKING."
+        "Produkcja automatyczna nie korzysta z ręcznego rozpoczęcia/zakończenia. Zakończ ZAWIESZANIE, aby wejść na produkcję automatyczną, a zlecenie zakończ z poziomu PAKOWANIA."
     )
-    AUTOMATIC_PAINT_CONSUMPTION_REQUIRED_ERROR = "Automatic paint consumption must be recorded before packing can be completed."
-    AUTOMATIC_PAINT_CONSUMPTION_CONFIGURATION_ERROR = "Paint code must be configured before automatic paint consumption can be recorded."
-    AUTOMATIC_PAINT_CONSUMPTION_STAGE_ERROR = "Automatic paint consumption can be recorded once HANGING has started."
-    AUTOMATIC_PAINT_CONSUMPTION_ALREADY_RECORDED_ERROR = "Automatic paint consumption cannot be edited after it has been saved. Use a manual office stock adjustment if a correction is required."
+    AUTOMATIC_PAINT_CONSUMPTION_REQUIRED_ERROR = "Przed zakończeniem pakowania trzeba zarejestrować zużycie farby na automacie."
+    AUTOMATIC_PAINT_CONSUMPTION_CONFIGURATION_ERROR = "Trzeba ustawić kod farby, zanim będzie można zarejestrować zużycie farby na automacie."
+    AUTOMATIC_PAINT_CONSUMPTION_STAGE_ERROR = "Zużycie farby na automacie można zarejestrować po rozpoczęciu ZAWIESZANIA."
+    AUTOMATIC_PAINT_CONSUMPTION_ALREADY_RECORDED_ERROR = "Zużycia farby na automacie nie można edytować po zapisaniu. Jeśli potrzebna jest korekta, wykonaj ręczną korektę stanu magazynu w biurze."
     # Operator-facing (Polish) reasons surfaced on the packing card when an automatic order is being
     # packed in parallel with the line but cannot be *completed* yet (mirror the complete_packing guards).
     PACKING_COMPLETION_BLOCKED_HANGING_PL = "Nie można zakończyć pakowania, dopóki nie zakończy się zawieszanie."
@@ -508,7 +514,7 @@ class ProcessService:
 
         if work_order.current_active_quantity == 0:
             raise InvalidProcessStageTransitionError(
-                "Cannot reopen process stages because the work order has no active quantity remaining."
+                "Nie można ponownie otworzyć etapów, ponieważ w zleceniu nie pozostała żadna aktywna ilość."
             )
 
         if stage_state.status == StageStatus.DONE:
@@ -549,7 +555,7 @@ class ProcessService:
                 if self._has_tracked_batch_already_finished_stage(work_order, target_batch, ProcessStage.PACKING):
                     return self._to_stage_work_order_read(work_order, ProcessStage.PACKING, batch=target_batch)
                 if target_batch.current_stage != ProcessStage.PACKING:
-                    raise InvalidProcessStageTransitionError("Batch is not ready for packing.")
+                    raise InvalidProcessStageTransitionError("Partia nie jest gotowa do pakowania.")
                 self.resource_locks.acquire_packing_slot(work_order, override=override)
                 if override and not already_held:
                     self.audit.record_packing_override_audit_event(work_order, station_context, batch_id=target_batch.id)
@@ -574,7 +580,7 @@ class ProcessService:
                 return self._to_idempotent_packing_response(work_order)
 
             if work_order.production_type == ProductionType.AUTOMATIC and hanging_state.status != StageStatus.DONE:
-                raise InvalidProcessStageTransitionError("Automatic hanging must be finished before packing.")
+                raise InvalidProcessStageTransitionError("Trzeba zakończyć zawieszanie automatu przed pakowaniem.")
 
             if packing_state.status == StageStatus.NOT_STARTED:
                 # Validates prerequisites (previous stage DONE, workflow membership) before claiming.
@@ -695,12 +701,12 @@ class ProcessService:
                 return self._to_idempotent_packing_response(work_order)
 
             if work_order.production_type == ProductionType.AUTOMATIC and hanging_state.status == StageStatus.IN_PROGRESS:
-                raise InvalidProcessStageTransitionError("Automatic hanging must be finished before packing.")
+                raise InvalidProcessStageTransitionError("Trzeba zakończyć zawieszanie automatu przed pakowaniem.")
 
             self._ensure_automatic_paint_consumption_recorded_before_packing(work_order)
 
             if packing_state.status != StageStatus.IN_PROGRESS:
-                raise InvalidProcessStageTransitionError("Packing can be completed only from IN_PROGRESS state.")
+                raise InvalidProcessStageTransitionError("Pakowanie można zakończyć tylko ze stanu W TRAKCIE.")
 
             # Confirm a packing slot before mutating: idempotent if this order started packing, else
             # take any free slot (completion is capacity-bound — the start action is the gate). 409
@@ -709,15 +715,15 @@ class ProcessService:
 
             active_batch = work_order.active_batch
             if active_batch is None:
-                raise InvalidProcessStageTransitionError("No active quantity batch available for packing.")
+                raise InvalidProcessStageTransitionError("Brak aktywnej partii ilościowej do pakowania.")
 
             if ok_quantity + correction_quantity != counted_quantity:
                 raise InvalidProcessStageTransitionError(
-                    "Packing quantities must add up to the counted quantity."
+                    "Ilości pakowania muszą sumować się do policzonej ilości."
                 )
 
             if ok_quantity < 0 or correction_quantity < 0:
-                raise InvalidProcessStageTransitionError("Packing quantities cannot be negative.")
+                raise InvalidProcessStageTransitionError("Ilości pakowania nie mogą być ujemne.")
 
             planned_quantity = active_batch.quantity
             if self._is_in_correction_round(work_order):
@@ -845,7 +851,7 @@ class ProcessService:
             self._ensure_automatic_production_station_action(station_context)
 
             if work_order.production_type != ProductionType.AUTOMATIC:
-                raise InvalidProcessStageTransitionError("Paint consumption can be recorded only for automatic production work orders.")
+                raise InvalidProcessStageTransitionError("Zużycie farby można rejestrować tylko dla zleceń produkcji automatycznej.")
 
             hanging_state = self._get_stage_state(work_order, ProcessStage.HANGING)
             packing_state = self._get_stage_state(work_order, ProcessStage.PACKING)
@@ -922,7 +928,7 @@ class ProcessService:
             )
 
             if work_order.coating_type != CoatingType.DECORAL:
-                raise InvalidProcessStageTransitionError("Decoral production completion is only for DECORAL orders.")
+                raise InvalidProcessStageTransitionError("Zakończenie produkcji Decoral dotyczy tylko zleceń DECORAL.")
 
             target_batch = self._resolve_batch_for_stage(work_order, ProcessStage.DECORAL_PRODUCTION, batch_id)
 
@@ -944,12 +950,12 @@ class ProcessService:
                 return self._to_stage_work_order_read(work_order, ProcessStage.DECORAL_PRODUCTION)
 
             if decoral_state.status != StageStatus.IN_PROGRESS:
-                raise InvalidProcessStageTransitionError("Decoral production can be completed only from IN_PROGRESS state.")
+                raise InvalidProcessStageTransitionError("Produkcję Decoral można zakończyć tylko ze stanu W TRAKCIE.")
 
             active_batch = work_order.active_batch
             total = ok_quantity + correction_quantity
             if total <= 0:
-                raise InvalidProcessStageTransitionError("Total quantity must be greater than zero.")
+                raise InvalidProcessStageTransitionError("Łączna ilość musi być większa od zera.")
 
             if correction_quantity > 0:
                 packing_state = self._get_stage_state(work_order, ProcessStage.PACKING)
@@ -1015,11 +1021,11 @@ class ProcessService:
             return self._to_stage_work_order_read(work_order, ProcessStage.DECORAL_PRODUCTION, batch=batch)
 
         if batch.current_stage != ProcessStage.DECORAL_PRODUCTION or batch.current_stage_status != StageStatus.IN_PROGRESS:
-            raise InvalidProcessStageTransitionError("Decoral production can be completed only from IN_PROGRESS state.")
+            raise InvalidProcessStageTransitionError("Produkcję Decoral można zakończyć tylko ze stanu W TRAKCIE.")
 
         total = ok_quantity + correction_quantity
         if total <= 0 or total != batch.quantity:
-            raise InvalidProcessStageTransitionError("Quantities must be greater than zero and match the batch quantity.")
+            raise InvalidProcessStageTransitionError("Ilości muszą być większe od zera i zgodne z ilością partii.")
 
         if correction_quantity > 0:
             self._reset_to_correction_planning(
@@ -1363,13 +1369,13 @@ class ProcessService:
         normalized_category = cls._normalize_optional_text(correction_reason_category)
         normalized_note = cls._normalize_optional_text(correction_reason_note)
         if normalized_category is not None and len(normalized_category) > 64:
-            raise InvalidProcessStageTransitionError("Correction reason category must be at most 64 characters.")
+            raise InvalidProcessStageTransitionError("Kategoria przyczyny poprawki może mieć najwyżej 64 znaki.")
         if normalized_note is not None and len(normalized_note) > 500:
-            raise InvalidProcessStageTransitionError("Correction reason note must be at most 500 characters.")
+            raise InvalidProcessStageTransitionError("Notatka przyczyny poprawki może mieć najwyżej 500 znaków.")
         if correction_quantity > 0 and normalized_category is None:
-            raise InvalidProcessStageTransitionError("Correction reason is required when correction quantity is greater than zero.")
+            raise InvalidProcessStageTransitionError("Przyczyna poprawki jest wymagana, gdy ilość poprawki jest większa od zera.")
         if correction_quantity == 0 and (normalized_category is not None or normalized_note is not None):
-            raise InvalidProcessStageTransitionError("Correction reason can only be set when correction quantity is greater than zero.")
+            raise InvalidProcessStageTransitionError("Przyczynę poprawki można podać tylko, gdy ilość poprawki jest większa od zera.")
         return normalized_category, normalized_note
 
     @staticmethod
@@ -1381,19 +1387,19 @@ class ProcessService:
         if correction_quantity == 0:
             if correction_profiles_quantity is not None or correction_accessories_quantity is not None:
                 raise InvalidProcessStageTransitionError(
-                    "Correction category quantities can only be set when correction quantity is greater than zero."
+                    "Ilości w kategoriach poprawki można podać tylko, gdy ilość poprawki jest większa od zera."
                 )
             return {}
 
         if correction_profiles_quantity is None or correction_accessories_quantity is None:
             raise InvalidProcessStageTransitionError(
-                "Correction profile and accessory quantities are required when correction quantity is greater than zero."
+                "Ilości profili i akcesoriów w poprawce są wymagane, gdy ilość poprawki jest większa od zera."
             )
         if correction_profiles_quantity < 0 or correction_accessories_quantity < 0:
-            raise InvalidProcessStageTransitionError("Correction category quantities cannot be negative.")
+            raise InvalidProcessStageTransitionError("Ilości w kategoriach poprawki nie mogą być ujemne.")
         if correction_profiles_quantity + correction_accessories_quantity != correction_quantity:
             raise InvalidProcessStageTransitionError(
-                "Correction profile and accessory quantities must add up to correction quantity."
+                "Ilości profili i akcesoriów w poprawce muszą sumować się do ilości poprawki."
             )
 
         return {
@@ -1474,10 +1480,10 @@ class ProcessService:
     @staticmethod
     def _get_surface_preparation_skipped_message(work_order: WorkOrder) -> str:
         if work_order.is_correction:
-            return "Correction orders do not go through surface preparation."
+            return "Zlecenia poprawkowe nie przechodzą przez przygotowanie powierzchni."
         if work_order.work_order_kind == WorkOrderKind.PRZEMALOWANKA:
-            return "Przemalowanka work orders do not go through surface preparation."
-        return "Correction rounds do not go through surface preparation."
+            return "Przemalowanki nie przechodzą przez przygotowanie powierzchni."
+        return "Rundy poprawkowe nie przechodzą przez przygotowanie powierzchni."
 
     def _is_visible_in_automatic_production_preview(
         self,
@@ -1733,7 +1739,7 @@ class ProcessService:
             )
 
         if batch.current_stage_status == StageStatus.DONE:
-            raise InvalidProcessStageTransitionError("Finished tracked batches cannot be reopened.")
+            raise InvalidProcessStageTransitionError("Zakończonych śledzonych partii nie można ponownie otworzyć.")
 
         batch.current_stage_status = StageStatus.NOT_STARTED
         batch.is_active = True
@@ -1768,11 +1774,11 @@ class ProcessService:
             return self._to_stage_work_order_read(work_order, ProcessStage.PACKING, batch=batch)
 
         if batch.current_stage != ProcessStage.PACKING or batch.current_stage_status != StageStatus.IN_PROGRESS:
-            raise InvalidProcessStageTransitionError("Packing can be completed only from IN_PROGRESS state.")
+            raise InvalidProcessStageTransitionError("Pakowanie można zakończyć tylko ze stanu W TRAKCIE.")
         if ok_quantity < 0 or correction_quantity < 0:
-            raise InvalidProcessStageTransitionError("Packing quantities cannot be negative.")
+            raise InvalidProcessStageTransitionError("Ilości pakowania nie mogą być ujemne.")
         if ok_quantity + correction_quantity != counted_quantity:
-            raise InvalidProcessStageTransitionError("Packing quantities must add up to the counted quantity.")
+            raise InvalidProcessStageTransitionError("Ilości pakowania muszą sumować się do policzonej ilości.")
 
         planned_quantity = batch.quantity
         if counted_quantity != planned_quantity:
@@ -2480,10 +2486,10 @@ class ProcessService:
             return
 
         if counted_quantity <= 0:
-            raise InvalidProcessStageTransitionError("Counted quantity must be greater than zero.")
+            raise InvalidProcessStageTransitionError("Policzona ilość musi być większa od zera.")
 
         if counted_quantity > work_order.current_active_quantity:
-            raise InvalidProcessStageTransitionError("Counted quantity cannot exceed the expected active quantity.")
+            raise InvalidProcessStageTransitionError("Policzona ilość nie może przekraczać oczekiwanej aktywnej ilości.")
 
         stage_state = self._get_stage_state(work_order, ProcessStage.SURFACE_PREPARATION)
         stage_state.counted_quantity = counted_quantity
@@ -2492,7 +2498,7 @@ class ProcessService:
     def _ensure_surface_preparation_counted_quantity(self, work_order: WorkOrder) -> None:
         stage_state = self._get_stage_state(work_order, ProcessStage.SURFACE_PREPARATION)
         if stage_state.counted_quantity is None:
-            raise InvalidProcessStageTransitionError("Counted quantity is required to finish surface preparation.")
+            raise InvalidProcessStageTransitionError("Policzona ilość jest wymagana, aby zakończyć przygotowanie powierzchni.")
 
     @staticmethod
     def _get_previous_stage(

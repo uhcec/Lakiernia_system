@@ -410,7 +410,7 @@ def test_automatic_packing_rejects_completion_while_hanging_is_active(test_clien
     response = complete_packing_request(test_client, automatic["id"], counted_quantity=100, ok_quantity=100, correction_quantity=0)
 
     assert response.status_code == 409
-    assert response.json()["detail"] == "Automatic hanging must be finished before packing."
+    assert response.json()["detail"] == "Trzeba zakończyć zawieszanie automatu przed pakowaniem."
 
 
 def test_automatic_packing_requires_paint_consumption_before_completion(test_client: TestClient) -> None:
@@ -423,7 +423,7 @@ def test_automatic_packing_requires_paint_consumption_before_completion(test_cli
     response = complete_packing_request(test_client, automatic["id"], counted_quantity=100, ok_quantity=100, correction_quantity=0)
 
     assert response.status_code == 409
-    assert response.json()["detail"] == "Automatic paint consumption must be recorded before packing can be completed."
+    assert response.json()["detail"] == "Przed zakończeniem pakowania trzeba zarejestrować zużycie farby na automacie."
 
 
 def test_automatic_production_can_record_paint_consumption_after_hanging_start(test_client: TestClient) -> None:
@@ -506,7 +506,7 @@ def test_automatic_correction_requires_and_records_paint_consumption(test_client
     )
 
     assert blocked_response.status_code == 409
-    assert blocked_response.json()["detail"] == "Automatic paint consumption must be recorded before packing can be completed."
+    assert blocked_response.json()["detail"] == "Przed zakończeniem pakowania trzeba zarejestrować zużycie farby na automacie."
 
     paint_response = test_client.post(
         f"/process/work-orders/{automatic['id']}/automatic-production/paint-consumption",
@@ -548,7 +548,7 @@ def test_automatic_production_rejects_editing_paint_consumption_after_first_save
 
     assert first_response.status_code == 200
     assert second_response.status_code == 409
-    assert second_response.json()["detail"] == "Automatic paint consumption cannot be edited after it has been saved. Use a manual office stock adjustment if a correction is required."
+    assert second_response.json()["detail"] == "Zużycia farby na automacie nie można edytować po zapisaniu. Jeśli potrzebna jest korekta, wykonaj ręczną korektę stanu magazynu w biurze."
 
 
 def test_automatic_production_preview_rejects_actions_after_hanging_start(test_client: TestClient) -> None:
@@ -562,7 +562,7 @@ def test_automatic_production_preview_rejects_actions_after_hanging_start(test_c
 
     assert start_response.status_code == 409
     assert finish_response.status_code == 409
-    assert start_response.json()["detail"] == "Automatic production does not use manual start/finish. Finish HANGING to enter automatic production and complete from PACKING."
+    assert start_response.json()["detail"] == "Produkcja automatyczna nie korzysta z ręcznego rozpoczęcia/zakończenia. Zakończ ZAWIESZANIE, aby wejść na produkcję automatyczną, a zlecenie zakończ z poziomu PAKOWANIA."
 
 
 def test_automatic_production_preview_rejects_direct_start_and_finish(test_client: TestClient) -> None:
@@ -574,7 +574,7 @@ def test_automatic_production_preview_rejects_direct_start_and_finish(test_clien
 
     assert start_response.status_code == 409
     assert finish_response.status_code == 409
-    assert start_response.json()["detail"] == "Automatic production does not use manual start/finish. Finish HANGING to enter automatic production and complete from PACKING."
+    assert start_response.json()["detail"] == "Produkcja automatyczna nie korzysta z ręcznego rozpoczęcia/zakończenia. Zakończ ZAWIESZANIE, aby wejść na produkcję automatyczną, a zlecenie zakończ z poziomu PAKOWANIA."
 
 
 def test_ral_orders_do_not_appear_in_decoral_stage(test_client: TestClient) -> None:
@@ -639,7 +639,7 @@ def test_cannot_finish_surface_preparation_without_counted_quantity(test_client:
 
     assert start_response.status_code == 200
     assert response.status_code == 409
-    assert response.json()["detail"] == "Counted quantity is required to finish surface preparation."
+    assert response.json()["detail"] == "Policzona ilość jest wymagana, aby zakończyć przygotowanie powierzchni."
 
 
 def test_start_surface_preparation_returns_difference_and_persists_count(test_client: TestClient) -> None:
@@ -834,7 +834,7 @@ def test_cannot_finish_surface_preparation_with_non_positive_count(test_client: 
     response = finish_surface_preparation(test_client, created["id"], counted_quantity=0)
 
     assert response.status_code == 409
-    assert response.json()["detail"] == "Counted quantity must be greater than zero."
+    assert response.json()["detail"] == "Policzona ilość musi być większa od zera."
 
 
 def test_finish_stage_updates_status(test_client: TestClient) -> None:
@@ -1125,7 +1125,7 @@ def test_correction_round_cannot_enter_surface_preparation_via_api(test_client: 
     assert plan_response.status_code == 200
     assert created["id"] not in [item["id"] for item in surface_response.json()]
     assert start_response.status_code == 409
-    assert start_response.json()["detail"] == "Correction rounds do not go through surface preparation."
+    assert start_response.json()["detail"] == "Rundy poprawkowe nie przechodzą przez przygotowanie powierzchni."
     stage_states = {stage["stage"]["value"]: stage["status"]["value"] for stage in detail.json()["stage_states"]}
     assert stage_states["SURFACE_PREPARATION"] == "DONE"
     assert stage_states["PRODUCTION"] == "NOT_STARTED"
@@ -1381,7 +1381,7 @@ def test_fully_packed_order_reopen_returns_clear_validation_error(test_client: T
     response = test_client.post(f"/process/work-orders/{created['id']}/stages/PACKING/reopen")
 
     assert response.status_code == 409
-    assert response.json()["detail"] == "Cannot reopen process stages because the work order has no active quantity remaining."
+    assert response.json()["detail"] == "Nie można ponownie otworzyć etapów, ponieważ w zleceniu nie pozostała żadna aktywna ilość."
 
 
 def test_original_order_cannot_reopen_production_after_correction_split(test_client: TestClient) -> None:
@@ -1494,7 +1494,7 @@ def test_reopen_finished_decoral_tracked_batch_returns_409_and_leaves_quantities
     after_correction = test_client.get(f"/work-orders/{correction_order['id']}").json()
 
     assert response.status_code == 409
-    assert response.json()["detail"] == "Finished tracked batches cannot be reopened."
+    assert response.json()["detail"] == "Zakończonych śledzonych partii nie można ponownie otworzyć."
     assert after_parent["completed_quantity"] == before_parent["completed_quantity"] == 7
     assert after_parent["current_active_quantity"] == before_parent["current_active_quantity"] == 0
     assert after_parent["process_status"] == before_parent["process_status"]
@@ -1556,7 +1556,7 @@ def test_reopen_finished_returned_correction_batch_returns_409_after_ready(test_
     after_parent = test_client.get(f"/work-orders/{created['id']}").json()
 
     assert response.status_code == 409
-    assert response.json()["detail"] == "Finished tracked batches cannot be reopened."
+    assert response.json()["detail"] == "Zakończonych śledzonych partii nie można ponownie otworzyć."
     assert after_parent["process_status"] == before_parent["process_status"]
     assert after_parent["completed_quantity"] == before_parent["completed_quantity"] == 10
     assert after_parent["current_active_quantity"] == before_parent["current_active_quantity"] == 0
@@ -1590,7 +1590,7 @@ def test_packing_complete_rejects_when_split_does_not_match_counted_quantity(tes
     response = complete_packing_request(test_client, created["id"], counted_quantity=96, ok_quantity=90, correction_quantity=5)
 
     assert response.status_code == 409
-    assert response.json()["detail"] == "Packing quantities must add up to the counted quantity."
+    assert response.json()["detail"] == "Ilości pakowania muszą sumować się do policzonej ilości."
 
 
 def test_packing_complete_rejects_when_counted_quantity_is_lower_than_planned(test_client: TestClient) -> None:
