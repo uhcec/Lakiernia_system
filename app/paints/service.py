@@ -249,7 +249,7 @@ class PaintService:
         ensure_station_allowed(
             station_context,
             allowed_station_ids={StationId.OFFICE},
-            action="office paint inventory actions",
+            action="operacje biura w magazynie farb",
         )
 
     def _record_audit_event(

@@ -140,7 +140,7 @@ class FoilService:
         ensure_station_allowed(
             station_context,
             allowed_station_ids={StationId.OFFICE},
-            action="office foil registry actions",
+            action="operacje biura w rejestrze folii",
         )
 
     def _to_read_model(self, foil: Foil) -> FoilRead:

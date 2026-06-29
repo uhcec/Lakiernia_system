@@ -1900,7 +1900,7 @@ class ManagerService:
         ensure_station_allowed(
             station_context,
             allowed_station_ids={StationId.MANAGER},
-            action="manager planning actions",
+            action="operacje planowania kierownika",
         )
 
     @staticmethod
@@ -1908,7 +1908,7 @@ class ManagerService:
         ensure_station_allowed(
             station_context,
             allowed_station_ids={StationId.MANAGER},
-            action="manager statistics access",
+            action="dostęp do statystyk kierownika",
         )
 
     def _get_existing_work_order(self, work_order_id: int) -> WorkOrder:

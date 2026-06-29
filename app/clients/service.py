@@ -163,7 +163,7 @@ class ClientService:
         ensure_station_allowed(
             station_context,
             allowed_station_ids={StationId.OFFICE},
-            action="office client registry actions",
+            action="operacje biura w rejestrze klientów",
         )
 
     def _to_read_model(self, client: Client) -> ClientRead:

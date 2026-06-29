@@ -265,7 +265,7 @@ def test_create_work_order_rejects_invalid_station_header(test_client: TestClien
     )
 
     assert response.status_code == 400
-    assert response.json() == {"detail": "Invalid station identity: warehouse."}
+    assert response.json() == {"detail": "Nieprawidłowa tożsamość stanowiska: warehouse."}
 
 
 def test_create_work_order_without_title_uses_order_number_as_fallback(test_client: TestClient) -> None:

@@ -196,7 +196,7 @@ class WorkOrderService:
             raise InvalidWorkOrderDataError(f"Wybrana folia (id={decoral_foil_id}) nie istnieje.")
 
     def create_work_order(self, payload: WorkOrderCreate, station_context: StationContext | None = None) -> WorkOrderRead:
-        self._ensure_office_station_action(station_context, "office work-order actions")
+        self._ensure_office_station_action(station_context, "operacje biura na zleceniach")
         self._validate_decoral_foil(payload.coating_type, payload.decoral_foil_id)
         order_number = self.number_allocator.allocate()
         paint, paint_stock_snapshot_quantity_kg = self.paint_service.capture_work_order_snapshot(
@@ -258,7 +258,7 @@ class WorkOrderService:
         ensure_station_allowed(
             station_context,
             allowed_station_ids={StationId.OFFICE, StationId.MANAGER},
-            action="work-order update",
+            action="aktualizacja zlecenia",
         )
         work_order = self._get_existing_work_order(work_order_id)
         updates = payload.model_dump(exclude_unset=True)
@@ -404,7 +404,7 @@ class WorkOrderService:
         work_order_id: int,
         station_context: StationContext | None = None,
     ) -> WorkOrderRead:
-        self._ensure_office_station_action(station_context, "office work-order actions")
+        self._ensure_office_station_action(station_context, "operacje biura na zleceniach")
         work_order = self._get_existing_work_order(work_order_id)
 
         if not self._has_incomplete_marker(work_order):
@@ -490,7 +490,7 @@ class WorkOrderService:
         description: str | None = None,
         station_context: StationContext | None = None,
     ) -> WorkOrderAttachmentRead:
-        self._ensure_office_station_action(station_context, "office attachment actions")
+        self._ensure_office_station_action(station_context, "operacje biura na załącznikach")
         work_order = self._get_existing_work_order(work_order_id)
         category_value = self._normalize_attachment_category(category)
         original_filename = Path(file.filename or "").name.strip()
@@ -607,7 +607,7 @@ class WorkOrderService:
         attachment_id: int,
         station_context: StationContext | None = None,
     ) -> None:
-        self._ensure_office_station_action(station_context, "office attachment actions")
+        self._ensure_office_station_action(station_context, "operacje biura na załącznikach")
         attachment = self._get_existing_attachment(work_order_id, attachment_id)
         work_order = self._get_existing_work_order(work_order_id)
         file_path = self._resolve_attachment_storage_path(attachment, require_exists=False)
@@ -646,7 +646,7 @@ class WorkOrderService:
         ensure_station_allowed(
             station_context,
             allowed_station_ids={StationId.OFFICE},
-            action="work-order release actions",
+            action="operacje zwolnienia zlecenia",
         )
 
     @staticmethod

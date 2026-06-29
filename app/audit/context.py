@@ -33,7 +33,7 @@ def parse_station_id(raw_station_id: str | None) -> StationId:
     try:
         return StationId(normalized_station_id)
     except ValueError as exc:
-        raise InvalidStationIdentityError(f"Invalid station identity: {raw_station_id}.") from exc
+        raise InvalidStationIdentityError(f"Nieprawidłowa tożsamość stanowiska: {raw_station_id}.") from exc
 
 
 def get_station_context(
@@ -63,5 +63,5 @@ def ensure_station_allowed(
     if station_context.station_id not in allowed_station_ids:
         allowed_values = ", ".join(sorted(station_id.value for station_id in allowed_station_ids))
         raise StationActionForbiddenError(
-            f"Station {station_context.station_id.value} is not allowed to perform {action}. Allowed stations: {allowed_values}."
+            f"Stanowisko {station_context.station_id.value} nie może wykonać tej akcji ({action}). Dozwolone stanowiska: {allowed_values}."
         )

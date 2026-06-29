@@ -1316,7 +1316,7 @@ class ProcessService:
         ensure_station_allowed(
             station_context,
             allowed_station_ids=self._get_allowed_stage_station_ids(work_order, stage),
-            action=f"{stage.value} stage actions",
+            action=f"operacje etapu {stage.value}",
         )
 
     @staticmethod
@@ -1324,7 +1324,7 @@ class ProcessService:
         ensure_station_allowed(
             station_context,
             allowed_station_ids={StationId.PACKING},
-            action="PACKING actions",
+            action="operacje pakowania",
         )
 
     @staticmethod
@@ -1332,7 +1332,7 @@ class ProcessService:
         ensure_station_allowed(
             station_context,
             allowed_station_ids={StationId.AUTOMATIC_PRODUCTION},
-            action="AUTOMATIC_PRODUCTION actions",
+            action="operacje produkcji automatycznej",
         )
 
     @staticmethod
@@ -1340,7 +1340,7 @@ class ProcessService:
         ensure_station_allowed(
             station_context,
             allowed_station_ids={StationId.DECORAL_PRODUCTION},
-            action="DECORAL_PRODUCTION actions",
+            action="operacje produkcji Decoral",
         )
 
     @staticmethod

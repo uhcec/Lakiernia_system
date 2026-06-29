@@ -261,7 +261,7 @@ class EmployeeService:
         ensure_station_allowed(
             station_context,
             allowed_station_ids=_EMPLOYEE_ADMIN_STATIONS,
-            action="employee administration",
+            action="administracja pracownikami",
         )
 
     @staticmethod
