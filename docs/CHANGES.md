@@ -15,6 +15,7 @@ code does now (`file:line`), what the owner wants, and why. See `docs/SPEC.md` f
 | 8 | change | Flag untracked colours instead of silent OK ✅ |
 | 9 | change | Persist the actual shift length for "good day" ✅ |
 | 10 | change | Make the quantity-leak tripwire human-visible ✅ |
+| 11 | bug | Enforce SQLite foreign keys (order creation 500 on reused id) ✅ |
 
 ---
 
@@ -70,3 +71,8 @@ code does now (`file:line`), what the owner wants, and why. See `docs/SPEC.md` f
 - **Now:** at finalization, if credited pieces ≠ total, the order is forced to total and a warning is written **only to the technical server log**; no human sees it. Verified live 2026-06-26: a 7/10 leak was silently completed to 10/10 with only a log warning. `app/process/service.py:2343-2350`
 - **Want:** the leak is a sign of an upstream bug — keep the tripwire but make it **visible to a human** (e.g. a flag on the order) so it gets investigated, instead of a silent auto-complete. The quantity model should prevent leaks in the first place; this is the safety net.
 - **Done:** added a persisted `work_orders.quantity_leak_flagged` boolean (migration `20260626_0041`), set in the finalize tripwire, exposed in `WorkOrderRead` (office + manager read models), plus a SYSTEM audit event `work_order.quantity_leak_detected`. The order still force-closes to total (so work isn't stuck) but the leak is no longer silent. `app/process/service.py`, `app/work_orders/models.py`, `app/work_orders/schemas.py`.
+
+### #11 — Enforce SQLite foreign keys  *(bug, found 2026-06-29)* — ✅ DONE 2026-06-29
+- **Now:** order creation returned HTTP 500 (UI: "Nie udało się utworzyć zlecenia"). SQLite ignores `ON DELETE CASCADE`/`SET NULL` unless `PRAGMA foreign_keys = ON` per connection, and the pragma helper never set it (`app/database/session.py`). Earlier work-order deletions silently orphaned their batches/stage-states/transition-events; a new order reused a freed id (ids aren't AUTOINCREMENT) and its active `MAIN` batch collided with the orphan active batch on `uq_work_order_quantity_batches_one_active_per_work_order` → IntegrityError → 500.
+- **Want:** foreign keys enforced so deleting an order removes its child rows; order creation never collides on a reused id.
+- **Done:** added `PRAGMA foreign_keys = ON` to `_apply_sqlite_pragmas` and mirrored it in the test engines (`tests/conftest.py::_make_test_engine`; teardown drops the now-redundant `drop_all`). Regression tests `test_foreign_keys_pragma_is_enabled` + `test_deleting_work_order_cascades_to_child_rows` (`tests/test_db_constraints_phase1.py`). Cleaned existing orphan rows from the dev `local.db` (backed up). See `docs/DECISIONS.md` (2026-06-29).

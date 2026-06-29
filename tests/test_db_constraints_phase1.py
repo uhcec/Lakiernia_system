@@ -312,6 +312,57 @@ def test_invalid_batch_direct_db_writes_fail(db_session: Session, statement: str
     db_session.rollback()
 
 
+def test_foreign_keys_pragma_is_enabled(db_session: Session) -> None:
+    # ON DELETE CASCADE / SET NULL are inert in SQLite unless foreign_keys is ON per connection.
+    assert db_session.execute(text("PRAGMA foreign_keys")).scalar() == 1
+
+
+def test_deleting_work_order_cascades_to_child_rows(db_session: Session) -> None:
+    # Regression: with foreign_keys OFF, deleting a work order silently left orphan child rows
+    # behind. A later order then reused the freed id and its MAIN-batch insert collided with the
+    # orphan active batch on uq_..._one_active_per_work_order, crashing order creation with a 500.
+    work_order_id = _insert_valid_work_order(db_session, order_number="WO-2026-9400")
+    db_session.execute(
+        text(
+            """
+            INSERT INTO work_order_quantity_batches (
+                work_order_id, quantity, type, parent_batch_id, is_active, current_stage, current_stage_status, is_partial, created_at
+            ) VALUES (
+                :work_order_id, 10, :type, NULL, 1, NULL, NULL, 0, CURRENT_TIMESTAMP
+            )
+            """
+        ),
+        {"work_order_id": work_order_id, "type": QuantityBatchType.MAIN.value},
+    )
+    db_session.execute(
+        text(
+            """
+            INSERT INTO work_order_stage_states (
+                work_order_id, stage, status, counted_quantity, created_at, updated_at
+            ) VALUES (
+                :work_order_id, :stage, :status, NULL, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+            )
+            """
+        ),
+        {
+            "work_order_id": work_order_id,
+            "stage": ProcessStage.SURFACE_PREPARATION.value,
+            "status": StageStatus.NOT_STARTED.value,
+        },
+    )
+    db_session.commit()
+
+    db_session.execute(text("DELETE FROM work_orders WHERE id = :id"), {"id": work_order_id})
+    db_session.commit()
+
+    for table in ("work_order_quantity_batches", "work_order_stage_states"):
+        remaining = db_session.execute(
+            text(f"SELECT count(*) FROM {table} WHERE work_order_id = :id"),
+            {"id": work_order_id},
+        ).scalar()
+        assert remaining == 0, f"{table} left orphan rows after work-order delete"
+
+
 def test_invalid_stage_state_direct_db_write_fails(db_session: Session) -> None:
     work_order_id = _insert_valid_work_order(db_session, order_number="WO-2026-9300")
 

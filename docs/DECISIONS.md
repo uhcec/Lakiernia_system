@@ -514,3 +514,48 @@ two read paths. 601 backend + 134 frontend tests green, `tsc -b` + `vite build` 
 
 **Review-by:** none required — behaviour-preserving internal simplification + removal of unrendered API
 fields (frontend grepped clean); pinned by the retargeted suites.
+
+---
+
+## 2026-06-29 — found debt: enforce SQLite foreign keys (cascade was inert)
+
+**Decision:** turn on `PRAGMA foreign_keys = ON` for every app connection (added to
+`_apply_sqlite_pragmas`, `app/database/session.py`), and mirror it in the test engines
+(`tests/conftest.py::_make_test_engine`). Clean up the orphan child rows already left in the dev
+`local.db`.
+
+**Why** — engineering decision (mine to own per `CLAUDE.md`; no factory *why* involved). Order creation
+was returning HTTP 500 ("Nie udało się utworzyć zlecenia" in the UI). Root cause: SQLite ignores
+`ON DELETE CASCADE`/`SET NULL` unless `foreign_keys` is ON per connection, and the pragma helper set
+`busy_timeout`/`journal_mode`/`synchronous` but never `foreign_keys`. So earlier work-order deletions
+(seeds/resets) silently orphaned their `work_order_quantity_batches` / `work_order_stage_states` /
+`stage_transition_events`. Work-order ids are not AUTOINCREMENT, so a new order reused a freed id (12);
+its `MAIN` batch insert then collided with the leftover **active** orphan batch on
+`uq_work_order_quantity_batches_one_active_per_work_order` (one active batch per order) → IntegrityError
+→ 500. Reproduced against the live backend via `scripts/sim_client` creds and in-process.
+
+**Rejected:**
+- *Only delete the orphan rows* — treats the symptom; the next deletion re-orphans and the 500 returns.
+- *Drop the partial unique index* — wrong: "one active batch per order" is a real, owner-aligned
+  invariant (`SPEC.md` §1). The bug was unenforced cascade, not the index.
+- *Make ids AUTOINCREMENT so freed ids aren't reused* — hides the orphans rather than removing them;
+  the dangling rows are still wrong data and would still violate `(work_order_id, stage)` uniqueness on
+  other paths.
+
+**Implementation notes:**
+- `app/database/session.py:_apply_sqlite_pragmas` adds `PRAGMA foreign_keys = ON`.
+- `tests/conftest.py`: new `_make_test_engine` attaches `_apply_sqlite_pragmas` to both fixtures, so
+  tests enforce FKs like prod. Teardown drops `Base.metadata.drop_all` (redundant for an in-memory
+  StaticPool DB — `dispose()` discards it — and it fails under `foreign_keys=ON` because dropping
+  `work_orders` fires the self-referential `parent_order_id` SET NULL and violates the
+  `correction_requires_parent` CHECK on correction children).
+- Regression tests in `tests/test_db_constraints_phase1.py`:
+  `test_foreign_keys_pragma_is_enabled`, `test_deleting_work_order_cascades_to_child_rows`.
+- Dev-DB cleanup (one-off, backed up to `local.db.bak-*`): deleted CASCADE orphans
+  (batches/stage-states/transition-events for missing orders), nulled the SET-NULL orphan refs in
+  `audit_events` — mirroring exactly what enforced FKs would have done.
+
+**Expected:** deleting a work order removes its child rows; creating orders no longer 500s on a reused
+id; the dev DB has no orphan child rows. Full backend suite green.
+
+**Review-by:** none — latent persistence bug fixed and pinned by regression tests.
