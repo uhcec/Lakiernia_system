@@ -7,8 +7,13 @@ confirmed with the owner (2026-06-26). The confirmed ground truth now lives in:
   owner-confirmation marker; items the owner wants changed are flagged `⚠️ CHANGE #n`).
 - `docs/CHANGES.md` / `docs/ZMIANY.md` — the agreed change/debt list.
 - `docs/DECISIONS.md` — append-only log of *why* a domain decision was made (create it on first use).
+- `docs/FRONTEND_TRIAGE.md` — sourced triage of the frontend (same method), with each finding `file:line`.
 
-The backend is reviewed; **the frontend is not yet** — treat its behavior as unverified.
+Both layers have now had a sourced pass. The backend was rebuilt item-by-item (2026-06-26). The frontend
+was triaged on 2026-06-27 (`docs/FRONTEND_TRIAGE.md`): deep-read essentially complete, 19 findings fixed
+and 4 consciously deferred-with-rationale (C5/C6/D3/C3c); only a few standard CRUD pages remain light-read.
+So the frontend is **reviewed but not exhaustively verified** — trust the triage doc for what was read,
+and still sim-verify (`scripts/sim/`) any subtle path before changing it.
 
 ## Operating mode (you own the workflow; the owner owns decisions)
 
