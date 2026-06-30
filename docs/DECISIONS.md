@@ -302,8 +302,10 @@ non-blocking.
 `stock_not_entered_order_ids` but is never blocked; a colourless order still reports OK; nothing
 previously OK-and-safe becomes blocked.
 
-**Review-by:** frontend review — add a distinct badge for `STOCK_NOT_ENTERED` (today the new string
-arrives at a UI that knows only OK/WARNING/BLOCKED).
+**Review-by:** ✅ **resolved 2026-06-30** — the 2026-06-27 frontend triage (A2) added the "wpisz stan
+farby" chip (`frontend/src/components/CapacityBoard.tsx:109`) and the enum value to the type
+(`frontend/src/types/manager.ts:157`). The new string now renders distinctly. (Was: frontend review — add
+a distinct badge.) See `docs/REVIEW_LEDGER.md`.
 
 ## 2026-06-26 — CHANGE #3: completed orders leave the queue
 
@@ -373,8 +375,10 @@ explicit operational fact instead.
 **Expected:** a day with a recorded shift is judged against that shift's floor/hours (800/14 LONG,
 500/8 SHORT); an unrecorded day falls back to the LONG bar; recording is manager-gated and audited.
 
-**Review-by:** frontend review — give the manager a control to record the day's shift; until then the
-LONG fallback means short days can still read as "bad", so confirm the measure once recording is live.
+**Review-by:** ⏳ **partially resolved 2026-06-30** — the control now exists (`ShiftToggle`,
+`frontend/src/components/CapacityBoard.tsx:116`, shipped by the 2026-06-27 triage A1), so the manager *can*
+record a day's shift. The remaining open half — confirm a legitimately-short day stops reading "bad" once
+shifts are actually recorded in production — is tracked in `docs/REVIEW_LEDGER.md` (awaiting real use).
 
 ## 2026-06-27 — Remove the learned colour-changeover estimate (planner review)
 

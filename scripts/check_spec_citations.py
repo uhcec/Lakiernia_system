@@ -43,8 +43,9 @@ only whether the citation still lands on the claimed token. Run over the living 
 every commit (not just changed docs), because a citation usually dies from a *code* edit,
 not a doc edit.
 
-Scope: only the **living** specs (SPEC.md + its Polish mirror), which describe what the
-code does *today*, so every citation there must resolve. The ledgers (CHANGES.md /
+Scope: the **living** docs — SPEC.md + its Polish mirror (what the code does *today*) and
+REVIEW_LEDGER.md (open decision outcomes, citing the *current* control/badge a decision
+shipped) — so every citation there must resolve. The change-ledgers (CHANGES.md /
 ZMIANY.md) and the decision log (DECISIONS.md) are deliberately EXCLUDED: their "Now:" /
 implementation citations are point-in-time snapshots of code that a shipped change has
 since deleted — they are *meant* to rot, and flagging them would be a false alarm.
@@ -61,9 +62,11 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DOCS_DIR = REPO_ROOT / "docs"
 
-# Only the living specs are guarded — see the module docstring for why the
-# ledgers and the decision log are excluded.
-LIVING_SPECS = ("SPEC.md", "SPECYFIKACJA.md")
+# Only the living docs are guarded — see the module docstring for why the
+# change-ledgers and the decision log are excluded. REVIEW_LEDGER.md is included:
+# its citations point at *current* code (the control/badge a decision shipped), not
+# point-in-time snapshots, so they must keep resolving like a spec line.
+LIVING_SPECS = ("SPEC.md", "SPECYFIKACJA.md", "REVIEW_LEDGER.md")
 
 # Code-file extensions a citation may target. `.py` is all that exists today;
 # the rest are here so frontend citations (added when the frontend is reviewed)

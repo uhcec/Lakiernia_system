@@ -7,6 +7,9 @@ confirmed with the owner (2026-06-26). The confirmed ground truth now lives in:
   owner-confirmation marker; items the owner wants changed are flagged `⚠️ CHANGE #n`).
 - `docs/CHANGES.md` / `docs/ZMIANY.md` — the agreed change/debt list.
 - `docs/DECISIONS.md` — append-only log of *why* a domain decision was made (create it on first use).
+- `docs/REVIEW_LEDGER.md` — the open `Review-by` triggers from `DECISIONS.md`: decision outcomes still
+  awaiting confirmation on the running shop. The feedback half of the loop — sweep it so effects get
+  *measured*, not just predicted. (Guarded for citation drift alongside the specs.)
 - `docs/FRONTEND_TRIAGE.md` — sourced triage of the frontend (same method), with each finding `file:line`.
 
 Both layers have now had a sourced pass. The backend was rebuilt item-by-item (2026-06-26). The frontend
