@@ -3,7 +3,7 @@ from typing import Annotated
 import pytest
 from fastapi import Header
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -12,8 +12,25 @@ from app.auth.models import User
 from app.core.config import get_settings
 from app.database.base import Base
 from app.database import models  # noqa: F401
-from app.database.session import get_db_session
+from app.database.session import _apply_sqlite_pragmas, get_db_session
 from app.main import create_app
+
+
+def _make_test_engine():
+    """In-memory engine that mirrors production connection setup.
+
+    Attaching ``_apply_sqlite_pragmas`` keeps tests honest: most importantly it turns on
+    ``PRAGMA foreign_keys`` so ``ON DELETE CASCADE``/``SET NULL`` are enforced exactly as in
+    production, instead of silently leaving orphan rows.
+    """
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+        future=True,
+    )
+    event.listen(engine, "connect", _apply_sqlite_pragmas)
+    return engine
 
 
 def _mock_admin_user() -> User:
@@ -49,12 +66,7 @@ def attachment_storage_env(tmp_path, monkeypatch: pytest.MonkeyPatch):
 
 @pytest.fixture
 def db_session() -> Session:
-    engine = create_engine(
-        "sqlite://",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-        future=True,
-    )
+    engine = _make_test_engine()
     session_factory = sessionmaker(bind=engine, autoflush=False, autocommit=False, class_=Session)
     Base.metadata.create_all(bind=engine)
     session = session_factory()
@@ -63,20 +75,31 @@ def db_session() -> Session:
         yield session
     finally:
         session.close()
-        Base.metadata.drop_all(bind=engine)
+        # No drop_all: the in-memory DB lives only on this StaticPool connection, so dispose()
+        # discards it entirely. (drop_all would also fail under foreign_keys=ON, because dropping
+        # work_orders fires the self-referential parent_order_id SET NULL, violating the
+        # correction_requires_parent CHECK on any correction children the test created.)
         engine.dispose()
 
 
 @pytest.fixture
 def test_client() -> TestClient:
-    engine = create_engine(
-        "sqlite://",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-        future=True,
-    )
+    engine = _make_test_engine()
     session_factory = sessionmaker(bind=engine, autoflush=False, autocommit=False, class_=Session)
     Base.metadata.create_all(bind=engine)
+
+    # The auth override fabricates users with fixed ids (1 = admin, 2 = a station operator) but never
+    # persists them. Under foreign_keys=ON those ids must exist, because audited actions write rows
+    # (e.g. stage_transition_events.user_id) that reference users.id. Seed the two ids the override uses.
+    seed_session = session_factory()
+    seed_session.add_all(
+        [
+            User(id=1, login="admin", hashed_password="", station_id="OFFICE", is_admin=True),
+            User(id=2, login="station", hashed_password="", station_id="OFFICE", is_admin=False),
+        ]
+    )
+    seed_session.commit()
+    seed_session.close()
 
     def override_get_db_session():
         session = session_factory()
@@ -93,5 +116,6 @@ def test_client() -> TestClient:
         yield client
 
     app.dependency_overrides.clear()
-    Base.metadata.drop_all(bind=engine)
+    # See db_session teardown: dispose() drops the in-memory DB; drop_all is redundant and would
+    # fail under foreign_keys=ON.
     engine.dispose()
