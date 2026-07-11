@@ -19,15 +19,18 @@ def assert_no_raw_500s(events: list[ChaosEvent]) -> None:
 
 
 def assert_no_duplicate_queue_positions(db_session: Session) -> None:
+    # Positions are unique PER LINE (SPEC §1: position 1 exists on both lines independently;
+    # the DB index is on (production_type, queue_position)) — found over-tight by the lifecycle
+    # fuzzer, which legally planned the same position on both lines.
     planned_orders = db_session.scalars(
         select(WorkOrder).where(WorkOrder.production_type.is_not(None), WorkOrder.queue_position.is_not(None))
     ).all()
     duplicates = [
-        position
-        for position, count in Counter(order.queue_position for order in planned_orders if order.queue_position is not None).items()
+        line_position
+        for line_position, count in Counter((order.production_type, order.queue_position) for order in planned_orders).items()
         if count > 1
     ]
-    assert not duplicates, f"Duplicate planned queue positions detected: {duplicates}"
+    assert not duplicates, f"Duplicate planned queue positions detected (per line): {duplicates}"
 
 
 def assert_no_duplicate_order_numbers(db_session: Session) -> None:
@@ -227,6 +230,55 @@ def assert_single_active_hanging_and_automatic_line(db_session: Session) -> None
     assert len(active_automatic_line_ids) <= 1, f"More than one automatic-line job detected: {active_automatic_line_ids}"
 
 
+def assert_no_ready_order_holds_queue_position(db_session: Session) -> None:
+    """CHANGES #12/#13: finalization releases the queue slot, so a READY order still holding a
+    position is a zombie that will poison later planning (verified live 2026-07-11)."""
+    process_service = ProcessService(ProcessRepository(db_session))
+    holders = db_session.scalars(select(WorkOrder).where(WorkOrder.queue_position.is_not(None))).all()
+    zombies = [
+        work_order.id
+        for work_order in holders
+        if process_service.get_display_status(work_order) == ProcessDisplayStatus.READY
+    ]
+    assert not zombies, f"READY orders still hold queue positions (zombie slots): {zombies}"
+
+
+def assert_all_stages_done_orders_are_settled(db_session: Session) -> None:
+    """Independent-review §2 invariant: an order whose whole route is DONE, with no active pieces
+    and no open corrections, must be fully settled — completed == total (post-#12 the undercount
+    redefinition makes this hold) or explicitly leak-flagged. Anything else is a silent
+    inconsistency the office cannot see."""
+    process_service = ProcessService(ProcessRepository(db_session))
+    work_orders = db_session.scalars(
+        select(WorkOrder).options(
+            selectinload(WorkOrder.stage_states),
+            selectinload(WorkOrder.quantity_batches),
+            selectinload(WorkOrder.correction_orders),
+        )
+    ).all()
+
+    unsettled: list[int] = []
+    for work_order in work_orders:
+        if not work_order.stage_states:
+            continue
+        if any(stage_state.status.value != "DONE" for stage_state in work_order.stage_states):
+            continue
+        if work_order.current_active_quantity != 0:
+            continue
+        has_open_correction = any(
+            process_service.get_display_status(child) != ProcessDisplayStatus.READY
+            for child in work_order.correction_orders
+        )
+        if has_open_correction:
+            continue
+        if work_order.completed_quantity != work_order.total_quantity and not work_order.quantity_leak_flagged:
+            unsettled.append(work_order.id)
+
+    assert not unsettled, (
+        f"All-stages-DONE orders with an unexplained quantity gap (no leak flag): {unsettled}"
+    )
+
+
 def assert_global_invariants(db_session: Session, events: list[ChaosEvent]) -> None:
     assert_no_raw_500s(events)
     assert_no_duplicate_order_numbers(db_session)
@@ -240,3 +292,5 @@ def assert_global_invariants(db_session: Session, events: list[ChaosEvent]) -> N
     assert_parent_child_quantities_conserved(db_session)
     assert_ready_not_set_while_correction_open(db_session)
     assert_single_active_hanging_and_automatic_line(db_session)
+    assert_no_ready_order_holds_queue_position(db_session)
+    assert_all_stages_done_orders_are_settled(db_session)

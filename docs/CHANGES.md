@@ -149,7 +149,12 @@ code does now (`file:line`), what the owner wants, and why. See `docs/SPEC.md` f
   (fresh MAIN batch, counts cleared, plan kept), audited `work_order.administrative_reset`, refused
   for correction-entangled orders; danger-styled button on the office/manager order detail page.
   Tests `tests/test_done_stage_restart_changes14.py` (guard both routes, permissions, re-run after
-  reset, correction refusal). The lifecycle fuzzer is a separate follow-up change.
+  reset, correction refusal). The lifecycle fuzzer shipped as its own change (2026-07-11):
+  `tests/chaos/lifecycle_fuzzer.py` — seeded state-aware random walks over the real HTTP API
+  (undercounts, correction rounds, Decoral merges, hostile pokes at the guards), asserting every
+  global invariant after every step, plus two new invariants (*no READY order holds a queue
+  position*; *no all-stages-DONE order has an unexplained quantity gap*). First find: the
+  duplicate-position invariant itself was over-tight (positions are per-line, SPEC §1) — fixed.
   `app/process/service.py`, `app/work_orders/{service,router}.py`,
   `frontend/src/pages/WorkOrderDetailPage.tsx`, `frontend/src/api/workOrdersApi.ts`. SPEC §3 updated.
 

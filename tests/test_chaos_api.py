@@ -6,6 +6,7 @@ import pytest
 
 from tests.chaos.harness import ChaosEnvironment
 from tests.chaos.invariants import assert_global_invariants
+from tests.chaos.lifecycle_fuzzer import run_lifecycle_fuzz
 from tests.chaos.scenarios import (
     scenario_attachment_upload_delete_detail_reload,
     scenario_automatic_reserves_packing_then_manual_overrides,
@@ -77,3 +78,11 @@ def test_chaos_scenarios_preserve_global_invariants(
 
     with chaos_environment.create_session() as session:
         assert_global_invariants(session, chaos_environment.event_log)
+
+
+@pytest.mark.parametrize("seed", [20260711, 424242, 777])
+def test_lifecycle_fuzz_preserves_global_invariants(chaos_environment: ChaosEnvironment, seed: int) -> None:
+    """Random legal action sequences (including intake undercounts, correction rounds and hostile
+    pokes at the #14 guard) must keep every global invariant after every single step — the test
+    class that catches composites the citation guard cannot (review 2026-07-11 §2)."""
+    run_lifecycle_fuzz(chaos_environment, seed=seed, steps=120)
