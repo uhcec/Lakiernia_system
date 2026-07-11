@@ -3,6 +3,7 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import { fetchAuditEvents, getAuditEventsExportUrl, type AuditEventSearchParams } from "../api/auditApi";
 import { downloadAuthedFile } from "../utils/download";
 import type { AuditEvent, AuditStationId } from "../types/audit";
+import { getLoadErrorMessage } from "../utils/loadError";
 
 const stationOptions: Array<{ value: AuditStationId; label: string }> = [
   { value: "OFFICE", label: "Biuro" },
@@ -99,7 +100,7 @@ export function AuditEventsPage() {
         if (!isActive) {
           return;
         }
-        setErrorMessage(error instanceof Error ? error.message : "Nie udało się pobrać historii audytu");
+        setErrorMessage(getLoadErrorMessage(error, "Nie udało się pobrać historii audytu"));
       } finally {
         if (isActive) {
           setIsLoading(false);
@@ -133,7 +134,7 @@ export function AuditEventsPage() {
     try {
       await downloadAuthedFile(exportUrl, "audit-events.csv");
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "Nie udało się wyeksportować CSV");
+      setErrorMessage(getLoadErrorMessage(error, "Nie udało się wyeksportować CSV"));
     }
   }
 

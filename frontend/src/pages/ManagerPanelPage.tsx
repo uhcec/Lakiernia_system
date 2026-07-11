@@ -32,6 +32,7 @@ import { buildWorkOrderDetailHref } from "../api/stationContext";
 import { downloadAuthedFile } from "../utils/download";
 import { WorkOrderPrimaryInfoLine } from "../components/WorkOrderPrimaryInfoLine";
 import { CapacityBoard } from "../components/CapacityBoard";
+import { getLoadErrorMessage } from "../utils/loadError";
 import {
   getWorkOrderActiveCorrectionsText,
   getWorkOrderAttentionBadges,
@@ -242,7 +243,7 @@ export function ManagerPanelPage() {
     try {
       await downloadAuthedFile(correctionReasonReportExportUrl, "correction-reason-report.csv");
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "Nie udało się wyeksportować CSV");
+      setErrorMessage(getLoadErrorMessage(error, "Nie udało się wyeksportować CSV"));
     }
   }
 
@@ -317,7 +318,7 @@ export function ManagerPanelPage() {
       return true;
     } catch (error) {
       if (!background) {
-        setErrorMessage(error instanceof Error ? error.message : "Nie udało się pobrać panelu kierownika");
+        setErrorMessage(getLoadErrorMessage(error, "Nie udało się pobrać panelu kierownika"));
       }
       return false;
     } finally {

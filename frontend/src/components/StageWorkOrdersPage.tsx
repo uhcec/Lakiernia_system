@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { usePolling, STATION_POLL_INTERVAL_MS } from "../hooks/usePolling";
 import { getMutationErrorMessage } from "../utils/mutationError";
@@ -10,6 +10,7 @@ import { fetchStageWorkOrders, recordAutomaticPaintConsumption, transitionStage 
 import type { ProcessStageValue, StageWorkOrder, StageStatusValue } from "../types/process";
 import type { ProductionTypeValue } from "../types/workOrders";
 import { loadCorrectionContexts, type CorrectionContext } from "../utils/correctionContext";
+import { getLoadErrorMessage } from "../utils/loadError";
 import {
   badgeClasses,
   buildCorrectionQuantityContext,
@@ -88,6 +89,10 @@ export function StageWorkOrdersPage({
   const detailStationId = getStationIdForLocation(window.location.pathname, window.location.search);
   const [workOrders, setWorkOrders] = useState<StageWorkOrder[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  // CHANGES #16b: stale-response guard — a slow foreground reload racing a background poll
+  // must not present older data than what is already on screen. Every load takes a ticket;
+  // only the latest ticket may apply state.
+  const loadRequestSequenceRef = useRef(0);
   const [queueFilter, setQueueFilter] = useState<QueueFilter>("ALL");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [warningMessage, setWarningMessage] = useState<string | null>(null);
@@ -114,6 +119,7 @@ export function StageWorkOrdersPage({
 
   async function loadWorkOrders(options?: { preserveErrorMessage?: boolean; background?: boolean }): Promise<boolean> {
     const background = options?.background ?? false;
+    const requestId = ++loadRequestSequenceRef.current;
     if (!background) {
       setIsLoading(true);
       if (!options?.preserveErrorMessage) {
@@ -124,8 +130,14 @@ export function StageWorkOrdersPage({
 
     try {
       const items = await fetchStageWorkOrders(stage, productionType);
+      if (requestId !== loadRequestSequenceRef.current) {
+        return false; // superseded by a newer load — do not present stale data
+      }
       setWorkOrders(items);
       const correctionContexts = await loadCorrectionContexts(items);
+      if (requestId !== loadRequestSequenceRef.current) {
+        return false;
+      }
       setCorrectionContextByOrderId(correctionContexts.contexts);
 
       if (correctionContexts.failedCount > 0 && !background) {
@@ -158,8 +170,8 @@ export function StageWorkOrdersPage({
       }
       return true;
     } catch (error) {
-      if (!background) {
-        setErrorMessage(error instanceof Error ? error.message : "Nie udało się pobrać zleceń");
+      if (!background && requestId === loadRequestSequenceRef.current) {
+        setErrorMessage(getLoadErrorMessage(error, "Nie udało się pobrać zleceń"));
       }
       return false;
     } finally {

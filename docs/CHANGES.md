@@ -20,7 +20,7 @@ code does now (`file:line`), what the owner wants, and why. See `docs/SPEC.md` f
 | 13 | bug | Planning into a slot held by a READY order → raw 500 (flush outside the 409 handler) ✅ |
 | 14 | bug | A DONE stage can restart while downstream is active — count rewritten mid-flight ✅ |
 | 15 | bug | Office list silently caps at 50 orders (no pagination) ✅ |
-| 16 | debt | Frontend floor-robustness batch (JSON.parse, stale-response guards, EN errors, 401 drafts) |
+| 16 | debt | Frontend floor-robustness batch (JSON.parse, stale-response guards, EN errors, 401 drafts) ✅ |
 | 17 | debt | QC document requires Windows + Excel COM — 500 on Linux; absent from SPEC |
 
 ---
@@ -176,7 +176,7 @@ code does now (`file:line`), what the owner wants, and why. See `docs/SPEC.md` f
   of orders — years away at shop volume). `frontend/src/api/workOrdersApi.ts`,
   `frontend/src/pages/WorkOrdersListPage.tsx`.
 
-### #16 — Frontend floor-robustness batch  *(debt, found 2026-07-11)*
+### #16 — Frontend floor-robustness batch  *(debt, found 2026-07-11)* — ✅ DONE 2026-07-11
 - **Now:** (a) unguarded `JSON.parse` of localStorage in a `useState` initializer white-screens the
   app on one corrupt value (`frontend/src/context/AuthContext.tsx:25-28`; `ProtectedRoute` guards the
   same read); (b) the three polling boards (`StageWorkOrdersPage`, `PackingWorkOrdersPage`,
@@ -188,6 +188,17 @@ code does now (`file:line`), what the owner wants, and why. See `docs/SPEC.md` f
   retry affordance. Item (d) **resolved by owner 2026-07-11** (`DECISIONS.md` — session policy):
   shared station login per shift, losing unsaved counts on expiry is acceptable — no
   draft-preservation work. Scope is (a)+(b)+(c) only.
+- **Done:** (a) the guarded storage read now lives at the **source** — `readStoredAuthUser` in
+  `AuthContext` (clears the corrupt key), reused by `ProtectedRoute` (its private duplicate deleted);
+  a corrupt value can no longer white-screen the app from the `useState` initializer. (b) the three
+  polling boards (`StageWorkOrdersPage`, `PackingWorkOrdersPage`, `DecoralWorkOrdersPage`) take a
+  **request ticket** per load; only the latest ticket may apply state or set an error — a slow
+  response resolving after a fresher one is dropped (race pinned by `tests/staleResponseGuard.test.tsx`,
+  resolving mocked requests out of order). (c) new `getLoadErrorMessage` (`utils/loadError.ts`):
+  ApiError → its controlled Polish message; browser-level fetch rejection (`TypeError` "Failed to
+  fetch") → Polish network message; else the caller's generic Polish text — **swept all 37**
+  `error.message`-verbatim catch sites across 13 files, so no English browser string ever reaches
+  the operator. Frontend build clean; 144/144 tests.
 
 ### #17 — QC document requires Windows + Excel COM  *(debt, found 2026-07-11)*
 - **Now:** `GET /work-orders/{id}/quality-control-document` drives Microsoft Excel over COM

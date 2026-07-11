@@ -21,6 +21,7 @@ import { useConfirm } from "../components/ConfirmDialog";
 import { downloadAuthedFile } from "../utils/download";
 import { NumberInput } from "../components/NumberInput";
 import { WorkOrderPrimaryInfoLine } from "../components/WorkOrderPrimaryInfoLine";
+import { getLoadErrorMessage } from "../utils/loadError";
 import {
   formatWorkOrderPrimaryInfo,
   getWorkOrderActiveCorrectionsText,
@@ -321,7 +322,7 @@ export function WorkOrderDetailPage() {
       await Promise.all([loadWorkOrder(Number(id)), loadAuditEvents(Number(id))]);
       setIsEditModalOpen(false);
     } catch (error) {
-      setEditErrorMessage(error instanceof Error ? error.message : "Nie udało się zapisać zmian");
+      setEditErrorMessage(getLoadErrorMessage(error, "Nie udało się zapisać zmian"));
     } finally {
       setIsSavingEdit(false);
     }
@@ -335,7 +336,7 @@ export function WorkOrderDetailPage() {
       const item = await fetchWorkOrder(workOrderId);
       setWorkOrder(item);
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "Nie udało się pobrać zlecenia");
+      setErrorMessage(getLoadErrorMessage(error, "Nie udało się pobrać zlecenia"));
     } finally {
       setIsLoading(false);
     }
@@ -349,7 +350,7 @@ export function WorkOrderDetailPage() {
       const items = await fetchWorkOrderAttachments(workOrderId);
       setAttachments(items);
     } catch (error) {
-      setAttachmentsErrorMessage(error instanceof Error ? error.message : "Nie udało się pobrać załączników");
+      setAttachmentsErrorMessage(getLoadErrorMessage(error, "Nie udało się pobrać załączników"));
     } finally {
       setIsLoadingAttachments(false);
     }
@@ -363,7 +364,7 @@ export function WorkOrderDetailPage() {
       const items = await fetchWorkOrderAuditEvents(workOrderId);
       setAuditEvents(items);
     } catch (error) {
-      setAuditErrorMessage(error instanceof Error ? error.message : "Nie udało się pobrać historii zmian");
+      setAuditErrorMessage(getLoadErrorMessage(error, "Nie udało się pobrać historii zmian"));
     } finally {
       setIsLoadingAuditEvents(false);
     }
@@ -386,7 +387,7 @@ export function WorkOrderDetailPage() {
           fetchWorkOrderAttachments(workOrderId),
           fetchWorkOrderAuditEvents(workOrderId).catch((error: unknown) => {
             if (isActive) {
-              setAuditErrorMessage(error instanceof Error ? error.message : "Nie udało się pobrać historii zmian");
+              setAuditErrorMessage(getLoadErrorMessage(error, "Nie udało się pobrać historii zmian"));
             }
             return [] as AuditEvent[];
           }),
@@ -403,7 +404,7 @@ export function WorkOrderDetailPage() {
         if (!isActive) {
           return;
         }
-        setErrorMessage(error instanceof Error ? error.message : "Nie udało się pobrać zlecenia");
+        setErrorMessage(getLoadErrorMessage(error, "Nie udało się pobrać zlecenia"));
       } finally {
         if (isActive) {
           setIsLoading(false);
@@ -440,7 +441,7 @@ export function WorkOrderDetailPage() {
       await markWorkOrderCompleteArrival(Number(id));
       await Promise.all([loadWorkOrder(Number(id)), loadAuditEvents(Number(id))]);
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "Nie udało się oznaczyć zlecenia jako kompletne");
+      setErrorMessage(getLoadErrorMessage(error, "Nie udało się oznaczyć zlecenia jako kompletne"));
     } finally {
       setIsUpdatingArrival(false);
     }
@@ -470,7 +471,7 @@ export function WorkOrderDetailPage() {
       await administrativeResetWorkOrder(Number(id));
       await Promise.all([loadWorkOrder(Number(id)), loadAuditEvents(Number(id))]);
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "Nie udało się zresetować zlecenia");
+      setErrorMessage(getLoadErrorMessage(error, "Nie udało się zresetować zlecenia"));
     } finally {
       setIsResettingWorkOrder(false);
     }
@@ -498,7 +499,7 @@ export function WorkOrderDetailPage() {
       await updateWorkOrderReleaseStatus(Number(id), nextReleaseState);
       await Promise.all([loadWorkOrder(Number(id)), loadAuditEvents(Number(id))]);
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "Nie udało się zmienić statusu wydania");
+      setErrorMessage(getLoadErrorMessage(error, "Nie udało się zmienić statusu wydania"));
     } finally {
       setIsUpdatingReleaseStatus(false);
     }
@@ -542,7 +543,7 @@ export function WorkOrderDetailPage() {
       setAttachmentDescription("");
       await Promise.all([loadAttachments(Number(id)), loadAuditEvents(Number(id))]);
     } catch (error) {
-      setUploadErrorMessage(error instanceof Error ? error.message : "Nie udało się przesłać załącznika");
+      setUploadErrorMessage(getLoadErrorMessage(error, "Nie udało się przesłać załącznika"));
     } finally {
       setIsUploadingAttachment(false);
     }
@@ -556,7 +557,7 @@ export function WorkOrderDetailPage() {
     try {
       await openWorkOrderAttachment(workOrder.id, attachment.id);
     } catch (error) {
-      setAttachmentsErrorMessage(error instanceof Error ? error.message : "Nie udało się otworzyć załącznika");
+      setAttachmentsErrorMessage(getLoadErrorMessage(error, "Nie udało się otworzyć załącznika"));
     }
   }
 
@@ -582,7 +583,7 @@ export function WorkOrderDetailPage() {
       await deleteWorkOrderAttachment(Number(id), attachment.id);
       await Promise.all([loadAttachments(Number(id)), loadAuditEvents(Number(id))]);
     } catch (error) {
-      setAttachmentsErrorMessage(error instanceof Error ? error.message : "Nie udało się usunąć załącznika");
+      setAttachmentsErrorMessage(getLoadErrorMessage(error, "Nie udało się usunąć załącznika"));
     } finally {
       setDeletingAttachmentId(null);
     }

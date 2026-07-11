@@ -5,6 +5,7 @@ import { usePolling, STATION_POLL_INTERVAL_MS } from "../hooks/usePolling";
 import { fetchAllWorkOrders } from "../api/workOrdersApi";
 import { OfficeWorkOrdersTable } from "../components/OfficeWorkOrdersTable";
 import type { ProcessStatusValue, WorkOrder } from "../types/workOrders";
+import { getLoadErrorMessage } from "../utils/loadError";
 
 type OfficeBucket = "INTAKE" | "PRODUCTION" | "READY";
 
@@ -96,7 +97,7 @@ export function WorkOrdersListPage() {
         setWorkOrders(response.items);
       } catch (error) {
         if (!background && requestedFilter === latestFilterRef.current) {
-          setErrorMessage(error instanceof Error ? error.message : "Nie udało się pobrać zleceń");
+          setErrorMessage(getLoadErrorMessage(error, "Nie udało się pobrać zleceń"));
         }
       } finally {
         if (!background && requestedFilter === latestFilterRef.current) {

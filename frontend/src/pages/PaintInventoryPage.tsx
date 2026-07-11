@@ -3,6 +3,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { NumberInput } from "../components/NumberInput";
 import { fetchPaintMovements, fetchPaints, recordPaintAdjustment, recordPaintDelivery } from "../api/paintsApi";
 import type { Paint, PaintStockMovement } from "../types/paints";
+import { getLoadErrorMessage } from "../utils/loadError";
 
 interface DeliveryFormState {
   ral_code: string;
@@ -101,7 +102,7 @@ export function PaintInventoryPage() {
         if (!isActive) {
           return;
         }
-        setErrorMessage(error instanceof Error ? error.message : "Nie udało się pobrać farb");
+        setErrorMessage(getLoadErrorMessage(error, "Nie udało się pobrać farb"));
       } finally {
         if (isActive) {
           setIsLoading(false);
@@ -134,7 +135,7 @@ export function PaintInventoryPage() {
         if (!isActive) {
           return;
         }
-        setErrorMessage(error instanceof Error ? error.message : "Nie udało się pobrać ruchów farby");
+        setErrorMessage(getLoadErrorMessage(error, "Nie udało się pobrać ruchów farby"));
       });
 
     return () => {
@@ -185,7 +186,7 @@ export function PaintInventoryPage() {
       });
       setDeliveryFormState(initialDeliveryFormState);
     } catch (error) {
-      setDeliveryErrorMessage(error instanceof Error ? error.message : "Nie udało się zapisać dostawy farby");
+      setDeliveryErrorMessage(getLoadErrorMessage(error, "Nie udało się zapisać dostawy farby"));
     } finally {
       setIsSavingDelivery(false);
     }
@@ -226,7 +227,7 @@ export function PaintInventoryPage() {
       });
       setAdjustmentFormState(initialAdjustmentFormState);
     } catch (error) {
-      setAdjustmentErrorMessage(error instanceof Error ? error.message : "Nie udało się zapisać korekty farby");
+      setAdjustmentErrorMessage(getLoadErrorMessage(error, "Nie udało się zapisać korekty farby"));
     } finally {
       setIsSavingAdjustment(false);
     }

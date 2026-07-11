@@ -1,5 +1,5 @@
 import { Navigate, useLocation } from "react-router-dom";
-import { isFullAccessUser, useAuth, USER_KEY, type AuthUser } from "../context/AuthContext";
+import { isFullAccessUser, readStoredAuthUser, useAuth } from "../context/AuthContext";
 import { getStationPanelPath, type StationId } from "../api/stationContext";
 
 const stationRouteMap: Record<string, string[]> = {
@@ -11,22 +11,14 @@ const stationRouteMap: Record<string, string[]> = {
   DECORAL_PRODUCTION: ["/produkcja-decoral"],
 };
 
-function readUserFromStorage(): AuthUser | null {
-  try {
-    const stored = localStorage.getItem(USER_KEY);
-    return stored ? (JSON.parse(stored) as AuthUser) : null;
-  } catch {
-    return null;
-  }
-}
-
 export function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   const location = useLocation();
 
   // React state may not be committed yet right after login (race condition),
-  // so fall back to localStorage as the authoritative source.
-  const effectiveUser = user ?? readUserFromStorage();
+  // so fall back to localStorage as the authoritative source (same guarded read as AuthContext —
+  // CHANGES #16a keeps the parse guard in one place).
+  const effectiveUser = user ?? readStoredAuthUser();
 
   if (!effectiveUser) {
     return <Navigate to="/login" state={{ from: location }} replace />;

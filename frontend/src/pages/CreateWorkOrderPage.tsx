@@ -8,6 +8,7 @@ import { lookupPaintStock } from "../api/paintsApi";
 import { createWorkOrder } from "../api/workOrdersApi";
 import type { Foil } from "../types/foils";
 import type { CoatingTypeValue, WorkOrderKindValue } from "../types/workOrders";
+import { getLoadErrorMessage } from "../utils/loadError";
 
 interface FormState {
   total_quantity: string;
@@ -325,7 +326,7 @@ export function CreateWorkOrderPage() {
           currentQuantityKg: null,
           existsInInventory: false,
           isLoading: false,
-          errorMessage: error instanceof Error ? error.message : "Nie udało się pobrać stanu farby",
+          errorMessage: getLoadErrorMessage(error, "Nie udało się pobrać stanu farby"),
         });
       });
 
@@ -471,7 +472,7 @@ export function CreateWorkOrderPage() {
       });
       navigate("/zlecenia");
     } catch (error) {
-      setApiError(error instanceof Error ? error.message : "Nie udało się utworzyć zlecenia");
+      setApiError(getLoadErrorMessage(error, "Nie udało się utworzyć zlecenia"));
     } finally {
       setIsSubmitting(false);
     }

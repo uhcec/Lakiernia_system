@@ -2,6 +2,7 @@ import { useState } from "react";
 
 import { openWorkOrderAttachment } from "../api/workOrdersApi";
 import type { WorkOrderAttachmentSummary } from "../types/workOrders";
+import { getLoadErrorMessage } from "../utils/loadError";
 
 interface TechnicalDrawingLinksProps {
   workOrderId: number;
@@ -25,7 +26,7 @@ export function TechnicalDrawingLinks({ workOrderId, drawings }: TechnicalDrawin
     try {
       await openWorkOrderAttachment(workOrderId, attachmentId);
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "Nie udało się otworzyć rysunku");
+      setErrorMessage(getLoadErrorMessage(error, "Nie udało się otworzyć rysunku"));
     }
   }
 

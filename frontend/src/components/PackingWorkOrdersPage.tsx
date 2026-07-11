@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { useConfirm } from "./ConfirmDialog";
 import { usePolling, STATION_POLL_INTERVAL_MS } from "../hooks/usePolling";
@@ -11,6 +11,7 @@ import { TechnicalDrawingLinks } from "./TechnicalDrawingLinks";
 import { completePacking, fetchStageWorkOrders, releasePacking, startPacking, transitionStage } from "../api/processApi";
 import type { StageWorkOrder, StageStatusValue } from "../types/process";
 import { loadCorrectionContexts, type CorrectionContext } from "../utils/correctionContext";
+import { getLoadErrorMessage } from "../utils/loadError";
 import {
   badgeClasses,
   balanceClasses,
@@ -121,6 +122,10 @@ export function PackingWorkOrdersPage() {
   const [workOrders, setWorkOrders] = useState<StageWorkOrder[]>([]);
   const [queueFilter, setQueueFilter] = useState<QueueFilter>("ALL");
   const [isLoading, setIsLoading] = useState(true);
+  // CHANGES #16b: stale-response guard — a slow foreground reload racing a background poll
+  // must not present older data than what is already on screen. Every load takes a ticket;
+  // only the latest ticket may apply state.
+  const loadRequestSequenceRef = useRef(0);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [warningMessage, setWarningMessage] = useState<string | null>(null);
   const [activeWorkOrderId, setActiveWorkOrderId] = useState<string | null>(null);
@@ -149,6 +154,7 @@ export function PackingWorkOrdersPage() {
 
   async function loadWorkOrders(options?: { preserveErrorMessage?: boolean; background?: boolean }): Promise<boolean> {
     const background = options?.background ?? false;
+    const requestId = ++loadRequestSequenceRef.current;
     if (!background) {
       setIsLoading(true);
       if (!options?.preserveErrorMessage) {
@@ -159,8 +165,14 @@ export function PackingWorkOrdersPage() {
 
     try {
       const items = await fetchStageWorkOrders("PACKING");
+      if (requestId !== loadRequestSequenceRef.current) {
+        return false; // superseded by a newer load — do not present stale data
+      }
       setWorkOrders(items);
       const correctionContexts = await loadCorrectionContexts(items);
+      if (requestId !== loadRequestSequenceRef.current) {
+        return false;
+      }
       setCorrectionContextByOrderId(correctionContexts.contexts);
 
       if (correctionContexts.failedCount > 0 && !background) {
@@ -193,8 +205,8 @@ export function PackingWorkOrdersPage() {
       });
       return true;
     } catch (error) {
-      if (!background) {
-        setErrorMessage(error instanceof Error ? error.message : "Nie udało się pobrać zleceń do pakowania");
+      if (!background && requestId === loadRequestSequenceRef.current) {
+        setErrorMessage(getLoadErrorMessage(error, "Nie udało się pobrać zleceń do pakowania"));
       }
       return false;
     } finally {

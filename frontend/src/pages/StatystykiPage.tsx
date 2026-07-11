@@ -15,6 +15,7 @@ import type {
   WipAgingStats,
 } from "../types/manager";
 import { BarChart, type BarChartPoint } from "../components/BarChart";
+import { getLoadErrorMessage } from "../utils/loadError";
 
 type GroupBy = "day" | "week" | "month";
 
@@ -313,7 +314,7 @@ export function StatystykiPage() {
       })
       .catch((error) => {
         if (cancelled) return;
-        setErrorMessage(error instanceof Error ? error.message : "Nie udało się pobrać statystyk");
+        setErrorMessage(getLoadErrorMessage(error, "Nie udało się pobrać statystyk"));
       })
       .finally(() => {
         if (!cancelled) setIsLoading(false);

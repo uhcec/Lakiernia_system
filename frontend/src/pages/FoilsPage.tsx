@@ -4,6 +4,7 @@ import { Check, ChevronDown, ChevronUp, Layers, Plus, Search, Trash2, Truck, X }
 import { useConfirm } from "../components/ConfirmDialog";
 import { createFoil, deleteFoil, fetchFoils, updateFoil } from "../api/foilsApi";
 import type { Foil } from "../types/foils";
+import { getLoadErrorMessage } from "../utils/loadError";
 
 const inputClass =
   "w-full rounded-2xl border border-[#ece7f4] bg-[#f4f0fb] px-4 py-3 text-sm text-[#2e1a47] outline-none transition placeholder:text-[#a89fba] focus-visible:border-[#f2761b] focus-visible:ring-2 focus-visible:ring-[#f2761b]/30";
@@ -62,7 +63,7 @@ export function FoilsPage() {
         return response.items[0]?.id ?? null;
       });
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "Nie udało się pobrać folii");
+      setErrorMessage(getLoadErrorMessage(error, "Nie udało się pobrać folii"));
     } finally {
       setIsLoading(false);
     }
@@ -116,7 +117,7 @@ export function FoilsPage() {
       await loadFoils(search);
       setSelectedFoilId(created.id);
     } catch (error) {
-      setCreateError(error instanceof Error ? error.message : "Nie udało się zapisać folii");
+      setCreateError(getLoadErrorMessage(error, "Nie udało się zapisać folii"));
     } finally {
       setIsSaving(false);
     }
@@ -144,7 +145,7 @@ export function FoilsPage() {
       });
       await loadFoils(search);
     } catch (error) {
-      setDetailError(error instanceof Error ? error.message : "Nie udało się zaktualizować folii");
+      setDetailError(getLoadErrorMessage(error, "Nie udało się zaktualizować folii"));
     } finally {
       setIsUpdating(false);
     }
@@ -167,7 +168,7 @@ export function FoilsPage() {
       setSelectedFoilId(null);
       await loadFoils(search);
     } catch (error) {
-      setDetailError(error instanceof Error ? error.message : "Nie udało się usunąć folii");
+      setDetailError(getLoadErrorMessage(error, "Nie udało się usunąć folii"));
     }
   }
 

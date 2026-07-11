@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { usePolling, STATION_POLL_INTERVAL_MS } from "../hooks/usePolling";
 import { getMutationErrorMessage } from "../utils/mutationError";
@@ -10,6 +10,7 @@ import { TechnicalDrawingLinks } from "./TechnicalDrawingLinks";
 import { completeDecoralProduction, fetchStageWorkOrders, transitionStage } from "../api/processApi";
 import type { StageWorkOrder, StageStatusValue } from "../types/process";
 import { loadCorrectionContexts, type CorrectionContext } from "../utils/correctionContext";
+import { getLoadErrorMessage } from "../utils/loadError";
 import {
   badgeClasses,
   buildCorrectionQuantityContext,
@@ -79,6 +80,10 @@ export function DecoralWorkOrdersPage() {
   const [workOrders, setWorkOrders] = useState<StageWorkOrder[]>([]);
   const [queueFilter, setQueueFilter] = useState<QueueFilter>("ALL");
   const [isLoading, setIsLoading] = useState(true);
+  // CHANGES #16b: stale-response guard — a slow foreground reload racing a background poll
+  // must not present older data than what is already on screen. Every load takes a ticket;
+  // only the latest ticket may apply state.
+  const loadRequestSequenceRef = useRef(0);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [warningMessage, setWarningMessage] = useState<string | null>(null);
   const [activeWorkOrderId, setActiveWorkOrderId] = useState<string | null>(null);
@@ -102,6 +107,7 @@ export function DecoralWorkOrdersPage() {
 
   async function loadWorkOrders(options?: { preserveErrorMessage?: boolean; background?: boolean }): Promise<boolean> {
     const background = options?.background ?? false;
+    const requestId = ++loadRequestSequenceRef.current;
     if (!background) {
       setIsLoading(true);
       if (!options?.preserveErrorMessage) setErrorMessage(null);
@@ -109,8 +115,14 @@ export function DecoralWorkOrdersPage() {
     }
     try {
       const items = await fetchStageWorkOrders("DECORAL_PRODUCTION");
+      if (requestId !== loadRequestSequenceRef.current) {
+        return false; // superseded by a newer load — do not present stale data
+      }
       setWorkOrders(items);
       const correctionContexts = await loadCorrectionContexts(items);
+      if (requestId !== loadRequestSequenceRef.current) {
+        return false;
+      }
       setCorrectionContextByOrderId(correctionContexts.contexts);
       if (correctionContexts.failedCount > 0 && !background) {
         setWarningMessage("Nie udało się pobrać pełnego kontekstu dla części poprawek. Lista pozostaje dostępna.");
@@ -129,8 +141,8 @@ export function DecoralWorkOrdersPage() {
       });
       return true;
     } catch (error) {
-      if (!background) {
-        setErrorMessage(error instanceof Error ? error.message : "Nie udało się pobrać zleceń Decoral");
+      if (!background && requestId === loadRequestSequenceRef.current) {
+        setErrorMessage(getLoadErrorMessage(error, "Nie udało się pobrać zleceń Decoral"));
       }
       return false;
     } finally {

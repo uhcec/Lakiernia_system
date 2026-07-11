@@ -63,8 +63,9 @@ a path a real shop day will hit:
 
 Strongly recommended before cutover:
 
-- [ ] **#16** — frontend floor-robustness batch (white-screen `JSON.parse`,
-      stale-response guards, Polish network errors). Item (d) — drafts
+- [x] **#16** — ✅ fixed 2026-07-11: guarded storage read at the source,
+      stale-response tickets on the three polling boards, Polish network
+      message swept across all 37 error-display sites. Item (d) — drafts
       across 401 — resolved 2026-07-11: acceptable loss per session policy,
       no work.
 - [ ] **#17** — QC document: D1=Windows + D6=Excel card required, so the

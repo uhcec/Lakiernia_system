@@ -20,12 +20,22 @@ type AuthContextValue = {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [token, setToken] = useState<string | null>(() => localStorage.getItem(TOKEN_KEY));
-  const [user, setUser] = useState<AuthUser | null>(() => {
+// CHANGES #16a: guard the parse at the SOURCE — this runs inside a useState initializer, so one
+// corrupt localStorage value used to white-screen the whole app before anything rendered.
+// Exported so ProtectedRoute reads the same storage through the same guard.
+export function readStoredAuthUser(): AuthUser | null {
+  try {
     const stored = localStorage.getItem(USER_KEY);
     return stored ? (JSON.parse(stored) as AuthUser) : null;
-  });
+  } catch {
+    localStorage.removeItem(USER_KEY);
+    return null;
+  }
+}
+
+export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const [token, setToken] = useState<string | null>(() => localStorage.getItem(TOKEN_KEY));
+  const [user, setUser] = useState<AuthUser | null>(() => readStoredAuthUser());
 
   const login = useCallback(async (credentials: { login: string; password: string }) => {
     const response = await fetch("/auth/login", {

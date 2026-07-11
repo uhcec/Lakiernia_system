@@ -18,6 +18,7 @@ import { createClient, deleteClient, fetchClientDetail, fetchClients, updateClie
 import { buildWorkOrderDetailHref } from "../api/stationContext";
 import type { Client, ClientDetail, ClientOrderHistoryItem } from "../types/clients";
 import type { ProcessStatusValue, WorkOrderStatusValue } from "../types/workOrders";
+import { getLoadErrorMessage } from "../utils/loadError";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -250,7 +251,7 @@ export function ClientsPage() {
         return response.items[0]?.id ?? null;
       });
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "Nie udało się pobrać klientów");
+      setErrorMessage(getLoadErrorMessage(error, "Nie udało się pobrać klientów"));
     } finally {
       setIsLoading(false);
     }
@@ -285,7 +286,7 @@ export function ClientsPage() {
         })
         .catch((error) => {
           if (!isActive || !isInitial) return;
-          setDetailError(error instanceof Error ? error.message : "Nie udało się pobrać danych klienta");
+          setDetailError(getLoadErrorMessage(error, "Nie udało się pobrać danych klienta"));
         });
     }
 
@@ -321,7 +322,7 @@ export function ClientsPage() {
       await loadClients(search);
       setSelectedClientId(created.id);
     } catch (error) {
-      setCreateError(error instanceof Error ? error.message : "Nie udało się zapisać klienta");
+      setCreateError(getLoadErrorMessage(error, "Nie udało się zapisać klienta"));
     } finally {
       setIsSaving(false);
     }
@@ -346,7 +347,7 @@ export function ClientsPage() {
       const refreshed = await fetchClientDetail(selectedClientId);
       setDetail(refreshed);
     } catch (error) {
-      setDetailError(error instanceof Error ? error.message : "Nie udało się zaktualizować klienta");
+      setDetailError(getLoadErrorMessage(error, "Nie udało się zaktualizować klienta"));
     } finally {
       setIsUpdating(false);
     }
@@ -370,7 +371,7 @@ export function ClientsPage() {
       setDetail(null);
       await loadClients(search);
     } catch (error) {
-      setDetailError(error instanceof Error ? error.message : "Nie udało się usunąć klienta");
+      setDetailError(getLoadErrorMessage(error, "Nie udało się usunąć klienta"));
     }
   }
 
