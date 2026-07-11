@@ -239,6 +239,23 @@ class WorkOrderNumberCounter(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: clock.now(), nullable=False)
 
 
+class WzNumberCounter(Base):
+    """Per-year sequential counter for WZ (wydanie z magazynu) document numbers.
+
+    Keyed by the real calendar year so numbering resets to 1 each January ("kolejny / rok", e.g.
+    12/2026). WZ documents themselves are not persisted (owner decision 2026-07-11: generation is a
+    one-off printout, not a stored register) — only this counter survives, so reprints simply consume
+    the next number and small gaps are accepted.
+    """
+
+    __tablename__ = "wz_number_counters"
+
+    year: Mapped[int] = mapped_column(Integer(), primary_key=True)
+    last_value: Mapped[int] = mapped_column(Integer(), nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: clock.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: clock.now(), nullable=False)
+
+
 class WorkOrderAttachment(Base):
     __tablename__ = "work_order_attachments"
 

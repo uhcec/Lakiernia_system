@@ -30,14 +30,16 @@ Ten plik opisuje **co kod robi dzisiaj**. To nowa baza prawdy, zastępująca ska
 - ✅ Wymagane przy tworzeniu: klient, RAL + kod farby + producent, technologia, data przyjęcia, **data odbioru**, powierzchnia (>0). `app/work_orders/schemas.py:154-177`
 - ✅ Ilość domyślnie 1. `app/work_orders/schemas.py:157`
 - ✅ Dla profili i akcesoriów podajesz **albo** ilość, **albo** „do policzenia na produkcji", nigdy oba/żadne. `app/work_orders/schemas.py:128-132`
-- ✅ Utworzenie zlecenia zapisuje **migawkę stanu farby** (kg w tej chwili). `app/work_orders/service.py:202-206`
-- ✅ Tylko biuro tworzy zlecenia / zarządza załącznikami / odznacza „kompletne"; biuro lub kierownik edytuje. `app/work_orders/service.py:637-642`, `258-262`
-- ✅ Lista biura **nie pokazuje** poprawek „P…". `app/work_orders/service.py:371-374`
-- ✅ Status zlecenia jest **wyliczany** z postępu, nigdy ustawiany ręcznie. `app/work_orders/service.py:166-174`
-- ✅ „Po terminie" = data odbioru przed dziś ORAZ zlecenie jeszcze nie gotowe. `app/work_orders/service.py:793-797`
-- ✅ „Wydane klientowi" można ustawić tylko dla gotowego zlecenia. `app/work_orders/service.py:447-457`
-- ✅ Załączniki: tylko PDF / PNG / JPG, limit rozmiaru z konfiguracji. `app/work_orders/service.py:150-154`
-- ✅ **(ZMIANA #17 zrobiona 2026-07-11)** biuro pobiera **kartę kontroli jakości** jako PDF: szablon Excela z repo (`app/static/templates/karta_kontroli_jakosci.xlsx`) wypełniony numerem zlecenia / klientem / farbą, renderowany do PDF przez **sterowanie Excelem po COM** — świadome ograniczenie hostingu (decyzje właściciela D1/D6: karta w formacie Excela jest wymagana, a produkcja działa na **hoście Windows z Excelem**; trwały worker trzyma jedną instancję Excela). Na hoście bez Excela (np. deweloperski VPS z Linuksem) endpoint odpowiada kontrolowanym polskim **503**, nigdy surowym 500. `app/work_orders/service.py:594-634@def generate_quality_control_document`, `app/work_orders/service.py:62-151@class _ExcelPdfConverter`, `app/work_orders/router.py:109-116@quality-control-document`, `app/shared/exceptions.py:50-57@DocumentGenerationUnavailableError`
+- ✅ Utworzenie zlecenia zapisuje **migawkę stanu farby** (kg w tej chwili). `app/work_orders/service.py:230@capture_work_order_snapshot`
+- ✅ Tylko biuro tworzy zlecenia / zarządza załącznikami / odznacza „kompletne"; biuro lub kierownik edytuje. `app/work_orders/service.py:873@_ensure_office_station_action`, `289@aktualizacja zlecenia`
+- ✅ Lista biura **nie pokazuje** poprawek „P…". `app/work_orders/service.py:402@not item.is_correction`
+- ✅ Status zlecenia jest **wyliczany** z postępu, nigdy ustawiany ręcznie. `app/work_orders/service.py:195@def derive_status`
+- ✅ „Po terminie" = data odbioru przed dziś ORAZ zlecenie jeszcze nie gotowe. `app/work_orders/service.py:1032@work_order.planned_pickup_date < date.today()`
+- ✅ „Wydane klientowi" można ustawić tylko dla gotowego zlecenia. `app/work_orders/service.py:487@Only READY work orders`
+- ✅ Załączniki: tylko PDF / PNG / JPG, limit rozmiaru z konfiguracji. `app/work_orders/service.py:170@ALLOWED_ATTACHMENT_TYPES`
+- ✅ **(ZMIANA #18 zrobione 2026-07-11) WZ (wydanie z magazynu):** biuro generuje PDF wydania dla grupy gotowych zleceń **jednego** klienta — wiersze to liczby profili/akcesoriów + RAL każdego zlecenia (zlecenie bez znanego podziału daje jeden wiersz „Elementy"), plus opcjonalna ręczna pozycja „Kosze dłużycowe"; adres odbiorcy zostaje pusty (dopisywany ręcznie). Różni klienci lub zlecenia niegotowe są odrzucane; na hoście bez Excela zwraca kontrolowane polskie **503** jak karta jakości. `app/work_orders/service.py:655@def generate_wz_document`, `747@różnych klientów`, `780@Kosze dłużycowe`
+- ✅ Numery WZ idą rocznie „kolejny/rok" (np. 1/2026); numer jest pobierany dopiero gdy PDF się wygeneruje (nieudany render cofa numer). Dokument WZ **nie** jest zapisywany (brak rejestru / ponownego druku z tym samym numerem), a jego wygenerowanie **nie** oznacza zleceń jako wydane — to osobny krok. `app/work_orders/wz_number_allocator.py:23@def allocate`, `app/work_orders/service.py:680@wz_number_allocator.allocate`
+- ✅ **(ZMIANA #17 zrobiona 2026-07-11)** biuro pobiera **kartę kontroli jakości** jako PDF: szablon Excela z repo (`app/static/templates/karta_kontroli_jakosci.xlsx`) wypełniony numerem zlecenia / klientem / farbą, renderowany do PDF przez **sterowanie Excelem po COM** — świadome ograniczenie hostingu (decyzje właściciela D1/D6: karta w formacie Excela jest wymagana, a produkcja działa na **hoście Windows z Excelem**; trwały worker trzyma jedną instancję Excela). Na hoście bez Excela (np. deweloperski VPS z Linuksem) endpoint odpowiada kontrolowanym polskim **503**, nigdy surowym 500. `app/work_orders/service.py:616@def generate_quality_control_document`, `app/work_orders/service.py:64@class _ExcelPdfConverter`, `app/work_orders/router.py:109-116@quality-control-document`, `app/shared/exceptions.py:50-57@DocumentGenerationUnavailableError`
 
 ## 3. Przepływ etapów i trasa
 
@@ -145,8 +147,8 @@ Szczegóły:
 
 ## 10. Magazyn farby
 
-- ✅ Prognoza zapotrzebowania = powierzchnia ÷ 4 jeśli < 100 m², inaczej ÷ 6, zaokrąglone do pełnych kg. `app/work_orders/schemas.py:308-312`
-- ✅ Niedobór = prognoza − stan (w górę), pokazywany gdy prognoza > stan. `app/work_orders/schemas.py:315-328`
+- ✅ Prognoza zapotrzebowania = powierzchnia ÷ 4 jeśli < 100 m², inaczej ÷ 6, zaokrąglone do pełnych kg. `app/work_orders/schemas.py:327@total_area_m2 < 100`
+- ✅ Niedobór = prognoza − stan (w górę), pokazywany gdy prognoza > stan. `app/work_orders/schemas.py:331-344@ROUND_CEILING`
 - ✅ Zużycie automatu: tylko automat, po starcie zawieszania, wymaga kodu farby, **raz a dobrze** (bez edycji po zapisie; korekta ręczną korektą biura). `app/process/service.py:847-864`
 - ✅ Zapis zużycia zdejmuje farbę ze stanu; błąd, gdy nie starcza. `app/paints/service.py:130-153`
 - ✅ Kolor „śledzony" tylko z realną historią ruchów (nie placeholder 0 kg). `app/paints/service.py:155-159`

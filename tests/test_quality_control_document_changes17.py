@@ -34,7 +34,8 @@ def create_order(client) -> int:
 class _UnavailableConverter:
     """What _get_excel_pdf_converter yields on a host without Windows/Excel/pywin32."""
 
-    def convert(self, xlsx_path, pdf_path, timeout: float = 60.0) -> None:
+    # **kwargs mirrors the real convert() keyword-only options (emphasize_cell, center_vertically).
+    def convert(self, xlsx_path, pdf_path, timeout: float = 60.0, **_kwargs) -> None:
         raise RuntimeError(
             "Generowanie dokumentu wymaga systemu Windows z zainstalowanym pakietem Excel i biblioteką pywin32."
         )
@@ -43,7 +44,7 @@ class _UnavailableConverter:
 class _CrashingConverter:
     """A raw COM failure mid-conversion (Excel crashed, file locked) — an arbitrary exception."""
 
-    def convert(self, xlsx_path, pdf_path, timeout: float = 60.0) -> None:
+    def convert(self, xlsx_path, pdf_path, timeout: float = 60.0, **_kwargs) -> None:
         raise ValueError("COM error 0x800A03EC")
 
 

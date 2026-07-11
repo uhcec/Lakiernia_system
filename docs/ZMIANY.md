@@ -15,6 +15,9 @@ teraz (`plik:linia`), czego chce właściciel i dlaczego. Potwierdzone zachowani
 | 8 | zmiana | Oznaczać kolory nieśledzone zamiast cichego OK ✅ |
 | 9 | zmiana | Zapisywać faktyczną długość zmiany dla „dobrego dnia" ✅ |
 | 10 | zmiana | Uwidocznić czujkę przecieku ilości ✅ |
+| 18 | funkcja | Generowanie WZ (wydanie z magazynu) dla grupy gotowych zleceń ✅ |
+
+*(Uwaga: pozycje #11–#17 dodano tylko w angielskim `docs/CHANGES.md` (przegląd 2026-07-11) — nie przetłumaczono ich jeszcze tutaj.)*
 
 ---
 
@@ -68,3 +71,8 @@ teraz (`plik:linia`), czego chce właściciel i dlaczego. Potwierdzone zachowani
 - **Teraz:** przy domykaniu, gdy zaliczone sztuki ≠ całość, zlecenie jest wyrównywane do całości, a ostrzeżenie trafia **tylko do logu technicznego serwera**; żaden człowiek go nie widzi. Sprawdzone na żywo 2026-06-26: przeciek 7/10 domknął się po cichu do 10/10, tylko z wpisem w logu. `app/process/service.py:2343-2350`
 - **Cel:** przeciek to sygnał błędu wyżej — zostawić czujkę, ale uczynić ją **widoczną dla człowieka** (np. flaga na zleceniu), żeby dało się zbadać, zamiast cichego domknięcia. Model ilości ma w ogóle nie dopuszczać przecieków; to jest siatka bezpieczeństwa.
 - **Zrobione:** dodano trwałą flagę `work_orders.quantity_leak_flagged` (migracja `20260626_0041`), ustawianą w czujce przy domykaniu, wystawioną w `WorkOrderRead` (biuro + kierownik) oraz zdarzenie audytu SYSTEM `work_order.quantity_leak_detected`. Zlecenie nadal domyka się do całości (żeby robota nie utknęła), ale przeciek nie jest już cichy. `app/process/service.py`, `app/work_orders/models.py`, `app/work_orders/schemas.py`.
+
+### #18 — Generowanie WZ (wydanie z magazynu)  *(funkcja, 2026-07-11)* — ✅ ZROBIONE 2026-07-11
+- **Cel:** biuro chce przycisk „Generuj WZ", który w dowolnej chwili tworzy dokument wydania (PDF) dla wybranej grupy gotowych zleceń jednego klienta (domyka dawną pozycję z listy zadań „WZ + wydanie klientowi").
+- **Decyzje właściciela (2026-07-11):** najpierw klient → zaznaczenie jego zleceń GOTOWYCH i jeszcze niewydanych; wiersze automatycznie z danych zlecenia (liczby profili/akcesoriów + RAL; zlecenie bez znanego podziału → jeden wiersz „Elementy"); **jedyne** pole ręczne to liczba załadowanych „Kosze dłużycowe"; w NR ZAMÓWIENIA **oba** numery (klienta i nasz); adres odbiorcy zostaje pusty (dopisywany ręcznie); numer WZ automatyczny rocznie „kolejny/rok" (1/2026…); **bez** zapisywania dokumentów (jednorazowy wydruk, dziury przy ponownym druku akceptowane); wygenerowanie WZ **nie** oznacza zleceń jako wydane (osobny krok).
+- **Zrobione:** szablon `app/static/templates/wydanie_z_magazynu.xlsx` (zbudowany z pliku właściciela, czcionki/ramki 1:1, przez `scripts/build_wz_template.py`); `WorkOrderService.generate_wz_document` + `WzNumberAllocator` + tabela `wz_number_counters` (migracja `20260711_0045`); endpoint `POST /work-orders/wz-document` (tylko biuro); front `GenerateWzModal` + przycisk „Generuj WZ" na liście biura. Wspólny konwerter Excel→PDF sparametryzowano (wyróżnienie D6 karty jakości za `emphasize_cell=`), a nieudany render zwraca to samo kontrolowane polskie 503 co karta jakości (#17) i cofa numer WZ. Testy w `tests/test_wz_document.py`; układ obejrzany na realnym renderze. Zob. `docs/DECISIONS.md` (2026-07-11 — #18) i `docs/REVIEW_LEDGER.md` #8. `app/work_orders/service.py`, `app/work_orders/wz_number_allocator.py`, `app/work_orders/models.py`, `app/work_orders/schemas.py`, `app/work_orders/router.py`, `frontend/src/components/GenerateWzModal.tsx`, `frontend/src/pages/WorkOrdersListPage.tsx`, `frontend/src/api/workOrdersApi.ts`.

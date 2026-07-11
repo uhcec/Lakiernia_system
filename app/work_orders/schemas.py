@@ -211,6 +211,19 @@ class WorkOrderReleaseUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class WzDocumentRequest(BaseModel):
+    """Request to generate a WZ (wydanie z magazynu) for a group of ready orders of one client.
+
+    ``baskets_count`` is the office-entered "Kosze dłużycowe" count (the only manual line); omit or 0
+    for none.
+    """
+
+    work_order_ids: list[int] = Field(min_length=1)
+    baskets_count: int | None = Field(default=None, ge=0)
+
+    model_config = ConfigDict(extra="forbid")
+
+
 class WorkOrderRead(BaseModel):
     id: int
     order_number: str

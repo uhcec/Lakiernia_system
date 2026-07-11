@@ -1,9 +1,11 @@
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 
 import { usePolling, STATION_POLL_INTERVAL_MS } from "../hooks/usePolling";
 import { fetchAllWorkOrders } from "../api/workOrdersApi";
+import { getStationIdForLocation } from "../api/stationContext";
 import { OfficeWorkOrdersTable } from "../components/OfficeWorkOrdersTable";
+import { GenerateWzModal } from "../components/GenerateWzModal";
 import type { ProcessStatusValue, WorkOrder } from "../types/workOrders";
 import { getLoadErrorMessage } from "../utils/loadError";
 
@@ -59,7 +61,16 @@ export function WorkOrdersListPage() {
   const [appliedExternalOrderNumberFilter, setAppliedExternalOrderNumberFilter] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isWzModalOpen, setIsWzModalOpen] = useState(false);
   const hasAppliedExternalOrderNumberFilter = appliedExternalOrderNumberFilter.trim().length > 0;
+
+  const location = useLocation();
+  const isOffice = getStationIdForLocation(location.pathname, location.search) === "OFFICE";
+  // WZ candidates: ready to release and not yet released (the "do wydania" set, grouped by client in
+  // the modal). One WZ = one recipient, so the modal enforces a single customer.
+  const wzCandidates = workOrders.filter(
+    (workOrder) => workOrder.process_status.value === "READY" && !workOrder.is_released_to_client,
+  );
 
   const bucketCounts = officeBucketOptions.reduce<Record<OfficeBucket, number>>(
     (counts, bucket) => ({ ...counts, [bucket.value]: 0 }),
@@ -150,6 +161,22 @@ export function WorkOrdersListPage() {
             <div className="rounded-full border border-brand-line/70 bg-brand-soft px-5 py-3 text-sm font-semibold text-brand-muted">
               Widocznych rekordów: <span className="text-xl text-brand-ink">{visibleWorkOrders.length}</span>
             </div>
+            {isOffice ? (
+              <button
+                type="button"
+                onClick={() => setIsWzModalOpen(true)}
+                disabled={wzCandidates.length === 0}
+                title={wzCandidates.length === 0 ? "Brak zleceń gotowych do wydania" : undefined}
+                className="inline-flex items-center justify-center rounded-full border border-brand-900 bg-white px-6 py-3 text-sm font-semibold text-brand-900 transition hover:bg-brand-900 hover:text-white disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-white disabled:hover:text-brand-900"
+              >
+                Generuj WZ
+                {wzCandidates.length > 0 ? (
+                  <span className="ml-2 inline-flex min-w-6 justify-center rounded-full bg-brand-soft px-2 py-0.5 text-xs font-bold text-brand-900">
+                    {wzCandidates.length}
+                  </span>
+                ) : null}
+              </button>
+            ) : null}
             <Link
               to="/zlecenia/nowe"
               className="inline-flex items-center justify-center rounded-full bg-brand-warm px-6 py-3 text-sm font-semibold text-brand-ink transition hover:bg-brand-warm-strong"
@@ -286,6 +313,14 @@ export function WorkOrdersListPage() {
           <OfficeWorkOrdersTable workOrders={visibleWorkOrders} />
         )}
       </section>
+
+      {isWzModalOpen ? (
+        <GenerateWzModal
+          orders={wzCandidates}
+          onClose={() => setIsWzModalOpen(false)}
+          onGenerated={() => void loadWorkOrders({ background: true })}
+        />
+      ) : null}
     </main>
   );
 }

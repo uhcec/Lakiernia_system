@@ -31,6 +31,7 @@ from app.shared.exceptions import (
 from app.work_orders.enums import WorkOrderAttachmentCategory
 from app.work_orders.models import WorkOrder, WorkOrderAttachment
 from app.work_orders.number_allocator import WorkOrderNumberAllocator
+from app.work_orders.wz_number_allocator import WzNumberAllocator
 from app.work_orders.repository import WorkOrderRepository
 from app.foils.schemas import FoilSummaryRead
 from app.work_orders.schemas import (
@@ -41,6 +42,7 @@ from app.work_orders.schemas import (
     WorkOrderRelationSummaryRead,
     WorkOrderRead,
     WorkOrderReleaseUpdate,
+    WzDocumentRequest,
     WorkOrderStageStateRead,
     WorkOrderStatusView,
     WorkOrderUpdate,
@@ -99,17 +101,20 @@ class _ExcelPdfConverter:
             task = self._q.get()
             if task is None:
                 break
-            xlsx_str, pdf_str, done_event, err_box = task
+            xlsx_str, pdf_str, done_event, err_box, options = task
             try:
                 wb = excel.Workbooks.Open(xlsx_str, UpdateLinks=0, ReadOnly=0)
                 ws = wb.Worksheets(1)
-                ws.Range("D6").Font.Size = 16
-                ws.Range("D6").Font.Bold = True
+                # Optional per-document emphasis (QC card: paint description at D6 → 16pt bold).
+                emphasize_cell = options.get("emphasize_cell")
+                if emphasize_cell:
+                    ws.Range(emphasize_cell).Font.Size = 16
+                    ws.Range(emphasize_cell).Font.Bold = True
                 ps = ws.PageSetup
                 ps.PaperSize = 9  # A4
                 ps.Orientation = 1  # portrait
                 ps.CenterHorizontally = True
-                ps.CenterVertically = True
+                ps.CenterVertically = options.get("center_vertically", True)
                 ps.Zoom = False
                 ps.FitToPagesWide = 1
                 ps.FitToPagesTall = 1
@@ -120,7 +125,15 @@ class _ExcelPdfConverter:
             finally:
                 done_event.set()
 
-    def convert(self, xlsx_path: Path, pdf_path: Path, timeout: float = 60.0) -> None:
+    def convert(
+        self,
+        xlsx_path: Path,
+        pdf_path: Path,
+        timeout: float = 60.0,
+        *,
+        emphasize_cell: str | None = None,
+        center_vertically: bool = True,
+    ) -> None:
         # Wait for the worker to finish initializing Excel before queueing work.
         if not self._ready.wait(timeout=timeout):
             raise RuntimeError("Konwersja PDF przekroczyła limit czasu (Excel nie odpowiada).")
@@ -131,7 +144,8 @@ class _ExcelPdfConverter:
 
         done_event = threading.Event()
         err_box: list[Exception] = []
-        self._q.put((str(xlsx_path.resolve()), str(pdf_path.resolve()), done_event, err_box))
+        options = {"emphasize_cell": emphasize_cell, "center_vertically": center_vertically}
+        self._q.put((str(xlsx_path.resolve()), str(pdf_path.resolve()), done_event, err_box, options))
         if not done_event.wait(timeout=timeout):
             raise RuntimeError("Konwersja PDF przekroczyła limit czasu.")
         if err_box:
@@ -161,12 +175,20 @@ class WorkOrderService:
     # Bytes sniffed from the file head to verify the magic prefix (longest prefix above is 8 bytes).
     ATTACHMENT_HEADER_BYTES = 8
 
+    # WZ (wydanie z magazynu) print template. The data grid spans rows 7..29 (23 line slots); the
+    # generator writes Kolor/UWAGI once per order and merges them across that order's rows.
+    WZ_TEMPLATE_FILENAME = "wydanie_z_magazynu.xlsx"
+    WZ_DATA_FIRST_ROW = 7
+    WZ_DATA_LAST_ROW = 29
+    WZ_LINE_CAPACITY = WZ_DATA_LAST_ROW - WZ_DATA_FIRST_ROW + 1
+
     def __init__(self, repository: WorkOrderRepository) -> None:
         self.repository = repository
         self.process_service = ProcessService(ProcessRepository(repository.session))
         self.paint_service = PaintService(PaintRepository(repository.session))
         self.foil_repository = FoilRepository(repository.session)
         self.number_allocator = WorkOrderNumberAllocator(repository.session)
+        self.wz_number_allocator = WzNumberAllocator(repository.session)
         self.audit_repository = AuditRepository(repository.session)
 
     @staticmethod
@@ -617,7 +639,7 @@ class WorkOrderService:
             # card is required). Where that's not true (the Linux dev VPS), fail as a controlled
             # Polish 503, not a raw 500 from the worker thread.
             try:
-                _get_excel_pdf_converter().convert(xlsx_path, pdf_path)
+                _get_excel_pdf_converter().convert(xlsx_path, pdf_path, emphasize_cell="D6")
             except RuntimeError as exc:
                 # The converter's own errors carry operator-ready Polish messages.
                 raise DocumentGenerationUnavailableError(str(exc)) from exc
@@ -629,6 +651,191 @@ class WorkOrderService:
             pdf_bytes = pdf_path.read_bytes()
 
         return io.BytesIO(pdf_bytes), f"KJ_{work_order.order_number}.pdf"
+
+    def generate_wz_document(
+        self,
+        payload: WzDocumentRequest,
+        station_context: StationContext | None = None,
+    ) -> tuple[io.BytesIO, str]:
+        """Generate a WZ (wydanie z magazynu) PDF for a group of ready orders of one client.
+
+        Office-only. All selected orders must be READY (gotowe do wydania) and belong to the same
+        customer (one WZ = one recipient). Rows come from each order's profile/accessory counts and
+        RAL; the office may add a manual "Kosze dłużycowe" count. The WZ is a one-off printout — the
+        only durable side effect is the per-year WZ number (owner decision 2026-07-11: no stored
+        register). Generating a WZ does NOT mark the orders released to client — that stays a separate
+        step. The WZ number is only consumed if the PDF renders, so a failed render leaves no gap.
+        """
+        self._ensure_release_station_action(station_context)
+        orders = self._collect_wz_orders(payload.work_order_ids)
+        groups = self._build_wz_line_groups(orders, baskets_count=payload.baskets_count)
+        line_count = sum(len(group["rows"]) for group in groups)
+        if line_count > self.WZ_LINE_CAPACITY:
+            raise InvalidWorkOrderDataError(
+                f"WZ mieści maksymalnie {self.WZ_LINE_CAPACITY} pozycji; wybrane zlecenia dają {line_count}. "
+                "Podziel wydanie na kilka dokumentów."
+            )
+
+        customer_name = orders[0].customer_name
+        wz_number = self.wz_number_allocator.allocate()
+        # Render before commit so a failed conversion (e.g. Excel unavailable on a Linux host) rolls
+        # the allocated number back — no gap — and surfaces as a controlled Polish 503, like the QC
+        # card (CHANGES #17 / owner D1+D6 2026-07-11).
+        try:
+            document = self._render_wz_pdf(customer_name, wz_number, groups)
+        except RuntimeError as exc:
+            self.repository.rollback()
+            raise DocumentGenerationUnavailableError(str(exc)) from exc
+        except Exception as exc:
+            self.repository.rollback()
+            raise DocumentGenerationUnavailableError(
+                "Nie udało się wygenerować WZ (błąd konwersji Excel). Spróbuj ponownie."
+            ) from exc
+
+        self._record_audit_event(
+            event_type="work_order.wz_document_generated",
+            station_context=station_context,
+            work_order=orders[0],
+            target_type="wz_document",
+            target_id=None,
+            summary=f"Wygenerowano WZ {wz_number} dla {customer_name} ({len(orders)} zleceń).",
+            details={
+                "wz_number": wz_number,
+                "customer_name": customer_name,
+                "work_order_ids": [order.id for order in orders],
+                "order_numbers": [order.order_number for order in orders],
+                "baskets_count": payload.baskets_count,
+            },
+        )
+        try:
+            self.repository.commit()
+        except Exception:
+            self.repository.rollback()
+            raise
+
+        filename = f"WZ_{wz_number.replace('/', '_')}.pdf"
+        return document, filename
+
+    def _collect_wz_orders(self, work_order_ids: list[int]) -> list[WorkOrder]:
+        if not work_order_ids:
+            raise InvalidWorkOrderDataError("Wybierz przynajmniej jedno zlecenie do WZ.")
+
+        seen: set[int] = set()
+        orders: list[WorkOrder] = []
+        for work_order_id in work_order_ids:
+            if work_order_id in seen:
+                continue
+            seen.add(work_order_id)
+            order = self.repository.get_by_id(work_order_id)
+            if order is None:
+                raise ResourceNotFoundError(f"Work order {work_order_id} not found.")
+            orders.append(order)
+
+        not_ready = [
+            order.order_number
+            for order in orders
+            if self.process_service.get_display_status(order) != ProcessDisplayStatus.READY
+        ]
+        if not_ready:
+            raise InvalidWorkOrderDataError(
+                "Na WZ mogą trafić tylko zlecenia gotowe do wydania. Niegotowe: " + ", ".join(not_ready) + "."
+            )
+
+        customers = sorted({order.customer_name for order in orders})
+        if len(customers) > 1:
+            raise InvalidWorkOrderDataError(
+                "Jeden WZ dotyczy jednego odbiorcy, a wybrane zlecenia mają różnych klientów: "
+                + ", ".join(customers)
+                + "."
+            )
+
+        return orders
+
+    def _build_wz_line_groups(
+        self, orders: list[WorkOrder], *, baskets_count: int | None
+    ) -> list[dict]:
+        """One group per order (rows share a Kolor + NR ZAMÓWIENIA cell); optional trailing baskets row.
+
+        Rows are the order's profile and accessory counts when known (>0). If neither split is known
+        the order collapses to a single "Elementy" row with its total quantity.
+        """
+        groups: list[dict] = []
+        for order in orders:
+            rows: list[tuple[str, int]] = []
+            if order.profiles_quantity is not None and order.profiles_quantity > 0:
+                rows.append(("Profile", order.profiles_quantity))
+            if order.accessories_quantity is not None and order.accessories_quantity > 0:
+                rows.append(("Akcesoria", order.accessories_quantity))
+            if not rows:
+                rows.append(("Elementy", order.total_quantity))
+            groups.append(
+                {
+                    "color": order.ral_code,
+                    "order_ref": self._wz_order_reference(order),
+                    "rows": rows,
+                }
+            )
+
+        if baskets_count:
+            groups.append({"color": None, "order_ref": None, "rows": [("Kosze dłużycowe", baskets_count)]})
+
+        return groups
+
+    @staticmethod
+    def _wz_order_reference(order: WorkOrder) -> str:
+        """UWAGI / NR ZAMÓWIENIA cell: both the client's and our number (owner decision 2026-07-11)."""
+        external = (order.external_order_number or "").strip()
+        if external:
+            return f"Zam. klienta {external} (nasze {order.order_number})"
+        return order.order_number
+
+    def _build_wz_workbook(self, customer_name: str, wz_number: str, groups: list[dict]):
+        """Fill the WZ template with the header + line groups. Pure openpyxl (no Excel/COM), so the
+        cell mapping (Lp, Profile/Akcesoria/Kosze rows, merged Kolor/NR ZAMÓWIENIA) is unit-testable."""
+        import openpyxl
+
+        template_path = Path(__file__).parent.parent / "static" / "templates" / self.WZ_TEMPLATE_FILENAME
+        wb = openpyxl.load_workbook(template_path)
+        ws = wb.active
+        ws["H1"] = customer_name  # Odbiorca (FIRMA); address (H3) left blank — handwritten
+        ws["H4"] = wz_number
+        ws["E31"] = clock.now().strftime("%d.%m.%Y")
+
+        row = self.WZ_DATA_FIRST_ROW
+        line_number = 1
+        for group in groups:
+            start_row = row
+            for name, quantity in group["rows"]:
+                ws[f"C{row}"] = line_number
+                ws[f"D{row}"] = name
+                ws[f"F{row}"] = "szt"
+                ws[f"G{row}"] = quantity
+                line_number += 1
+                row += 1
+            end_row = row - 1
+            if group["color"]:
+                ws[f"E{start_row}"] = group["color"]
+            if group["order_ref"]:
+                ws[f"H{start_row}"] = group["order_ref"]
+            if end_row > start_row:
+                # Kolor + NR ZAMÓWIENIA span the order's rows (as in the owner's example).
+                ws.merge_cells(f"E{start_row}:E{end_row}")
+                ws.merge_cells(f"H{start_row}:H{end_row}")
+
+        return wb
+
+    def _render_wz_pdf(self, customer_name: str, wz_number: str, groups: list[dict]) -> io.BytesIO:
+        import tempfile
+
+        wb = self._build_wz_workbook(customer_name, wz_number, groups)
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            xlsx_path = Path(tmp_dir) / "WZ.xlsx"
+            pdf_path = Path(tmp_dir) / "WZ.pdf"
+            wb.save(xlsx_path)
+            _get_excel_pdf_converter().convert(xlsx_path, pdf_path)
+            pdf_bytes = pdf_path.read_bytes()
+
+        return io.BytesIO(pdf_bytes)
 
     def delete_attachment(
         self,
