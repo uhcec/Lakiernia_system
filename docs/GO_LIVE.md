@@ -57,7 +57,9 @@ a path a real shop day will hit:
       while downstream is active (recount before downstream stays allowed);
       administrative reset shipped for office/manager (admin bypass) with
       audit + UI button on the order detail page.
-- [ ] **#15** — office list silently caps at 50 orders; wire pagination.
+- [x] **#15** — ✅ fixed 2026-07-11: office list pages through the whole
+      set (fetch-all, backend cap 100/page), tiles/tabs/overdue computed
+      from complete data.
 
 Strongly recommended before cutover:
 

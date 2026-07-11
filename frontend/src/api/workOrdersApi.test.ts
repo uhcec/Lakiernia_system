@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { API_ORIGIN, isApiRequest } from "./workOrdersApi";
+import { API_ORIGIN, fetchAllWorkOrders, isApiRequest } from "./workOrdersApi";
 
 // Pins the auth-token scoping (FRONTEND_TRIAGE B1): the global fetch interceptor must attach the
 // Bearer token (and act on 401s) only for requests aimed at our own API origin. With no
@@ -31,5 +31,61 @@ describe("isApiRequest", () => {
     // Anything that isn't a parseable absolute URL is treated as a relative same-origin path,
     // so it counts as an API request — the safe direction (token only ever stays on our origin).
     expect(isApiRequest("work-orders?weird value")).toBe(true);
+  });
+});
+
+// CHANGES #15: the office list used to fetch a single page (backend default limit=50) and compute
+// its tiles/tabs from the truncated result. fetchAllWorkOrders must page through until `total`.
+describe("fetchAllWorkOrders", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  function jsonResponse(body: unknown): Response {
+    return new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } });
+  }
+
+  it("pages through the whole list and returns every order with the true total", async () => {
+    const firstPage = Array.from({ length: 100 }, (_, index) => ({ id: index + 1 }));
+    const secondPage = Array.from({ length: 30 }, (_, index) => ({ id: 100 + index + 1 }));
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ items: firstPage, total: 130, limit: 100, offset: 0 }))
+      .mockResolvedValueOnce(jsonResponse({ items: secondPage, total: 130, limit: 100, offset: 100 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await fetchAllWorkOrders();
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(String(fetchMock.mock.calls[0][0])).toContain("limit=100");
+    expect(String(fetchMock.mock.calls[0][0])).toContain("offset=0");
+    expect(String(fetchMock.mock.calls[1][0])).toContain("offset=100");
+    expect(result.items).toHaveLength(130);
+    expect(result.total).toBe(130);
+  });
+
+  it("stops after one request when the first page covers the total", async () => {
+    const items = Array.from({ length: 40 }, (_, index) => ({ id: index + 1 }));
+    const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse({ items, total: 40, limit: 100, offset: 0 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await fetchAllWorkOrders();
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(result.items).toHaveLength(40);
+    expect(result.total).toBe(40);
+  });
+
+  it("stops on an empty page even if the reported total is never reached (backstop)", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ items: [{ id: 1 }], total: 999, limit: 100, offset: 0 }))
+      .mockResolvedValueOnce(jsonResponse({ items: [], total: 999, limit: 100, offset: 100 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await fetchAllWorkOrders();
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(result.items).toHaveLength(1);
   });
 });

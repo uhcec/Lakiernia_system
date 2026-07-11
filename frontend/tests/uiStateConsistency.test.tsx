@@ -78,6 +78,7 @@ vi.mock("../src/api/workOrdersApi", () => ({
   createWorkOrder: vi.fn(),
   deleteWorkOrderAttachment: vi.fn(),
   fetchWorkOrders: vi.fn(),
+  fetchAllWorkOrders: vi.fn(),
   fetchWorkOrder: vi.fn(),
   fetchWorkOrderAttachments: vi.fn(),
   getWorkOrderAttachmentDownloadUrl: vi.fn(),
@@ -155,6 +156,7 @@ const createWorkOrderMock = vi.mocked(workOrdersApi.createWorkOrder);
 const openWorkOrderAttachmentMock = vi.mocked(workOrdersApi.openWorkOrderAttachment);
 const fetchFoilsMock = vi.mocked(foilsApi.fetchFoils);
 const fetchWorkOrdersMock = vi.mocked(workOrdersApi.fetchWorkOrders);
+const fetchAllWorkOrdersMock = vi.mocked(workOrdersApi.fetchAllWorkOrders);
 const fetchWorkOrderMock = vi.mocked(workOrdersApi.fetchWorkOrder);
 const fetchWorkOrderAttachmentsMock = vi.mocked(workOrdersApi.fetchWorkOrderAttachments);
 const getWorkOrderAttachmentDownloadUrlMock = vi.mocked(workOrdersApi.getWorkOrderAttachmentDownloadUrl);
@@ -338,6 +340,7 @@ beforeEach(() => {
   fetchFoilsMock.mockReset();
   fetchFoilsMock.mockResolvedValue({ items: [], total: 0, limit: 100, offset: 0 });
   fetchWorkOrdersMock.mockReset();
+  fetchAllWorkOrdersMock.mockReset();
   fetchPaintsMock.mockReset();
   fetchPaintMovementsMock.mockReset();
   lookupPaintStockMock.mockReset();
@@ -1701,7 +1704,7 @@ describe("frontend state consistency", () => {
   });
 
   it("groups office work orders into intake, production, and ready buckets", async () => {
-    fetchWorkOrdersMock.mockResolvedValue({
+    fetchAllWorkOrdersMock.mockResolvedValue({
       items: [
         {
           ...buildWorkOrder(91, "WO-OFFICE-INTAKE", 1, "Lima"),
@@ -1754,7 +1757,7 @@ describe("frontend state consistency", () => {
   });
 
   it("submits external order number search from the office list", async () => {
-    fetchWorkOrdersMock
+    fetchAllWorkOrdersMock
       .mockResolvedValueOnce({
         items: [
           {
@@ -1791,7 +1794,7 @@ describe("frontend state consistency", () => {
     fireEvent.change(screen.getByLabelText("Numer zewnętrzny"), { target: { value: " CLIENT-42 " } });
     fireEvent.click(screen.getByRole("button", { name: "Szukaj" }));
 
-    await waitFor(() => expect(fetchWorkOrdersMock).toHaveBeenLastCalledWith({ externalOrderNumber: "CLIENT-42" }));
+    await waitFor(() => expect(fetchAllWorkOrdersMock).toHaveBeenLastCalledWith({ externalOrderNumber: "CLIENT-42" }));
     expect(await screen.findByText("WO-OFFICE-SEARCH")).toBeTruthy();
     expect(screen.queryByText("WO-OFFICE-INITIAL")).toBeNull();
   });

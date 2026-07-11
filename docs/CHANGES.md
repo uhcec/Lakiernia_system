@@ -19,7 +19,7 @@ code does now (`file:line`), what the owner wants, and why. See `docs/SPEC.md` f
 | 12 | bug | Undercount completion never finalizes — "Gotowe" at 3/5, queue slot never released ✅ |
 | 13 | bug | Planning into a slot held by a READY order → raw 500 (flush outside the 409 handler) ✅ |
 | 14 | bug | A DONE stage can restart while downstream is active — count rewritten mid-flight ✅ |
-| 15 | bug | Office list silently caps at 50 orders (no pagination) |
+| 15 | bug | Office list silently caps at 50 orders (no pagination) ✅ |
 | 16 | debt | Frontend floor-robustness batch (JSON.parse, stale-response guards, EN errors, 401 drafts) |
 | 17 | debt | QC document requires Windows + Excel COM — 500 on Linux; absent from SPEC |
 
@@ -158,7 +158,7 @@ code does now (`file:line`), what the owner wants, and why. See `docs/SPEC.md` f
   `app/process/service.py`, `app/work_orders/{service,router}.py`,
   `frontend/src/pages/WorkOrderDetailPage.tsx`, `frontend/src/api/workOrdersApi.ts`. SPEC §3 updated.
 
-### #15 — Office list silently caps at 50 orders  *(bug, found 2026-07-11)*
+### #15 — Office list silently caps at 50 orders  *(bug, found 2026-07-11)* — ✅ DONE 2026-07-11
 - **Now:** the office list fetch sends no pagination params (`frontend/src/api/workOrdersApi.ts:56-62`),
   the backend defaults `limit=50` (`app/work_orders/router.py:59`), and the page stores only
   `response.items`, ignoring `response.total` (`frontend/src/pages/WorkOrdersListPage.tsx:89-94`).
@@ -166,6 +166,15 @@ code does now (`file:line`), what the owner wants, and why. See `docs/SPEC.md` f
   dev DB the dashboard reports "Wszystkie zlecenia: 50". Verified live 2026-07-11.
 - **Want:** send `limit`/`offset`, render `total`, add a pager (or "load more"). Frontend-only —
   the backend response shape is already paginated.
+- **Done:** frontend-only, but as **fetch-all paging** rather than a pager UI: the office view's
+  tiles/tabs/overdue counts are computed client-side and *depend* on having every order — a pager
+  would have kept them wrong per page. `fetchAllWorkOrders` loops `limit=100` (the backend cap)
+  advancing `offset` until `total` is covered (empty-page backstop against a pathological loop);
+  the list page + its polling refresh use it, so "Wszystkie zlecenia" now shows the true count.
+  Unit tests for multi-page, single-page and backstop paths (`workOrdersApi.test.ts`). A real pager
+  becomes worth revisiting only if the order archive grows enough to make fetch-all slow (thousands
+  of orders — years away at shop volume). `frontend/src/api/workOrdersApi.ts`,
+  `frontend/src/pages/WorkOrdersListPage.tsx`.
 
 ### #16 — Frontend floor-robustness batch  *(debt, found 2026-07-11)*
 - **Now:** (a) unguarded `JSON.parse` of localStorage in a `useState` initializer white-screens the

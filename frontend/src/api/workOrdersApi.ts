@@ -6,7 +6,16 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL?.trim();
 
 export interface WorkOrderSearchParams {
   externalOrderNumber?: string;
+  limit?: number;
+  offset?: number;
 }
+
+// CHANGES #15: the backend caps `limit` at 100 (app/work_orders/router.py) and used to silently
+// default to 50 — the office list then computed its tiles/tabs from a truncated page. The office
+// view is designed around having EVERY order client-side (buckets, overdue count), so we page
+// through until `total` is covered. The page cap is a runaway backstop, not an expected bound.
+const WORK_ORDERS_PAGE_LIMIT = 100;
+const WORK_ORDERS_MAX_PAGES = 100;
 
 export function createApiUrl(pathname: string): string {
   const normalizedPath = pathname.startsWith("/") ? pathname : `/${pathname}`;
@@ -53,10 +62,38 @@ export async function fetchWorkOrders(params: WorkOrderSearchParams = {}): Promi
   return response.json() as Promise<WorkOrdersListResponse>;
 }
 
+export async function fetchAllWorkOrders(
+  params: Omit<WorkOrderSearchParams, "limit" | "offset"> = {},
+): Promise<WorkOrdersListResponse> {
+  const items: WorkOrder[] = [];
+  let total = 0;
+
+  for (let page = 0; page < WORK_ORDERS_MAX_PAGES; page += 1) {
+    const response = await fetchWorkOrders({
+      ...params,
+      limit: WORK_ORDERS_PAGE_LIMIT,
+      offset: page * WORK_ORDERS_PAGE_LIMIT,
+    });
+    items.push(...response.items);
+    total = response.total;
+    if (items.length >= total || response.items.length === 0) {
+      break;
+    }
+  }
+
+  return { items, total, limit: items.length, offset: 0 };
+}
+
 function buildWorkOrdersUrl(params: WorkOrderSearchParams): string {
   const apiUrl = createApiUrl("/work-orders");
   const url = new URL(apiUrl, window.location.origin);
   appendSearchParam(url, "external_order_number", params.externalOrderNumber);
+  if (params.limit != null) {
+    url.searchParams.set("limit", String(params.limit));
+  }
+  if (params.offset != null) {
+    url.searchParams.set("offset", String(params.offset));
+  }
 
   return apiUrl.startsWith("http://") || apiUrl.startsWith("https://") ? url.toString() : `${url.pathname}${url.search}`;
 }

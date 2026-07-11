@@ -2,7 +2,7 @@ import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { usePolling, STATION_POLL_INTERVAL_MS } from "../hooks/usePolling";
-import { fetchWorkOrders } from "../api/workOrdersApi";
+import { fetchAllWorkOrders } from "../api/workOrdersApi";
 import { OfficeWorkOrdersTable } from "../components/OfficeWorkOrdersTable";
 import type { ProcessStatusValue, WorkOrder } from "../types/workOrders";
 
@@ -86,7 +86,9 @@ export function WorkOrdersListPage() {
       }
 
       try {
-        const response = await fetchWorkOrders({ externalOrderNumber: requestedFilter });
+        // CHANGES #15: page through the whole list — the tiles/tabs/overdue counts on this view
+        // are computed client-side and were silently truncated at the backend's default 50.
+        const response = await fetchAllWorkOrders({ externalOrderNumber: requestedFilter });
         // Ignore a stale response if the filter changed while this request was in flight.
         if (requestedFilter !== latestFilterRef.current) {
           return;
