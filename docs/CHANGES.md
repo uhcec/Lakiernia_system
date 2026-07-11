@@ -22,6 +22,7 @@ code does now (`file:line`), what the owner wants, and why. See `docs/SPEC.md` f
 | 15 | bug | Office list silently caps at 50 orders (no pagination) ✅ |
 | 16 | debt | Frontend floor-robustness batch (JSON.parse, stale-response guards, EN errors, 401 drafts) ✅ |
 | 17 | debt | QC document requires Windows + Excel COM — 500 on Linux; absent from SPEC ✅ |
+| 18 | feature | Generate WZ (wydanie z magazynu) for a group of ready orders ✅ |
 
 ---
 
@@ -219,3 +220,8 @@ code does now (`file:line`), what the owner wants, and why. See `docs/SPEC.md` f
   operator). Regression tests `tests/test_quality_control_document_changes17.py` (converter
   monkeypatched — no Excel needed in CI). The COM → PDF path itself is unchanged per D1/D6.
   `app/work_orders/service.py`, `app/shared/exceptions.py`.
+
+### #18 — Generate WZ (wydanie z magazynu)  *(feature, 2026-07-11)* — ✅ DONE 2026-07-11
+- **Want:** the office wants a "Generuj WZ" button that, at any moment, produces a warehouse-issue PDF for a chosen group of ready orders of one client (closes the long-open "WZ + wydanie klientowi" to-do).
+- **Owner decisions (2026-07-11):** pick client → tick that client's READY, not-yet-released orders; rows are auto from each order's profile/accessory counts + RAL (an order with neither known → one "Elementy" line); the **only** manual field is the loaded "Kosze dłużycowe" count; NR ZAMÓWIENIA shows **both** the client's and our number; recipient address left blank (handwritten); WZ number auto per-year "kolejny/rok" (1/2026…); **no** stored register (one-off printout, gaps on reprint accepted); generating a WZ does **not** mark orders released (separate step).
+- **Done:** template `app/static/templates/wydanie_z_magazynu.xlsx` (built from the owner's file, fonts/borders 1:1, by `scripts/build_wz_template.py`); `WorkOrderService.generate_wz_document` + `WzNumberAllocator` + `wz_number_counters` table (migration `20260711_0045`); OFFICE-gated `POST /work-orders/wz-document`; frontend `GenerateWzModal` + "Generuj WZ" button on the office list. The shared Excel→PDF converter was parametrised (QC-card D6 emphasis behind `emphasize_cell=`) so both documents reuse it; a failed render surfaces as the same controlled Polish 503 as the QC card (#17) and rolls the WZ number back. Tests in `tests/test_wz_document.py`; layout eyeballed against a real render. See `docs/DECISIONS.md` (2026-07-11 — #18) and `docs/REVIEW_LEDGER.md` #8. `app/work_orders/service.py`, `app/work_orders/wz_number_allocator.py`, `app/work_orders/models.py`, `app/work_orders/schemas.py`, `app/work_orders/router.py`, `frontend/src/components/GenerateWzModal.tsx`, `frontend/src/pages/WorkOrdersListPage.tsx`, `frontend/src/api/workOrdersApi.ts`.

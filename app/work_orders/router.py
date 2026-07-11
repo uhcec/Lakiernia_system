@@ -15,6 +15,7 @@ from app.work_orders.schemas import (
 	WorkOrderRead,
 	WorkOrderReleaseUpdate,
 	WorkOrderUpdate,
+	WzDocumentRequest,
 )
 from app.work_orders.service import WorkOrderService
 
@@ -112,6 +113,20 @@ def download_quality_control_document(
     service: Annotated[WorkOrderService, Depends(get_work_order_service)],
 ) -> StreamingResponse:
     buffer, filename = service.generate_quality_control_document(work_order_id)
+    return StreamingResponse(
+        buffer,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename=\"{filename}\""},
+    )
+
+
+@router.post("/wz-document")
+def generate_wz_document(
+    payload: WzDocumentRequest,
+    service: Annotated[WorkOrderService, Depends(get_work_order_service)],
+    station_context: Annotated[StationContext, Depends(get_station_context)],
+) -> StreamingResponse:
+    buffer, filename = service.generate_wz_document(payload, station_context=station_context)
     return StreamingResponse(
         buffer,
         media_type="application/pdf",

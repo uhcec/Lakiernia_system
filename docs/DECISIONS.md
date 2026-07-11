@@ -744,3 +744,68 @@ the restart itself, which is the actual corruption; it lands next.
 **Review-by:** the 2026-07-11 erratum's Review-by is hereby closed (behaviour written back into
 SPEC §4/§6 with fresh markers). Floor confirmation of the first real undercounted completion stays
 in `REVIEW_LEDGER.md` row 7.
+
+---
+
+## 2026-07-11 — #18: WZ (wydanie z magazynu) generation
+
+**Decision:** OFFICE gets a **"Generuj WZ"** action on the order list that produces a warehouse-issue
+PDF for a group of ready orders of **one** client. Flow: pick client → tick which of that client's
+**READY, not-yet-released** orders go on the document → optionally type a loaded **"Kosze dłużycowe"**
+count → download the PDF. The document is filled from the owner's own Excel template (fonts/borders 1:1)
+and rendered to PDF via the existing Excel-COM converter. Concrete rules the owner set:
+
+- **Rows** come from the order data, not typed: each order yields a **"Profile"** row (its
+  `profiles_quantity`) and/or an **"Akcesoria"** row (`accessories_quantity`), skipping zero; **Kolor** =
+  the order's RAL. An order with neither split known collapses to one **"Elementy"** row (total qty). The
+  **only** manual line is the basket count.
+- **NR ZAMÓWIENIA** shows **both** numbers: `Zam. klienta {external} (nasze {order_number})`, or just our
+  number when the client gave none.
+- **Recipient address** is left **blank** (handwritten on the paper) — the system stores no client address.
+- **WZ number** is auto, format **"kolejny / rok"** (e.g. 1/2026), a per-year counter that resets each
+  January. 2026 starts at 1 unless the owner says otherwise.
+- Generating a WZ **does not** mark the orders released — release stays the separate existing step.
+
+**Why** — owner-confirmed **2026-07-11** (feature `CHANGES.md #18`; closes the long-open "WZ + wydanie
+klientowi" to-do). Factory why: a WZ is the warehouse-issue paper handed to the client **with** the goods,
+so one document is always for **one** recipient. Almost everything on it is already in the system
+(client, order number, colour, profile/accessory counts) — the owner confirmed the **only** thing the
+office must still enter by hand is how many long-stock baskets ("kosze dłużycowe") were loaded, because
+that is decided at load time and not tracked anywhere upstream. The address is written by hand because the
+shop keeps no client addresses and did not want to start.
+
+**Rejected:**
+- *Persist a WZ register (stored documents + same-number reprint)* — owner chose a **one-off printout**:
+  a click mints a number and a PDF, nothing is stored; a reprint simply takes the next number and small
+  gaps are accepted. Only the per-year counter is persisted, so numbers still run in order across sessions.
+- *Generate = release* (mark orders released_to_client on generate) — owner kept the two **separate**: WZ
+  is printed first and handed over with the goods, release is ticked afterwards.
+- *Add an address field to the client card* — owner chose handwriting over a data-entry burden.
+- *Free multi-select across all ready orders (any clients)* — rejected in favour of client-first, so one
+  WZ can never accidentally mix recipients; the backend re-validates single-customer + READY.
+- *Manual WZ numbering* — owner chose automatic per-year numbering.
+
+**Implementation notes:**
+- Backend: `WorkOrderService.generate_wz_document` — validates single-customer + all-READY
+  (`_collect_wz_orders`), builds line groups (`_build_wz_line_groups`), fills the template
+  (`_build_wz_workbook`, pure openpyxl — unit-testable) and renders via the shared `_ExcelPdfConverter`
+  (parametrised: the QC-card D6 emphasis moved behind `emphasize_cell=`, so WZ reuses it cleanly). Number:
+  `WzNumberAllocator` + `wz_number_counters` table (migration `20260711_0045`). Endpoint
+  `POST /work-orders/wz-document` (OFFICE-gated). Template `app/static/templates/wydanie_z_magazynu.xlsx`,
+  built from the owner's file by `scripts/build_wz_template.py`.
+- Reuses the CHANGES #17 hosting posture: a failed render (e.g. Excel unavailable) becomes a controlled
+  Polish **503** (`DocumentGenerationUnavailableError`) — and, because the render runs **before** commit,
+  the allocated WZ number is rolled back, so an Excel-less environment leaves no gap.
+- Frontend: `GenerateWzModal` + a "Generuj WZ" button on the office list (`WorkOrdersListPage`, OFFICE
+  only, enabled when there are READY-not-released candidates); `generateWzDocument` POSTs and downloads
+  the blob. Tests: `tests/test_wz_document.py` (validation, row building, yearly numbering, cell mapping,
+  render-failure rollback → 503, endpoint wiring + station gating). Layout eyeballed against a real render.
+
+**Expected:** the office generates a faithful one-page WZ (matching the shop's paper) for one client's
+selected ready orders; WZ numbers increment per year; a released order drops out of the candidate list
+once release is ticked; generating a WZ changes no order's release state.
+
+**Review-by:** owner's **first real WZ** printed for a client — confirm (a) the printed layout matches the
+paper they hand out, (b) the "oba" NR ZAMÓWIENIA wording and the basket line read right, and (c) the
+starting number **1/2026** is correct (the owner may already keep a WZ book to continue from). Tracked in
+`REVIEW_LEDGER.md` row 8.

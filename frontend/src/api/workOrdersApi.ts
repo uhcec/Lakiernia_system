@@ -320,3 +320,40 @@ export async function openWorkOrderAttachment(workOrderId: number, attachmentId:
 export function getQualityControlDocumentUrl(workOrderId: number): string {
   return createApiUrl(`/work-orders/${workOrderId}/quality-control-document`);
 }
+
+export interface GenerateWzDocumentRequest {
+  work_order_ids: number[];
+  baskets_count: number | null;
+}
+
+// Generate a WZ (wydanie z magazynu) PDF for a group of ready orders of one client and save it. This
+// is a POST that streams a PDF back, so — like the QC document — we fetch it as a blob (the global
+// interceptor adds the Bearer token) and trigger a download from the returned filename.
+export async function generateWzDocument(payload: GenerateWzDocumentRequest): Promise<void> {
+  const response = await fetch(createApiUrl("/work-orders/wz-document"), {
+    method: "POST",
+    headers: {
+      Accept: "application/pdf",
+      "Content-Type": "application/json",
+      ...getCurrentStationHeaders(),
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    throw await createApiError(response, "Nie udało się wygenerować WZ");
+  }
+
+  const disposition = response.headers.get("Content-Disposition") ?? "";
+  const match = disposition.match(/filename="?([^"]+)"?/i);
+  const filename = match?.[1] ?? "WZ.pdf";
+
+  const objectUrl = URL.createObjectURL(await response.blob());
+  const anchor = document.createElement("a");
+  anchor.href = objectUrl;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(objectUrl);
+}

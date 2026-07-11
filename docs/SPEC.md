@@ -30,14 +30,16 @@ This file describes **what the code does today**. It is the new ground truth, re
 - ✅ Required at create: customer, RAL + paint code + producer, coating, received date, **pickup date**, area (>0). `app/work_orders/schemas.py:154-177`
 - ✅ Quantity defaults to 1. `app/work_orders/schemas.py:157`
 - ✅ For profiles & accessories you give **either** a quantity **or** "to count on production", never both/neither. `app/work_orders/schemas.py:128-132`
-- ✅ Creating an order captures a **paint stock snapshot** (kg at that moment). `app/work_orders/service.py:202-206`
-- ✅ Only OFFICE creates orders / manages attachments / marks "complete on arrival"; OFFICE or MANAGER edits an order. `app/work_orders/service.py:637-642`, `258-262`
-- ✅ The office order list **excludes** correction ("P…") orders. `app/work_orders/service.py:371-374`
-- ✅ Work-order status is **derived** from progress, never set manually. `app/work_orders/service.py:166-174`
-- ✅ "Overdue" = pickup date is before today AND the order is not yet READY. `app/work_orders/service.py:793-797`
-- ✅ "Released to client" can only be set on a READY order. `app/work_orders/service.py:447-457`
-- ✅ Attachments: PDF / PNG / JPG only, size-capped by config. `app/work_orders/service.py:150-154`
-- ✅ **(CHANGE #17 done 2026-07-11)** the office downloads a **quality-control card (karta kontroli jakości)** as a PDF: the repo's Excel template (`app/static/templates/karta_kontroli_jakosci.xlsx`) filled with order number / customer / paint, rendered to PDF by **driving Excel over COM** — a deliberate hosting constraint (owner D1/D6: the Excel-formatted card is required and production runs on a **Windows host with Excel**; a persistent worker keeps one Excel instance alive). On a host without Excel (e.g. the Linux dev VPS) the endpoint answers a controlled Polish **503**, never a raw 500. `app/work_orders/service.py:594-634@def generate_quality_control_document`, `app/work_orders/service.py:62-151@class _ExcelPdfConverter`, `app/work_orders/router.py:109-116@quality-control-document`, `app/shared/exceptions.py:50-57@DocumentGenerationUnavailableError`
+- ✅ Creating an order captures a **paint stock snapshot** (kg at that moment). `app/work_orders/service.py:230@capture_work_order_snapshot`
+- ✅ Only OFFICE creates orders / manages attachments / marks "complete on arrival"; OFFICE or MANAGER edits an order. `app/work_orders/service.py:873@_ensure_office_station_action`, `289@aktualizacja zlecenia`
+- ✅ The office order list **excludes** correction ("P…") orders. `app/work_orders/service.py:402@not item.is_correction`
+- ✅ Work-order status is **derived** from progress, never set manually. `app/work_orders/service.py:195@def derive_status`
+- ✅ "Overdue" = pickup date is before today AND the order is not yet READY. `app/work_orders/service.py:1032@work_order.planned_pickup_date < date.today()`
+- ✅ "Released to client" can only be set on a READY order. `app/work_orders/service.py:487@Only READY work orders`
+- ✅ Attachments: PDF / PNG / JPG only, size-capped by config. `app/work_orders/service.py:170@ALLOWED_ATTACHMENT_TYPES`
+- ✅ **(CHANGE #18 done 2026-07-11) WZ (wydanie z magazynu):** OFFICE generates a warehouse-issue PDF for a group of READY orders of **one** client — rows are each order's profile/accessory counts + RAL (an order with neither known collapses to one "Elementy" line), plus an optional manual "Kosze dłużycowe" line; the recipient address is left blank (handwritten). Mixed customers or non-READY orders are rejected; on a host without Excel it answers a controlled Polish **503** like the QC card. `app/work_orders/service.py:655@def generate_wz_document`, `747@różnych klientów`, `780@Kosze dłużycowe`
+- ✅ WZ numbers run per-year "kolejny/rok" (e.g. 1/2026); a number is consumed only once the PDF renders (a failed render rolls it back). The WZ document is **not** persisted (no stored register / same-number reprint) and generating it does **not** mark orders released — that stays a separate step. `app/work_orders/wz_number_allocator.py:23@def allocate`, `app/work_orders/service.py:680@wz_number_allocator.allocate`
+- ✅ **(CHANGE #17 done 2026-07-11)** the office downloads a **quality-control card (karta kontroli jakości)** as a PDF: the repo's Excel template (`app/static/templates/karta_kontroli_jakosci.xlsx`) filled with order number / customer / paint, rendered to PDF by **driving Excel over COM** — a deliberate hosting constraint (owner D1/D6: the Excel-formatted card is required and production runs on a **Windows host with Excel**; a persistent worker keeps one Excel instance alive). On a host without Excel (e.g. the Linux dev VPS) the endpoint answers a controlled Polish **503**, never a raw 500. `app/work_orders/service.py:616@def generate_quality_control_document`, `app/work_orders/service.py:64@class _ExcelPdfConverter`, `app/work_orders/router.py:109-116@quality-control-document`, `app/shared/exceptions.py:50-57@DocumentGenerationUnavailableError`
 
 ## 3. Stage flow & routing
 
@@ -145,8 +147,8 @@ Details:
 
 ## 10. Paint inventory
 
-- ✅ Predicted demand = area ÷ 4 if area < 100 m², else area ÷ 6, rounded to whole kg. `app/work_orders/schemas.py:308-312`
-- ✅ Shortage = predicted − current stock (rounded up), shown when predicted exceeds stock. `app/work_orders/schemas.py:315-328`
+- ✅ Predicted demand = area ÷ 4 if area < 100 m², else area ÷ 6, rounded to whole kg. `app/work_orders/schemas.py:327@total_area_m2 < 100`
+- ✅ Shortage = predicted − current stock (rounded up), shown when predicted exceeds stock. `app/work_orders/schemas.py:331-344@ROUND_CEILING`
 - ✅ Automatic paint consumption: AUTOMATIC only, after hanging start, needs paint code, **write-once** (no edit after save; correct via a manual office adjustment). `app/process/service.py:847-864`
 - ✅ Recording consumption decrements stock; errors if insufficient. `app/paints/service.py:130-153`
 - ✅ A colour is "tracked" only with real movement history (not the 0-kg auto-placeholder). `app/paints/service.py:155-159`
