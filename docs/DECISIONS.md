@@ -636,3 +636,29 @@ its `MAIN` batch insert then collided with the leftover **active** orphan batch 
 id; the dev DB has no orphan child rows. Full backend suite green.
 
 **Review-by:** none — latent persistence bug fixed and pinned by regression tests.
+
+---
+
+## 2026-07-11 — ERRATUM to "2026-06-30 — undercount at surface prep" (behaviour claim, not the decision)
+
+**What this is:** a correction of the *recorded behaviour description* in the 2026-06-30 undercount
+entry — appended (log is append-only), the original entry is left untouched. **The owner's decision
+and rationale stand unchanged:** the prep count is ground truth; an undercounted order completes;
+no shortfall warning.
+
+**What the 2026-06-30 entry got wrong:** it states the order's "quantity is **redefined to the
+counted amount** (becomes a 3-piece order)". Verified live 2026-07-11: **no redefinition exists in
+the code.** A 5-ordered / 3-counted / 3-packed order keeps `total_quantity=5`, shows READY
+("Gotowe") at 3/5 via the all-stages-DONE fall-through (`app/process/service.py`, display-status
+walk), never runs finalization (`_can_finalize_work_order` requires completed == total or correction
+children), and therefore **never releases its queue position** — contradicting CHANGES #3 on exactly
+this owner-blessed path, and later causing a raw 500 when the held slot is planned into. Full trace:
+`docs/INDEPENDENT_REVIEW_2026-07-11.md` §1.1; opened as `CHANGES.md` #12/#13; presentation choice is
+GO_LIVE **D5**.
+
+**Why the erratum matters:** a future session reading only the 2026-06-30 entry would believe the
+redefinition is implemented and "fix" discrepancies in the wrong direction. Per the method, a wrongly
+documented *what* is as dangerous as an undocumented *why*.
+
+**Review-by:** closes when CHANGES #12 ships and the implemented behaviour (per D5) is written back
+into `SPEC.md` §6 with a fresh confirmation marker.

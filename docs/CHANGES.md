@@ -16,6 +16,12 @@ code does now (`file:line`), what the owner wants, and why. See `docs/SPEC.md` f
 | 9 | change | Persist the actual shift length for "good day" ✅ |
 | 10 | change | Make the quantity-leak tripwire human-visible ✅ |
 | 11 | bug | Enforce SQLite foreign keys (order creation 500 on reused id) ✅ |
+| 12 | bug | Undercount completion never finalizes — "Gotowe" at 3/5, queue slot never released |
+| 13 | bug | Planning into a slot held by a READY order → raw 500 (flush outside the 409 handler) |
+| 14 | bug | A DONE stage can restart while downstream is active — count rewritten mid-flight |
+| 15 | bug | Office list silently caps at 50 orders (no pagination) |
+| 16 | debt | Frontend floor-robustness batch (JSON.parse, stale-response guards, EN errors, 401 drafts) |
+| 17 | debt | QC document requires Windows + Excel COM — 500 on Linux; absent from SPEC |
 
 ---
 
@@ -76,3 +82,75 @@ code does now (`file:line`), what the owner wants, and why. See `docs/SPEC.md` f
 - **Now:** order creation returned HTTP 500 (UI: "Nie udało się utworzyć zlecenia"). SQLite ignores `ON DELETE CASCADE`/`SET NULL` unless `PRAGMA foreign_keys = ON` per connection, and the pragma helper never set it (`app/database/session.py`). Earlier work-order deletions silently orphaned their batches/stage-states/transition-events; a new order reused a freed id (ids aren't AUTOINCREMENT) and its active `MAIN` batch collided with the orphan active batch on `uq_work_order_quantity_batches_one_active_per_work_order` → IntegrityError → 500.
 - **Want:** foreign keys enforced so deleting an order removes its child rows; order creation never collides on a reused id.
 - **Done:** added `PRAGMA foreign_keys = ON` to `_apply_sqlite_pragmas` and mirrored it in the test engines (`tests/conftest.py::_make_test_engine`; teardown drops the now-redundant `drop_all`). Regression tests `test_foreign_keys_pragma_is_enabled` + `test_deleting_work_order_cascades_to_child_rows` (`tests/test_db_constraints_phase1.py`). Cleaned existing orphan rows from the dev `local.db` (backed up). See `docs/DECISIONS.md` (2026-06-29).
+
+### #12 — Undercount completion never finalizes  *(bug, found 2026-07-11)*
+- **Now:** an order whose surface-prep count is below the ordered total (owner-confirmed intended path,
+  `docs/DECISIONS.md` 2026-06-30) completes packing and shows **READY ("Gotowe")** via the
+  all-stages-DONE fall-through (`app/process/service.py:1170`) — but `_can_finalize_work_order`
+  (`app/process/service.py:2422`) requires `completed == total` or correction children, so finalize
+  never runs: `total_quantity` is never redefined to the counted amount (the ADR's "becomes a 3-piece
+  order" is not implemented), the queue position is **never released** (CHANGES #3 fails on this path),
+  and the CHANGES #10 leak tripwire never fires. Verified live 2026-07-11 (order 5 planned / 3 counted
+  / 3 packed → "Gotowe" 3/5, slot still held). See `docs/INDEPENDENT_REVIEW_2026-07-11.md` §1.1.
+- **Want:** one definition of "complete". On a quantity-short completion the order finalizes per the
+  owner's 2026-06-30 intent — releases its queue slot, records ordered-vs-arrived in an audit event —
+  with the presentation decided by the owner (**GO_LIVE D5**: redefine `total_quantity` to the counted
+  amount vs. keep the shortfall visible as ordered-vs-arrived). Regression tests for the 3-of-5 path
+  and for planning into the released slot.
+
+### #13 — Planning into a slot held by a READY order → raw 500  *(bug, found 2026-07-11)*
+- **Now:** `_ensure_queue_position_available_or_releasable` treats a READY holder's position as free
+  (`app/manager/service.py:1938-1951`) but nothing ever releases it, and the partial unique index
+  still holds the row — so the commit path dies. Worse, `session.flush()` sits **outside** the
+  `IntegrityError → 409` handler in `assign_plan` (`app/manager/service.py:1409`; same pattern at
+  `:1460`, `:1567`), so the manager gets a raw **500**, not the intended 409. Verified live
+  2026-07-11. Reachable today only via #12's zombies (post-CHANGES-#3, clean completions release
+  their slot), so fix together with #12.
+- **Want:** flushes moved inside the IntegrityError handling (or the handler widened to cover them);
+  the "or releasable" semantics either implemented (actually release the READY holder's slot) or the
+  helper renamed/simplified once #12 removes the only source of READY-position holders.
+
+### #14 — A DONE stage can restart while downstream is active  *(bug, found 2026-07-11)*
+- **Now:** the transition table allows DONE→IN_PROGRESS on any stage
+  (`app/process/service.py:1296-1304`) and the only backward guard fires when the whole order is
+  display-complete (`:1283-1294`). With packing IN_PROGRESS, restarting the DONE surface prep
+  **overwrites the counted quantity** (the "actual received" ground truth); packing then validates
+  against the new count and closes the order terminally inconsistent: 2/5 completed, batch
+  deactivated, no leak flag, queue slot held, unfixable from the UI. Verified live 2026-07-11
+  (`docs/INDEPENDENT_REVIEW_2026-07-11.md` §1.2).
+- **Want:** refuse `start`/`reopen` on a DONE stage while any downstream stage is IN_PROGRESS or DONE
+  (SPEC §3 already names the correction flow as the legitimate re-entry), plus one office-only
+  administrative reset action for genuinely stuck orders. Extend `tests/chaos/` with a lifecycle
+  fuzzer asserting global invariants (no READY order holds a queue position; no all-stages-DONE order
+  has `completed < total` unflagged).
+
+### #15 — Office list silently caps at 50 orders  *(bug, found 2026-07-11)*
+- **Now:** the office list fetch sends no pagination params (`frontend/src/api/workOrdersApi.ts:56-62`),
+  the backend defaults `limit=50` (`app/work_orders/router.py:59`), and the page stores only
+  `response.items`, ignoring `response.total` (`frontend/src/pages/WorkOrdersListPage.tsx:89-94`).
+  Tiles/tabs are computed from the truncated page; there is no pagination UI. With 64 orders in the
+  dev DB the dashboard reports "Wszystkie zlecenia: 50". Verified live 2026-07-11.
+- **Want:** send `limit`/`offset`, render `total`, add a pager (or "load more"). Frontend-only —
+  the backend response shape is already paginated.
+
+### #16 — Frontend floor-robustness batch  *(debt, found 2026-07-11)*
+- **Now:** (a) unguarded `JSON.parse` of localStorage in a `useState` initializer white-screens the
+  app on one corrupt value (`frontend/src/context/AuthContext.tsx:25-28`; `ProtectedRoute` guards the
+  same read); (b) the three polling boards (`StageWorkOrdersPage`, `PackingWorkOrdersPage`,
+  `DecoralWorkOrdersPage`) lack the stale-response guards other pages have; (c) backend-unreachable
+  errors surface as raw English "Failed to fetch" in the Polish operator UI; (d) any 401
+  hard-redirects to `/login` discarding unsaved counts mid-packing (12h JWT vs. shift-shared tablets
+  is a policy question → session policy decided with D4).
+- **Want:** guard the parse; add the stale-response guards; Polish network-failure message with a
+  retry affordance; preserve drafts across 401 or lengthen station-tablet sessions.
+
+### #17 — QC document requires Windows + Excel COM  *(debt, found 2026-07-11)*
+- **Now:** `GET /work-orders/{id}/quality-control-document` drives Microsoft Excel over COM
+  (`app/work_orders/service.py:56-98`, pywin32) — works only on a Windows host with Excel installed;
+  on Linux it returns a raw 500 (`ModuleNotFoundError: pythoncom`). Verified live 2026-07-11. The
+  feature is absent from `SPEC.md`, and it silently couples the GO_LIVE D1 hosting decision to a
+  Windows box.
+- **Want:** per **GO_LIVE D6** (owner: is the Excel-formatted card required?) — cheapest is filling
+  the existing xlsx template with openpyxl (already a cross-platform dependency) and returning the
+  file for the office to print; or an HTML print view. Delete the pywin32 path; add the feature to
+  SPEC in the same PR.
