@@ -37,6 +37,7 @@ Ten plik opisuje **co kod robi dzisiaj**. To nowa baza prawdy, zastępująca ska
 - ✅ „Po terminie" = data odbioru przed dziś ORAZ zlecenie jeszcze nie gotowe. `app/work_orders/service.py:793-797`
 - ✅ „Wydane klientowi" można ustawić tylko dla gotowego zlecenia. `app/work_orders/service.py:447-457`
 - ✅ Załączniki: tylko PDF / PNG / JPG, limit rozmiaru z konfiguracji. `app/work_orders/service.py:150-154`
+- ✅ **(ZMIANA #17 zrobiona 2026-07-11)** biuro pobiera **kartę kontroli jakości** jako PDF: szablon Excela z repo (`app/static/templates/karta_kontroli_jakosci.xlsx`) wypełniony numerem zlecenia / klientem / farbą, renderowany do PDF przez **sterowanie Excelem po COM** — świadome ograniczenie hostingu (decyzje właściciela D1/D6: karta w formacie Excela jest wymagana, a produkcja działa na **hoście Windows z Excelem**; trwały worker trzyma jedną instancję Excela). Na hoście bez Excela (np. deweloperski VPS z Linuksem) endpoint odpowiada kontrolowanym polskim **503**, nigdy surowym 500. `app/work_orders/service.py:594-634@def generate_quality_control_document`, `app/work_orders/service.py:62-151@class _ExcelPdfConverter`, `app/work_orders/router.py:109-116@quality-control-document`, `app/shared/exceptions.py:50-57@DocumentGenerationUnavailableError`
 
 ## 3. Przepływ etapów i trasa
 

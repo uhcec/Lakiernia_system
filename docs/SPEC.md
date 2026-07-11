@@ -37,6 +37,7 @@ This file describes **what the code does today**. It is the new ground truth, re
 - ✅ "Overdue" = pickup date is before today AND the order is not yet READY. `app/work_orders/service.py:793-797`
 - ✅ "Released to client" can only be set on a READY order. `app/work_orders/service.py:447-457`
 - ✅ Attachments: PDF / PNG / JPG only, size-capped by config. `app/work_orders/service.py:150-154`
+- ✅ **(CHANGE #17 done 2026-07-11)** the office downloads a **quality-control card (karta kontroli jakości)** as a PDF: the repo's Excel template (`app/static/templates/karta_kontroli_jakosci.xlsx`) filled with order number / customer / paint, rendered to PDF by **driving Excel over COM** — a deliberate hosting constraint (owner D1/D6: the Excel-formatted card is required and production runs on a **Windows host with Excel**; a persistent worker keeps one Excel instance alive). On a host without Excel (e.g. the Linux dev VPS) the endpoint answers a controlled Polish **503**, never a raw 500. `app/work_orders/service.py:594-634@def generate_quality_control_document`, `app/work_orders/service.py:62-151@class _ExcelPdfConverter`, `app/work_orders/router.py:109-116@quality-control-document`, `app/shared/exceptions.py:50-57@DocumentGenerationUnavailableError`
 
 ## 3. Stage flow & routing
 

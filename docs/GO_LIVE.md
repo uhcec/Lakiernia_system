@@ -68,9 +68,9 @@ Strongly recommended before cutover:
       message swept across all 37 error-display sites. Item (d) — drafts
       across 401 — resolved 2026-07-11: acceptable loss per session policy,
       no work.
-- [ ] **#17** — QC document: D1=Windows + D6=Excel card required, so the
-      COM → PDF path stays; remaining work is SPEC coverage + a clean
-      Polish error on non-Windows hosts (dev VPS is Linux).
+- [x] **#17** — ✅ fixed 2026-07-11: COM → PDF path stays per D1/D6; the
+      feature is inventoried in SPEC §2 and a missing/crashed Excel now
+      answers a controlled Polish 503 instead of a raw 500.
 
 ## 1. Pre-deployment engineering (Claude Code lane)
 

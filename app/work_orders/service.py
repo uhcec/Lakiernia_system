@@ -21,7 +21,13 @@ from app.process.repository import ProcessRepository
 from app.process.service import ProcessService
 from app.shared import clock
 from app.shared.enums import StationId, WorkOrderStatus, get_work_order_status_label
-from app.shared.exceptions import InvalidAttachmentError, InvalidStatusTransitionError, InvalidWorkOrderDataError, ResourceNotFoundError
+from app.shared.exceptions import (
+    DocumentGenerationUnavailableError,
+    InvalidAttachmentError,
+    InvalidStatusTransitionError,
+    InvalidWorkOrderDataError,
+    ResourceNotFoundError,
+)
 from app.work_orders.enums import WorkOrderAttachmentCategory
 from app.work_orders.models import WorkOrder, WorkOrderAttachment
 from app.work_orders.number_allocator import WorkOrderNumberAllocator
@@ -606,7 +612,20 @@ class WorkOrderService:
             xlsx_path = Path(tmp_dir) / f"KJ_{work_order.order_number}.xlsx"
             pdf_path = Path(tmp_dir) / f"KJ_{work_order.order_number}.pdf"
             wb.save(xlsx_path)
-            _get_excel_pdf_converter().convert(xlsx_path, pdf_path)
+            # CHANGES #17: the converter needs Windows + Excel (a deliberate hosting constraint —
+            # owner D1/D6 2026-07-11: production runs on a Windows host and the Excel-formatted
+            # card is required). Where that's not true (the Linux dev VPS), fail as a controlled
+            # Polish 503, not a raw 500 from the worker thread.
+            try:
+                _get_excel_pdf_converter().convert(xlsx_path, pdf_path)
+            except RuntimeError as exc:
+                # The converter's own errors carry operator-ready Polish messages.
+                raise DocumentGenerationUnavailableError(str(exc)) from exc
+            except Exception as exc:
+                # A raw COM error (Excel crashed, file locked) is English gibberish — wrap it.
+                raise DocumentGenerationUnavailableError(
+                    "Nie udało się wygenerować karty kontroli jakości (błąd konwersji Excel). Spróbuj ponownie."
+                ) from exc
             pdf_bytes = pdf_path.read_bytes()
 
         return io.BytesIO(pdf_bytes), f"KJ_{work_order.order_number}.pdf"

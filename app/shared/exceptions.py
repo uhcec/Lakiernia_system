@@ -47,6 +47,15 @@ class InvalidStationIdentityError(AppException):
         super().__init__(detail=detail, status_code=400)
 
 
+class DocumentGenerationUnavailableError(AppException):
+    """CHANGES #17: the QC card's Excel-COM → PDF conversion needs a Windows host with Excel
+    (owner decisions D1/D6, 2026-07-11). On a host without it (e.g. the Linux dev VPS) the
+    endpoint must answer with a controlled Polish 503, not a raw 500."""
+
+    def __init__(self, detail: str) -> None:
+        super().__init__(detail=detail, status_code=503)
+
+
 class StationActionForbiddenError(AppException):
     def __init__(self, detail: str) -> None:
         super().__init__(detail=detail, status_code=403)

@@ -21,7 +21,7 @@ code does now (`file:line`), what the owner wants, and why. See `docs/SPEC.md` f
 | 14 | bug | A DONE stage can restart while downstream is active — count rewritten mid-flight ✅ |
 | 15 | bug | Office list silently caps at 50 orders (no pagination) ✅ |
 | 16 | debt | Frontend floor-robustness batch (JSON.parse, stale-response guards, EN errors, 401 drafts) ✅ |
-| 17 | debt | QC document requires Windows + Excel COM — 500 on Linux; absent from SPEC |
+| 17 | debt | QC document requires Windows + Excel COM — 500 on Linux; absent from SPEC ✅ |
 
 ---
 
@@ -200,7 +200,7 @@ code does now (`file:line`), what the owner wants, and why. See `docs/SPEC.md` f
   `error.message`-verbatim catch sites across 13 files, so no English browser string ever reaches
   the operator. Frontend build clean; 144/144 tests.
 
-### #17 — QC document requires Windows + Excel COM  *(debt, found 2026-07-11)*
+### #17 — QC document requires Windows + Excel COM  *(debt, found 2026-07-11)* — ✅ DONE 2026-07-11
 - **Now:** `GET /work-orders/{id}/quality-control-document` drives Microsoft Excel over COM
   (`app/work_orders/service.py:56-98`, pywin32) — works only on a Windows host with Excel installed;
   on Linux it returns a raw 500 (`ModuleNotFoundError: pythoncom`). Verified live 2026-07-11. The
@@ -212,3 +212,10 @@ code does now (`file:line`), what the owner wants, and why. See `docs/SPEC.md` f
   export PDF). Remaining scope: add the feature to `SPEC.md`; return a clean Polish error (not a
   raw 500) when Excel/COM is unavailable (the dev VPS is Linux); record the Windows+Excel hosting
   constraint in `GO_LIVE.md` §1 (done 2026-07-11).
+- **Done:** the feature is now inventoried in `SPEC.md`/`SPECYFIKACJA.md` §2 with the hosting
+  constraint spelled out. New `DocumentGenerationUnavailableError` (**503**): the converter's
+  Windows/Excel/timeout `RuntimeError`s surface their operator-ready Polish message; a raw COM
+  crash mid-conversion is wrapped in a generic Polish message (English internals never reach the
+  operator). Regression tests `tests/test_quality_control_document_changes17.py` (converter
+  monkeypatched — no Excel needed in CI). The COM → PDF path itself is unchanged per D1/D6.
+  `app/work_orders/service.py`, `app/shared/exceptions.py`.
