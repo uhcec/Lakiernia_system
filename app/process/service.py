@@ -2460,7 +2460,22 @@ class ProcessService:
             if self._is_settled_intake_undercount(current_work_order):
                 ordered_quantity = current_work_order.total_quantity
                 arrived_quantity = current_work_order.completed_quantity
+                ordered_profiles_quantity = current_work_order.profiles_quantity
+                ordered_accessories_quantity = current_work_order.accessories_quantity
+                # The declared profile/accessory split must be redefined WITH the total — the DB
+                # CHECK (profiles + accessories == total when both known) otherwise kills this
+                # commit and strands the order half-finalized (verified live 2026-07-11 on a
+                # 10-profile order counted at 8). Same policy as the read model / correction
+                # batches: a single-category order keeps its category, a mixed one falls back to
+                # "to count". Derive BEFORE mutating total_quantity (the helper short-circuits
+                # on operational == total).
+                category_fields = self._derive_category_fields_for_operational_quantity(
+                    current_work_order,
+                    arrived_quantity,
+                )
                 current_work_order.total_quantity = arrived_quantity
+                for category_field_name, category_field_value in category_fields.items():
+                    setattr(current_work_order, category_field_name, category_field_value)
                 self.audit.record_audit_event(
                     event_type="work_order.total_quantity_redefined",
                     station_context=None,
@@ -2475,6 +2490,8 @@ class ProcessService:
                     details={
                         "ordered_quantity": ordered_quantity,
                         "arrived_quantity": arrived_quantity,
+                        "ordered_profiles_quantity": ordered_profiles_quantity,
+                        "ordered_accessories_quantity": ordered_accessories_quantity,
                     },
                 )
 

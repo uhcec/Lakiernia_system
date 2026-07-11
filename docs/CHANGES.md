@@ -225,3 +225,33 @@ code does now (`file:line`), what the owner wants, and why. See `docs/SPEC.md` f
 - **Want:** the office wants a "Generuj WZ" button that, at any moment, produces a warehouse-issue PDF for a chosen group of ready orders of one client (closes the long-open "WZ + wydanie klientowi" to-do).
 - **Owner decisions (2026-07-11):** pick client → tick that client's READY, not-yet-released orders; rows are auto from each order's profile/accessory counts + RAL (an order with neither known → one "Elementy" line); the **only** manual field is the loaded "Kosze dłużycowe" count; NR ZAMÓWIENIA shows **both** the client's and our number; recipient address left blank (handwritten); WZ number auto per-year "kolejny/rok" (1/2026…); **no** stored register (one-off printout, gaps on reprint accepted); generating a WZ does **not** mark orders released (separate step).
 - **Done:** template `app/static/templates/wydanie_z_magazynu.xlsx` (built from the owner's file, fonts/borders 1:1, by `scripts/build_wz_template.py`); `WorkOrderService.generate_wz_document` + `WzNumberAllocator` + `wz_number_counters` table (migration `20260711_0045`); OFFICE-gated `POST /work-orders/wz-document`; frontend `GenerateWzModal` + "Generuj WZ" button on the office list. The shared Excel→PDF converter was parametrised (QC-card D6 emphasis behind `emphasize_cell=`) so both documents reuse it; a failed render surfaces as the same controlled Polish 503 as the QC card (#17) and rolls the WZ number back. Tests in `tests/test_wz_document.py`; layout eyeballed against a real render. See `docs/DECISIONS.md` (2026-07-11 — #18) and `docs/REVIEW_LEDGER.md` #8. `app/work_orders/service.py`, `app/work_orders/wz_number_allocator.py`, `app/work_orders/models.py`, `app/work_orders/schemas.py`, `app/work_orders/router.py`, `frontend/src/components/GenerateWzModal.tsx`, `frontend/src/pages/WorkOrdersListPage.tsx`, `frontend/src/api/workOrdersApi.ts`.
+
+### #19 — Undercount finalize dies on the category CHECK; zombie heal misses the append paths  *(bugs in #12/#13, found live 2026-07-11)* — ✅ DONE 2026-07-11
+- **Now:** (a) finalizing a settled intake undercount (D5) redefined `total_quantity` alone; on an
+  order with a **declared** profile/accessory split (the owner's normal shape — e.g. 10 profiles +
+  0 accessories counted at 8) the DB CHECK (`profiles + accessories == total` when both known)
+  killed the finalize commit: `packing/complete` returned **500 after the packing part had already
+  committed**, stranding a fresh zombie (total 10 / completed 8 / slot held / no audit event). The
+  #12 tests missed it because they declare `*_to_count: true` (unknown quantities → CHECK vacuous).
+  (b) the #13 zombie self-heal was wired only into the **explicit-position** branch; the default UI
+  path (plan with no position → append) and the line-switch re-append compute their slot by
+  *skipping* READY holders, so they land exactly on a zombie's held position → 409 "Queue position
+  1 is already taken" with nothing visible for the manager to release. Both surfaced by replaying
+  the owner's live walkthrough of order 0001 on fixed code (his own walk had raced the #12 commit
+  by 14 minutes and ran pre-fix, leaving the zombie that then blocked all MANUAL planning).
+- **Done:** finalize now derives the category split **with** the total via the existing
+  `_derive_category_fields_for_operational_quantity` policy (single-category order keeps its
+  category: 10/0 counted at 8 → 8/0; mixed split falls back to to-count), and preserves the
+  ordered split in the `total_quantity_redefined` audit event. The heal call was added to
+  `assign_plan`'s append branch and to `update_production_type`. 4 new regression tests in
+  `tests/test_undercount_completion_changes12_13.py` (category test verified red on pre-fix code).
+  SPEC §4/§6/§8 updated in both languages; verified live end-to-end on the running backend.
+
+### #20 — Line switch to AUTOMATIC dodges the paint hard-block  *(debt, found 2026-07-11, owner decision pending)*
+- **Now:** `assign_plan` hard-blocks planning **as AUTOMATIC** when the metered colour is out of
+  stock (`_assert_paint_available_for_automatic`, SPEC §8 / N49-7), but `update_production_type`
+  (MANUAL→AUTOMATIC line switch) performs **no paint check** — the block is dodgeable by planning
+  MANUAL first and switching lines.
+- **Want:** owner decision — should the line switch enforce the same hard block? (Recommendation:
+  yes; same rationale as N49-7 — an out-of-stock colour on the automat is a leading cause of a
+  missed daily norm.)

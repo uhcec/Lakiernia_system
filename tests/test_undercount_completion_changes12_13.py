@@ -119,6 +119,78 @@ def test_clean_undercount_finalizes_redefined_to_counted_CHANGES12(test_client):
     assert_finalized_at_counted(test_client, created["id"], ordered=5, counted=3)
 
 
+def test_undercount_redefines_declared_category_split_CHANGES12(test_client):
+    """The owner's real orders declare the profile/accessory split up front (here: 10 profiles +
+    0 accessories). Redefining only total_quantity trips the DB CHECK (profiles + accessories ==
+    total when both known), 500s the packing completion and strands a fresh zombie — verified
+    live 2026-07-11. The split must move with the total: a single-category order keeps its
+    category (10/0 counted at 8 -> 8/0)."""
+    payload = {
+        **build_create_payload("Undercount declared 10 profiles", total_quantity=10),
+        "profiles_quantity": 10,
+        "profiles_to_count": False,
+        "accessories_quantity": 0,
+        "accessories_to_count": False,
+    }
+    create_response = test_client.post("/work-orders", json=payload)
+    assert create_response.status_code == 201, create_response.text
+    order_id = create_response.json()["id"]
+    plan_response = test_client.post(
+        f"/manager/work-orders/{order_id}/plan",
+        json={"production_type": "MANUAL", "queue_position": 1},
+    )
+    assert plan_response.status_code == 200, plan_response.text
+    run_undercounted_manual_flow_to_packing(test_client, order_id, counted_quantity=8)
+
+    complete = test_client.post(
+        f"/process/work-orders/{order_id}/packing/complete",
+        json={"counted_quantity": 8, "ok_quantity": 8, "correction_quantity": 0},
+    )
+    assert complete.status_code == 200, complete.text  # was: 500 (CHECK constraint) + zombie
+
+    assert_finalized_at_counted(test_client, order_id, ordered=10, counted=8)
+    detail = get_detail(test_client, order_id)
+    assert detail["profiles_quantity"] == 8
+    assert detail["profiles_to_count"] is False
+    assert detail["accessories_quantity"] == 0
+    assert detail["accessories_to_count"] is False
+
+
+def test_undercount_mixed_declared_categories_fall_back_to_count_CHANGES12(test_client):
+    """6 profiles + 4 accessories declared, 8 arrive: nobody knows the split of what actually
+    arrived, so both categories drop to "to count" — the same fallback the correction-batch
+    policy uses."""
+    payload = {
+        **build_create_payload("Undercount mixed categories", total_quantity=10),
+        "profiles_quantity": 6,
+        "profiles_to_count": False,
+        "accessories_quantity": 4,
+        "accessories_to_count": False,
+    }
+    create_response = test_client.post("/work-orders", json=payload)
+    assert create_response.status_code == 201, create_response.text
+    order_id = create_response.json()["id"]
+    plan_response = test_client.post(
+        f"/manager/work-orders/{order_id}/plan",
+        json={"production_type": "MANUAL", "queue_position": 1},
+    )
+    assert plan_response.status_code == 200, plan_response.text
+    run_undercounted_manual_flow_to_packing(test_client, order_id, counted_quantity=8)
+
+    complete = test_client.post(
+        f"/process/work-orders/{order_id}/packing/complete",
+        json={"counted_quantity": 8, "ok_quantity": 8, "correction_quantity": 0},
+    )
+    assert complete.status_code == 200, complete.text
+
+    assert_finalized_at_counted(test_client, order_id, ordered=10, counted=8)
+    detail = get_detail(test_client, order_id)
+    assert detail["profiles_quantity"] is None
+    assert detail["profiles_to_count"] is True
+    assert detail["accessories_quantity"] is None
+    assert detail["accessories_to_count"] is True
+
+
 def test_undercount_with_ral_correction_round_finalizes_redefined_CHANGES12(test_client):
     """RAL: a packing correction is a replan-in-place round on the SAME order (no child order).
     5 ordered / 3 counted / 2 OK + 1 correction; the correction round completes -> the order
@@ -300,6 +372,89 @@ def test_legacy_zombie_slot_is_self_healed_on_plan_CHANGES13(tmp_path):
         assert audit.status_code == 200
         heal_events = [e for e in audit.json() if e["event_type"] == "manager.stale_queue_slot_released"]
         assert len(heal_events) == 1
+    finally:
+        env.close()
+
+
+def test_legacy_zombie_slot_heals_on_append_plan_CHANGES13(tmp_path):
+    """The DEFAULT plan path (no explicit position — the only path the manager UI uses) computes
+    the append slot by SKIPPING READY holders, so it lands exactly on a legacy zombie's position
+    and used to die on the unique index as a 409 with no heal (verified live 2026-07-11: zombie
+    0001 made every no-position MANUAL plan fail with "Queue position 1 is already taken.")."""
+    env = ChaosEnvironment(tmp_path / "legacy_zombie_append.db")
+    try:
+        client = env.create_actor_client("LegacyZombieAppend")
+        created = create_planned_order(client, "Legacy zombie append", total_quantity=5, queue_position=1)
+        run_undercounted_manual_flow_to_packing(client, created["id"], counted_quantity=5)
+        complete = client.post(
+            f"/process/work-orders/{created['id']}/packing/complete",
+            json={"counted_quantity": 5, "ok_quantity": 5, "correction_quantity": 0},
+        )
+        assert complete.status_code == 200, complete.text
+
+        # Reinstate the pre-#12 zombie shape: READY but still holding (MANUAL, position 1).
+        session = env.create_session()
+        try:
+            zombie = session.scalars(select(WorkOrder).where(WorkOrder.id == created["id"])).one()
+            zombie.queue_position = 1
+            session.commit()
+        finally:
+            session.close()
+
+        second = client.post("/work-orders", json=build_create_payload("Appends onto zombie slot", total_quantity=4))
+        assert second.status_code == 201
+        plan_second = client.post(
+            f"/manager/work-orders/{second.json()['id']}/plan",
+            json={"production_type": "MANUAL"},  # no queue_position — the UI's append path
+        )
+        assert plan_second.status_code == 200, plan_second.text  # was: 409, slot invisible to the manager
+        assert get_detail(client, second.json()["id"])["queue_position"] == 1
+        assert get_detail(client, created["id"])["queue_position"] is None
+        audit = client.get(f"/audit/work-orders/{created['id']}/events")
+        assert audit.status_code == 200
+        heal_events = [e for e in audit.json() if e["event_type"] == "manager.stale_queue_slot_released"]
+        assert len(heal_events) == 1
+    finally:
+        env.close()
+
+
+def test_production_type_change_onto_zombie_slot_self_heals_CHANGES13(tmp_path):
+    """Moving an order across lines appends it to the TARGET line via the same computed slot —
+    a legacy zombie there used to 409 the move; it must heal exactly like the plan paths."""
+    env = ChaosEnvironment(tmp_path / "legacy_zombie_line_change.db")
+    try:
+        client = env.create_actor_client("LegacyZombieLineChange")
+        created = create_planned_order(client, "Legacy zombie line change", total_quantity=5, queue_position=1)
+        run_undercounted_manual_flow_to_packing(client, created["id"], counted_quantity=5)
+        complete = client.post(
+            f"/process/work-orders/{created['id']}/packing/complete",
+            json={"counted_quantity": 5, "ok_quantity": 5, "correction_quantity": 0},
+        )
+        assert complete.status_code == 200, complete.text
+
+        session = env.create_session()
+        try:
+            zombie = session.scalars(select(WorkOrder).where(WorkOrder.id == created["id"])).one()
+            zombie.queue_position = 1
+            session.commit()
+        finally:
+            session.close()
+
+        # Park a fresh order on the other line, then bring it back: the return append lands on
+        # the zombie's still-held slot 1.
+        mover = create_planned_order(client, "Rides across lines", total_quantity=4, queue_position=2)
+        away = client.patch(
+            f"/manager/work-orders/{mover['id']}/production-type",
+            json={"production_type": "AUTOMATIC"},
+        )
+        assert away.status_code == 200, away.text
+        back = client.patch(
+            f"/manager/work-orders/{mover['id']}/production-type",
+            json={"production_type": "MANUAL"},
+        )
+        assert back.status_code == 200, back.text  # was: 409 on the zombie-held slot
+        assert get_detail(client, mover["id"])["queue_position"] == 1
+        assert get_detail(client, created["id"])["queue_position"] is None
     finally:
         env.close()
 

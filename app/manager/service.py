@@ -1391,6 +1391,11 @@ class ManagerService:
                 self._ensure_queue_position_available_or_releasable(target_position, production_type)
             else:
                 target_position = self._next_active_queue_position_for_line(production_type)
+                # CHANGES #13: the append slot is computed by SKIPPING completed (READY) holders,
+                # so a legacy pre-#12 zombie can still physically hold that exact position — heal
+                # it here like the explicit-position branch does, or the flush below 409s on a
+                # slot the manager cannot even see (verified live 2026-07-11 on order 0001).
+                self._ensure_queue_position_available_or_releasable(target_position, production_type)
 
             now = clock.now()
             work_order.production_type = production_type
@@ -1569,6 +1574,9 @@ class ManagerService:
             # into the new line and collide on the per-line (production_type, queue_position)
             # unique index. The order still sits on the source line at this point.
             target_position = self._next_active_queue_position_for_line(target_production_type)
+            # CHANGES #13: same zombie heal as assign_plan's append branch — the computed slot on
+            # the TARGET line may still be physically held by a legacy READY zombie.
+            self._ensure_queue_position_available_or_releasable(target_position, target_production_type)
             now = clock.now()
             work_order.production_type = target_production_type
             work_order.queue_position = target_position
