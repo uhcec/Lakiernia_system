@@ -86,6 +86,16 @@ def mark_work_order_complete_arrival(
 	return service.mark_complete_arrival(work_order_id, station_context=station_context)
 
 
+@router.post("/{work_order_id}/administrative-reset", response_model=WorkOrderRead)
+def administrative_reset_work_order(
+	work_order_id: int,
+	service: Annotated[WorkOrderService, Depends(get_work_order_service)],
+	station_context: Annotated[StationContext, Depends(get_station_context)],
+) -> WorkOrderRead:
+	"""CHANGES #14: office/manager (admin bypass) reset of a stuck order to the start of its route."""
+	return service.administrative_reset(work_order_id, station_context=station_context)
+
+
 @router.patch("/{work_order_id}/release-status", response_model=WorkOrderRead)
 def update_work_order_release_status(
 	work_order_id: int,

@@ -530,6 +530,89 @@ class ProcessService:
         work_order = self.get_work_order_process(work_order_id)
         return self._to_stage_work_order_read(work_order, stage)
 
+    # Owner decision 2026-07-11 (DECISIONS.md): manager, admin AND office may reset — wider than
+    # the review's office-only proposal. Admins bypass via the standard station check.
+    ADMIN_RESET_ALLOWED_STATIONS = {StationId.MANAGER, StationId.OFFICE}
+
+    def administrative_reset(self, work_order_id: int, station_context: StationContext | None = None) -> WorkOrder:
+        """Reset a genuinely stuck order back to the start of its route (CHANGES #14).
+
+        The escape hatch that pairs with the #14 downstream guard: when reality invents a state the
+        stage flow cannot legally leave, the office/manager resets the order to "planned, nothing
+        started" — all stage rows NOT_STARTED, counts cleared, one fresh active MAIN batch at the
+        ordered total, completed 0, leak flag cleared — and the floor runs it again. The order keeps
+        its plan (line + position) if it still holds one. Deliberately refuses orders entangled in a
+        correction chain (parent or child): their quantity is split across related orders and a blind
+        reset would break conservation — the correction flow itself is the recovery path there.
+        Physical facts are kept: recorded paint consumption stays (correct stock manually if needed);
+        a held packing slot is reclaimed by the stale-lock auto-recovery once the stage is reset.
+        """
+        with self._serialize_process_mutation(work_order_id):
+            ensure_station_allowed(
+                station_context,
+                allowed_station_ids=self.ADMIN_RESET_ALLOWED_STATIONS,
+                action="administracyjny reset zlecenia",
+            )
+            work_order = self.get_work_order_process(work_order_id)
+            if work_order.is_correction or work_order.correction_orders:
+                raise InvalidProcessStageTransitionError(
+                    "Reset administracyjny nie obsługuje zleceń powiązanych z poprawkami "
+                    "(rodzica z dziećmi-poprawkami ani samej poprawki). Użyj przepływu poprawek."
+                )
+
+            before_stage_statuses = {stage_state.stage.value: stage_state.status.value for stage_state in work_order.stage_states}
+            before_completed_quantity = work_order.completed_quantity
+            before_active_quantity = work_order.current_active_quantity
+
+            now = clock.now()
+            for batch in work_order.quantity_batches:
+                batch.is_active = False
+                batch.current_stage = None
+                batch.current_stage_status = None
+            # Flush the deactivations BEFORE inserting the fresh MAIN batch: the unit of work emits
+            # INSERTs before UPDATEs, so without this the new active batch would transiently collide
+            # with the old one on the one-active-batch-per-order partial unique index.
+            self.repository.session.flush()
+            self.repository.add_quantity_batch(
+                WorkOrderQuantityBatch(
+                    work_order_id=work_order.id,
+                    quantity=work_order.total_quantity,
+                    type=QuantityBatchType.MAIN,
+                    parent_batch_id=None,
+                    is_active=True,
+                    current_stage=None,
+                    current_stage_status=None,
+                    is_partial=False,
+                )
+            )
+            for stage_state in work_order.stage_states:
+                stage_state.status = StageStatus.NOT_STARTED
+                stage_state.counted_quantity = None
+                stage_state.updated_at = now
+            work_order.completed_quantity = 0
+            work_order.quantity_leak_flagged = False
+            work_order.updated_at = now
+
+            self.audit.record_audit_event(
+                event_type="work_order.administrative_reset",
+                station_context=station_context,
+                work_order=work_order,
+                target_type="work_order",
+                target_id=work_order.id,
+                summary=(
+                    f"Administrative reset of work order {work_order.order_number}: "
+                    f"route restarted from scratch (was completed {before_completed_quantity}, "
+                    f"active {before_active_quantity})."
+                ),
+                details={
+                    "before_stage_statuses": before_stage_statuses,
+                    "before_completed_quantity": before_completed_quantity,
+                    "before_active_quantity": before_active_quantity,
+                },
+            )
+            self._commit_process_changes()
+            return self.get_work_order_process(work_order_id)
+
     def start_packing(
         self,
         work_order_id: int,
@@ -1292,6 +1375,25 @@ class ProcessService:
                 f"Cannot transition stage {stage_state.stage.value}: work order {work_order.id} is already "
                 "completed. Re-opening a finished order requires the correction flow."
             )
+
+        # CHANGES #14: a DONE stage must not be restarted/reset once any downstream stage has
+        # progressed. The stage's recorded data is already feeding downstream validation — e.g. a
+        # surface-prep restart rewrites the "actual received" count mid-flight and packing then
+        # closes the order against the rewritten number (verified 2026-07-11, independent review
+        # §1.2). Re-touching a finished stage past this point is the correction flow's job
+        # (SPEC §3); a genuinely stuck order has the office/manager administrative reset.
+        if stage_state.status == StageStatus.DONE and target_status in {StageStatus.IN_PROGRESS, StageStatus.NOT_STARTED}:
+            actionable_sequence = self.get_actionable_stage_sequence_for_work_order(work_order)
+            if stage_state.stage in actionable_sequence:
+                stage_index = actionable_sequence.index(stage_state.stage)
+                for downstream_stage in actionable_sequence[stage_index + 1 :]:
+                    downstream_state = self._find_stage_state(work_order, downstream_stage)
+                    if downstream_state is not None and downstream_state.status in {StageStatus.IN_PROGRESS, StageStatus.DONE}:
+                        raise InvalidProcessStageTransitionError(
+                            f"Nie można cofnąć zakończonego etapu {stage_state.stage.polish_label}: "
+                            f"etap {downstream_state.stage.polish_label} jest już rozpoczęty lub zakończony. "
+                            "Zmiany na tym etapie obsługuje przepływ poprawek lub reset administracyjny (biuro/kierownik)."
+                        )
 
         allowed_transitions = {
             StageStatus.NOT_STARTED: {StageStatus.IN_PROGRESS},

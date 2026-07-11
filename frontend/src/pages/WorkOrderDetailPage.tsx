@@ -9,6 +9,7 @@ import {
   fetchWorkOrderAttachments,
   getQualityControlDocumentUrl,
   openWorkOrderAttachment,
+  administrativeResetWorkOrder,
   markWorkOrderCompleteArrival,
   updateWorkOrder,
   updateWorkOrderReleaseStatus,
@@ -221,6 +222,8 @@ export function WorkOrderDetailPage() {
   const canUpdateReleaseStatus = effectiveStationId === "OFFICE";
   const canGenerateQualityControlDocument = effectiveStationId === "OFFICE";
   const canEditWorkOrder = effectiveStationId === "OFFICE" || effectiveStationId === "MANAGER";
+  // CHANGES #14 (owner 2026-07-11): administrative reset for office/manager (admins bypass server-side).
+  const canAdministrativeReset = effectiveStationId === "OFFICE" || effectiveStationId === "MANAGER";
   const [isDownloadingQcDoc, setIsDownloadingQcDoc] = useState(false);
   const [qcDocErrorMessage, setQcDocErrorMessage] = useState<string | null>(null);
   const [workOrder, setWorkOrder] = useState<WorkOrder | null>(null);
@@ -234,6 +237,7 @@ export function WorkOrderDetailPage() {
   const [auditErrorMessage, setAuditErrorMessage] = useState<string | null>(null);
   const [uploadErrorMessage, setUploadErrorMessage] = useState<string | null>(null);
   const [isUpdatingArrival, setIsUpdatingArrival] = useState(false);
+  const [isResettingWorkOrder, setIsResettingWorkOrder] = useState(false);
   const [isUpdatingReleaseStatus, setIsUpdatingReleaseStatus] = useState(false);
   const [isUploadingAttachment, setIsUploadingAttachment] = useState(false);
   const [deletingAttachmentId, setDeletingAttachmentId] = useState<number | null>(null);
@@ -442,6 +446,36 @@ export function WorkOrderDetailPage() {
     }
   }
 
+  async function handleAdministrativeReset() {
+    if (!id || !workOrder) {
+      return;
+    }
+
+    const shouldContinue = await confirm({
+      title: "Reset administracyjny?",
+      message:
+        `Zlecenie ${workOrder.order_number} wróci na początek swojej trasy: wszystkie etapy od nowa, ` +
+        "liczniki wyczyszczone, plan (linia i pozycja) zostaje. Operacja jest zapisywana w audycie. Kontynuować?",
+      confirmLabel: "Resetuj zlecenie",
+      tone: "danger",
+    });
+    if (!shouldContinue) {
+      return;
+    }
+
+    setIsResettingWorkOrder(true);
+    setErrorMessage(null);
+
+    try {
+      await administrativeResetWorkOrder(Number(id));
+      await Promise.all([loadWorkOrder(Number(id)), loadAuditEvents(Number(id))]);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Nie udało się zresetować zlecenia");
+    } finally {
+      setIsResettingWorkOrder(false);
+    }
+  }
+
   async function handleUpdateReleaseStatus(nextReleaseState: boolean) {
     if (!id || !workOrder) {
       return;
@@ -609,6 +643,19 @@ export function WorkOrderDetailPage() {
                 className="inline-flex items-center justify-center rounded-full border border-accent bg-white px-5 py-3 text-sm font-medium text-accent transition hover:bg-accent hover:text-white"
               >
                 Edytuj zlecenie
+              </button>
+            ) : null}
+            {canAdministrativeReset &&
+            workOrder &&
+            !workOrder.is_correction &&
+            workOrder.correction_orders.length === 0 &&
+            workOrder.stage_states.some((stageState) => stageState.status.value !== "NOT_STARTED") ? (
+              <button
+                onClick={() => void handleAdministrativeReset()}
+                disabled={isResettingWorkOrder}
+                className="inline-flex items-center justify-center rounded-full border border-rose-300 bg-white px-5 py-3 text-sm font-medium text-rose-700 transition hover:bg-rose-600 hover:text-white disabled:opacity-60"
+              >
+                {isResettingWorkOrder ? "Resetowanie…" : "Reset administracyjny"}
               </button>
             ) : null}
             <Link

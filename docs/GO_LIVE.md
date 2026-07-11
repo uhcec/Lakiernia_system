@@ -53,9 +53,10 @@ a path a real shop day will hit:
 - [x] **#12 + #13** — ✅ fixed 2026-07-11: undercount completion finalizes
       redefined-to-counted per D5 (audited), slot released; flush-level
       queue collisions now 409; legacy zombie slots self-heal on touch.
-- [ ] **#14** — a DONE stage can restart while downstream is active,
-      rewriting the counted quantity; add the guard + an administrative
-      reset for manager/admin/office (roles decided 2026-07-11).
+- [x] **#14** — ✅ fixed 2026-07-11: DONE-stage restart/reopen rejected
+      while downstream is active (recount before downstream stays allowed);
+      administrative reset shipped for office/manager (admin bypass) with
+      audit + UI button on the order detail page.
 - [ ] **#15** — office list silently caps at 50 orders; wire pagination.
 
 Strongly recommended before cutover:

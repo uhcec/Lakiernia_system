@@ -46,6 +46,8 @@ This file describes **what the code does today**. It is the new ground truth, re
 - ✅ Allowed status moves: NOT_STARTED→IN_PROGRESS; IN_PROGRESS→{DONE, NOT_STARTED}; DONE→{IN_PROGRESS, NOT_STARTED}. `app/process/service.py:1290-1299`
 - ✅ A stage won't start until the previous stage is DONE. `app/process/service.py:1301-1308`
 - ✅ A fully-ready order can't be sent backward by reopening an earlier stage — that requires the correction flow. `app/process/service.py:1284-1288`
+- ✅ **(CHANGE #14 done 2026-07-11)** a **DONE stage refuses start/reopen while any downstream stage is IN_PROGRESS or DONE** (409, Polish operator message) — its recorded count already feeds downstream validation, so a mid-flight restart would rewrite the "actual received" ground truth. A recount **before** downstream starts stays allowed. `app/process/service.py:1379-1396@Nie można cofnąć zakończonego etapu`
+- ✅ **(CHANGE #14 done 2026-07-11)** the escape hatch: an **administrative reset** (owner-decided roles: office/manager, admins bypass) returns a genuinely stuck order to the start of its route — stage rows NOT_STARTED, counts cleared, fresh active MAIN batch at the ordered total, leak flag cleared, plan (line+position) kept, audited `work_order.administrative_reset`. Refused for correction-entangled orders (parent with children, or a correction itself). `app/process/service.py:533-618@def administrative_reset`, `app/work_orders/router.py:89-96@administrative-reset`
 - ✅ "Reopen" steps a stage down one level; blocked when there is no active quantity left. `app/process/service.py:507-523`
 - ✅ AUTOMATIC: at HANGING start, PACKING immediately goes IN_PROGRESS — packing runs in parallel with the line. `app/process/service.py:223-233`
 - ✅ AUTOMATIC packing can be worked while hanging is in progress but completed only once hanging is DONE and paint consumption is recorded. `app/process/service.py:1524-1548`, `697-700`
@@ -55,9 +57,9 @@ This file describes **what the code does today**. It is the new ground truth, re
 
 ## 4. Quantities & counting
 
-- ✅ Finishing surface preparation **requires** a counted quantity; >0 and ≤ active quantity. `app/process/service.py:2547-2550@def _ensure_surface_preparation_counted_quantity`, `2529-2545@def _store_surface_preparation_counted_quantity`
-- ✅ The surface-prep count becomes the **"actual received"** quantity that packing must match. `app/process/service.py:2724-2751@actual received`
-- ✅ **(CHANGE #12 done 2026-07-11, owner decision D5)** an **intake undercount** (prep counts fewer than ordered) is a legitimate completion: at finalization the order is **redefined to the counted amount** ("becomes a 3-piece order") and the original ordered quantity is preserved in the `work_order.total_quantity_redefined` audit event — ordered-vs-arrived lives in the audit trail, not on the order. `app/process/service.py:2358-2377@total_quantity_redefined`, `2452-2481@def _is_settled_intake_undercount`
+- ✅ Finishing surface preparation **requires** a counted quantity; >0 and ≤ active quantity. `app/process/service.py:2649-2652@def _ensure_surface_preparation_counted_quantity`, `app/process/service.py:2631-2647@def _store_surface_preparation_counted_quantity`
+- ✅ The surface-prep count becomes the **"actual received"** quantity that packing must match. `app/process/service.py:2826-2853@actual received`
+- ✅ **(CHANGE #12 done 2026-07-11, owner decision D5)** an **intake undercount** (prep counts fewer than ordered) is a legitimate completion: at finalization the order is **redefined to the counted amount** ("becomes a 3-piece order") and the original ordered quantity is preserved in the `work_order.total_quantity_redefined` audit event — ordered-vs-arrived lives in the audit trail, not on the order. `app/process/service.py:2460-2479@total_quantity_redefined`, `app/process/service.py:2554-2583@def _is_settled_intake_undercount`
 - ✅ Packing count must equal the surface-prep actual (or, in a correction round, the correction batch size). `app/process/service.py:722-733`
 - ✅ At packing: good + to-correct = counted. `app/process/service.py:714-720`
 - ✅ Paint consumption shown on an order is the cumulative kg across the whole correction chain. `app/process/service.py:2556`
@@ -88,11 +90,11 @@ Details:
 - ✅ RAL packing with no correction: order credits the good pieces and the main batch closes. `app/process/service.py:790-795`
 - ✅ DECORAL packing with no correction does **not** complete the order — pieces move on to Decoral. `app/process/service.py:806-811`
 - ✅ DECORAL completion (no correction) credits the good pieces. `app/process/service.py:980-986`
-- ✅ READY = all pieces credited (completed = total) AND no active pieces AND all correction children complete. `app/process/service.py:2496-2501@def _is_complete_for_display`
-- ✅ Finalization walks up the parent chain — closing the last child closes the root. `app/process/service.py:2339-2431@def _finalize_completion_chain_if_ready`
-- ✅ **(CHANGE #12 done 2026-07-11)** a **settled intake undercount** (all counted pieces credited, fewer than ordered) finalizes like any completion: redefined to the counted amount (see §4), queue slot released, **no leak flag** — it is the owner-blessed path, not a leak. `app/process/service.py:2452-2481@def _is_settled_intake_undercount`
-- ✅ **(CHANGE #10 done 2026-06-26)** if pieces "leak" (credited ≠ total at close, and the gap is **not** a settled intake undercount) the order is still forced to total so it can close, but it is now **human-visible**: a persisted `quantity_leak_flagged` flag on the order (surfaced in the read models) + a SYSTEM audit event `work_order.quantity_leak_detected`, not just a technical log line. `app/process/service.py:2379-2406@quantity_leak_flagged = True`, `app/work_orders/models.py:150-154`
-- ✅ A completed correction child is marked a "historical correction". `app/process/service.py:2503-2504@def is_historical_correction`
+- ✅ READY = all pieces credited (completed = total) AND no active pieces AND all correction children complete. `app/process/service.py:2598-2603@def _is_complete_for_display`
+- ✅ Finalization walks up the parent chain — closing the last child closes the root. `app/process/service.py:2441-2533@def _finalize_completion_chain_if_ready`
+- ✅ **(CHANGE #12 done 2026-07-11)** a **settled intake undercount** (all counted pieces credited, fewer than ordered) finalizes like any completion: redefined to the counted amount (see §4), queue slot released, **no leak flag** — it is the owner-blessed path, not a leak. `app/process/service.py:2554-2583@def _is_settled_intake_undercount`
+- ✅ **(CHANGE #10 done 2026-06-26)** if pieces "leak" (credited ≠ total at close, and the gap is **not** a settled intake undercount) the order is still forced to total so it can close, but it is now **human-visible**: a persisted `quantity_leak_flagged` flag on the order (surfaced in the read models) + a SYSTEM audit event `work_order.quantity_leak_detected`, not just a technical log line. `app/process/service.py:2481-2508@quantity_leak_flagged = True`, `app/work_orders/models.py:150-154`
+- ✅ A completed correction child is marked a "historical correction". `app/process/service.py:2605-2606@def is_historical_correction`
 - ✅ Display-status precedence: incomplete → ready → to-plan → (batch status) → waiting-for-corrections → first unfinished stage. `app/process/service.py:1132-1164`
 
 ## 7. Packing slots & resource locks
@@ -113,7 +115,7 @@ Details:
 - ✅ Planning requires the order to be unplanned and not incomplete-on-arrival. `app/manager/service.py:1377-1380@Cannot plan incomplete order`
 - ✅ The manager **picks the line at plan time**; planning an order **as AUTOMATIC** is hard-blocked if its metered colour is out of stock / insufficient (MANUAL is not checked). `app/manager/service.py:1382-1397@_assert_paint_available_for_automatic`, `1324-1366@def _assert_paint_available_for_automatic`
 - ✅ Planning with no explicit position appends to the **end of the line's active queue**. `app/manager/service.py:1387-1393@_next_active_queue_position_for_line`
-- ✅ **(CHANGE #3 done 2026-06-26)** on completion an order **leaves the line's active queue and releases its position** (keeping its line); the trailing/shuffle machinery was removed. Completed correction children release their slots too when the root finalizes. `app/process/service.py:2408-2440@release_queue_slot`
+- ✅ **(CHANGE #3 done 2026-06-26)** on completion an order **leaves the line's active queue and releases its position** (keeping its line); the trailing/shuffle machinery was removed. Completed correction children release their slots too when the root finalizes. `app/process/service.py:2510-2542@release_queue_slot`
 - ✅ **(CHANGE #13 done 2026-07-11)** a position is "taken" only by a non-READY order; a READY order still holding a position (legacy data from before CHANGE #12) is **released on the spot** by the availability check (audited `manager.stale_queue_slot_released`) instead of colliding on the unique index. `app/manager/service.py:1961-1996@stale_queue_slot_released`
 - ✅ **(CHANGE #13 done 2026-07-11)** a queue-position collision at flush time returns a controlled **409** ("position already taken"), not a raw 500 — on plan, queue-position update and line switch alike. `app/manager/service.py:1408-1421@except IntegrityError`
 - ✅ A line switch is blocked once hanging/production started; switching re-appends at the end and clears the pin. `app/manager/service.py:1557-1577@work_order.planning_priority = None`

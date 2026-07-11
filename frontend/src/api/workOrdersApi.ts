@@ -145,6 +145,24 @@ export async function markWorkOrderCompleteArrival(workOrderId: number): Promise
   return response.json() as Promise<WorkOrder>;
 }
 
+export async function administrativeResetWorkOrder(workOrderId: number): Promise<WorkOrder> {
+  const url = createApiUrl(`/work-orders/${workOrderId}/administrative-reset`);
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      ...getCurrentStationHeaders(),
+    },
+  });
+
+  if (!response.ok) {
+    throw await createApiError(response, "Nie udało się zresetować zlecenia");
+  }
+
+  return response.json() as Promise<WorkOrder>;
+}
+
 export async function updateWorkOrderReleaseStatus(workOrderId: number, isReleasedToClient: boolean): Promise<WorkOrder> {
   const url = createApiUrl(`/work-orders/${workOrderId}/release-status`);
 

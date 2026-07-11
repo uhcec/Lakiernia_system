@@ -18,7 +18,7 @@ code does now (`file:line`), what the owner wants, and why. See `docs/SPEC.md` f
 | 11 | bug | Enforce SQLite foreign keys (order creation 500 on reused id) ✅ |
 | 12 | bug | Undercount completion never finalizes — "Gotowe" at 3/5, queue slot never released ✅ |
 | 13 | bug | Planning into a slot held by a READY order → raw 500 (flush outside the 409 handler) ✅ |
-| 14 | bug | A DONE stage can restart while downstream is active — count rewritten mid-flight |
+| 14 | bug | A DONE stage can restart while downstream is active — count rewritten mid-flight ✅ |
 | 15 | bug | Office list silently caps at 50 orders (no pagination) |
 | 16 | debt | Frontend floor-robustness batch (JSON.parse, stale-response guards, EN errors, 401 drafts) |
 | 17 | debt | QC document requires Windows + Excel COM — 500 on Linux; absent from SPEC |
@@ -128,7 +128,7 @@ code does now (`file:line`), what the owner wants, and why. See `docs/SPEC.md` f
   legacy-zombie self-heal for plan and queue-position PATCH
   (`tests/test_undercount_completion_changes12_13.py`). `app/manager/service.py`. SPEC §8 updated.
 
-### #14 — A DONE stage can restart while downstream is active  *(bug, found 2026-07-11)*
+### #14 — A DONE stage can restart while downstream is active  *(bug, found 2026-07-11)* — ✅ DONE 2026-07-11
 - **Now:** the transition table allows DONE→IN_PROGRESS on any stage
   (`app/process/service.py:1296-1304`) and the only backward guard fires when the whole order is
   display-complete (`:1283-1294`). With packing IN_PROGRESS, restarting the DONE surface prep
@@ -141,6 +141,17 @@ code does now (`file:line`), what the owner wants, and why. See `docs/SPEC.md` f
   administrative reset action for genuinely stuck orders. Extend `tests/chaos/` with a lifecycle
   fuzzer asserting global invariants (no READY order holds a queue position; no all-stages-DONE order
   has `completed < total` unflagged).
+- **Done:** guard in `_validate_transition` — a DONE stage rejects `start`/`reopen` (409, Polish
+  message) while any downstream stage of the actionable route is IN_PROGRESS/DONE; a recount before
+  downstream starts stays allowed (pinned by test). Escape hatch: `POST
+  /work-orders/{id}/administrative-reset` — roles per owner decision 2026-07-11 (**office/manager,
+  admin bypass**, wider than the review's office-only proposal), resets the route from scratch
+  (fresh MAIN batch, counts cleared, plan kept), audited `work_order.administrative_reset`, refused
+  for correction-entangled orders; danger-styled button on the office/manager order detail page.
+  Tests `tests/test_done_stage_restart_changes14.py` (guard both routes, permissions, re-run after
+  reset, correction refusal). The lifecycle fuzzer is a separate follow-up change.
+  `app/process/service.py`, `app/work_orders/{service,router}.py`,
+  `frontend/src/pages/WorkOrderDetailPage.tsx`, `frontend/src/api/workOrdersApi.ts`. SPEC §3 updated.
 
 ### #15 — Office list silently caps at 50 orders  *(bug, found 2026-07-11)*
 - **Now:** the office list fetch sends no pagination params (`frontend/src/api/workOrdersApi.ts:56-62`),

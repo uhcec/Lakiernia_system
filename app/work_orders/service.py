@@ -399,6 +399,16 @@ class WorkOrderService:
             "Work order status is derived from process status and cannot be changed manually."
         )
 
+    def administrative_reset(
+        self,
+        work_order_id: int,
+        station_context: StationContext | None = None,
+    ) -> WorkOrderRead:
+        """CHANGES #14 escape hatch: reset a stuck order to the start of its route.
+        Permissions (manager/office, admin bypass) and all state surgery live in ProcessService."""
+        work_order = self.process_service.administrative_reset(work_order_id, station_context=station_context)
+        return self._to_read_model(work_order)
+
     def mark_complete_arrival(
         self,
         work_order_id: int,
