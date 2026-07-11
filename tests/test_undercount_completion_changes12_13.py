@@ -1,28 +1,29 @@
-"""Pin tests for CHANGES #12/#13 (independent review 2026-07-11, §1.1).
+"""Regression tests for CHANGES #12/#13 (independent review 2026-07-11, §1.1; owner decision D5).
 
-These tests PIN THE CURRENT (broken) BEHAVIOUR of the undercount completion path so the fix
-has an exact before/after diff. When the #12+#13 fix lands, the asserts marked ``# PIN`` get
-flipped to the intended behaviour (DECISIONS.md 2026-07-11 — D5: redefine the order to the
-counted amount with an audit trail; slot released; 409 instead of a raw IntegrityError).
+The pinned-before behaviour (commit 12d75ff) was: a quantity-clean undercounted completion
+(prep counts 3 of 5, all 3 packed OK) showed READY via the all-stages-DONE display fall-through
+but never finalized — total_quantity untouched, queue slot held forever, and planning into that
+slot died on the partial unique index with a raw IntegrityError (HTTP 500) because the flush sat
+outside the IntegrityError -> 409 handler.
 
-Current behaviour being pinned:
+Fixed behaviour (DECISIONS.md 2026-07-11 — D5):
 
-- #12  A quantity-clean undercounted completion (prep counts 3 of 5, packing packs 3 OK)
-       shows READY via the all-stages-DONE fall-through but never finalizes: total_quantity
-       is not redefined, the queue slot is never released, no leak flag is raised.
-- #12b An undercounted completion WITH a correction round DOES finalize (correction children
-       satisfy _can_finalize_work_order), but the #10 leak tripwire then FALSE-flags the
-       owner-legitimate undercount and force-closes 3 -> 5.
-- #13  Planning another order into the zombie-held queue slot passes the availability check
-       (READY holders are treated as releasable but nothing releases them) and dies on the
-       partial unique index with a raw IntegrityError (HTTP 500), because session.flush()
-       sits outside the IntegrityError -> 409 handler in assign_plan / update_queue_position.
+- #12  A settled intake undercount finalizes: the order is REDEFINED to the counted amount
+       ("becomes a 3-piece order"), the original ordered quantity is preserved in the
+       ``work_order.total_quantity_redefined`` audit event, the queue slot is released, and
+       the #10 leak tripwire does NOT false-flag it — on all three coating routes (clean RAL,
+       RAL correction round, DECORAL correction child).
+- #13  The freed slot is immediately plannable; a legacy zombie (a READY order still holding a
+       position, written before this fix) is self-healed by the availability check; and the
+       flush-level IntegrityError now maps to a 409 like the commit-level one.
 """
 
 from __future__ import annotations
 
-import pytest
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy import select
+
+from app.work_orders.models import WorkOrder
+from tests.chaos.harness import ChaosEnvironment
 
 
 def build_create_payload(title: str, *, total_quantity: int = 5) -> dict:
@@ -84,8 +85,28 @@ def get_direct_correction_children(client, parent_id: int) -> list[dict]:
     ]
 
 
-def test_clean_undercount_shows_ready_but_never_finalizes_CHANGES12_pin(test_client):
-    """5 ordered / 3 counted / 3 packed OK -> 'Gotowe' at 3/5, slot held, nothing redefined."""
+def assert_redefinition_audit_event(client, work_order_id: int, *, ordered: int, arrived: int) -> None:
+    response = client.get(f"/audit/work-orders/{work_order_id}/events")
+    assert response.status_code == 200
+    events = [event for event in response.json() if event["event_type"] == "work_order.total_quantity_redefined"]
+    assert len(events) == 1, f"expected exactly one redefinition audit event, got {len(events)}"
+    assert f"ordered {ordered}, arrived {arrived}" in events[0]["summary"]
+
+
+def assert_finalized_at_counted(client, work_order_id: int, *, ordered: int, counted: int) -> None:
+    """The D5 contract: redefined to the counted amount, slot released, no false leak flag,
+    ordered-vs-arrived preserved in the audit trail."""
+    detail = get_detail(client, work_order_id)
+    assert detail["process_status"]["value"] == "READY"
+    assert detail["total_quantity"] == counted
+    assert detail["completed_quantity"] == counted
+    assert detail["queue_position"] is None
+    assert detail["quantity_leak_flagged"] is False
+    assert_redefinition_audit_event(client, work_order_id, ordered=ordered, arrived=counted)
+
+
+def test_clean_undercount_finalizes_redefined_to_counted_CHANGES12(test_client):
+    """5 ordered / 3 counted / 3 packed OK -> a 3-piece order: finalized, slot released, audited."""
     created = create_planned_order(test_client, "Undercount clean 3 of 5", total_quantity=5, queue_position=1)
     run_undercounted_manual_flow_to_packing(test_client, created["id"], counted_quantity=3)
 
@@ -95,20 +116,13 @@ def test_clean_undercount_shows_ready_but_never_finalizes_CHANGES12_pin(test_cli
     )
     assert complete.status_code == 200, complete.text
 
-    detail = get_detail(test_client, created["id"])
-    # Display says done — the all-stages-DONE fall-through (app/process/service.py get_display_status).
-    assert detail["process_status"]["value"] == "READY"
-    # PIN (#12): finalization never ran — the order is a permanent zombie.
-    assert detail["total_quantity"] == 5  # PIN: D5 says this becomes 3 (redefined to counted)
-    assert detail["completed_quantity"] == 3  # PIN: finalize will set == total (3 after redefinition)
-    assert detail["queue_position"] == 1  # PIN: finalize must release the slot (CHANGES #3)
-    assert detail["quantity_leak_flagged"] is False  # legit undercount — must stay unflagged after fix too
+    assert_finalized_at_counted(test_client, created["id"], ordered=5, counted=3)
 
 
-def test_undercount_with_ral_correction_round_never_finalizes_CHANGES12_pin(test_client):
+def test_undercount_with_ral_correction_round_finalizes_redefined_CHANGES12(test_client):
     """RAL: a packing correction is a replan-in-place round on the SAME order (no child order).
     5 ordered / 3 counted / 2 OK + 1 correction; the correction round completes -> the order
-    ends at 3/5 like the clean case: READY display, never finalized, slot held."""
+    finalizes as a 3-piece order exactly like the clean case."""
     created = create_planned_order(test_client, "Undercount RAL correction round", total_quantity=5, queue_position=1)
     order_id = created["id"]
     run_undercounted_manual_flow_to_packing(test_client, order_id, counted_quantity=3)
@@ -146,20 +160,13 @@ def test_undercount_with_ral_correction_round_never_finalizes_CHANGES12_pin(test
     )
     assert round_complete.status_code == 200, round_complete.text
 
-    detail = get_detail(test_client, order_id)
-    assert detail["process_status"]["value"] == "READY"
-    # PIN (#12): same zombie as the clean case — all counted pieces are done (2 + 1 == 3) but
-    # completed != ordered total and there are no correction children, so finalize never runs.
-    assert detail["total_quantity"] == 5  # PIN: D5 says this becomes 3
-    assert detail["completed_quantity"] == 3  # PIN: finalize will set == total (3 after redefinition)
-    assert detail["queue_position"] == 1  # PIN: finalize must release the slot
-    assert detail["quantity_leak_flagged"] is False
+    assert_finalized_at_counted(test_client, order_id, ordered=5, counted=3)
 
 
-def test_undercount_with_decoral_child_false_flags_leak_CHANGES12_pin(test_client):
-    """DECORAL: a packing correction creates a CHILD order, so _can_finalize_work_order passes via
-    the correction-children arm — finalize DOES run, but the #10 leak tripwire then false-flags
-    the owner-legitimate intake undercount and force-closes 3 -> 5."""
+def test_undercount_with_decoral_child_finalizes_redefined_no_false_leak_CHANGES12(test_client):
+    """DECORAL: a packing correction creates a CHILD order, so finalize runs via the
+    correction-children arm — the redefinition must land BEFORE the #10 leak tripwire so the
+    owner-legitimate intake undercount is not false-flagged and force-closed 3 -> 5."""
     payload = {**build_create_payload("Undercount Decoral child", total_quantity=5), "coating_type": "DECORAL"}
     create_response = test_client.post("/work-orders", json=payload)
     assert create_response.status_code == 201, create_response.text
@@ -229,55 +236,102 @@ def test_undercount_with_decoral_child_false_flags_leak_CHANGES12_pin(test_clien
     )
     assert finish_returned.status_code == 200, finish_returned.text
 
-    detail = get_detail(test_client, parent_id)
-    assert detail["process_status"]["value"] == "READY"
-    # PIN (#12): finalize runs (children exist) but the leak tripwire treats the intake
-    # undercount as a leak: flags it and force-closes to the ordered total.
-    # After the fix: total redefined to 3, completed == 3, NO leak flag.
-    assert detail["total_quantity"] == 5  # PIN: D5 says this becomes 3
-    assert detail["completed_quantity"] == 5  # PIN: forced to (old) total by the tripwire
-    assert detail["quantity_leak_flagged"] is True  # PIN: false alarm — must be False after fix
-    # Finalize ran on this path, so the slot IS released (contrast with the zombie pins).
-    assert detail["queue_position"] is None
+    assert_finalized_at_counted(test_client, parent_id, ordered=5, counted=3)
 
 
-def test_planning_into_zombie_slot_raises_raw_integrity_error_CHANGES13_pin(test_client):
-    """The zombie's slot passes the READY-skipping availability check, then the flush dies on the
-    partial unique index OUTSIDE the IntegrityError -> 409 handler (raw 500)."""
-    created = create_planned_order(test_client, "Zombie slot holder", total_quantity=5, queue_position=1)
+def test_slot_released_by_undercount_completion_is_plannable_CHANGES13(test_client):
+    """The end-to-end #13 repro, fixed at the root: the undercounted completion releases its slot,
+    so planning the next order into that position simply succeeds (no 500, no 409)."""
+    created = create_planned_order(test_client, "Former zombie slot holder", total_quantity=5, queue_position=1)
     run_undercounted_manual_flow_to_packing(test_client, created["id"], counted_quantity=3)
     complete = test_client.post(
         f"/process/work-orders/{created['id']}/packing/complete",
         json={"counted_quantity": 3, "ok_quantity": 3, "correction_quantity": 0},
     )
     assert complete.status_code == 200, complete.text
-    assert get_detail(test_client, created["id"])["queue_position"] == 1  # zombie holds slot 1
+    assert get_detail(test_client, created["id"])["queue_position"] is None
 
     second = test_client.post("/work-orders", json=build_create_payload("Wants slot 1", total_quantity=4))
     assert second.status_code == 201
-    # PIN (#13): raw IntegrityError escapes to the transport (an HTTP 500 in production).
-    # After the fix this must be a controlled 409 — or a 200 once the zombie path is gone (#12).
-    with pytest.raises(IntegrityError):
-        test_client.post(
+    plan_second = test_client.post(
+        f"/manager/work-orders/{second.json()['id']}/plan",
+        json={"production_type": "MANUAL", "queue_position": 1},
+    )
+    assert plan_second.status_code == 200, plan_second.text
+    assert get_detail(test_client, second.json()["id"])["queue_position"] == 1
+
+
+def test_legacy_zombie_slot_is_self_healed_on_plan_CHANGES13(tmp_path):
+    """A READY order still holding a position (data written BEFORE the #12 fix) must not 500 the
+    manager: the availability check now releases the zombie's slot for real (audited) and the
+    plan proceeds. Fabricates the legacy state directly in the DB — the API can no longer produce it."""
+    env = ChaosEnvironment(tmp_path / "legacy_zombie.db")
+    try:
+        client = env.create_actor_client("LegacyZombie")
+        created = create_planned_order(client, "Legacy zombie", total_quantity=5, queue_position=1)
+        run_undercounted_manual_flow_to_packing(client, created["id"], counted_quantity=5)
+        complete = client.post(
+            f"/process/work-orders/{created['id']}/packing/complete",
+            json={"counted_quantity": 5, "ok_quantity": 5, "correction_quantity": 0},
+        )
+        assert complete.status_code == 200, complete.text
+        assert get_detail(client, created["id"])["queue_position"] is None
+
+        # Reinstate the pre-#12 zombie shape: READY but still holding (MANUAL, position 1).
+        session = env.create_session()
+        try:
+            zombie = session.scalars(select(WorkOrder).where(WorkOrder.id == created["id"])).one()
+            zombie.queue_position = 1
+            session.commit()
+        finally:
+            session.close()
+
+        second = client.post("/work-orders", json=build_create_payload("Heals the zombie slot", total_quantity=4))
+        assert second.status_code == 201
+        plan_second = client.post(
             f"/manager/work-orders/{second.json()['id']}/plan",
             json={"production_type": "MANUAL", "queue_position": 1},
         )
+        assert plan_second.status_code == 200, plan_second.text  # was: raw IntegrityError (500)
+
+        assert get_detail(client, second.json()["id"])["queue_position"] == 1
+        assert get_detail(client, created["id"])["queue_position"] is None
+        audit = client.get(f"/audit/work-orders/{created['id']}/events")
+        assert audit.status_code == 200
+        heal_events = [e for e in audit.json() if e["event_type"] == "manager.stale_queue_slot_released"]
+        assert len(heal_events) == 1
+    finally:
+        env.close()
 
 
-def test_queue_position_update_into_zombie_slot_raises_raw_integrity_error_CHANGES13_pin(test_client):
-    """Same flush-outside-handler shape on the queue-position PATCH (manager drag/move)."""
-    created = create_planned_order(test_client, "Zombie slot holder 2", total_quantity=5, queue_position=1)
-    run_undercounted_manual_flow_to_packing(test_client, created["id"], counted_quantity=3)
-    complete = test_client.post(
-        f"/process/work-orders/{created['id']}/packing/complete",
-        json={"counted_quantity": 3, "ok_quantity": 3, "correction_quantity": 0},
-    )
-    assert complete.status_code == 200, complete.text
+def test_queue_position_update_onto_zombie_slot_self_heals_CHANGES13(tmp_path):
+    """Same legacy-zombie shape on the queue-position PATCH (manager drag/move) — 200, not a 500."""
+    env = ChaosEnvironment(tmp_path / "legacy_zombie_patch.db")
+    try:
+        client = env.create_actor_client("LegacyZombiePatch")
+        created = create_planned_order(client, "Legacy zombie 2", total_quantity=5, queue_position=1)
+        run_undercounted_manual_flow_to_packing(client, created["id"], counted_quantity=5)
+        complete = client.post(
+            f"/process/work-orders/{created['id']}/packing/complete",
+            json={"counted_quantity": 5, "ok_quantity": 5, "correction_quantity": 0},
+        )
+        assert complete.status_code == 200, complete.text
 
-    mover = create_planned_order(test_client, "Wants to move onto slot 1", total_quantity=4, queue_position=2)
-    # PIN (#13): raw IntegrityError instead of a controlled 409.
-    with pytest.raises(IntegrityError):
-        test_client.patch(
+        session = env.create_session()
+        try:
+            zombie = session.scalars(select(WorkOrder).where(WorkOrder.id == created["id"])).one()
+            zombie.queue_position = 1
+            session.commit()
+        finally:
+            session.close()
+
+        mover = create_planned_order(client, "Moves onto zombie slot", total_quantity=4, queue_position=2)
+        move = client.patch(
             f"/manager/work-orders/{mover['id']}/queue-position",
             json={"queue_position": 1},
         )
+        assert move.status_code == 200, move.text  # was: raw IntegrityError (500)
+        assert get_detail(client, mover["id"])["queue_position"] == 1
+        assert get_detail(client, created["id"])["queue_position"] is None
+    finally:
+        env.close()

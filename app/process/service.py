@@ -42,7 +42,7 @@ _PROCESS_MUTATION_LOCKS_GUARD = RLock()
 @dataclass(frozen=True)
 class StageQuantities:
     """The quantities a station card shows for one (work order, stage, batch), resolved in one
-    place (NA43). See ``docs/WORKFLOW.md`` → "Quantity model" for what each means and when it
+    place (NA43). See ``docs/SPEC.md`` §4 (Quantities & counting) for what each means and when it
     applies. These are **display-only**: validation/READY use ``total_quantity`` / counted directly.
 
     - ``display`` — ``batch_quantity``: the headline count on the card.
@@ -2348,6 +2348,34 @@ class ProcessService:
             if not self._can_finalize_work_order(current_work_order):
                 break
 
+            # CHANGES #12 (owner decision D5, DECISIONS.md 2026-07-11): when the quantity gap is a
+            # settled intake undercount (prep counted 3 of the ordered 5 and all 3 are credited),
+            # the order is REDEFINED to the counted amount — it becomes a 3-piece order — with the
+            # original ordered quantity preserved in an audit event (ordered-vs-arrived lives in
+            # the audit trail, not on the order). This must run BEFORE the leak tripwire below:
+            # a redefined order has no gap left, so the legitimate undercount is never
+            # false-flagged as a leak.
+            if self._is_settled_intake_undercount(current_work_order):
+                ordered_quantity = current_work_order.total_quantity
+                arrived_quantity = current_work_order.completed_quantity
+                current_work_order.total_quantity = arrived_quantity
+                self.audit.record_audit_event(
+                    event_type="work_order.total_quantity_redefined",
+                    station_context=None,
+                    work_order=current_work_order,
+                    target_type="work_order",
+                    target_id=current_work_order.id,
+                    summary=(
+                        f"Intake undercount on work order {current_work_order.order_number}: "
+                        f"ordered {ordered_quantity}, arrived {arrived_quantity} — "
+                        f"order redefined to the counted amount (D5)."
+                    ),
+                    details={
+                        "ordered_quantity": ordered_quantity,
+                        "arrived_quantity": arrived_quantity,
+                    },
+                )
+
             # Quantity conservation should already make these equal; if not, finalizing would mask a
             # leak — surface it (NA19, CHANGES #10) rather than silently overwriting. We still force the
             # total so the order can close, but we flag it on the order AND write an audit event so a
@@ -2385,9 +2413,9 @@ class ProcessService:
             # subtree is complete, so release the completed children's slots too — a correction child
             # completes by merging back into the parent (which calls finalize on the PARENT), so the
             # child would otherwise keep its position despite being a closed historical correction.
-            self._release_queue_slot(current_work_order)
+            self.release_queue_slot(current_work_order)
             for descendant in self._completed_correction_descendants(current_work_order):
-                self._release_queue_slot(descendant)
+                self.release_queue_slot(descendant)
             finalized_work_order = current_work_order
 
             if not current_work_order.is_correction or current_work_order.parent_order_id is None:
@@ -2402,9 +2430,11 @@ class ProcessService:
         return finalized_work_order
 
     @staticmethod
-    def _release_queue_slot(work_order: WorkOrder) -> None:
+    def release_queue_slot(work_order: WorkOrder) -> None:
         """Drop an order out of the active queue (CHANGES #3): release its position + any planning lock,
-        keeping the line it ran on. Idempotent."""
+        keeping the line it ran on. Idempotent. Public: the manager's availability check also uses it
+        to self-heal a legacy zombie (a READY order still holding a position, written before the
+        CHANGES #12 fix)."""
         work_order.queue_position = None
         work_order.planning_priority = None
         work_order.pending_planning_priority = None
@@ -2429,7 +2459,26 @@ class ProcessService:
         if work_order.completed_quantity == work_order.total_quantity:
             return True
 
+        # CHANGES #12 (owner decision D5, DECISIONS.md 2026-07-11): an intake undercount is a
+        # legitimate completion — fewer pieces arrived than ordered, and every piece that DID
+        # arrive (the surface-prep count) has been credited. Without this arm the order shows
+        # "Gotowe" via the all-stages-DONE display fall-through but never finalizes, holding its
+        # queue slot forever.
+        if self._is_settled_intake_undercount(work_order):
+            return True
+
         return bool(work_order.correction_orders)
+
+    def _is_settled_intake_undercount(self, work_order: WorkOrder) -> bool:
+        """True when the order's only quantity gap is the intake undercount: surface prep counted
+        fewer pieces than ordered and exactly that counted amount has been credited. This is the
+        owner-blessed path (DECISIONS.md 2026-06-30 + D5 2026-07-11) — NOT a leak."""
+        counted_quantity = self.get_surface_preparation_counted_quantity(work_order)
+        return (
+            counted_quantity is not None
+            and counted_quantity < work_order.total_quantity
+            and work_order.completed_quantity == counted_quantity
+        )
 
     def _mark_all_stage_states_done(self, work_order: WorkOrder) -> None:
         current_timestamp = clock.now()
@@ -2669,7 +2718,7 @@ class ProcessService:
         Folds the four former helpers (display / planned / counted / operational) into one place so
         the "which quantity shows where" rule lives once. **Display-only** — validation, READY, and
         quantity conservation use ``total_quantity`` / counted directly, never these. See
-        ``docs/WORKFLOW.md`` → "Quantity model".
+        ``docs/SPEC.md`` §4 (Quantities & counting).
         """
         active_batch = work_order.active_batch
         # Surface-prep actual received (NA26) feeds both `operational` and the PACKING `counted`

@@ -707,3 +707,40 @@ list, passwords, which tablets) stays open as data readiness, not policy.
 erratum above). D6/D1 → close when the QC card is generated on the production Windows host during
 cutover. Reset roles → pinned by #14's permission tests. Session policy → revisit only if real
 shift patterns contradict it in use.
+
+---
+
+## 2026-07-11 — CHANGES #12/#13 implementation: redefine at finalize (not at prep-finish); self-heal zombie slots
+
+**What:** the D5 undercount redefinition is implemented **at finalization**, not at surface-prep
+finish. `_is_settled_intake_undercount` (counted < ordered AND completed == counted) gates both
+`_can_finalize_work_order` and a redefinition step that runs **before** the #10 leak tripwire.
+
+**Why finalize-time and not prep-finish-time:** redefining `total_quantity` the moment prep counts 3
+would cap a later recount at 3 — the store guard rejects counted > active quantity, so an operator
+typo (3 instead of 5, truck actually had 5) would become **irreversibly downward** the moment prep
+finished. At finalize-time the ordered total stays live all the way through the flow (recounts
+possible until downstream starts — see #14's guard), the UI keeps showing ordered-vs-counted during
+flight, and the redefinition happens exactly once, when the order closes. This also placed the fix
+next to the #10 tripwire, which had to learn the difference between a *leak* (unexplained gap → flag)
+and a *settled undercount* (explained gap → redefine): the DECORAL-child path used to false-flag the
+owner-blessed undercount and force-close 3 → 5.
+
+**Rejected:**
+- *Redefine at prep-finish* — irreversible on typo (above); also touches every downstream
+  validation for no benefit.
+- *Widen the #10 tripwire to just not flag undercounts without redefining* — leaves
+  `total_quantity=5` on a 3-piece order forever; D5 explicitly chose redefinition.
+- *Only fix the flush→409 without releasing READY holders* — planning into a legacy zombie slot
+  would 409 forever with no UI way to free it; the "or releasable" name promised a release that
+  never existed. Made it real + audited (`manager.stale_queue_slot_released`) — legacy rows
+  self-heal on first touch, new ones cannot arise.
+
+**Interaction with #14 (known, intentional sequencing):** until the #14 guard lands, a mid-flight
+DONE-prep restart that rewrites the count downward now *impersonates* a settled undercount and
+closes redefined (pinned in `tests/test_done_stage_restart_changes14.py`). The #14 guard rejects
+the restart itself, which is the actual corruption; it lands next.
+
+**Review-by:** the 2026-07-11 erratum's Review-by is hereby closed (behaviour written back into
+SPEC §4/§6 with fresh markers). Floor confirmation of the first real undercounted completion stays
+in `REVIEW_LEDGER.md` row 7.

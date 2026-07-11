@@ -16,8 +16,8 @@ code does now (`file:line`), what the owner wants, and why. See `docs/SPEC.md` f
 | 9 | change | Persist the actual shift length for "good day" ✅ |
 | 10 | change | Make the quantity-leak tripwire human-visible ✅ |
 | 11 | bug | Enforce SQLite foreign keys (order creation 500 on reused id) ✅ |
-| 12 | bug | Undercount completion never finalizes — "Gotowe" at 3/5, queue slot never released |
-| 13 | bug | Planning into a slot held by a READY order → raw 500 (flush outside the 409 handler) |
+| 12 | bug | Undercount completion never finalizes — "Gotowe" at 3/5, queue slot never released ✅ |
+| 13 | bug | Planning into a slot held by a READY order → raw 500 (flush outside the 409 handler) ✅ |
 | 14 | bug | A DONE stage can restart while downstream is active — count rewritten mid-flight |
 | 15 | bug | Office list silently caps at 50 orders (no pagination) |
 | 16 | debt | Frontend floor-robustness batch (JSON.parse, stale-response guards, EN errors, 401 drafts) |
@@ -83,7 +83,7 @@ code does now (`file:line`), what the owner wants, and why. See `docs/SPEC.md` f
 - **Want:** foreign keys enforced so deleting an order removes its child rows; order creation never collides on a reused id.
 - **Done:** added `PRAGMA foreign_keys = ON` to `_apply_sqlite_pragmas` and mirrored it in the test engines (`tests/conftest.py::_make_test_engine`; teardown drops the now-redundant `drop_all`). Regression tests `test_foreign_keys_pragma_is_enabled` + `test_deleting_work_order_cascades_to_child_rows` (`tests/test_db_constraints_phase1.py`). Cleaned existing orphan rows from the dev `local.db` (backed up). See `docs/DECISIONS.md` (2026-06-29).
 
-### #12 — Undercount completion never finalizes  *(bug, found 2026-07-11)*
+### #12 — Undercount completion never finalizes  *(bug, found 2026-07-11)* — ✅ DONE 2026-07-11
 - **Now:** an order whose surface-prep count is below the ordered total (owner-confirmed intended path,
   `docs/DECISIONS.md` 2026-06-30) completes packing and shows **READY ("Gotowe")** via the
   all-stages-DONE fall-through (`app/process/service.py:1170`) — but `_can_finalize_work_order`
@@ -97,8 +97,17 @@ code does now (`file:line`), what the owner wants, and why. See `docs/SPEC.md` f
   with the presentation decided by the owner (**GO_LIVE D5**: redefine `total_quantity` to the counted
   amount vs. keep the shortfall visible as ordered-vs-arrived). Regression tests for the 3-of-5 path
   and for planning into the released slot.
+- **Done:** per D5 (owner 2026-07-11): a **settled intake undercount** (prep counted < ordered, all
+  counted pieces credited — `_is_settled_intake_undercount`) now finalizes: `total_quantity` is
+  **redefined to the counted amount** with the original preserved in a `work_order.total_quantity_redefined`
+  audit event, the queue slot is released (CHANGES #3 machinery), and the redefinition runs **before**
+  the #10 leak tripwire so the legitimate undercount is never false-flagged (the DECORAL-child path
+  used to flag it and force-close 3 → 5). Pinned-before + fixed-after tests
+  `tests/test_undercount_completion_changes12_13.py` (clean RAL, RAL correction round, DECORAL child).
+  `app/process/service.py` (`_can_finalize_work_order`, `_finalize_completion_chain_if_ready`).
+  SPEC §4/§6 updated; DECISIONS erratum Review-by closed.
 
-### #13 — Planning into a slot held by a READY order → raw 500  *(bug, found 2026-07-11)*
+### #13 — Planning into a slot held by a READY order → raw 500  *(bug, found 2026-07-11)* — ✅ DONE 2026-07-11
 - **Now:** `_ensure_queue_position_available_or_releasable` treats a READY holder's position as free
   (`app/manager/service.py:1938-1951`) but nothing ever releases it, and the partial unique index
   still holds the row — so the commit path dies. Worse, `session.flush()` sits **outside** the
@@ -109,6 +118,15 @@ code does now (`file:line`), what the owner wants, and why. See `docs/SPEC.md` f
 - **Want:** flushes moved inside the IntegrityError handling (or the handler widened to cover them);
   the "or releasable" semantics either implemented (actually release the READY holder's slot) or the
   helper renamed/simplified once #12 removes the only source of READY-position holders.
+- **Done:** both halves. (a) The three flushes (`assign_plan`, `update_queue_position`,
+  `update_production_type`) got their own `IntegrityError → 409` handling — a position collision at
+  flush time is now a controlled "position already taken", never a raw 500. (b) The "or releasable"
+  semantics is now real: `_ensure_queue_position_available_or_releasable` **releases** a READY
+  holder's slot on the spot (via the now-public `ProcessService.release_queue_slot`, flushed before
+  the caller's own write, audited as `manager.stale_queue_slot_released`) — self-heals legacy zombie
+  rows written before #12; new ones can no longer arise. Tests: slot-reusable end-to-end + fabricated
+  legacy-zombie self-heal for plan and queue-position PATCH
+  (`tests/test_undercount_completion_changes12_13.py`). `app/manager/service.py`. SPEC §8 updated.
 
 ### #14 — A DONE stage can restart while downstream is active  *(bug, found 2026-07-11)*
 - **Now:** the transition table allows DONE→IN_PROGRESS on any stage

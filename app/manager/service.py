@@ -1406,7 +1406,16 @@ class ManagerService:
             # below resets statuses on the rows the route actually has (NA42).
             self.process_service.reconcile_stage_states_to_route(work_order)
             self.process_service.prepare_correction_work_order_for_planning(work_order)
-            self.repository.session.flush()
+            # CHANGES #13: the flush is where the partial unique index actually fires (a raw
+            # IntegrityError here used to escape as an HTTP 500) — give it the same 409 handling
+            # as the commit below.
+            try:
+                self.repository.session.flush()
+            except IntegrityError as exc:
+                self.repository.rollback()
+                raise InvalidManagerPlanningError(
+                    f"Queue position {target_position} is already taken."
+                ) from exc
             self._record_audit_event(
                 event_type="manager.plan_assigned",
                 station_context=station_context,
@@ -1457,7 +1466,14 @@ class ManagerService:
             previous_queue_position = work_order.queue_position
             work_order.queue_position = payload.queue_position
             work_order.updated_at = now
-            self.repository.session.flush()
+            # CHANGES #13: flush fires the unique index — 409, not a raw 500 (see assign_plan).
+            try:
+                self.repository.session.flush()
+            except IntegrityError as exc:
+                self.repository.rollback()
+                raise InvalidManagerPlanningError(
+                    f"Queue position {payload.queue_position} is already taken."
+                ) from exc
             self._record_audit_event(
                 event_type="manager.queue_position_updated",
                 station_context=station_context,
@@ -1564,7 +1580,14 @@ class ManagerService:
             # below resets statuses on the rows the route actually has (NA42).
             self.process_service.reconcile_stage_states_to_route(work_order)
             self.process_service.prepare_correction_work_order_for_planning(work_order)
-            self.repository.session.flush()
+            # CHANGES #13: flush fires the unique index — 409, not a raw 500 (see assign_plan).
+            try:
+                self.repository.session.flush()
+            except IntegrityError as exc:
+                self.repository.rollback()
+                raise InvalidManagerPlanningError(
+                    f"Queue position {target_position} is already taken."
+                ) from exc
             self._record_audit_event(
                 event_type="manager.production_type_changed",
                 station_context=station_context,
@@ -1947,8 +1970,32 @@ class ManagerService:
             production_type,
             exclude_work_order_id=exclude_work_order_id,
         )
-        if existing_work_order is not None and self.process_service.get_display_status(existing_work_order) != ProcessDisplayStatus.READY:
+        if existing_work_order is None:
+            return
+        if self.process_service.get_display_status(existing_work_order) != ProcessDisplayStatus.READY:
             raise InvalidManagerPlanningError(f"Queue position {queue_position} is already taken.")
+        # CHANGES #13: a READY order still holding a position is a zombie — since CHANGES #12,
+        # finalization always releases the slot, so this only matches rows written before that fix.
+        # Make "releasable" real: release the slot NOW (and flush, so the caller's own position
+        # write cannot collide with the still-held row on the partial unique index) instead of
+        # merely skipping the holder and letting the flush die with a raw IntegrityError.
+        self.process_service.release_queue_slot(existing_work_order)
+        self.repository.session.flush()
+        self._record_audit_event(
+            event_type="manager.stale_queue_slot_released",
+            station_context=None,
+            work_order=existing_work_order,
+            target_type="work_order",
+            target_id=existing_work_order.id,
+            summary=(
+                f"Released queue position {queue_position} still held by completed work order "
+                f"{existing_work_order.order_number} (pre-#12 zombie slot, self-healed)."
+            ),
+            details={
+                "queue_position": queue_position,
+                "production_type": production_type.value,
+            },
+        )
 
     @staticmethod
     def _ensure_production_not_started(work_order: WorkOrder) -> None:

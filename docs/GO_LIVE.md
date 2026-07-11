@@ -50,10 +50,9 @@ confirmation.
 Blocking before cutover — each produces a state the office cannot repair, on
 a path a real shop day will hit:
 
-- [ ] **#12 + #13** — undercount completion never finalizes (queue slot never
-      released, "Gotowe" at 3/5) and the poisoned slot then 500s the
-      manager's planning. Fix together; D5 decided 2026-07-11 (redefine to
-      counted amount + audit trail).
+- [x] **#12 + #13** — ✅ fixed 2026-07-11: undercount completion finalizes
+      redefined-to-counted per D5 (audited), slot released; flush-level
+      queue collisions now 409; legacy zombie slots self-heal on touch.
 - [ ] **#14** — a DONE stage can restart while downstream is active,
       rewriting the counted quantity; add the guard + an administrative
       reset for manager/admin/office (roles decided 2026-07-11).

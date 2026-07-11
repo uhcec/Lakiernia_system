@@ -77,7 +77,7 @@ def test_done_prep_restart_while_packing_active_rewrites_count_CHANGES14_pin(tes
     )
     assert restart.status_code == 200, restart.text  # PIN: must become 409
 
-    # Packing validates against the REWRITTEN count and closes the order at 2/5.
+    # Packing validates against the REWRITTEN count and closes the order.
     complete = test_client.post(
         f"/process/work-orders/{order_id}/packing/complete",
         json={"counted_quantity": 2, "ok_quantity": 2, "correction_quantity": 0},
@@ -86,14 +86,17 @@ def test_done_prep_restart_while_packing_active_rewrites_count_CHANGES14_pin(tes
 
     detail = get_detail(test_client, order_id)
     statuses = stage_statuses(detail)
-    # PIN: terminally inconsistent zombie — packing DONE while prep sits IN_PROGRESS,
-    # 2/5 credited, no leak flag, queue slot held forever, unfixable from the UI.
-    assert detail["total_quantity"] == 5
+    # PIN (updated after the #12 fix): the rewritten count now impersonates a legitimate intake
+    # undercount, so finalization REDEFINES the order 5 -> 2 and closes it cleanly — no zombie,
+    # but 3 real pieces silently vanish from the books. This is exactly why the #14 guard must
+    # reject the restart itself: the count rewrite mid-flight is the corruption, whatever the
+    # downstream bookkeeping then does with it.
+    assert detail["total_quantity"] == 2
     assert detail["completed_quantity"] == 2
     assert detail["quantity_leak_flagged"] is False
-    assert detail["queue_position"] == 1
+    assert detail["queue_position"] is None
     assert statuses["PACKING"] == "DONE"
-    assert statuses["SURFACE_PREPARATION"] == "IN_PROGRESS"
+    assert statuses["SURFACE_PREPARATION"] == "DONE"
 
 
 def test_done_prep_restart_with_no_downstream_progress_is_allowed(test_client):

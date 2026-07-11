@@ -55,8 +55,9 @@ Ten plik opisuje **co kod robi dzisiaj**. To nowa baza prawdy, zastępująca ska
 
 ## 4. Ilości i liczenie
 
-- ✅ Zakończenie przygotowania **wymaga** policzenia; >0 i ≤ aktywnej ilości. `app/process/service.py:2441-2444`, `2431-2435`
-- ✅ Policzona liczba z przygotowania staje się **„rzeczywiście przyjętą"** — pakowanie musi się z nią zgodzić. `app/process/service.py:2677-2682`
+- ✅ Zakończenie przygotowania **wymaga** policzenia; >0 i ≤ aktywnej ilości. `app/process/service.py:2547-2550@def _ensure_surface_preparation_counted_quantity`, `2529-2545@def _store_surface_preparation_counted_quantity`
+- ✅ Policzona liczba z przygotowania staje się **„rzeczywiście przyjętą"** — pakowanie musi się z nią zgodzić. `app/process/service.py:2724-2751@actual received`
+- ✅ **(ZMIANA #12 zrobiona 2026-07-11, decyzja właściciela D5)** **niedobór przy przyjęciu** (przygotowanie liczy mniej niż zamówiono) to legalne zakończenie: przy domknięciu zlecenie jest **przedefiniowane na policzoną ilość** („staje się zleceniem na 3 sztuki"), a pierwotnie zamówiona ilość zostaje w zdarzeniu audytu `work_order.total_quantity_redefined` — zamówione-vs-przyjęte żyje w audycie, nie na zleceniu. `app/process/service.py:2358-2377@total_quantity_redefined`, `2452-2481@def _is_settled_intake_undercount`
 - ✅ Policzona przy pakowaniu musi równać się rzeczywistej z przygotowania (a w rundzie poprawkowej — wielkości partii poprawkowej). `app/process/service.py:722-733`
 - ✅ Na pakowaniu: dobre + do-poprawki = policzone. `app/process/service.py:714-720`
 - ✅ Zużycie farby pokazywane na zleceniu to suma kg z całego łańcucha poprawek. `app/process/service.py:2556`
@@ -87,10 +88,11 @@ Szczegóły:
 - ✅ RAL, pakowanie bez poprawki: zlecenie zalicza dobre sztuki, partia główna się zamyka. `app/process/service.py:790-795`
 - ✅ DECORAL, pakowanie bez poprawki **nie kończy** zlecenia — sztuki idą na Decoral. `app/process/service.py:806-811`
 - ✅ Zakończenie Decoralu (bez poprawki) zalicza dobre sztuki. `app/process/service.py:980-986`
-- ✅ GOTOWE = wszystkie sztuki zaliczone (zakończone = całość) ORAZ brak aktywnych ORAZ wszystkie dzieci-poprawki gotowe. `app/process/service.py:2390-2395`
-- ✅ Domykanie idzie w górę po rodzicach — zamknięcie ostatniego dziecka domyka korzeń. `app/process/service.py:2329-2375`
-- ✅ **(ZMIANA #10 zrobiona 2026-06-26)** jeśli sztuki „przeciekną" (zaliczone ≠ całość przy domknięciu), zlecenie nadal jest wyrównywane do całości (żeby się domknęło), ale teraz jest **widoczne dla człowieka**: trwała flaga `quantity_leak_flagged` na zleceniu (w read-modelach) + zdarzenie audytu SYSTEM `work_order.quantity_leak_detected`, nie tylko log techniczny. `app/process/service.py:2343-2367`, `app/work_orders/models.py:150-154`
-- ✅ Zakończone dziecko-poprawka jest oznaczane jako „poprawka historyczna". `app/process/service.py:2397-2398`
+- ✅ GOTOWE = wszystkie sztuki zaliczone (zakończone = całość) ORAZ brak aktywnych ORAZ wszystkie dzieci-poprawki gotowe. `app/process/service.py:2496-2501@def _is_complete_for_display`
+- ✅ Domykanie idzie w górę po rodzicach — zamknięcie ostatniego dziecka domyka korzeń. `app/process/service.py:2339-2431@def _finalize_completion_chain_if_ready`
+- ✅ **(ZMIANA #12 zrobiona 2026-07-11)** **rozliczony niedobór przy przyjęciu** (wszystkie policzone sztuki zaliczone, mniej niż zamówiono) domyka się jak każde zakończenie: przedefiniowanie na policzoną ilość (patrz §4), zwolnienie pozycji w kolejce, **bez flagi przecieku** — to ścieżka pobłogosławiona przez właściciela, nie przeciek. `app/process/service.py:2452-2481@def _is_settled_intake_undercount`
+- ✅ **(ZMIANA #10 zrobiona 2026-06-26)** jeśli sztuki „przeciekną" (zaliczone ≠ całość przy domknięciu, a różnica **nie** jest rozliczonym niedoborem przy przyjęciu), zlecenie nadal jest wyrównywane do całości (żeby się domknęło), ale teraz jest **widoczne dla człowieka**: trwała flaga `quantity_leak_flagged` na zleceniu (w read-modelach) + zdarzenie audytu SYSTEM `work_order.quantity_leak_detected`, nie tylko log techniczny. `app/process/service.py:2379-2406@quantity_leak_flagged = True`, `app/work_orders/models.py:150-154`
+- ✅ Zakończone dziecko-poprawka jest oznaczane jako „poprawka historyczna". `app/process/service.py:2503-2504@def is_historical_correction`
 - ✅ Pierwszeństwo statusu: niekompletne → gotowe → do zaplanowania → (status partii) → czeka na poprawki → pierwszy niezakończony etap. `app/process/service.py:1132-1164`
 
 ## 7. Sloty pakowania i blokady zasobów
@@ -107,16 +109,17 @@ Szczegóły:
 
 ## 8. Kolejka planowania
 
-- ✅ Tylko kierownik planuje / przegląda statystyki. `app/manager/service.py:1899-1912@allowed_station_ids={StationId.MANAGER}`
+- ✅ Tylko kierownik planuje / przegląda statystyki. `app/manager/service.py:1922-1935@allowed_station_ids={StationId.MANAGER}`
 - ✅ Planowanie wymaga zlecenia niezaplanowanego i nie niekompletnego. `app/manager/service.py:1377-1380@Cannot plan incomplete order`
 - ✅ Kierownik **wybiera linię przy planowaniu**; zaplanowanie **jako automat** jest twardo blokowane, gdy mierzony kolor jest poza magazynem / nie starcza (ręcznej się nie sprawdza). `app/manager/service.py:1382-1397@_assert_paint_available_for_automatic`, `1324-1366@def _assert_paint_available_for_automatic`
 - ✅ Planowanie bez podanej pozycji dopisuje na **koniec aktywnej kolejki** linii. `app/manager/service.py:1387-1393@_next_active_queue_position_for_line`
-- ✅ **(ZMIANA #3 zrobiona 2026-06-26)** przy zakończeniu zlecenie **wychodzi z aktywnej kolejki linii i zwalnia pozycję** (zachowując linię); maszynerię odsuwania/trailing usunięto. Zakończone korekty-dzieci też zwalniają pozycje, gdy root się finalizuje. `app/process/service.py:2375-2410`
-- ✅ Pozycja „zajęta" tylko przez zlecenie nie-gotowe. `app/manager/service.py:1950-1951@ProcessDisplayStatus.READY`
-- ✅ Zmiana linii zablokowana po starcie zawieszania/produkcji; przełączenie dopisuje na koniec i kasuje pin. `app/manager/service.py:1542-1562@work_order.planning_priority = None`
-- ✅ Przeciąganie kolejki ma ochronę przed nieświeżymi danymi i musi obejmować wszystkie aktywne zlecenia tej linii, tylko tej linii, bez duplikatów. `app/manager/service.py:1608-1645@must include all active planned work orders`
+- ✅ **(ZMIANA #3 zrobiona 2026-06-26)** przy zakończeniu zlecenie **wychodzi z aktywnej kolejki linii i zwalnia pozycję** (zachowując linię); maszynerię odsuwania/trailing usunięto. Zakończone korekty-dzieci też zwalniają pozycje, gdy root się finalizuje. `app/process/service.py:2408-2440@release_queue_slot`
+- ✅ **(ZMIANA #13 zrobiona 2026-07-11)** pozycja „zajęta" tylko przez zlecenie nie-gotowe; GOTOWE zlecenie wciąż trzymające pozycję (dane sprzed ZMIANY #12) jest przy sprawdzeniu **zwalniane od ręki** (audyt `manager.stale_queue_slot_released`) zamiast kolidować na indeksie unikalności. `app/manager/service.py:1961-1996@stale_queue_slot_released`
+- ✅ **(ZMIANA #13 zrobiona 2026-07-11)** kolizja pozycji przy flushu zwraca kontrolowane **409** („pozycja zajęta"), nie surowe 500 — przy planowaniu, zmianie pozycji i zmianie linii. `app/manager/service.py:1408-1421@except IntegrityError`
+- ✅ Zmiana linii zablokowana po starcie zawieszania/produkcji; przełączenie dopisuje na koniec i kasuje pin. `app/manager/service.py:1557-1577@work_order.planning_priority = None`
+- ✅ Przeciąganie kolejki ma ochronę przed nieświeżymi danymi i musi obejmować wszystkie aktywne zlecenia tej linii, tylko tej linii, bez duplikatów. `app/manager/service.py:1631-1668@must include all active planned work orders`
 - ✅ PIN = przypnij do slotu; PILNE = na przód; brak = swobodnie przestawialne. `app/shared/enums.py:78-92`
-- ✅ „Ułóż automatycznie" tylko **proponuje**; kierownik zatwierdza. `app/manager/service.py:1843-1855@without committing anything`
+- ✅ „Ułóż automatycznie" tylko **proponuje**; kierownik zatwierdza. `app/manager/service.py:1859-1871@without committing anything`
 
 ## 9. Liczby planera
 
