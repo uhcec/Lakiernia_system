@@ -15,13 +15,11 @@ confirmation.
 
 ## 0. Owner decisions needed before engineering starts
 
-- [ ] **D1 — Where does production run?** Options: (a) a machine on the
-      shop LAN — the frontend dev config was already written with shop-LAN
-      use in mind (see the host note in `scripts/dev.sh`); (b) hosted on
-      the VPS with TLS + remote access from the shop; (c) other.
-      Recommendation: pick by the shop's internet reliability — tablets on
-      the floor should not stop working when the uplink does. Decide with
-      the co-author.
+- [x] **D1 — Where does production run?** **Decided 2026-07-11: a Windows
+      host** (with Excel installed — consistent with D6; the QC card's
+      Excel-COM → PDF path stays). Network placement (LAN bind, firewall,
+      remote access) is engineering work in §1, settled at deployment.
+      See `DECISIONS.md` (2026-07-11 — go-live decisions).
 - [ ] **D2 — Target go-live date** and who enters the initial data
       (clients, paints/stock, employees) — owner, co-author, or prepared
       as a seed.
@@ -31,19 +29,21 @@ confirmation.
       post-live** — a refactor of the three stage pages right before
       deployment adds regression risk for zero shop-visible gain.
 - [ ] **D4 — Real user list**: who gets accounts, which roles/stations,
-      initial passwords, and which tablets/devices log in where. Include the
-      session policy: the 12h JWT expiry vs. shift-shared tablets (an expiry
-      mid-count currently discards the operator's input — `CHANGES.md` #16d).
-- [ ] **D5 — Undercount presentation** (blocks `CHANGES.md` #12): when fewer
-      pieces arrive than ordered (prep counts 3 of 5), should the order be
-      redefined to the counted amount with an audit trail of the original,
-      or stay at the ordered total with a visible shortfall? The 2026-06-30
-      decision confirmed the *intent* (count is ground truth, order
-      completes); the code implements neither presentation today.
-- [ ] **D6 — QC card format** (blocks `CHANGES.md` #17): is the
-      Excel-formatted quality-control card required as-is, or is a printable
-      page / plain xlsx download acceptable? The current implementation only
-      works on a Windows host with Excel installed — this couples to D1.
+      initial passwords, and which tablets/devices log in where. **Session
+      policy decided 2026-07-11:** one shared station login per shift,
+      workers mark presence on the station list as today; losing unsaved
+      counts on session expiry is acceptable (`CHANGES.md` #16d resolved —
+      no draft-preservation work). The data half (users, passwords,
+      devices) stays open.
+- [x] **D5 — Undercount presentation** — **Decided 2026-07-11: redefine the
+      order to the counted amount, with an audit trail of the original**
+      (ordered-vs-arrived lives in the audit event, not on the order).
+      Unblocks `CHANGES.md` #12. See `DECISIONS.md` (2026-07-11).
+- [x] **D6 — QC card format** — **Decided 2026-07-11: the Excel-formatted
+      card is required**; the template is in the repo
+      (`app/static/templates/karta_kontroli_jakosci.xlsx`). With D1 =
+      Windows the Excel-COM → PDF path stays; `CHANGES.md` #17 reduces to
+      SPEC coverage + a clean non-Windows error. See `DECISIONS.md`.
 
 ## 1a. Pre-live bug fixes (2026-07-11 independent review — `CHANGES.md` #12–#17)
 
@@ -52,17 +52,22 @@ a path a real shop day will hit:
 
 - [ ] **#12 + #13** — undercount completion never finalizes (queue slot never
       released, "Gotowe" at 3/5) and the poisoned slot then 500s the
-      manager's planning. Fix together; needs D5 first.
+      manager's planning. Fix together; D5 decided 2026-07-11 (redefine to
+      counted amount + audit trail).
 - [ ] **#14** — a DONE stage can restart while downstream is active,
-      rewriting the counted quantity; add the guard + an office-only
-      administrative reset.
+      rewriting the counted quantity; add the guard + an administrative
+      reset for manager/admin/office (roles decided 2026-07-11).
 - [ ] **#15** — office list silently caps at 50 orders; wire pagination.
 
 Strongly recommended before cutover:
 
 - [ ] **#16** — frontend floor-robustness batch (white-screen `JSON.parse`,
-      stale-response guards, Polish network errors, drafts across 401).
-- [ ] **#17** — QC document off Windows/Excel COM (per D6; gated on D1).
+      stale-response guards, Polish network errors). Item (d) — drafts
+      across 401 — resolved 2026-07-11: acceptable loss per session policy,
+      no work.
+- [ ] **#17** — QC document: D1=Windows + D6=Excel card required, so the
+      COM → PDF path stays; remaining work is SPEC coverage + a clean
+      Polish error on non-Windows hosts (dev VPS is Linux).
 
 ## 1. Pre-deployment engineering (Claude Code lane)
 
@@ -78,15 +83,18 @@ Strongly recommended before cutover:
       pointing at the production SQLite file on durable storage,
       attachments dir likewise. Review `JWT_EXPIRY_MINUTES` (default 12h ≈
       one shift) against real shift patterns.
-- [ ] **Production serving**: uvicorn without `--reload` under a systemd
-      unit (or the D1 platform's equivalent); frontend production build
-      (`npm run build`) served as static files — decide nginx/caddy vs.
-      FastAPI static mount. `scripts/dev.sh` is dev-only and must not be
-      the production entry point.
-- [ ] **Network/access hardening per D1**: LAN → bind to LAN interface +
-      firewall; VPS → TLS + no unauthenticated public surface. (The dev
-      instance on the VPS stays loopback-only and never holds production
-      data.)
+- [ ] **Production serving** (D1 = Windows): uvicorn without `--reload`
+      run as a Windows service (e.g. NSSM or Task Scheduler at-boot) with
+      restart-on-failure; frontend production build (`npm run build`)
+      served as static files — decide nginx/caddy vs. FastAPI static
+      mount. Excel must be installed for the QC card (D6); the COM worker
+      needs an interactive-capable session profile — verify PDF export
+      works under the service account. `scripts/dev.sh`/`dev.ps1` are
+      dev-only and must not be the production entry point.
+- [ ] **Network/access hardening per D1**: bind to the LAN interface +
+      Windows firewall rules; no unauthenticated surface beyond the LAN.
+      (The dev instance on the VPS stays loopback-only and never holds
+      production data.)
 - [ ] **Production data backup**: automated backup of the SQLite DB +
       attachments dir with a tested restore, running from day one.
 

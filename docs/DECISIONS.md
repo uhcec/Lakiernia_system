@@ -662,3 +662,48 @@ documented *what* is as dangerous as an undocumented *why*.
 
 **Review-by:** closes when CHANGES #12 ships and the implemented behaviour (per D5) is written back
 into `SPEC.md` §6 with a fresh confirmation marker.
+
+---
+
+## 2026-07-11 — Go-live decisions: D5 undercount, D6 QC card, D1 hosting, #14 reset roles, session policy
+
+**Context:** the independent review (`docs/INDEPENDENT_REVIEW_2026-07-11.md`) opened `CHANGES.md`
+#12–#17 and `GO_LIVE.md` gained owner decisions D5/D6. The owner answered every open question in one
+pass on 2026-07-11. Each answer below unblocks a change item; recorded here so no future session
+re-asks or silently undoes them.
+
+**D5 — undercount presentation (unblocks #12): redefine to the counted amount, audit the original.**
+When fewer pieces arrive than ordered (prep counts 3 of 5), the order **becomes a 3-piece order**:
+`total_quantity` is redefined to the counted amount, and the original ordered quantity is preserved
+in an **audit trail** (ordered-vs-arrived lives in the audit event, not on the order). This pins the
+presentation half that the 2026-06-30 decision (count is ground truth; the order completes; no
+shortfall warning) left unimplemented — see the 2026-07-11 erratum above. The owner chose this over
+keeping a visible shortfall on the order.
+
+**D6 — QC card format (unblocks #17): the Excel-formatted card is required.** The template lives in
+the repo (`app/static/templates/karta_kontroli_jakosci.xlsx`). Together with D1 below this keeps the
+existing Excel-COM → PDF converter (`app/work_orders/service.py:110`) — it is the only component that
+renders the template's exact Excel formatting to PDF. #17 therefore reduces to: inventory the feature
+in `SPEC.md`, return a clean Polish error instead of a raw 500 on a non-Windows host (the dev VPS is
+Linux), and record the Windows+Excel hosting constraint in `GO_LIVE.md`.
+
+**D1 — hosting: production runs on a Windows host** (with Excel installed — consistent with D6).
+Network placement (LAN bind, firewall, remote access) stays as engineering work in `GO_LIVE.md` §1;
+the OS/platform question is settled and un-couples #17 from the hosting decision.
+
+**#14 — administrative reset roles: manager, admin, and office** — the review's "office-only"
+proposal was widened by the owner: all three must be able to reset a genuinely stuck order.
+Operators must not. Maps onto the existing permission model as
+`allowed_station_ids={MANAGER, OFFICE}` + the standard admin bypass (`app/audit/context.py:60`),
+the same shape as employee administration (`app/employees/service.py:35`).
+
+**Session policy (resolves #16d; the policy half of D4):** station tablets use **one shared login
+per shift**; workers mark themselves present on the station list as today (employee presence list).
+**Losing unsaved counts on a session expiry is acceptable** — no draft-preservation work will be
+built. The 12h JWT (≈ one shift) is consistent with this policy. D4's remaining half (real user
+list, passwords, which tablets) stays open as data readiness, not policy.
+
+**Review-by:** D5 → closes with CHANGES #12 shipped and SPEC §6 updated (same trigger as the
+erratum above). D6/D1 → close when the QC card is generated on the production Windows host during
+cutover. Reset roles → pinned by #14's permission tests. Session policy → revisit only if real
+shift patterns contradict it in use.

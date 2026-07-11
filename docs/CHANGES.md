@@ -142,7 +142,9 @@ code does now (`file:line`), what the owner wants, and why. See `docs/SPEC.md` f
   hard-redirects to `/login` discarding unsaved counts mid-packing (12h JWT vs. shift-shared tablets
   is a policy question → session policy decided with D4).
 - **Want:** guard the parse; add the stale-response guards; Polish network-failure message with a
-  retry affordance; preserve drafts across 401 or lengthen station-tablet sessions.
+  retry affordance. Item (d) **resolved by owner 2026-07-11** (`DECISIONS.md` — session policy):
+  shared station login per shift, losing unsaved counts on expiry is acceptable — no
+  draft-preservation work. Scope is (a)+(b)+(c) only.
 
 ### #17 — QC document requires Windows + Excel COM  *(debt, found 2026-07-11)*
 - **Now:** `GET /work-orders/{id}/quality-control-document` drives Microsoft Excel over COM
@@ -150,7 +152,9 @@ code does now (`file:line`), what the owner wants, and why. See `docs/SPEC.md` f
   on Linux it returns a raw 500 (`ModuleNotFoundError: pythoncom`). Verified live 2026-07-11. The
   feature is absent from `SPEC.md`, and it silently couples the GO_LIVE D1 hosting decision to a
   Windows box.
-- **Want:** per **GO_LIVE D6** (owner: is the Excel-formatted card required?) — cheapest is filling
-  the existing xlsx template with openpyxl (already a cross-platform dependency) and returning the
-  file for the office to print; or an HTML print view. Delete the pywin32 path; add the feature to
-  SPEC in the same PR.
+- **Want:** **decided 2026-07-11** (`DECISIONS.md` — D6 + D1): the Excel-formatted card **is
+  required** and production runs on a **Windows host with Excel** — so the COM → PDF path **stays**
+  (it is the only component rendering the template's exact formatting to PDF; openpyxl cannot
+  export PDF). Remaining scope: add the feature to `SPEC.md`; return a clean Polish error (not a
+  raw 500) when Excel/COM is unavailable (the dev VPS is Linux); record the Windows+Excel hosting
+  constraint in `GO_LIVE.md` §1 (done 2026-07-11).
