@@ -76,3 +76,26 @@ teraz (`plik:linia`), czego chce właściciel i dlaczego. Potwierdzone zachowani
 - **Cel:** biuro chce przycisk „Generuj WZ", który w dowolnej chwili tworzy dokument wydania (PDF) dla wybranej grupy gotowych zleceń jednego klienta (domyka dawną pozycję z listy zadań „WZ + wydanie klientowi").
 - **Decyzje właściciela (2026-07-11):** najpierw klient → zaznaczenie jego zleceń GOTOWYCH i jeszcze niewydanych; wiersze automatycznie z danych zlecenia (liczby profili/akcesoriów + RAL; zlecenie bez znanego podziału → jeden wiersz „Elementy"); **jedyne** pole ręczne to liczba załadowanych „Kosze dłużycowe"; w NR ZAMÓWIENIA **oba** numery (klienta i nasz); adres odbiorcy zostaje pusty (dopisywany ręcznie); numer WZ automatyczny rocznie „kolejny/rok" (1/2026…); **bez** zapisywania dokumentów (jednorazowy wydruk, dziury przy ponownym druku akceptowane); wygenerowanie WZ **nie** oznacza zleceń jako wydane (osobny krok).
 - **Zrobione:** szablon `app/static/templates/wydanie_z_magazynu.xlsx` (zbudowany z pliku właściciela, czcionki/ramki 1:1, przez `scripts/build_wz_template.py`); `WorkOrderService.generate_wz_document` + `WzNumberAllocator` + tabela `wz_number_counters` (migracja `20260711_0045`); endpoint `POST /work-orders/wz-document` (tylko biuro); front `GenerateWzModal` + przycisk „Generuj WZ" na liście biura. Wspólny konwerter Excel→PDF sparametryzowano (wyróżnienie D6 karty jakości za `emphasize_cell=`), a nieudany render zwraca to samo kontrolowane polskie 503 co karta jakości (#17) i cofa numer WZ. Testy w `tests/test_wz_document.py`; układ obejrzany na realnym renderze. Zob. `docs/DECISIONS.md` (2026-07-11 — #18) i `docs/REVIEW_LEDGER.md` #8. `app/work_orders/service.py`, `app/work_orders/wz_number_allocator.py`, `app/work_orders/models.py`, `app/work_orders/schemas.py`, `app/work_orders/router.py`, `frontend/src/components/GenerateWzModal.tsx`, `frontend/src/pages/WorkOrdersListPage.tsx`, `frontend/src/api/workOrdersApi.ts`.
+
+### #21 — Reset administracyjny ukończonego zlecenia czyni je niewidocznym na obu listach planowania  *(błąd, znaleziony na żywo 2026-07-11, naprawa odłożona — właściciel prosił, żeby tylko zapisać)*
+- **Teraz:** `ProcessService.administrative_reset` (`app/process/service.py:537-594`) resetuje wiersze
+  etapów, partie, `completed_quantity` i flagę przecieku, ale celowo **zachowuje plan**
+  (`production_type` + `queue_position` nietknięte) — docstring zakłada, że zlecenie jest przez to
+  „znów zaplanowane" (`app/process/service.py:543-544`). To prawda tylko wtedy, gdy zlecenie wciąż
+  trzymało pozycję w kolejce. Gdy resetujemy zlecenie **po ukończeniu**, finalizacja już zwolniła slot
+  (`queue_position` → NULL, linia zostaje — ZMIANY #3/#12), więc po resecie ma ustawione
+  `production_type`, a `queue_position` = NULL. `get_display_status` zwraca wtedy `TO_BE_PLANNED`
+  (`_is_planned` wymaga **obu** niepustych, `app/process/service.py:1218-1219`), ale **żadna** lista
+  planowania go nie zwraca: zapytanie niezaplanowanych wymaga `production_type IS NULL`
+  (`app/manager/repository.py:80-81`), a zapytanie zaplanowanych wymaga `queue_position IS NOT NULL`
+  (`app/manager/repository.py:98-99`). Efekt: zlecenie znika z „Do zaplanowania" i z kolejki
+  zaplanowanych — dokładnie objaw właściciela na zleceniu **0001** (reset 2026-07-11 ~21:20, po tym jak
+  ~21:16 doszło do PACKING DONE). Zlecenie nie jest utracone (nadal czytelne pod `GET /work-orders/1`),
+  tylko niemożliwe do zaplanowania z tablicy kierownika.
+- **Cel:** decyzja właściciela co do kształtu naprawy (NIE zrobione — właściciel prosił tylko o zapis).
+  Warianty: (a) przy resecie, jeśli zlecenie ma linię, ale nie ma pozycji, wyczyścić też
+  `production_type` (i ewentualny `planning_priority`), by wróciło do prawdziwej puli niezaplanowanych i
+  pokazało się w „Do zaplanowania" — zgodnie z tym, czego właściciel tu oczekiwał; albo (b) dopisać je z
+  powrotem do kolejki jego linii (przywrócić `queue_position`), by trafiło do kolejki zaplanowanych,
+  zgodnie z intencją docstringa „zachowuje plan". Tak czy inaczej rozważyć zamknięcie stanu limbo
+  linia-jest/pozycja-NULL/niekompletne, żeby żadne zlecenie nie mogło wpaść między dwa zapytania list.

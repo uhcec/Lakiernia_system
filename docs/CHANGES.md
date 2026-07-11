@@ -255,3 +255,26 @@ code does now (`file:line`), what the owner wants, and why. See `docs/SPEC.md` f
 - **Want:** owner decision — should the line switch enforce the same hard block? (Recommendation:
   yes; same rationale as N49-7 — an out-of-stock colour on the automat is a leading cause of a
   missed daily norm.)
+
+### #21 — Administrative reset of a completed order leaves it invisible in both planning lists  *(bug, found live 2026-07-11, fix deferred — owner asked to only record it)*
+- **Now:** `ProcessService.administrative_reset` (`app/process/service.py:537-594`) resets stage rows,
+  batches, `completed_quantity` and the leak flag, but deliberately **keeps the plan**
+  (`production_type` + `queue_position` untouched) — its docstring assumes the order is therefore
+  "planned again" (`app/process/service.py:543-544`). That only holds if the order still held a queue
+  position. When an order is reset **after completion**, finalization has already released the slot
+  (`queue_position` → NULL, line kept — CHANGES #3/#12), so after the reset it sits with
+  `production_type` set but `queue_position` NULL. `get_display_status` then reports `TO_BE_PLANNED`
+  (`_is_planned` requires **both** non-null, `app/process/service.py:1218-1219`), yet **neither**
+  planning list returns it: the unplanned query requires `production_type IS NULL`
+  (`app/manager/repository.py:80-81`) and the planned query requires `queue_position IS NOT NULL`
+  (`app/manager/repository.py:98-99`). Net effect: the order vanishes from both "Do zaplanowania" and
+  the planned queue — exactly the owner's live symptom on **order 0001** (admin reset 2026-07-11 ~21:20,
+  after it had run through to PACKING DONE at ~21:16). The order is not lost (still readable at
+  `GET /work-orders/1`), only unplannable from the manager board.
+- **Want:** owner decision on the fix shape (NOT done — owner asked to only record it). Candidates:
+  (a) on reset, if the order has a line but no position, also clear `production_type` (and any
+  `planning_priority`) so it returns to the genuine unplanned pool and shows in "Do zaplanowania"
+  — matches what the owner expected here; or (b) re-append it to its line's queue (restore a
+  `queue_position`) so it lands back in the planned queue, matching the docstring's "keeps its plan"
+  intent. Either way, consider closing the line-set/position-NULL/not-complete limbo so no order can
+  fall between the two list queries.
