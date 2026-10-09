@@ -32,6 +32,7 @@ import { buildWorkOrderDetailHref } from "../api/stationContext";
 import { downloadAuthedFile } from "../utils/download";
 import { WorkOrderPrimaryInfoLine } from "../components/WorkOrderPrimaryInfoLine";
 import { CapacityBoard } from "../components/CapacityBoard";
+import { PaintRunsPanel } from "../components/PaintRunsPanel";
 import { getLoadErrorMessage } from "../utils/loadError";
 import {
   getWorkOrderActiveCorrectionsText,
@@ -1324,6 +1325,8 @@ export function ManagerPanelPage() {
       {errorMessage && !isEditing ? (
         <section className="rounded-2xl border border-rose-200 bg-rose-50 px-5 py-4 text-sm text-rose-700">{errorMessage}</section>
       ) : null}
+
+      <PaintRunsPanel mode="alarm" />
 
       {successMessage && !isEditing ? (
         <section className="rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-4 text-sm text-emerald-700">

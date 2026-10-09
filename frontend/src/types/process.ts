@@ -70,3 +70,34 @@ export interface StageWorkOrder {
   packing_blocked_reason: string | null;
   stage_status: ProcessStageStatus;
 }
+
+// CHANGES #22: same-paint orders hung back-to-back on the automatic line form one paint run; its
+// consumption is entered once and split onto the orders by m².
+export interface PaintRunMember {
+  work_order_id: number;
+  order_number: string;
+  customer_name: string;
+  area_m2: number;
+  allocated_kg: number | null;
+  is_hanging: boolean;
+}
+
+export interface PaintRun {
+  id: number;
+  ral_code: string;
+  paint_producer: string;
+  paint_code: string;
+  created_at: string;
+  closed_at: string | null;
+  consumed_kg: number | null;
+  total_area_m2: number;
+  // The newest run = the paint the line is on now. An open run that is not current is overdue.
+  is_current: boolean;
+  hanging_in_progress: boolean;
+  next_in_queue_same_paint: boolean;
+  members: PaintRunMember[];
+}
+
+export interface PaintRunsOverview {
+  runs: PaintRun[];
+}

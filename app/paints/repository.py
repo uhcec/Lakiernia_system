@@ -4,8 +4,7 @@ from datetime import datetime
 from sqlalchemy import Select, func, select, update
 from sqlalchemy.orm import Session
 
-from app.paints.models import Paint, PaintStockMovement
-from app.shared.enums import PaintStockMovementType
+from app.paints.models import Paint, PaintRun, PaintRunMember, PaintStockMovement
 from app.shared import clock
 
 
@@ -67,19 +66,41 @@ class PaintRepository:
         statement = select(PaintStockMovement.id).where(PaintStockMovement.paint_id == paint_id).limit(1)
         return self.session.scalar(statement) is not None
 
-    def sum_automatic_consumption_kg(self, work_order_ids: Sequence[int]) -> float:
-        # Cumulative automatic paint consumption (positive kg) across the given work orders, read from
-        # the durable movement log so it survives correction-round resets that zero the per-round
-        # `consumed_paint_quantity_kg` gate field (NA32). Consumption movements store a negative delta.
+    def sum_allocated_consumption_kg(self, work_order_ids: Sequence[int]) -> float:
+        # Cumulative automatic paint consumption (kg) across the given work orders: the sum of their
+        # m²-shares of closed paint runs (CHANGES #22). An order in a still-open run contributes 0 until
+        # the run's consumption is entered.
         if not work_order_ids:
             return 0.0
-        total_delta = self.session.scalar(
-            select(func.coalesce(func.sum(PaintStockMovement.quantity_delta_kg), 0.0)).where(
-                PaintStockMovement.movement_type == PaintStockMovementType.AUTOMATIC_CONSUMPTION,
-                PaintStockMovement.work_order_id.in_(work_order_ids),
+        total = self.session.scalar(
+            select(func.coalesce(func.sum(PaintRunMember.allocated_kg), 0.0)).where(
+                PaintRunMember.work_order_id.in_(work_order_ids),
             )
         )
-        return float(-(total_delta or 0.0))
+        return float(total or 0.0)
+
+    # --- Paint runs (CHANGES #22) ------------------------------------------------------------------
+
+    def add_paint_run(self, paint_run: PaintRun) -> PaintRun:
+        self.session.add(paint_run)
+        self.session.flush()
+        return paint_run
+
+    def get_paint_run(self, paint_run_id: int) -> PaintRun | None:
+        return self.session.get(PaintRun, paint_run_id)
+
+    def get_latest_paint_run(self) -> PaintRun | None:
+        # The newest run is the one the automatic line is currently painting (or last painted).
+        return self.session.scalar(select(PaintRun).order_by(PaintRun.id.desc()).limit(1))
+
+    def list_open_paint_runs(self) -> Sequence[PaintRun]:
+        return self.session.scalars(
+            select(PaintRun).where(PaintRun.closed_at.is_(None)).order_by(PaintRun.id.asc())
+        ).all()
+
+    def delete_paint_run(self, paint_run: PaintRun) -> None:
+        self.session.delete(paint_run)
+        self.session.flush()
 
     def apply_quantity_delta(self, *, paint_id: int, quantity_delta_kg: float) -> Paint | None:
         now = clock.now()

@@ -437,7 +437,6 @@ def seed_all_use_cases(session: Session) -> list[SeededScenario]:
     finish_surface_preparation(process_service, decoral_automatic.id)
     process_service.start_stage(decoral_automatic.id, ProcessStage.HANGING)
     process_service.finish_stage(decoral_automatic.id, ProcessStage.HANGING)
-    _set_consumed_paint(process_service, decoral_automatic.id, kg=1.0)
     process_service.complete_packing(decoral_automatic.id, counted_quantity=11, ok_quantity=11, correction_quantity=0)
     scenarios.append(
         scenario(
@@ -1299,7 +1298,6 @@ def advance_to_packing(process_service: ProcessService, work_order_id: int, *, c
     if work_order.production_type == ProductionType.AUTOMATIC:
         process_service.start_stage(work_order_id, ProcessStage.HANGING)
         process_service.finish_stage(work_order_id, ProcessStage.HANGING)
-        _set_consumed_paint(process_service, work_order_id, kg=1.0)
         return
 
     process_service.start_stage(work_order_id, ProcessStage.PRODUCTION)
@@ -1372,15 +1370,6 @@ def set_stage_counted_quantity(
     stage_state.counted_quantity = counted_quantity
     stage_state.updated_at = datetime.now(UTC)
     session.commit()
-
-
-def _set_consumed_paint(process_service: ProcessService, work_order_id: int, *, kg: float) -> None:
-    """Bypass paint stock check for seed data — set consumed quantity directly."""
-    from app.work_orders.models import WorkOrder as _WO
-    wo = process_service.repository.session.get(_WO, work_order_id)
-    if wo is not None:
-        wo.consumed_paint_quantity_kg = kg
-        process_service.repository.session.flush()
 
 
 def scenario(code: str, order_number: str, purpose: str, page: str, details: str) -> SeededScenario:

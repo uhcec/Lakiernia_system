@@ -212,7 +212,6 @@ def seed_order(
     if is_auto:
         _upsert_stage_state(session, wo.id, ProcessStage.HANGING, StageStatus.DONE, ts_early + timedelta(hours=1))
         _upsert_stage_state(session, wo.id, ProcessStage.PRODUCTION, StageStatus.IN_PROGRESS, ts_early + timedelta(hours=1))
-        wo.consumed_paint_quantity_kg = max(0.5, round(m2 / 6, 1))
     else:
         _upsert_stage_state(session, wo.id, ProcessStage.PRODUCTION, StageStatus.DONE, ts_early + timedelta(hours=1))
 

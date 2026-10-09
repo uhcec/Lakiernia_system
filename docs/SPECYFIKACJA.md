@@ -12,13 +12,13 @@ Ten plik opisuje **co kod robi dzisiaj**. To nowa baza prawdy, zastępująca ska
 ## 1. Model danych i niezmienniki
 
 - ✅ Zlecenie ma dodatnią ilość; ilość zakończona mieści się między 0 a całkowitą. `app/work_orders/models.py:52-54`
-- ✅ Zlecenie „zaplanowane" = ma **pozycję w kolejce**; pozycja wymaga linii, ale linia może istnieć **bez** pozycji — gotowe zlecenie opuszcza aktywną kolejkę (pozycja → NULL), zachowując linię (ZMIANA #3). `app/work_orders/models.py:61-64`
-- ✅ Zlecenie niekompletne po przyjeździe nie może być zaplanowane. `app/work_orders/models.py:65-68`
-- ✅ Pozycja w kolejce jest unikalna **per linia** (ręczna/automat); pozycja 1 istnieje na obu liniach niezależnie. `app/work_orders/models.py:97-105`
-- ✅ Blokada planowania (pin/pilne) może istnieć tylko na zleceniu zaplanowanym. `app/work_orders/models.py:71-74`
-- ✅ Gdy znane są ilości profili i akcesoriów, muszą sumować się do całkowitej. `app/work_orders/models.py:75-86`
-- ✅ Folię Decoral można przypisać tylko zleceniu DECORAL. `app/work_orders/models.py:87-90`
-- ✅ Zlecenie poprawkowe musi mieć rodzica i żyje w przestrzeni kolejki CORRECTIONS. `app/work_orders/models.py:91-96`
+- ✅ Zlecenie „zaplanowane" = ma **pozycję w kolejce**; pozycja wymaga linii, ale linia może istnieć **bez** pozycji — gotowe zlecenie opuszcza aktywną kolejkę (pozycja → NULL), zachowując linię (ZMIANA #3). `app/work_orders/models.py:60-63`
+- ✅ Zlecenie niekompletne po przyjeździe nie może być zaplanowane. `app/work_orders/models.py:64-67`
+- ✅ Pozycja w kolejce jest unikalna **per linia** (ręczna/automat); pozycja 1 istnieje na obu liniach niezależnie. `app/work_orders/models.py:96-104`
+- ✅ Blokada planowania (pin/pilne) może istnieć tylko na zleceniu zaplanowanym. `app/work_orders/models.py:70-73`
+- ✅ Gdy znane są ilości profili i akcesoriów, muszą sumować się do całkowitej. `app/work_orders/models.py:74-85`
+- ✅ Folię Decoral można przypisać tylko zleceniu DECORAL. `app/work_orders/models.py:86-89`
+- ✅ Zlecenie poprawkowe musi mieć rodzica i żyje w przestrzeni kolejki CORRECTIONS. `app/work_orders/models.py:90-95`
 - ✅ Zlecenie ma w danej chwili co najwyżej jedną aktywną partię. `app/process/models.py:69-75`
 - ✅ Pięć etapów (przygotowanie powierzchni, zawieszanie, produkcja, produkcja Decoral, pakowanie); trzy statusy (nie rozpoczęte, w trakcie, zakończone). `app/process/enums.py:82-97`
 - ✅ Powłoka = RAL/DECORAL; produkcja = ręczna/automat; rodzaj = standard/przemalowanka. `app/process/enums.py:47-62`, `app/shared/enums.py:69-71`
@@ -31,74 +31,74 @@ Ten plik opisuje **co kod robi dzisiaj**. To nowa baza prawdy, zastępująca ska
 - ✅ Ilość domyślnie 1. `app/work_orders/schemas.py:157`
 - ✅ Dla profili i akcesoriów podajesz **albo** ilość, **albo** „do policzenia na produkcji", nigdy oba/żadne. `app/work_orders/schemas.py:128-132`
 - ✅ Utworzenie zlecenia zapisuje **migawkę stanu farby** (kg w tej chwili). `app/work_orders/service.py:230@capture_work_order_snapshot`
-- ✅ Tylko biuro tworzy zlecenia / zarządza załącznikami / odznacza „kompletne"; biuro lub kierownik edytuje. `app/work_orders/service.py:873@_ensure_office_station_action`, `289@aktualizacja zlecenia`
-- ✅ Lista biura **nie pokazuje** poprawek „P…". `app/work_orders/service.py:402@not item.is_correction`
+- ✅ Tylko biuro tworzy zlecenia / zarządza załącznikami / odznacza „kompletne"; biuro lub kierownik edytuje. `app/work_orders/service.py:872@_ensure_office_station_action`, `288@aktualizacja zlecenia`
+- ✅ Lista biura **nie pokazuje** poprawek „P…". `app/work_orders/service.py:401@not item.is_correction`
 - ✅ Status zlecenia jest **wyliczany** z postępu, nigdy ustawiany ręcznie. `app/work_orders/service.py:195@def derive_status`
-- ✅ „Po terminie" = data odbioru przed dziś ORAZ zlecenie jeszcze nie gotowe. `app/work_orders/service.py:1032@work_order.planned_pickup_date < date.today()`
-- ✅ „Wydane klientowi" można ustawić tylko dla gotowego zlecenia. `app/work_orders/service.py:487@Only READY work orders`
+- ✅ „Po terminie" = data odbioru przed dziś ORAZ zlecenie jeszcze nie gotowe. `app/work_orders/service.py:1031@work_order.planned_pickup_date < date.today()`
+- ✅ „Wydane klientowi" można ustawić tylko dla gotowego zlecenia. `app/work_orders/service.py:486@Only READY work orders`
 - ✅ Załączniki: tylko PDF / PNG / JPG, limit rozmiaru z konfiguracji. `app/work_orders/service.py:170@ALLOWED_ATTACHMENT_TYPES`
-- ✅ **(ZMIANA #18 zrobione 2026-07-11) WZ (wydanie z magazynu):** biuro generuje PDF wydania dla grupy gotowych zleceń **jednego** klienta — wiersze to liczby profili/akcesoriów + RAL każdego zlecenia (zlecenie bez znanego podziału daje jeden wiersz „Elementy"), plus opcjonalna ręczna pozycja „Kosze dłużycowe"; adres odbiorcy zostaje pusty (dopisywany ręcznie). Różni klienci lub zlecenia niegotowe są odrzucane; na hoście bez Excela zwraca kontrolowane polskie **503** jak karta jakości. `app/work_orders/service.py:655@def generate_wz_document`, `747@różnych klientów`, `780@Kosze dłużycowe`
-- ✅ Numery WZ idą rocznie „kolejny/rok" (np. 1/2026); numer jest pobierany dopiero gdy PDF się wygeneruje (nieudany render cofa numer). Dokument WZ **nie** jest zapisywany (brak rejestru / ponownego druku z tym samym numerem), a jego wygenerowanie **nie** oznacza zleceń jako wydane — to osobny krok. `app/work_orders/wz_number_allocator.py:23@def allocate`, `app/work_orders/service.py:680@wz_number_allocator.allocate`
-- ✅ **(ZMIANA #17 zrobiona 2026-07-11)** biuro pobiera **kartę kontroli jakości** jako PDF: szablon Excela z repo (`app/static/templates/karta_kontroli_jakosci.xlsx`) wypełniony numerem zlecenia / klientem / farbą, renderowany do PDF przez **sterowanie Excelem po COM** — świadome ograniczenie hostingu (decyzje właściciela D1/D6: karta w formacie Excela jest wymagana, a produkcja działa na **hoście Windows z Excelem**; trwały worker trzyma jedną instancję Excela). Na hoście bez Excela (np. deweloperski VPS z Linuksem) endpoint odpowiada kontrolowanym polskim **503**, nigdy surowym 500. `app/work_orders/service.py:616@def generate_quality_control_document`, `app/work_orders/service.py:64@class _ExcelPdfConverter`, `app/work_orders/router.py:109-116@quality-control-document`, `app/shared/exceptions.py:50-57@DocumentGenerationUnavailableError`
+- ✅ **(ZMIANA #18 zrobione 2026-07-11) WZ (wydanie z magazynu):** biuro generuje PDF wydania dla grupy gotowych zleceń **jednego** klienta — wiersze to liczby profili/akcesoriów + RAL każdego zlecenia (zlecenie bez znanego podziału daje jeden wiersz „Elementy"), plus opcjonalna ręczna pozycja „Kosze dłużycowe"; adres odbiorcy zostaje pusty (dopisywany ręcznie). Różni klienci lub zlecenia niegotowe są odrzucane; na hoście bez Excela zwraca kontrolowane polskie **503** jak karta jakości. `app/work_orders/service.py:654@def generate_wz_document`, `746@różnych klientów`, `779@Kosze dłużycowe`
+- ✅ Numery WZ idą rocznie „kolejny/rok" (np. 1/2026); numer jest pobierany dopiero gdy PDF się wygeneruje (nieudany render cofa numer). Dokument WZ **nie** jest zapisywany (brak rejestru / ponownego druku z tym samym numerem), a jego wygenerowanie **nie** oznacza zleceń jako wydane — to osobny krok. `app/work_orders/wz_number_allocator.py:23@def allocate`, `app/work_orders/service.py:679@wz_number_allocator.allocate`
+- ✅ **(ZMIANA #17 zrobiona 2026-07-11)** biuro pobiera **kartę kontroli jakości** jako PDF: szablon Excela z repo (`app/static/templates/karta_kontroli_jakosci.xlsx`) wypełniony numerem zlecenia / klientem / farbą, renderowany do PDF przez **sterowanie Excelem po COM** — świadome ograniczenie hostingu (decyzje właściciela D1/D6: karta w formacie Excela jest wymagana, a produkcja działa na **hoście Windows z Excelem**; trwały worker trzyma jedną instancję Excela). Na hoście bez Excela (np. deweloperski VPS z Linuksem) endpoint odpowiada kontrolowanym polskim **503**, nigdy surowym 500. `app/work_orders/service.py:615@def generate_quality_control_document`, `app/work_orders/service.py:64@class _ExcelPdfConverter`, `app/work_orders/router.py:109-116@quality-control-document`, `app/shared/exceptions.py:50-57@DocumentGenerationUnavailableError`
 
 ## 3. Przepływ etapów i trasa
 
-- ✅ Trasa wynika z powłoki + linii: przygotowanie → (zawieszanie, chyba że ręczna) → produkcja → pakowanie → (Decoral, jeśli DECORAL). `app/process/service.py:88-102`
-- ✅ Ręczna nie ma zawieszania; automat nie ma produkcji (linia maluje sama). `app/process/service.py:96-98`, `1450-1454`
-- ✅ Przemalowanka pomija przygotowanie powierzchni; poprawki pomijają przygotowanie. `app/process/service.py:1467-1469`, `1461-1465`
-- ✅ Dozwolone ruchy statusu: nie rozpoczęte→w trakcie; w trakcie→{zakończone, nie rozpoczęte}; zakończone→{w trakcie, nie rozpoczęte}. `app/process/service.py:1290-1299`
-- ✅ Etap nie ruszy, dopóki poprzedni nie jest zakończony. `app/process/service.py:1301-1308`
-- ✅ Zlecenia w pełni gotowego nie da się cofnąć przez otwarcie wcześniejszego etapu — do tego służy poprawka. `app/process/service.py:1284-1288`
-- ✅ **(ZMIANA #14 zrobiona 2026-07-11)** **zakończony etap odmawia startu/cofnięcia, gdy dowolny późniejszy etap jest w trakcie lub zakończony** (409, polski komunikat dla operatora) — jego zapisany licznik zasila już walidację dalszych etapów, więc restart w locie przepisałby „rzeczywiście przyjętą" liczbę. Ponowne liczenie **zanim** ruszy dalszy etap pozostaje dozwolone. `app/process/service.py:1379-1396@Nie można cofnąć zakończonego etapu`
-- ✅ **(ZMIANA #14 zrobiona 2026-07-11)** wyjście awaryjne: **reset administracyjny** (role z decyzji właściciela: biuro/kierownik, admin omija) cofa naprawdę zablokowane zlecenie na początek trasy — etapy „nie rozpoczęte", liczniki wyczyszczone, świeża aktywna partia MAIN na zamówioną ilość, flaga przecieku skasowana, plan (linia+pozycja) zostaje, audyt `work_order.administrative_reset`. Odmawia zleceniom powiązanym z poprawkami (rodzic z dziećmi lub sama poprawka). `app/process/service.py:533-618@def administrative_reset`, `app/work_orders/router.py:89-96@administrative-reset`
-- ✅ „Cofnij" cofa etap o jeden poziom; zablokowane, gdy brak aktywnych sztuk. `app/process/service.py:507-523`
-- ✅ Automat: przy starcie zawieszania pakowanie od razu wchodzi „w trakcie" — pakowanie idzie równolegle z linią. `app/process/service.py:223-233`
-- ✅ Pakowanie automatu można obrabiać gdy zawieszanie trwa, ale zakończyć dopiero gdy zawieszanie skończone i zarejestrowano farbę. `app/process/service.py:1524-1548`, `697-700`
-- ✅ Każda akcja etapu jest przypisana do swojej stacji. `app/process/service.py:1413-1427`
-- ✅ Przygotowanie powierzchni i pakowanie są **fizycznie wspólne** dla obu linii; ich kolejność wyliczana osobno (nie z pozycji kolejki) i opisana etykietą linii. `app/process/service.py:279-358`
+- ✅ Trasa wynika z powłoki + linii: przygotowanie → (zawieszanie, chyba że ręczna) → produkcja → pakowanie → (Decoral, jeśli DECORAL). `app/process/service.py:88-103`
+- ✅ Ręczna nie ma zawieszania; automat nie ma produkcji (linia maluje sama). `app/process/service.py:97-99`, `1470-1474`
+- ✅ Przemalowanka pomija przygotowanie powierzchni; poprawki pomijają przygotowanie. `app/process/service.py:1477-1479`, `1474-1475`
+- ✅ Dozwolone ruchy statusu: nie rozpoczęte→w trakcie; w trakcie→{zakończone, nie rozpoczęte}; zakończone→{w trakcie, nie rozpoczęte}. `app/process/service.py:1310-1319`
+- ✅ Etap nie ruszy, dopóki poprzedni nie jest zakończony. `app/process/service.py:1321-1328`
+- ✅ Zlecenia w pełni gotowego nie da się cofnąć przez otwarcie wcześniejszego etapu — do tego służy poprawka. `app/process/service.py:1304-1308`
+- ✅ **(ZMIANA #14 zrobiona 2026-07-11)** **zakończony etap odmawia startu/cofnięcia, gdy dowolny późniejszy etap jest w trakcie lub zakończony** (409, polski komunikat dla operatora) — jego zapisany licznik zasila już walidację dalszych etapów, więc restart w locie przepisałby „rzeczywiście przyjętą" liczbę. Ponowne liczenie **zanim** ruszy dalszy etap pozostaje dozwolone. `app/process/service.py:1399-1416@Nie można cofnąć zakończonego etapu`
+- ✅ **(ZMIANA #14 zrobiona 2026-07-11)** wyjście awaryjne: **reset administracyjny** (role z decyzji właściciela: biuro/kierownik, admin omija) cofa naprawdę zablokowane zlecenie na początek trasy — etapy „nie rozpoczęte", liczniki wyczyszczone, świeża aktywna partia MAIN na zamówioną ilość, flaga przecieku skasowana, plan (linia+pozycja) zostaje, audyt `work_order.administrative_reset`. Odmawia zleceniom powiązanym z poprawkami (rodzic z dziećmi lub sama poprawka). `app/process/service.py:542-627@def administrative_reset`, `app/work_orders/router.py:89-96@administrative-reset`
+- ✅ „Cofnij" cofa etap o jeden poziom; zablokowane, gdy brak aktywnych sztuk. `app/process/service.py:516-532`
+- ✅ Automat: przy starcie zawieszania pakowanie od razu wchodzi „w trakcie" — pakowanie idzie równolegle z linią. `app/process/service.py:232-242`
+- ✅ **(ZMIANA #22 zrobiona 2026-10-09)** Pakowanie automatu można obrabiać gdy zawieszanie trwa, ale zakończyć dopiero gdy zawieszanie skończone; zużycie farby **nie** blokuje już pakowania (wpisuje się je na grupę farby, §10). `app/process/service.py:796@Trzeba zakończyć zawieszanie automatu przed pakowaniem`, `1652-1667@def _packing_completion_block_reason`
+- ✅ Każda akcja etapu jest przypisana do swojej stacji. `app/process/service.py:1433-1447`
+- ✅ Przygotowanie powierzchni i pakowanie są **fizycznie wspólne** dla obu linii; ich kolejność wyliczana osobno (nie z pozycji kolejki) i opisana etykietą linii. `app/process/service.py:288-367`
 - ✅ Kolejność przygotowania: następna linia z **mniejszym** buforem „przygotowane-ale-niemalowane" (w sztukach); remis → automat. `app/process/shared_stage.py:49-89`
 
 ## 4. Ilości i liczenie
 
-- ✅ Zakończenie przygotowania **wymaga** policzenia; >0 i ≤ aktywnej ilości. `app/process/service.py:2666-2669@def _ensure_surface_preparation_counted_quantity`, `app/process/service.py:2648-2664@def _store_surface_preparation_counted_quantity`
-- ✅ Policzona liczba z przygotowania staje się **„rzeczywiście przyjętą"** — pakowanie musi się z nią zgodzić. `app/process/service.py:2843-2870@actual received`
-- ✅ **(ZMIANA #12 zrobiona 2026-07-11, decyzja właściciela D5; podział kategorii naprawiony 2026-07-11)** **niedobór przy przyjęciu** (przygotowanie liczy mniej niż zamówiono) to legalne zakończenie: przy domknięciu zlecenie jest **przedefiniowane na policzoną ilość** („staje się zleceniem na 3 sztuki"), a pierwotnie zamówiona ilość (wraz z zadeklarowanym podziałem profile/akcesoria) zostaje w zdarzeniu audytu `work_order.total_quantity_redefined` — zamówione-vs-przyjęte żyje w audycie, nie na zleceniu. Zadeklarowany **podział profile/akcesoria jest przedefiniowany razem z całością** (CHECK w bazie wiąże ich sumę z totalem): zlecenie jednokategoriowe zachowuje kategorię (10 profili policzone na 8 → 8 profili), podział mieszany spada do **„do przeliczenia"** — ta sama polityka co przy partiach poprawkowych. `app/process/service.py:2460-2496@total_quantity_redefined`, `app/process/service.py:2591-2600@def _is_settled_intake_undercount`, `app/process/service.py:2392-2417@def _derive_category_fields_for_operational_quantity`
-- ✅ Policzona przy pakowaniu musi równać się rzeczywistej z przygotowania (a w rundzie poprawkowej — wielkości partii poprawkowej). `app/process/service.py:722-733`
-- ✅ Na pakowaniu: dobre + do-poprawki = policzone. `app/process/service.py:714-720`
-- ✅ Zużycie farby pokazywane na zleceniu to suma kg z całego łańcucha poprawek. `app/process/service.py:2573`
+- ✅ Zakończenie przygotowania **wymaga** policzenia; >0 i ≤ aktywnej ilości. `app/process/service.py:2673-2676@def _ensure_surface_preparation_counted_quantity`, `app/process/service.py:2655-2671@def _store_surface_preparation_counted_quantity`
+- ✅ Policzona liczba z przygotowania staje się **„rzeczywiście przyjętą"** — pakowanie musi się z nią zgodzić. `app/process/service.py:2850-2877@actual received`
+- ✅ **(ZMIANA #12 zrobiona 2026-07-11, decyzja właściciela D5; podział kategorii naprawiony 2026-07-11)** **niedobór przy przyjęciu** (przygotowanie liczy mniej niż zamówiono) to legalne zakończenie: przy domknięciu zlecenie jest **przedefiniowane na policzoną ilość** („staje się zleceniem na 3 sztuki"), a pierwotnie zamówiona ilość (wraz z zadeklarowanym podziałem profile/akcesoria) zostaje w zdarzeniu audytu `work_order.total_quantity_redefined` — zamówione-vs-przyjęte żyje w audycie, nie na zleceniu. Zadeklarowany **podział profile/akcesoria jest przedefiniowany razem z całością** (CHECK w bazie wiąże ich sumę z totalem): zlecenie jednokategoriowe zachowuje kategorię (10 profili policzone na 8 → 8 profili), podział mieszany spada do **„do przeliczenia"** — ta sama polityka co przy partiach poprawkowych. `app/process/service.py:2467-2503@total_quantity_redefined`, `app/process/service.py:2598-2607@def _is_settled_intake_undercount`, `app/process/service.py:2399-2424@def _derive_category_fields_for_operational_quantity`
+- ✅ Policzona przy pakowaniu musi równać się rzeczywistej z przygotowania (a w rundzie poprawkowej — wielkości partii poprawkowej). `app/process/service.py:731-742`
+- ✅ Na pakowaniu: dobre + do-poprawki = policzone. `app/process/service.py:723-729`
+- ✅ Zużycie farby pokazywane na zleceniu to suma kg z całego łańcucha poprawek — od ZMIANY #22 suma udziałów (wg m²) zlecenia w zamkniętych grupach farby (0, dopóki jego grupa jest otwarta). `app/process/service.py:2788@get_consumed_paint_kg_for_work_orders`, `app/paints/repository.py:69@def sum_allocated_consumption_kg`
 
 ## 5. Poprawki i Decoral
 
 Na zleceniu DECORAL są dwa punkty kontroli, bo dwie rzeczy mogą się zepsuć:
 
-- **Brak farby — na PAKOWANIU (przed Decoralem).** Złe sztuki stają się osobnym **dzieckiem „P…"** (które wraca **pomalować od nowa**); korzeń dostaje **znacznik „N"**; dobre sztuki korzenia **od razu idą na Decoral**. ✅ `app/process/service.py:1986-2049`
-- **Brak folii — na/po DECORALU.** **Brak dziecka** — wracają tylko złe sztuki jako **to samo zlecenie** (jak RAL, z przemalowaniem podkładu), bez numeru „P". ✅ `app/process/service.py:954-967`
+- **Brak farby — na PAKOWANIU (przed Decoralem).** Złe sztuki stają się osobnym **dzieckiem „P…"** (które wraca **pomalować od nowa**); korzeń dostaje **znacznik „N"**; dobre sztuki korzenia **od razu idą na Decoral**. ✅ `app/process/service.py:1995-2058`
+- **Brak folii — na/po DECORALU.** **Brak dziecka** — wracają tylko złe sztuki jako **to samo zlecenie** (jak RAL, z przemalowaniem podkładu), bez numeru „P". ✅ `app/process/service.py:982-1004`
 
 Szczegóły:
-- ✅ Trzy rodzaje poprawki w jednym punkcie decyzyjnym: poprawione od razu (tylko statystyka), to samo zlecenie wraca, dziecko „P". `app/process/enums.py:113-123`, `app/process/service.py:1864-1879`
-- ✅ „Poprawione od razu" zapisuje tylko statystykę — bez dziecka i partii; sztuki liczą się jako dobre, zlecenie kończy się jak jest. `app/process/service.py:1881-1909`
-- ✅ **(ZMIANA #1 zrobiona 2026-06-26)** „to samo zlecenie wraca" nadal kasuje *żywy* zamek (nie może być na niezaplanowanym zleceniu), ale teraz **pamięta** intencję pin/pilne w `pending_planning_priority` i **przywraca** ją przy ponownym zaplanowaniu. `app/process/service.py:2237-2245`, `app/manager/service.py:1404-1409@pending_planning_priority`
-- ✅ Numery poprawek od **korzenia**: `P{korzeń}`, potem `P{korzeń}-2`, `-3`… niezależnie od zagnieżdżenia. `app/process/service.py:2101-2123`
-- ✅ Dziecko poprawkowe dziedziczy farbę/kolor/klienta/daty/powierzchnię i jest zawsze rodzaju STANDARD. (Rodzaj nie wpływa na pominięcie przygotowania — to wynika z bycia poprawką.) `app/process/service.py:2125-2169`, `1461-1465`
-- ✅ Jest dokładnie **jeden przebieg Decoral, na korzeniu**; sztuki w pełni poprawionego dziecka wracają na Decoral korzenia, a dziecko zamyka się bez własnego Decoralu. `app/process/service.py:2001-2021`, `2093-2099`
-- ✅ Zwrócone sztuki **dorastają** do trwającej partii Decoral korzenia (przyp. 1); jeśli Decoral korzenia był już zrobiony — zakładają **nową** partię Decoral i Decoral otwiera się ponownie (przyp. 2). `app/process/service.py:2060-2091`
+- ✅ Trzy rodzaje poprawki w jednym punkcie decyzyjnym: poprawione od razu (tylko statystyka), to samo zlecenie wraca, dziecko „P". `app/process/enums.py:113-123`, `app/process/service.py:1873-1888`
+- ✅ „Poprawione od razu" zapisuje tylko statystykę — bez dziecka i partii; sztuki liczą się jako dobre, zlecenie kończy się jak jest. `app/process/service.py:1890-1918`
+- ✅ **(ZMIANA #1 zrobiona 2026-06-26)** „to samo zlecenie wraca" nadal kasuje *żywy* zamek (nie może być na niezaplanowanym zleceniu), ale teraz **pamięta** intencję pin/pilne w `pending_planning_priority` i **przywraca** ją przy ponownym zaplanowaniu. `app/process/service.py:2246-2254`, `app/manager/service.py:1404-1409@pending_planning_priority`
+- ✅ Numery poprawek od **korzenia**: `P{korzeń}`, potem `P{korzeń}-2`, `-3`… niezależnie od zagnieżdżenia. `app/process/service.py:2110-2132`
+- ✅ Dziecko poprawkowe dziedziczy farbę/kolor/klienta/daty/powierzchnię i jest zawsze rodzaju STANDARD. (Rodzaj nie wpływa na pominięcie przygotowania — to wynika z bycia poprawką.) `app/process/service.py:2134-2178`, `1474-1475`
+- ✅ Jest dokładnie **jeden przebieg Decoral, na korzeniu**; sztuki w pełni poprawionego dziecka wracają na Decoral korzenia, a dziecko zamyka się bez własnego Decoralu. `app/process/service.py:2010-2030`, `2102-2108`
+- ✅ Zwrócone sztuki **dorastają** do trwającej partii Decoral korzenia (przyp. 1); jeśli Decoral korzenia był już zrobiony — zakładają **nową** partię Decoral i Decoral otwiera się ponownie (przyp. 2). `app/process/service.py:2069-2100`
   - ⚠️ **ZMIANA #2** — przyp. 2 (drugi, osobny przebieg Decoral) jest poprawny, ale ma być **wyraźnie widoczny** dla operatora.
-- ✅ Zaplanowanie poprawki z góry oznacza wszystkie etapy przed jej etapem powrotu jako zakończone (nie startuje od zera). `app/process/service.py:1852-1857`, `1438-1448`
-- ✅ Etap powrotu: automat → zawieszanie; inaczej produkcja. `app/process/service.py:1429-1436`
-- ✅ Znacznik „N" = zlecenie DECORAL z otwartymi dziećmi-poprawkami (nie zamknie się, póki nie wrócą). Gaśnie, gdy dziecko wróci. `app/process/service.py:2400-2407`
-- ✅ Powód: kategoria ≤64 znaki, notatka ≤500; wymagany gdy są złe sztuki, zabroniony gdy ich nie ma; podział profile/akcesoria musi sumować się do liczby złych. `app/process/service.py:1356-1404`
+- ✅ Zaplanowanie poprawki z góry oznacza wszystkie etapy przed jej etapem powrotu jako zakończone (nie startuje od zera). `app/process/service.py:1861-1866`, `1458-1468`
+- ✅ Etap powrotu: automat → zawieszanie; inaczej produkcja. `app/process/service.py:1449-1456`
+- ✅ Znacznik „N" = zlecenie DECORAL z otwartymi dziećmi-poprawkami (nie zamknie się, póki nie wrócą). Gaśnie, gdy dziecko wróci. `app/process/service.py:2407-2414`
+- ✅ Powód: kategoria ≤64 znaki, notatka ≤500; wymagany gdy są złe sztuki, zabroniony gdy ich nie ma; podział profile/akcesoria musi sumować się do liczby złych. `app/process/service.py:1376-1424`
 
 ## 6. Zakończenie
 
-- ✅ RAL, pakowanie bez poprawki: zlecenie zalicza dobre sztuki, partia główna się zamyka. `app/process/service.py:790-795`
-- ✅ DECORAL, pakowanie bez poprawki **nie kończy** zlecenia — sztuki idą na Decoral. `app/process/service.py:806-811`
-- ✅ Zakończenie Decoralu (bez poprawki) zalicza dobre sztuki. `app/process/service.py:980-986`
-- ✅ GOTOWE = wszystkie sztuki zaliczone (zakończone = całość) ORAZ brak aktywnych ORAZ wszystkie dzieci-poprawki gotowe. `app/process/service.py:2615-2620@def _is_complete_for_display`
-- ✅ Domykanie idzie w górę po rodzicach — zamknięcie ostatniego dziecka domyka korzeń. `app/process/service.py:2441-2550@def _finalize_completion_chain_if_ready`
-- ✅ **(ZMIANA #12 zrobiona 2026-07-11)** **rozliczony niedobór przy przyjęciu** (wszystkie policzone sztuki zaliczone, mniej niż zamówiono) domyka się jak każde zakończenie: przedefiniowanie na policzoną ilość (patrz §4), zwolnienie pozycji w kolejce, **bez flagi przecieku** — to ścieżka pobłogosławiona przez właściciela, nie przeciek. `app/process/service.py:2591-2600@def _is_settled_intake_undercount`
-- ✅ **(ZMIANA #10 zrobiona 2026-06-26)** jeśli sztuki „przeciekną" (zaliczone ≠ całość przy domknięciu, a różnica **nie** jest rozliczonym niedoborem przy przyjęciu), zlecenie nadal jest wyrównywane do całości (żeby się domknęło), ale teraz jest **widoczne dla człowieka**: trwała flaga `quantity_leak_flagged` na zleceniu (w read-modelach) + zdarzenie audytu SYSTEM `work_order.quantity_leak_detected`, nie tylko log techniczny. `app/process/service.py:2498-2525@quantity_leak_flagged = True`, `app/work_orders/models.py:150-154`
-- ✅ Zakończone dziecko-poprawka jest oznaczane jako „poprawka historyczna". `app/process/service.py:2622-2623@def is_historical_correction`
-- ✅ Pierwszeństwo statusu: niekompletne → gotowe → do zaplanowania → (status partii) → czeka na poprawki → pierwszy niezakończony etap. `app/process/service.py:1132-1164`
+- ✅ RAL, pakowanie bez poprawki: zlecenie zalicza dobre sztuki, partia główna się zamyka. `app/process/service.py:798-802`
+- ✅ DECORAL, pakowanie bez poprawki **nie kończy** zlecenia — sztuki idą na Decoral. `app/process/service.py:813-818`
+- ✅ Zakończenie Decoralu (bez poprawki) zalicza dobre sztuki. `app/process/service.py:1004-1006`
+- ✅ GOTOWE = wszystkie sztuki zaliczone (zakończone = całość) ORAZ brak aktywnych ORAZ wszystkie dzieci-poprawki gotowe. `app/process/service.py:2622-2627@def _is_complete_for_display`
+- ✅ Domykanie idzie w górę po rodzicach — zamknięcie ostatniego dziecka domyka korzeń. `app/process/service.py:2448-2557@def _finalize_completion_chain_if_ready`
+- ✅ **(ZMIANA #12 zrobiona 2026-07-11)** **rozliczony niedobór przy przyjęciu** (wszystkie policzone sztuki zaliczone, mniej niż zamówiono) domyka się jak każde zakończenie: przedefiniowanie na policzoną ilość (patrz §4), zwolnienie pozycji w kolejce, **bez flagi przecieku** — to ścieżka pobłogosławiona przez właściciela, nie przeciek. `app/process/service.py:2598-2607@def _is_settled_intake_undercount`
+- ✅ **(ZMIANA #10 zrobiona 2026-06-26)** jeśli sztuki „przeciekną" (zaliczone ≠ całość przy domknięciu, a różnica **nie** jest rozliczonym niedoborem przy przyjęciu), zlecenie nadal jest wyrównywane do całości (żeby się domknęło), ale teraz jest **widoczne dla człowieka**: trwała flaga `quantity_leak_flagged` na zleceniu (w read-modelach) + zdarzenie audytu SYSTEM `work_order.quantity_leak_detected`, nie tylko log techniczny. `app/process/service.py:2505-2532@quantity_leak_flagged = True`, `app/work_orders/models.py:148-152`
+- ✅ Zakończone dziecko-poprawka jest oznaczane jako „poprawka historyczna". `app/process/service.py:2629-2630@def is_historical_correction`
+- ✅ Pierwszeństwo statusu: niekompletne → gotowe → do zaplanowania → (status partii) → czeka na poprawki → pierwszy niezakończony etap. `app/process/service.py:1152-1184`
 
 ## 7. Sloty pakowania i blokady zasobów
 
@@ -106,9 +106,9 @@ Szczegóły:
 - ✅ Domyślnie jedno stanowisko naraz; tylko zlecenie **ręczne** otwiera 2. slot (override lub zakończenie); automat zawsze trzyma jedno stanowisko. `app/process/resource_locks.py:177-230`
 - ✅ Zlecenie automatyczne **rezerwuje slot pakowania przy starcie zawieszania** (żeby ręczne nie zablokowało niewstrzymywalnej linii). `app/process/resource_locks.py:237-247`
 - ✅ Drugie automatyczne **czeka po cichu** (bez 2. slotu). `app/process/resource_locks.py:188-216`
-- ✅ Zlecenie może zwolnić stanowisko bez kończenia (zła pozycja); nie zwolni cudzego. `app/process/service.py:607-643`
+- ✅ Zlecenie może zwolnić stanowisko bez kończenia (zła pozycja); nie zwolni cudzego. `app/process/service.py:616-652`
 - ✅ Zawieszanie to zasób na jedno zlecenie; linia automatyczna to zasób na jedno zlecenie (od zawieszania-zakończonego do pakowania-zakończonego). `app/process/resource_locks.py:88-103`, `321-338`
-- ✅ Kierownik widzi to jako powód blokady („Zawieszanie zajęte" / „Linia automatyczna zajęta"). `app/process/service.py:1189-1211`
+- ✅ Kierownik widzi to jako powód blokady („Zawieszanie zajęte" / „Linia automatyczna zajęta"). `app/process/service.py:1209-1231`
 - ✅ Przeterminowane blokady są automatycznie zwalniane, gdy właściciel już nie zajmuje zasobu. `app/process/resource_locks.py:169-175`, `251-273`
 - ✅ Model zakłada jeden worker backendu. `app/process/resource_locks.py:1-20`
 
@@ -118,7 +118,7 @@ Szczegóły:
 - ✅ Planowanie wymaga zlecenia niezaplanowanego i nie niekompletnego. `app/manager/service.py:1377-1380@Cannot plan incomplete order`
 - ✅ Kierownik **wybiera linię przy planowaniu**; zaplanowanie **jako automat** jest twardo blokowane, gdy mierzony kolor jest poza magazynem / nie starcza (ręcznej się nie sprawdza). `app/manager/service.py:1382-1397@_assert_paint_available_for_automatic`, `1324-1366@def _assert_paint_available_for_automatic`
 - ✅ Planowanie bez podanej pozycji dopisuje na **koniec aktywnej kolejki** linii. `app/manager/service.py:1387-1393@_next_active_queue_position_for_line`
-- ✅ **(ZMIANA #3 zrobiona 2026-06-26)** przy zakończeniu zlecenie **wychodzi z aktywnej kolejki linii i zwalnia pozycję** (zachowując linię); maszynerię odsuwania/trailing usunięto. Zakończone korekty-dzieci też zwalniają pozycje, gdy root się finalizuje. `app/process/service.py:2510-2542@release_queue_slot`
+- ✅ **(ZMIANA #3 zrobiona 2026-06-26)** przy zakończeniu zlecenie **wychodzi z aktywnej kolejki linii i zwalnia pozycję** (zachowując linię); maszynerię odsuwania/trailing usunięto. Zakończone korekty-dzieci też zwalniają pozycje, gdy root się finalizuje. `app/process/service.py:2517-2549@release_queue_slot`
 - ✅ **(ZMIANA #13 zrobiona 2026-07-11; pokrycie dopisywania/zmiany linii naprawione 2026-07-11)** pozycja „zajęta" tylko przez zlecenie nie-gotowe; GOTOWE zlecenie wciąż trzymające pozycję (dane sprzed ZMIANY #12) jest przy sprawdzeniu **zwalniane od ręki** (audyt `manager.stale_queue_slot_released`) zamiast kolidować na indeksie unikalności. Uzdrowienie obejmuje **każdą** ścieżkę lądującą na pozycji: jawnie wybraną pozycję, wyliczony slot dopisania przy planowaniu bez pozycji i dopisanie przy zmianie linii (slot dopisania jest liczony z *pominięciem* GOTOWYCH posiadaczy, więc trafia dokładnie w pozycję zombie). `app/manager/service.py:1969-2004@stale_queue_slot_released`, `app/manager/service.py:1393-1398@_next_active_queue_position_for_line`, `app/manager/service.py:1576-1579@same zombie heal as assign_plan`
 - ✅ **(ZMIANA #13 zrobiona 2026-07-11)** kolizja pozycji przy flushu zwraca kontrolowane **409** („pozycja zajęta"), nie surowe 500 — przy planowaniu, zmianie pozycji i zmianie linii. `app/manager/service.py:1413-1426@except IntegrityError`
 - ✅ Zmiana linii zablokowana po starcie zawieszania/produkcji; przełączenie dopisuje na koniec i kasuje pin. `app/manager/service.py:1562-1585@work_order.planning_priority = None`
@@ -149,9 +149,10 @@ Szczegóły:
 
 - ✅ Prognoza zapotrzebowania = powierzchnia ÷ 4 jeśli < 100 m², inaczej ÷ 6, zaokrąglone do pełnych kg. `app/work_orders/schemas.py:327@total_area_m2 < 100`
 - ✅ Niedobór = prognoza − stan (w górę), pokazywany gdy prognoza > stan. `app/work_orders/schemas.py:331-344@ROUND_CEILING`
-- ✅ Zużycie automatu: tylko automat, po starcie zawieszania, wymaga kodu farby, **raz a dobrze** (bez edycji po zapisie; korekta ręczną korektą biura). `app/process/service.py:847-864`
-- ✅ Zapis zużycia zdejmuje farbę ze stanu; błąd, gdy nie starcza. `app/paints/service.py:130-153`
-- ✅ Kolor „śledzony" tylko z realną historią ruchów (nie placeholder 0 kg). `app/paints/service.py:155-159`
+- ✅ **(ZMIANA #22 zrobiona 2026-10-09)** Zużycie farby na automacie wpisuje się **raz na grupę farby**, nie na zlecenie. Grupa = zlecenia na automacie w **tej samej farbie** (RAL + producent + kod farby) zawieszane **jedno po drugim**: przy starcie zawieszania zlecenie dołącza do najnowszej grupy, jeśli jest ona otwarta i ma tę samą farbę, w przeciwnym razie zaczyna nową — zmiana farby kończy grupę, a ta sama farba po zamkniętej grupie zaczyna nową. Poprawki dołączają jak zwykłe zlecenia. Cofnięcie startu zawieszania wyjmuje zlecenie z otwartej grupy (pusta grupa znika). `app/process/service.py:216@CHANGES #22: automatic hanging drives`, `app/process/paint_runs.py:95-130@def join_on_hanging_start`, `102@latest.closed_at is None`, `132@def leave_on_hanging_undo`
+- ✅ **(ZMIANA #22)** Zużycie grupy wpisuje stanowisko Produkcja automat (pobrane kartony − resztka), gdy żadne zlecenie z grupy nie jest już w zawieszaniu; **raz a dobrze** (pomyłkę poprawia biuro ręczną korektą stanu). Zdejmuje farbę ze stanu **jednym** ruchem dla całej grupy i dzieli kg na zlecenia **wg m²** (powierzchnia sztuki z pierwotnego zlecenia × sztuki zawieszone w tym przebiegu; gramy, ostatnie zlecenie bierze resztę). Za mało farby na stanie → polski komunikat, nic się nie zapisuje. `app/process/paint_runs.py:155-209@def record_consumption`, `168@RUN_HANGING_IN_PROGRESS_ERROR`, `166@RUN_ALREADY_RECORDED_ERROR`, `181@Za mało farby`, `66-80@def allocate_by_area`, `224-236@def _pass_area_m2`, `app/paints/service.py:133@def record_paint_run_consumption`
+- ✅ **(ZMIANA #22)** Otwarta grupa **niczego nie blokuje** na hali (decyzja właściciela 2026-10-09). Grupa, której farba jest już zmieniona (nie najnowsza), świeci się na czerwono na stanowisku Produkcja automat i w panelu kierownika, dopóki ktoś nie wpisze jej zużycia. `frontend/src/components/PaintRunsPanel.tsx:24@!run.is_current`, `125-126@mode === "alarm"`, `frontend/src/pages/ManagerPanelPage.tsx:1329@PaintRunsPanel mode="alarm"`
+- ✅ Kolor „śledzony" tylko z realną historią ruchów (nie placeholder 0 kg). `app/paints/service.py:154-158`
 - ✅ Typy ruchów: saldo otwarcia, dostawa, zużycie automatu, korekta ręczna; dostawy/korekty tylko biuro. `app/shared/enums.py:95-99`
 
 ## 11. Statystyki

@@ -94,16 +94,6 @@ def advance_to_packing(process_service: ProcessService, work_order_id: int) -> N
         if production_state.status == StageStatus.NOT_STARTED:
             process_service.transition_stage(work_order_id, ProcessStage.PRODUCTION, StageStatus.IN_PROGRESS)
         process_service.transition_stage(work_order_id, ProcessStage.PRODUCTION, StageStatus.DONE)
-    elif work_order.production_type == ProductionType.AUTOMATIC:
-        process_service.paint_service.record_delivery(
-            PaintDeliveryCreate(
-                ral_code=work_order.ral_code,
-                paint_producer=work_order.paint_producer,
-                paint_code=work_order.paint_code or "P-UNKNOWN",
-                quantity_kg=100.0,
-            )
-        )
-        process_service.record_automatic_paint_consumption(work_order_id, consumed_paint_quantity_kg=1.0)
     work_order = process_service.get_work_order_process(work_order_id)
     packing_state = next(stage for stage in work_order.stage_states if stage.stage == ProcessStage.PACKING)
     if packing_state.status == StageStatus.NOT_STARTED:
@@ -1059,10 +1049,10 @@ def test_decoral_automatic_correction_returns_to_root_and_completes_S08(db_sessi
 
 
 def test_corrected_order_reports_cumulative_paint_across_chain_NA32(db_session: Session) -> None:
-    # NA32: a corrected automatic order must report the CUMULATIVE paint consumption of the whole
-    # correction chain, not just the last round. advance_to_packing records 1.0 kg per automatic pass,
-    # so the DECORAL parent (1.0 kg) plus its automatic correction child (1.0 kg) must roll up to 2.0 kg
-    # on the parent's read model, even though the per-round gate field is reset between rounds.
+    # NA32 + CHANGES #22: a corrected automatic order reports the CUMULATIVE paint consumption of the
+    # whole correction chain. The DECORAL parent (10 pieces) and its correction child (2 returned pieces,
+    # same paint) hang back-to-back, so they share one paint run; 3.0 kg entered for the run splits by
+    # m² 10:2 → parent 2.5 kg, child 0.5 kg, and the parent's read model rolls up 3.0 kg.
     work_order_service, process_service, manager_service, work_order_repository, _ = build_services(db_session)
 
     parent = work_order_service.create_work_order(
@@ -1076,9 +1066,20 @@ def test_corrected_order_reports_cumulative_paint_across_chain_NA32(db_session: 
     manager_service.assign_plan(child.id, WorkOrderPlanAssignRequest(production_type=ProductionType.AUTOMATIC, queue_position=2))
     advance_to_packing(process_service, child.id)
 
-    # Parent paint (1.0) + child paint (1.0) roll up on the parent; the child reports only its own.
-    assert work_order_service.get_work_order(parent.id).consumed_paint_quantity_kg == 2.0
-    assert work_order_service.get_work_order(child.id).consumed_paint_quantity_kg == 1.0
+    process_service.paint_service.record_delivery(
+        PaintDeliveryCreate(
+            ral_code=parent.ral_code,
+            paint_producer=parent.paint_producer,
+            paint_code=parent.paint_code,
+            quantity_kg=100.0,
+        )
+    )
+    [run] = process_service.list_open_paint_runs().runs
+    assert {member.work_order_id for member in run.members} == {parent.id, child.id}
+    process_service.record_paint_run_consumption(run.id, consumed_kg=3.0)
+
+    assert work_order_service.get_work_order(parent.id).consumed_paint_quantity_kg == 3.0
+    assert work_order_service.get_work_order(child.id).consumed_paint_quantity_kg == 0.5
 
 
 def test_nested_decoral_corrections_complete_to_ready_S11(db_session: Session) -> None:

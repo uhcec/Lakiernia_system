@@ -10,6 +10,7 @@ from sqlalchemy import func, or_, select
 from app.audit.context import StationContext, ensure_station_allowed
 from app.audit.repository import AuditRepository
 from app.process.audit_writer import ProcessAuditWriter
+from app.process.paint_runs import PaintRunTracker, paint_identity_of
 from app.process.resource_locks import ResourceLockManager
 from app.paints.repository import PaintRepository
 from app.paints.service import PaintService
@@ -19,6 +20,9 @@ from app.process.repository import ProcessRepository
 from app.process.shared_stage import PrepCandidate, derive_surface_preparation_order
 from app.foils.schemas import FoilSummaryRead
 from app.process.schemas import (
+    PaintRunMemberRead,
+    PaintRunRead,
+    PaintRunsOverviewRead,
     ProcessStageStatusRead,
     ProcessStageWorkOrderRead,
     StageStatusView,
@@ -26,7 +30,7 @@ from app.process.schemas import (
 )
 from app.work_orders.enums import WorkOrderAttachmentCategory
 from app.shared.enums import QueueNamespace, StationId, WorkOrderKind
-from app.shared.exceptions import InvalidPaintInventoryError, InvalidProcessStageTransitionError, ResourceNotFoundError
+from app.shared.exceptions import InvalidProcessStageTransitionError, ResourceNotFoundError
 from app.work_orders.number_allocator import WorkOrderNumberAllocator
 from app.work_orders.models import WorkOrder
 from app.work_orders.schemas import build_coating_type_view, build_production_type_view, build_queue_namespace_view, build_work_order_kind_view
@@ -70,14 +74,10 @@ class ProcessService:
     AUTOMATIC_PRODUCTION_MANUAL_ACTION_ERROR = (
         "Produkcja automatyczna nie korzysta z ręcznego rozpoczęcia/zakończenia. Zakończ ZAWIESZANIE, aby wejść na produkcję automatyczną, a zlecenie zakończ z poziomu PAKOWANIA."
     )
-    AUTOMATIC_PAINT_CONSUMPTION_REQUIRED_ERROR = "Przed zakończeniem pakowania trzeba zarejestrować zużycie farby na automacie."
-    AUTOMATIC_PAINT_CONSUMPTION_CONFIGURATION_ERROR = "Trzeba ustawić kod farby, zanim będzie można zarejestrować zużycie farby na automacie."
-    AUTOMATIC_PAINT_CONSUMPTION_STAGE_ERROR = "Zużycie farby na automacie można zarejestrować po rozpoczęciu ZAWIESZANIA."
-    AUTOMATIC_PAINT_CONSUMPTION_ALREADY_RECORDED_ERROR = "Zużycia farby na automacie nie można edytować po zapisaniu. Jeśli potrzebna jest korekta, wykonaj ręczną korektę stanu magazynu w biurze."
-    # Operator-facing (Polish) reasons surfaced on the packing card when an automatic order is being
-    # packed in parallel with the line but cannot be *completed* yet (mirror the complete_packing guards).
+    # Operator-facing (Polish) reason surfaced on the packing card when an automatic order is being
+    # packed in parallel with the line but cannot be *completed* yet (mirrors the complete_packing guard).
+    # Paint consumption no longer gates packing — it is entered per paint run (CHANGES #22).
     PACKING_COMPLETION_BLOCKED_HANGING_PL = "Nie można zakończyć pakowania, dopóki nie zakończy się zawieszanie."
-    PACKING_COMPLETION_BLOCKED_PAINT_PL = "Nie można zakończyć pakowania, dopóki nie zostanie zarejestrowane zużycie farby."
     QUEUE_RESOURCE_BLOCK_REASONS = {
         "HANGING": "Zawieszanie zajęte",
         "AUTOMATIC_LINE": "Linia automatyczna zajęta",
@@ -90,6 +90,7 @@ class ProcessService:
         self.audit_repository = AuditRepository(repository.session)
         self.audit = ProcessAuditWriter(repository.session, self.audit_repository)
         self.resource_locks = ResourceLockManager(repository)
+        self.paint_runs = PaintRunTracker(self.paint_service.repository, self.paint_service, self.audit)
 
     @staticmethod
     def get_stage_sequence_for_configuration(
@@ -212,6 +213,14 @@ class ProcessService:
 
                 stage_state = self._get_stage_state(work_order, stage)
                 self._validate_transition(work_order, stage_state, target_status)
+                # CHANGES #22: automatic hanging drives paint-run membership — a hanging start joins the
+                # current same-paint run (or opens a new one); undoing the start takes the order back out.
+                if stage == ProcessStage.HANGING and work_order.production_type == ProductionType.AUTOMATIC:
+                    with self.resource_locks.serialize_resource_mutation(self.PAINT_RUN_RESOURCE_KEY):
+                        if stage_state.status == StageStatus.NOT_STARTED and target_status == StageStatus.IN_PROGRESS:
+                            self.paint_runs.join_on_hanging_start(work_order, station_context=station_context)
+                        elif stage_state.status == StageStatus.IN_PROGRESS and target_status == StageStatus.NOT_STARTED:
+                            self.paint_runs.leave_on_hanging_undo(work_order, station_context=station_context)
                 if resource_keys:
                     self.resource_locks.acquire_stage_resource_locks(work_order, stage, target_status)
                 stage_state.status = target_status
@@ -786,8 +795,6 @@ class ProcessService:
             if work_order.production_type == ProductionType.AUTOMATIC and hanging_state.status == StageStatus.IN_PROGRESS:
                 raise InvalidProcessStageTransitionError("Trzeba zakończyć zawieszanie automatu przed pakowaniem.")
 
-            self._ensure_automatic_paint_consumption_recorded_before_packing(work_order)
-
             if packing_state.status != StageStatus.IN_PROGRESS:
                 raise InvalidProcessStageTransitionError("Pakowanie można zakończyć tylko ze stanu W TRAKCIE.")
 
@@ -922,66 +929,79 @@ class ProcessService:
                 refreshed_work_order = self.get_work_order_process(work_order_id)
             return self._to_idempotent_packing_response(refreshed_work_order)
 
-    def record_automatic_paint_consumption(
+    # --- Paint runs on the automatic line (CHANGES #22) -------------------------------------------
+
+    PAINT_RUN_RESOURCE_KEY = "PAINT_RUNS"
+
+    def record_paint_run_consumption(
         self,
-        work_order_id: int,
+        paint_run_id: int,
         *,
-        consumed_paint_quantity_kg: float,
+        consumed_kg: float,
         station_context: StationContext | None = None,
-    ) -> ProcessStageWorkOrderRead:
-        with self._serialize_process_mutation(work_order_id):
-            work_order = self.get_work_order_process(work_order_id)
-            self._ensure_automatic_production_station_action(station_context)
-
-            if work_order.production_type != ProductionType.AUTOMATIC:
-                raise InvalidProcessStageTransitionError("Zużycie farby można rejestrować tylko dla zleceń produkcji automatycznej.")
-
-            hanging_state = self._get_stage_state(work_order, ProcessStage.HANGING)
-            packing_state = self._get_stage_state(work_order, ProcessStage.PACKING)
-
-            if hanging_state.status == StageStatus.NOT_STARTED:
-                raise InvalidProcessStageTransitionError(self.AUTOMATIC_PAINT_CONSUMPTION_STAGE_ERROR)
-            if packing_state.status == StageStatus.DONE:
-                return self._to_stage_work_order_read(work_order, ProcessStage.PRODUCTION)
-            if work_order.paint_code is None:
-                raise InvalidProcessStageTransitionError(self.AUTOMATIC_PAINT_CONSUMPTION_CONFIGURATION_ERROR)
-
-            previous_value = work_order.consumed_paint_quantity_kg
-            if previous_value == consumed_paint_quantity_kg:
-                return self._to_stage_work_order_read(work_order, ProcessStage.PRODUCTION)
-            if previous_value > 0:
-                raise InvalidProcessStageTransitionError(self.AUTOMATIC_PAINT_CONSUMPTION_ALREADY_RECORDED_ERROR)
-
-            try:
-                paint = self.paint_service.record_automatic_consumption(
-                    ral_code=work_order.ral_code,
-                    paint_producer=work_order.paint_producer,
-                    paint_code=work_order.paint_code,
-                    quantity_kg=consumed_paint_quantity_kg,
-                    work_order_id=work_order.id,
-                    station_context=station_context,
-                )
-            except InvalidPaintInventoryError as exc:
-                raise InvalidProcessStageTransitionError(exc.detail) from exc
-
-            work_order.paint_id = paint.id
-            work_order.consumed_paint_quantity_kg = consumed_paint_quantity_kg
-            work_order.updated_at = clock.now()
-            self.audit.record_automatic_paint_consumption_audit_event(
-                work_order=work_order,
-                station_context=station_context,
-                previous_value=previous_value,
-                consumed_paint_quantity_kg=consumed_paint_quantity_kg,
+    ) -> PaintRunRead:
+        """Enter the paint consumed by a whole run; the kg is split onto its orders by m²."""
+        self._ensure_automatic_production_station_action(station_context)
+        with self.resource_locks.serialize_resource_mutation(self.PAINT_RUN_RESOURCE_KEY):
+            run = self.paint_runs.record_consumption(
+                paint_run_id, consumed_kg=consumed_kg, station_context=station_context
             )
+            self._commit_process_changes()
+            return self._to_paint_run_read(run, latest_run_id=self.paint_service.repository.get_latest_paint_run().id)
 
-            try:
-                self.repository.commit()
-            except Exception:
-                self.repository.rollback()
-                raise
+    def list_open_paint_runs(self) -> PaintRunsOverviewRead:
+        """Runs whose consumption is still missing, oldest first, plus a hint for the current one."""
+        open_runs = self.paint_service.repository.list_open_paint_runs()
+        latest = self.paint_service.repository.get_latest_paint_run()
+        latest_run_id = latest.id if latest is not None else None
+        return PaintRunsOverviewRead(
+            runs=[self._to_paint_run_read(run, latest_run_id=latest_run_id) for run in open_runs],
+        )
 
-            refreshed_work_order = self.get_work_order_process(work_order_id)
-            return self._to_stage_work_order_read(refreshed_work_order, ProcessStage.PRODUCTION)
+    def _next_automatic_order_to_hang(self) -> WorkOrder | None:
+        for work_order in self.repository.list_work_orders_with_stage(ProcessStage.HANGING, ProductionType.AUTOMATIC):
+            if work_order.queue_position is None:
+                continue
+            hanging_state = self._find_stage_state(work_order, ProcessStage.HANGING)
+            if hanging_state is not None and hanging_state.status == StageStatus.NOT_STARTED:
+                return work_order
+        return None
+
+    def _to_paint_run_read(self, run, *, latest_run_id: int | None) -> PaintRunRead:
+        is_current = run.id == latest_run_id
+        hanging_in_progress = any(
+            self.paint_runs.member_hanging_status(member) == StageStatus.IN_PROGRESS for member in run.members
+        )
+        next_in_queue_same_paint = False
+        if is_current and run.closed_at is None:
+            next_order = self._next_automatic_order_to_hang()
+            next_in_queue_same_paint = (
+                next_order is not None and paint_identity_of(next_order) == self.paint_runs.identity_of_run(run)
+            )
+        return PaintRunRead(
+            id=run.id,
+            ral_code=run.paint.ral_code,
+            paint_producer=run.paint.paint_producer,
+            paint_code=run.paint.paint_code,
+            created_at=run.created_at,
+            closed_at=run.closed_at,
+            consumed_kg=run.consumed_kg,
+            total_area_m2=round(sum(member.area_m2 for member in run.members), 3),
+            is_current=is_current,
+            hanging_in_progress=hanging_in_progress,
+            next_in_queue_same_paint=next_in_queue_same_paint,
+            members=[
+                PaintRunMemberRead(
+                    work_order_id=member.work_order_id,
+                    order_number=member.work_order.order_number,
+                    customer_name=member.work_order.customer_name,
+                    area_m2=member.area_m2,
+                    allocated_kg=member.allocated_kg,
+                    is_hanging=self.paint_runs.member_hanging_status(member) == StageStatus.IN_PROGRESS,
+                )
+                for member in run.members
+            ],
+        )
 
     def complete_decoral_production(
         self,
@@ -1451,16 +1471,6 @@ class ProcessService:
             action="operacje produkcji Decoral",
         )
 
-    @staticmethod
-    def _is_automatic_paint_tracking_required(work_order: WorkOrder) -> bool:
-        return work_order.production_type == ProductionType.AUTOMATIC
-
-    def _ensure_automatic_paint_consumption_recorded_before_packing(self, work_order: WorkOrder) -> None:
-        if not self._is_automatic_paint_tracking_required(work_order):
-            return
-        if work_order.consumed_paint_quantity_kg <= 0:
-            raise InvalidProcessStageTransitionError(self.AUTOMATIC_PAINT_CONSUMPTION_REQUIRED_ERROR)
-
     @classmethod
     def _validate_correction_reason(
         cls,
@@ -1642,17 +1652,16 @@ class ProcessService:
     def _packing_completion_block_reason(self, work_order: WorkOrder) -> str | None:
         """Polish reason why an automatic packing card cannot be *completed* yet, or None.
 
-        Mirrors the guards enforced in ``complete_packing`` (hanging must be DONE and automatic
-        paint consumption must be recorded) so the packing UI can disable "Zakończ pakowanie" with a
-        clear message instead of letting the operator submit and hit a server-side rejection.
+        Mirrors the guard enforced in ``complete_packing`` (hanging must be DONE) so the packing UI can
+        disable "Zakończ pakowanie" with a clear message instead of letting the operator submit and hit
+        a server-side rejection. Paint consumption is not a gate — it is entered per paint run
+        (CHANGES #22).
         """
         if work_order.production_type != ProductionType.AUTOMATIC:
             return None
         hanging_state = self._get_stage_state(work_order, ProcessStage.HANGING)
         if hanging_state.status != StageStatus.DONE:
             return self.PACKING_COMPLETION_BLOCKED_HANGING_PL
-        if work_order.consumed_paint_quantity_kg <= 0:
-            return self.PACKING_COMPLETION_BLOCKED_PAINT_PL
         return None
 
     def _get_batches_visible_in_stage(
@@ -2261,7 +2270,6 @@ class ProcessService:
                 paint_producer=parent_work_order.paint_producer,
                 paint_code=parent_work_order.paint_code,
             ).current_quantity_kg,
-            consumed_paint_quantity_kg=0,
             coating_type=parent_work_order.coating_type,
             work_order_kind=WorkOrderKind.STANDARD,
             is_ocynk=parent_work_order.is_ocynk,
@@ -2350,7 +2358,6 @@ class ProcessService:
         if work_order.planning_priority is not None:
             work_order.pending_planning_priority = work_order.planning_priority
         work_order.planning_priority = None
-        work_order.consumed_paint_quantity_kg = 0
 
         self.audit.record_audit_event(
             event_type="work_order.returned_to_correction_planning",

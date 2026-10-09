@@ -613,11 +613,6 @@ def test_completed_decoral_correction_preserves_correction_quantity_context_in_m
         },
         headers={"X-Station-Id": "OFFICE"},
     )
-    test_client.post(
-        f"/process/work-orders/{created['id']}/automatic-production/paint-consumption",
-        json={"consumed_paint_quantity_kg": 5.0},
-        headers={"X-Station-Id": "AUTOMATIC_PRODUCTION"},
-    )
     parent_pack_response = test_client.post(
         f"/process/work-orders/{created['id']}/packing/complete",
         json={
@@ -647,11 +642,6 @@ def test_completed_decoral_correction_preserves_correction_quantity_context_in_m
 
     test_client.post(f"/process/work-orders/{correction_order['id']}/stages/HANGING/start")
     test_client.post(f"/process/work-orders/{correction_order['id']}/stages/HANGING/finish")
-    test_client.post(
-        f"/process/work-orders/{correction_order['id']}/automatic-production/paint-consumption",
-        json={"consumed_paint_quantity_kg": 2.0},
-        headers={"X-Station-Id": "AUTOMATIC_PRODUCTION"},
-    )
     test_client.post(
         f"/process/work-orders/{correction_order['id']}/packing/complete",
         json={"counted_quantity": 3, "ok_quantity": 3, "correction_quantity": 0},

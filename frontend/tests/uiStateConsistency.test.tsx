@@ -59,8 +59,9 @@ vi.mock("../src/api/auditApi", () => ({
 
 vi.mock("../src/api/processApi", () => ({
   completePacking: vi.fn(),
+  fetchOpenPaintRuns: vi.fn(),
   fetchStageWorkOrders: vi.fn(),
-  recordAutomaticPaintConsumption: vi.fn(),
+  recordPaintRunConsumption: vi.fn(),
   startPacking: vi.fn(),
   releasePacking: vi.fn(),
   transitionStage: vi.fn(),
@@ -147,7 +148,8 @@ const assignWorkOrderPlanMock = vi.mocked(managerApi.assignWorkOrderPlan);
 const reorderWorkOrderQueueMock = vi.mocked(managerApi.reorderWorkOrderQueue);
 const setWorkOrderPlanningPriorityMock = vi.mocked(managerApi.setWorkOrderPlanningPriority);
 const fetchStageWorkOrdersMock = vi.mocked(processApi.fetchStageWorkOrders);
-const recordAutomaticPaintConsumptionMock = vi.mocked(processApi.recordAutomaticPaintConsumption);
+const fetchOpenPaintRunsMock = vi.mocked(processApi.fetchOpenPaintRuns);
+const recordPaintRunConsumptionMock = vi.mocked(processApi.recordPaintRunConsumption);
 const transitionStageMock = vi.mocked(processApi.transitionStage);
 const completePackingMock = vi.mocked(processApi.completePacking);
 const startPackingMock = vi.mocked(processApi.startPacking);
@@ -331,7 +333,9 @@ beforeEach(() => {
   reorderWorkOrderQueueMock.mockReset();
   setWorkOrderPlanningPriorityMock.mockReset();
   fetchStageWorkOrdersMock.mockReset();
-  recordAutomaticPaintConsumptionMock.mockReset();
+  fetchOpenPaintRunsMock.mockReset();
+  fetchOpenPaintRunsMock.mockResolvedValue({ runs: [] });
+  recordPaintRunConsumptionMock.mockReset();
   transitionStageMock.mockReset();
   completePackingMock.mockReset();
   startPackingMock.mockReset();
@@ -1128,50 +1132,73 @@ describe("frontend state consistency", () => {
     expect(screen.getByText("Nie rozpoczęte")).toBeTruthy();
     expect(screen.getByText("Status automatu")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Rozpocznij" })).toBeNull();
-    expect(screen.getByText("Zużycie farby wpiszesz po rozpoczęciu zawieszania.")).toBeTruthy();
+    expect(await screen.findByText("Brak grup czekających na wpis zużycia.")).toBeTruthy();
   });
 
-  it("records paint consumption from the automatic production panel before hanging is finished", async () => {
-    fetchStageWorkOrdersMock
-      .mockResolvedValueOnce([
-        buildStageWorkOrder({
-          id: 15,
-          order_number: "WO-AUTO-PAINT",
-          production_type: { value: "AUTOMATIC", label: "Automatyczna" },
-          stage_status: { stage: "HANGING", status: { value: "IN_PROGRESS", label: "W toku" } },
-          paint_code: "P-7016-MAT",
-          current_paint_stock_quantity_kg: 30,
-          consumed_paint_quantity_kg: 0,
-        }),
-      ])
-      .mockResolvedValueOnce([
-        buildStageWorkOrder({
-          id: 15,
-          order_number: "WO-AUTO-PAINT",
-          production_type: { value: "AUTOMATIC", label: "Automatyczna" },
-          stage_status: { stage: "HANGING", status: { value: "IN_PROGRESS", label: "W toku" } },
-          paint_code: "P-7016-MAT",
-          current_paint_stock_quantity_kg: 17.5,
-          consumed_paint_quantity_kg: 12.5,
-        }),
-      ]);
-    recordAutomaticPaintConsumptionMock.mockResolvedValue({} as never);
+  it("records paint consumption once for the whole paint run on the automatic production panel (CHANGES #22)", async () => {
+    fetchStageWorkOrdersMock.mockResolvedValue([]);
+    const openRun = {
+      id: 7,
+      ral_code: "RAL 7016",
+      paint_producer: "Tiger",
+      paint_code: "P-7016-MAT",
+      created_at: "2026-10-09T08:00:00Z",
+      closed_at: null,
+      consumed_kg: null,
+      total_area_m2: 40,
+      is_current: true,
+      hanging_in_progress: false,
+      next_in_queue_same_paint: false,
+      members: [
+        { work_order_id: 15, order_number: "WO-A", customer_name: "Klient", area_m2: 30, allocated_kg: null, is_hanging: false },
+        { work_order_id: 16, order_number: "WO-B", customer_name: "Klient", area_m2: 10, allocated_kg: null, is_hanging: false },
+      ],
+    };
+    fetchOpenPaintRunsMock.mockResolvedValueOnce({ runs: [openRun] }).mockResolvedValue({ runs: [] });
+    recordPaintRunConsumptionMock.mockResolvedValue({ ...openRun, closed_at: "2026-10-09T10:00:00Z", consumed_kg: 12.5 });
 
     render(<AutomaticProductionPage />);
 
-    await screen.findByText("WO-AUTO-PAINT :: Klient");
-  expect(screen.getByText("Aktualny stan farby: 30 kg")).toBeTruthy();
+    expect(await screen.findByText("Grupa zakończona — wpisz zużycie farby.")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "25 kg" }));
     fireEvent.click(screen.getByRole("button", { name: "Dodaj karton" }));
     fireEvent.change(screen.getByLabelText("Pozostało w ostatnim kartonie [kg]"), { target: { value: "12.5" } });
-    expect(screen.getByText("Zużycie do zapisu: 12.5 kg")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Zapisz zużycie farby" }));
+    expect(screen.getByText("Zużycie grupy do zapisu: 12.5 kg")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Zapisz zużycie grupy" }));
 
     await waitFor(() => {
-      expect(recordAutomaticPaintConsumptionMock).toHaveBeenCalledWith(15, { consumed_paint_quantity_kg: 12.5 });
+      expect(recordPaintRunConsumptionMock).toHaveBeenCalledWith(7, 12.5);
     });
-    await screen.findByText("Zużyto: 12.5 kg");
-    expect(screen.getByText("Aktualny stan farby: 17.5 kg")).toBeTruthy();
+    expect(await screen.findByText("Brak grup czekających na wpis zużycia.")).toBeTruthy();
+  });
+
+  it("flags a paint run whose paint already changed and blocks entry while an order of the run is hanging", async () => {
+    fetchStageWorkOrdersMock.mockResolvedValue([]);
+    const base = {
+      paint_producer: "Tiger",
+      created_at: "2026-10-09T08:00:00Z",
+      closed_at: null,
+      consumed_kg: null,
+      total_area_m2: 20,
+      next_in_queue_same_paint: false,
+    };
+    fetchOpenPaintRunsMock.mockResolvedValue({
+      runs: [
+        { ...base, id: 1, ral_code: "RAL 9016", paint_code: "T-9016", is_current: false, hanging_in_progress: false,
+          members: [{ work_order_id: 1, order_number: "WO-OLD", customer_name: "K", area_m2: 20, allocated_kg: null, is_hanging: false }] },
+        { ...base, id: 2, ral_code: "RAL 7016", paint_code: "T-7016", is_current: true, hanging_in_progress: true,
+          members: [{ work_order_id: 2, order_number: "WO-NOW", customer_name: "K", area_m2: 20, allocated_kg: null, is_hanging: true }] },
+      ],
+    });
+
+    render(<AutomaticProductionPage />);
+
+    expect(await screen.findByText("Farba jest już zmieniona — wpisz zużycie tej grupy.")).toBeTruthy();
+    expect(screen.getByText("BRAK WPISU")).toBeTruthy();
+    expect(screen.getByText("Trwa zawieszanie — zużycie wpiszesz po zakończeniu zawieszania.")).toBeTruthy();
+    const saveButtons = screen.getAllByRole("button", { name: "Zapisz zużycie grupy" }) as HTMLButtonElement[];
+    expect(saveButtons).toHaveLength(2);
+    expect(saveButtons.every((button) => button.disabled)).toBe(true); // nothing entered yet; the hanging one stays locked
   });
 
   it("packs an automatic order in parallel with hanging but blocks completion until hanging finishes", async () => {

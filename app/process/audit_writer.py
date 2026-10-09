@@ -169,30 +169,6 @@ class ProcessAuditWriter:
             counted_quantity=ok_quantity,
         )
 
-    def record_automatic_paint_consumption_audit_event(
-        self,
-        *,
-        work_order: WorkOrder,
-        station_context: StationContext | None,
-        previous_value: float,
-        consumed_paint_quantity_kg: float,
-    ) -> None:
-        self.record_audit_event(
-            event_type="process.automatic_paint_consumption.recorded",
-            station_context=station_context,
-            work_order=work_order,
-            target_type="process_stage",
-            target_id=work_order.active_batch.id if work_order.active_batch is not None else None,
-            summary=f"Recorded automatic paint consumption for work order {work_order.order_number}.",
-            details={
-                "stage": ProcessStage.PRODUCTION.value,
-                "paint_code": work_order.paint_code,
-                "paint_stock_snapshot_quantity_kg": work_order.paint_stock_snapshot_quantity_kg,
-                "previous_consumed_paint_quantity_kg": previous_value,
-                "consumed_paint_quantity_kg": consumed_paint_quantity_kg,
-            },
-        )
-
     def record_stage_transition(
         self,
         *,
@@ -225,7 +201,7 @@ class ProcessAuditWriter:
         *,
         event_type: str,
         station_context: StationContext | None,
-        work_order: WorkOrder,
+        work_order: WorkOrder | None,
         target_type: str,
         target_id: int | None,
         summary: str,
@@ -236,7 +212,7 @@ class ProcessAuditWriter:
             AuditEvent(
                 event_type=event_type,
                 station_id=station_id,
-                work_order_id=work_order.id,
+                work_order_id=work_order.id if work_order is not None else None,
                 target_type=target_type,
                 target_id=target_id,
                 summary=summary,

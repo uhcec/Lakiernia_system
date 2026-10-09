@@ -809,3 +809,64 @@ once release is ticked; generating a WZ changes no order's release state.
 paper they hand out, (b) the "oba" NR ZAMÓWIENIA wording and the basket line read right, and (c) the
 starting number **1/2026** is correct (the owner may already keep a WZ book to continue from). Tracked in
 `REVIEW_LEDGER.md` row 8.
+
+## 2026-10-09 — CHANGE #22: automatic paint consumption per paint run, split by m²
+
+**Decision:** on the automatic line, paint consumption is entered **once per paint run** — orders with the
+same paint (RAL + producer + paint code) hung one after another — instead of once per order. The entered kg
+decrements stock in one movement and is split onto the run's orders **by m²**. The run is formed by the
+system from the hanging sequence (an order joins the newest run at its hanging start if that run is open and
+has the same paint; otherwise it opens a new run). Consumption is entered after the run's orders finished
+hanging; **packing no longer waits for paint**; an open run **blocks nothing** and is only flagged red
+(automatic-production station + manager panel) once the paint has changed. Entry stays write-once.
+Correction rounds/children join runs like ordinary orders.
+
+**Why:** owner, 2026-10-09: *the per-order figure cannot be measured* — the operator does not swap paint
+cartons between orders of the same paint, so the old per-order entry was an estimate dressed as a
+measurement (and it gated packing on that estimate). The only real measurement is cartons in vs. remainder
+out for the whole stretch of one paint, so that is what is recorded; the per-order kg is now an explicit
+m² share of a real measurement.
+
+**Owner decisions (2026-10-09), each asked explicitly:** who forms the group → the system, from the queue
+/ hanging order; when it ends → at the paint change in the queue (runs continue overnight); when consumption
+is entered → after the last order of the group finished **hanging**; split onto orders → yes, **by m²**;
+packing → does **not** wait; corrections → **join** the group; enforcement → **alarm only, no block**
+("zużycie zawsze musi być wpisane", but a block on hanging the next paint was rejected because the last
+pieces may still be in the booth); same paint after a closed run → new group; manual line → unchanged
+(it has no consumption entry); existing per-order data → not migrated (test data).
+
+**Rejected:**
+- *Block hanging of a different paint until the previous run's consumption is entered* — would stall the
+  conveyor while the booth is still painting the last pieces; owner chose alarm-only.
+- *Block at the next paint change (one-run grace)* — offered as the recommended middle ground; owner chose
+  no block at all.
+- *Manager forms groups manually / system proposes + manager confirms* — owner chose fully automatic,
+  derived from what is actually hung.
+- *Group = one day* — owner: a run continues overnight if the paint does not change.
+- *Keep the run total only, no per-order split* — owner wants per-order kg (order history / card), by m².
+
+**Implementation notes:**
+- Data: `paint_runs` (paint, consumed_kg, closed_at) + `paint_run_members` (order, m² weight, allocated
+  kg); `paint_stock_movements.paint_run_id`; dropped `work_orders.consumed_paint_quantity_kg` (the old
+  per-round packing-gate field) — migration `20261009_0046`. An order's displayed kg = sum of its member
+  shares across the correction chain.
+- Membership is driven inside `ProcessService.transition_stage` (automatic HANGING: NOT_STARTED→IN_PROGRESS
+  joins, IN_PROGRESS→NOT_STARTED leaves); rules live in `app/process/paint_runs.py` (`PaintRunTracker`).
+- m² weight of a pass = per-piece area of the root order × pieces in the pass (a correction child carries
+  its root's whole-order area, so per-piece root area is used). **Assumption (mine, not owner-given):** a
+  correction pass's m² is proportional to its piece count — the system has no per-piece area.
+- Removed: per-order endpoint `POST /process/work-orders/{id}/automatic-production/paint-consumption`, the
+  packing paint gate + its blocked-reason; added `GET /process/paint-runs/open`,
+  `POST /process/paint-runs/{id}/consumption` (AUTOMATIC_PRODUCTION station).
+- The "next order in the queue has the same paint" hint uses the next not-yet-hung automatic order by queue
+  position — a UI hint only, not a rule.
+- Known side effect: the paint forecast/hard-block reads stock, which now drops only when a run is closed,
+  so during an open run the stock looks higher than it physically is (by that run's usage).
+
+**Expected:** the automatic-production operator enters one carton count per paint stretch; orders show a
+plausible kg share; stock decreases once per run; no order waits on packing for paint; open runs whose paint
+already changed are visible and get filled in rather than left open.
+
+**Review-by:** first real production week on the automat — confirm (a) runs match how the operator actually
+swaps paint (no run split/merged wrongly), (b) open-run alarms get cleared rather than ignored, and (c) the
+open-run stock lag does not mislead paint planning. Tracked in `REVIEW_LEDGER.md` row 9.

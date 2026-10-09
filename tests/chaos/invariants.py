@@ -279,6 +279,25 @@ def assert_all_stages_done_orders_are_settled(db_session: Session) -> None:
     )
 
 
+def assert_paint_runs_consistent(db_session: Session) -> None:
+    """CHANGES #22: a closed paint run's member shares sum exactly to its entered kg, an open run has
+    no shares yet, and every run has at least one member (an emptied run is deleted)."""
+    from app.paints.models import PaintRun
+
+    broken: list[str] = []
+    for run in db_session.scalars(select(PaintRun).options(selectinload(PaintRun.members))).all():
+        if not run.members:
+            broken.append(f"run {run.id}: no members")
+            continue
+        shares = [member.allocated_kg for member in run.members]
+        if run.closed_at is None:
+            if any(share is not None for share in shares):
+                broken.append(f"run {run.id}: open but has allocations {shares}")
+        elif any(share is None for share in shares) or abs(sum(shares) - run.consumed_kg) > 1e-6:
+            broken.append(f"run {run.id}: shares {shares} != consumed {run.consumed_kg}")
+    assert not broken, f"Inconsistent paint runs: {broken}"
+
+
 def assert_global_invariants(db_session: Session, events: list[ChaosEvent]) -> None:
     assert_no_raw_500s(events)
     assert_no_duplicate_order_numbers(db_session)
@@ -294,3 +313,4 @@ def assert_global_invariants(db_session: Session, events: list[ChaosEvent]) -> N
     assert_single_active_hanging_and_automatic_line(db_session)
     assert_no_ready_order_holds_queue_position(db_session)
     assert_all_stages_done_orders_are_settled(db_session)
+    assert_paint_runs_consistent(db_session)

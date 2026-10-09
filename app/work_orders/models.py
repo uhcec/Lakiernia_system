@@ -56,7 +56,6 @@ class WorkOrder(Base):
             "paint_stock_snapshot_quantity_kg IS NULL OR paint_stock_snapshot_quantity_kg >= 0",
             name="paint_stock_snapshot_quantity_positive_if_present",
         ),
-        CheckConstraint("consumed_paint_quantity_kg >= 0", name="consumed_paint_quantity_non_negative"),
         CheckConstraint("queue_position IS NULL OR queue_position >= 1", name="queue_position_positive_if_present"),
         # A queue position requires a line (you can't sit in a line's queue without a line), but a line
         # may exist WITHOUT a position: on completion an order leaves the active queue (queue_position →
@@ -127,7 +126,6 @@ class WorkOrder(Base):
     paint_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
     paint_producer: Mapped[str] = mapped_column(String(255), nullable=False)
     paint_stock_snapshot_quantity_kg: Mapped[float | None] = mapped_column(Float(), nullable=True)
-    consumed_paint_quantity_kg: Mapped[float] = mapped_column(Float(), nullable=False, default=0)
     coating_type: Mapped[CoatingType] = mapped_column(coating_type_enum, default=CoatingType.RAL, nullable=False)
     work_order_kind: Mapped[WorkOrderKind] = mapped_column(
         work_order_kind_enum,

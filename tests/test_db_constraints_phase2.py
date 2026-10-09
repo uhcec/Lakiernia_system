@@ -24,13 +24,13 @@ def _insert_work_order(
                 is_correction, description, customer_name, ral_code, paint_producer, coating_type,
                 work_order_kind, is_ocynk, production_type, queue_namespace, queue_position, received_date, planned_pickup_date, total_area_m2,
                 is_incomplete_on_arrival, profiles_quantity, profiles_to_count, accessories_quantity, accessories_to_count,
-                notes, consumed_paint_quantity_kg, created_at, updated_at
+                notes, created_at, updated_at
             ) VALUES (
                 :order_number, :order_number, 10, 0, :parent_order_id,
                 :is_correction, NULL, 'Customer', 'RAL 9005', 'Producer', 'RAL',
                 'STANDARD', 0, :production_type, :queue_namespace, :queue_position, '2026-05-25', '2026-06-01', NULL,
                 :is_incomplete_on_arrival, NULL, 1, NULL, 1,
-                NULL, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                NULL, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
             )
             """
         ),

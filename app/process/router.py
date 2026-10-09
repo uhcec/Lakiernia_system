@@ -8,9 +8,11 @@ from app.database.session import get_db_session
 from app.process.enums import ProcessStage, ProductionType
 from app.process.repository import ProcessRepository
 from app.process.schemas import (
-    AutomaticPaintConsumptionRequest,
     DecoralProductionCompleteRequest,
     PackingCompleteRequest,
+    PaintRunConsumptionRequest,
+    PaintRunRead,
+    PaintRunsOverviewRead,
     ProcessStageWorkOrderRead,
     StageTransitionRequest,
 )
@@ -185,16 +187,23 @@ def complete_packing(
     )
 
 
-@router.post("/work-orders/{work_order_id}/automatic-production/paint-consumption", response_model=ProcessStageWorkOrderRead)
-def record_automatic_paint_consumption(
-    work_order_id: int,
-    payload: AutomaticPaintConsumptionRequest,
+@router.get("/paint-runs/open", response_model=PaintRunsOverviewRead)
+def list_open_paint_runs(
+    service: Annotated[ProcessService, Depends(get_process_service)],
+) -> PaintRunsOverviewRead:
+    return service.list_open_paint_runs()
+
+
+@router.post("/paint-runs/{paint_run_id}/consumption", response_model=PaintRunRead)
+def record_paint_run_consumption(
+    paint_run_id: int,
+    payload: PaintRunConsumptionRequest,
     service: Annotated[ProcessService, Depends(get_process_service)],
     station_context: Annotated[StationContext, Depends(get_station_context)],
-) -> ProcessStageWorkOrderRead:
-    return service.record_automatic_paint_consumption(
-        work_order_id,
-        consumed_paint_quantity_kg=payload.consumed_paint_quantity_kg,
+) -> PaintRunRead:
+    return service.record_paint_run_consumption(
+        paint_run_id,
+        consumed_kg=payload.consumed_kg,
         station_context=station_context,
     )
 

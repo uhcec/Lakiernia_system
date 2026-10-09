@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.foils.schemas import FoilSummaryRead
@@ -77,8 +79,8 @@ class ProcessStageWorkOrderRead(BaseModel):
     holds_packing_slot: bool = False
     packing_slots_total: int = 1
     # Packing completion gate (automatic orders pack in parallel with the line, but cannot finish
-    # until HANGING is DONE and paint consumption is recorded). `packing_blocked_reason` is the
-    # operator-facing Polish message shown when `can_complete_packing` is False.
+    # until HANGING is DONE). `packing_blocked_reason` is the operator-facing Polish message shown when
+    # `can_complete_packing` is False.
     can_complete_packing: bool = True
     packing_blocked_reason: str | None = None
     stage_status: ProcessStageStatusRead
@@ -158,7 +160,42 @@ class DecoralProductionCompleteRequest(BaseModel):
         return self
 
 
-class AutomaticPaintConsumptionRequest(BaseModel):
-    consumed_paint_quantity_kg: float = Field(gt=0)
+class PaintRunConsumptionRequest(BaseModel):
+    consumed_kg: float = Field(gt=0)
 
     model_config = ConfigDict(extra="forbid")
+
+
+class PaintRunMemberRead(BaseModel):
+    work_order_id: int
+    order_number: str
+    customer_name: str
+    area_m2: float
+    # The order's kg share of the run (by m²); None until the run's consumption is entered.
+    allocated_kg: float | None = None
+    is_hanging: bool = False
+
+
+class PaintRunRead(BaseModel):
+    """A run of consecutively hung same-paint orders on the automatic line (CHANGES #22)."""
+
+    id: int
+    ral_code: str
+    paint_producer: str
+    paint_code: str
+    created_at: datetime
+    closed_at: datetime | None = None
+    consumed_kg: float | None = None
+    total_area_m2: float
+    # The newest run — the paint the line is on now. An open run that is NOT current means the paint
+    # already changed, so its consumption is overdue.
+    is_current: bool
+    # Consumption can be entered only once none of the run's orders is still hanging.
+    hanging_in_progress: bool
+    # For the current open run: the next order waiting to hang has the same paint, so the run goes on.
+    next_in_queue_same_paint: bool = False
+    members: list[PaintRunMemberRead]
+
+
+class PaintRunsOverviewRead(BaseModel):
+    runs: list[PaintRunRead]

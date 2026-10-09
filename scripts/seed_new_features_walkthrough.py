@@ -143,8 +143,11 @@ def main() -> int:
         start_surface_preparation(process_service, paint_order.id, counted_quantity=100)
         finish_surface_preparation(process_service, paint_order.id)
         process_service.start_stage(paint_order.id, ProcessStage.HANGING)  # automatic: implicitly starts packing
-        process_service.record_automatic_paint_consumption(paint_order.id, consumed_paint_quantity_kg=18.0)
         process_service.finish_stage(paint_order.id, ProcessStage.HANGING)
+        # CHANGES #22: consumption is entered once per paint run, after its hanging finished.
+        process_service.record_paint_run_consumption(
+            process_service.list_open_paint_runs().runs[-1].id, consumed_kg=18.0
+        )
         process_service.complete_packing(
             paint_order.id,
             counted_quantity=100,
@@ -157,8 +160,11 @@ def main() -> int:
         # --- round 2: re-plan, paint 4 kg, finish to READY (correction skips surface prep) ---
         plan(paint_order, ProductionType.AUTOMATIC)
         process_service.start_stage(paint_order.id, ProcessStage.HANGING)
-        process_service.record_automatic_paint_consumption(paint_order.id, consumed_paint_quantity_kg=4.0)
         process_service.finish_stage(paint_order.id, ProcessStage.HANGING)
+        # CHANGES #22: consumption is entered once per paint run, after its hanging finished.
+        process_service.record_paint_run_consumption(
+            process_service.list_open_paint_runs().runs[-1].id, consumed_kg=4.0
+        )
         process_service.complete_packing(paint_order.id, counted_quantity=10, ok_quantity=10, correction_quantity=0)
 
         # === DRAW — MANUAL at production, with a technical drawing + overdue pickup (NA36 + NA44) ===

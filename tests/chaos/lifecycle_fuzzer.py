@@ -121,6 +121,18 @@ class LifecycleFuzzer:
         elif poke == "admin_reset":
             self.client.post(f"/work-orders/{order_id}/administrative-reset")
 
+    def _record_some_paint_run(self) -> None:
+        """Enter consumption for a random open paint run (CHANGES #22) — sometimes while one of its
+        orders is still hanging, which the guard must refuse."""
+        runs = self.client.get("/process/paint-runs/open").json()["runs"]
+        if not runs:
+            return
+        run = self.rng.choice(runs)
+        self.client.post(
+            f"/process/paint-runs/{run['id']}/consumption",
+            json={"consumed_kg": round(self.rng.uniform(0.5, 8.0), 1)},
+        )
+
     def _complete_packing(self, detail: dict) -> None:
         order_id = detail["id"]
         counted = self._prep_counted(detail)
@@ -204,20 +216,14 @@ class LifecycleFuzzer:
                 return
             if hanging == "IN_PROGRESS":
                 if self.rng.random() < 0.5:
-                    self.client.post(
-                        f"/process/work-orders/{order_id}/automatic-production/paint-consumption",
-                        json={"consumed_paint_quantity_kg": round(self.rng.uniform(0.5, 8.0), 1)},
-                    )
+                    self._record_some_paint_run()
                 else:
                     self.client.post(f"/process/work-orders/{order_id}/stages/HANGING/finish")
                 return
             packing = self._stage_status(detail, "PACKING")
             if packing in {"NOT_STARTED", "IN_PROGRESS"}:
                 if self.rng.random() < 0.3:
-                    self.client.post(
-                        f"/process/work-orders/{order_id}/automatic-production/paint-consumption",
-                        json={"consumed_paint_quantity_kg": round(self.rng.uniform(0.5, 8.0), 1)},
-                    )
+                    self._record_some_paint_run()
                 else:
                     self._complete_packing(detail)
                 return

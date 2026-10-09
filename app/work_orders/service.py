@@ -245,7 +245,6 @@ class WorkOrderService:
             paint_code=payload.paint_code,
             paint_producer=payload.paint_producer,
             paint_stock_snapshot_quantity_kg=paint_stock_snapshot_quantity_kg,
-            consumed_paint_quantity_kg=0,
             coating_type=payload.coating_type,
             decoral_foil_id=payload.decoral_foil_id,
             work_order_kind=payload.work_order_kind,

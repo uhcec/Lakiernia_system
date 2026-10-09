@@ -127,28 +127,27 @@ class PaintService:
 
         return self._to_read_model(updated_paint)
 
-    def record_automatic_consumption(
+    def get_or_create_paint(self, *, ral_code: str, paint_producer: str, paint_code: str) -> Paint:
+        return self._get_or_create_paint(ral_code=ral_code, paint_producer=paint_producer, paint_code=paint_code)
+
+    def record_paint_run_consumption(
         self,
         *,
-        ral_code: str,
-        paint_producer: str,
-        paint_code: str,
+        paint: Paint,
         quantity_kg: float,
-        work_order_id: int,
+        paint_run_id: int,
+        note: str,
         station_context: StationContext | None,
     ) -> Paint:
-        paint = self._get_or_create_paint(
-            ral_code=ral_code,
-            paint_producer=paint_producer,
-            paint_code=paint_code,
-        )
+        # One stock movement for a whole paint run (CHANGES #22); the per-order split lives on the run's
+        # members, not in the stock log.
         return self._apply_movement(
             paint=paint,
             movement_type=PaintStockMovementType.AUTOMATIC_CONSUMPTION,
             quantity_delta_kg=-quantity_kg,
             movement_date=date.today(),
-            note=None,
-            work_order_id=work_order_id,
+            note=note,
+            paint_run_id=paint_run_id,
             station_context=station_context,
         )
 
@@ -159,10 +158,10 @@ class PaintService:
         return self.repository.has_stock_movements(paint_id)
 
     def get_consumed_paint_kg_for_work_orders(self, work_order_ids) -> float:
-        # Cumulative automatic paint consumption (kg) across the given work orders, computed from the
-        # durable movement log (NA32). Used by read models so a corrected order reports the total kg of
-        # all rounds/children rather than only the last round's per-round gate value.
-        return self.repository.sum_automatic_consumption_kg(list(work_order_ids))
+        # Cumulative automatic paint consumption (kg) across the given work orders — their m²-shares of
+        # closed paint runs (CHANGES #22). Read models pass the whole correction chain so a corrected
+        # order reports the total kg of all rounds/children.
+        return self.repository.sum_allocated_consumption_kg(list(work_order_ids))
 
     def list_movements(self, paint_id: int, *, limit: int, offset: int) -> PaintStockMovementListResponse:
         paint = self.repository.get_by_id(paint_id)
@@ -204,6 +203,7 @@ class PaintService:
         note: str | None,
         station_context: StationContext | None,
         work_order_id: int | None = None,
+        paint_run_id: int | None = None,
     ) -> Paint:
         updated_paint = self.repository.apply_quantity_delta(paint_id=paint.id, quantity_delta_kg=quantity_delta_kg)
         if updated_paint is None:
@@ -214,6 +214,7 @@ class PaintService:
         movement = PaintStockMovement(
             paint_id=paint.id,
             work_order_id=work_order_id,
+            paint_run_id=paint_run_id,
             movement_type=movement_type,
             quantity_delta_kg=quantity_delta_kg,
             resulting_quantity_kg=updated_paint.current_quantity_kg,
@@ -234,6 +235,7 @@ class PaintService:
                 "movement_date": movement_date,
                 "note": note,
                 "work_order_id": work_order_id,
+                "paint_run_id": paint_run_id,
                 "paint": {
                     "id": updated_paint.id,
                     "ral_code": updated_paint.ral_code,

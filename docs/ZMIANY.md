@@ -16,6 +16,7 @@ teraz (`plik:linia`), czego chce właściciel i dlaczego. Potwierdzone zachowani
 | 9 | zmiana | Zapisywać faktyczną długość zmiany dla „dobrego dnia" ✅ |
 | 10 | zmiana | Uwidocznić czujkę przecieku ilości ✅ |
 | 18 | funkcja | Generowanie WZ (wydanie z magazynu) dla grupy gotowych zleceń ✅ |
+| 22 | zmiana | Zużycie farby na automacie na grupę farby, podział wg m² ✅ |
 
 *(Uwaga: pozycje #11–#17 dodano tylko w angielskim `docs/CHANGES.md` (przegląd 2026-07-11) — nie przetłumaczono ich jeszcze tutaj.)*
 
@@ -99,3 +100,16 @@ teraz (`plik:linia`), czego chce właściciel i dlaczego. Potwierdzone zachowani
   powrotem do kolejki jego linii (przywrócić `queue_position`), by trafiło do kolejki zaplanowanych,
   zgodnie z intencją docstringa „zachowuje plan". Tak czy inaczej rozważyć zamknięcie stanu limbo
   linia-jest/pozycja-NULL/niekompletne, żeby żadne zlecenie nie mogło wpaść między dwa zapytania list.
+
+### #22 — Zużycie farby na automacie na grupę farby, podział wg m²  *(zmiana, prośba właściciela 2026-10-09)* — ✅ ZROBIONE 2026-10-09
+- **Było:** stanowisko Produkcja automat wpisywało zużycie farby **na każde zlecenie** (kartony − resztka)
+  po starcie zawieszania; raz a dobrze; pakowania nie dało się zakończyć bez tego wpisu.
+- **Cel (właściciel):** zlecenia w tej samej farbie tworzą grupę; zużycie wpisuje się raz po całej grupie,
+  a nie na zlecenie — zużycia na jedno zlecenie nie da się zmierzyć (operator nie wymienia kartonów między
+  zleceniami w tej samej farbie). Szczegóły i każda poddecyzja: `docs/DECISIONS.md` (2026-10-09 — #22).
+- **Zrobione:** grupy tworzą się same z kolejności zawieszania na automacie; jeden wpis (raz a dobrze) na
+  grupę na stanowisku Produkcja automat, gdy jej zlecenia skończyły zawieszanie; jeden ruch magazynowy na
+  grupę; kg dzielone na zlecenia wg m²; pakowanie nie czeka na farbę; otwarta grupa niczego nie blokuje i
+  świeci się na czerwono (stanowisko + panel kierownika), gdy farba jest już zmieniona. Migracja
+  `20261009_0046`. Testy `tests/test_paint_runs_changes22.py`, frontend `PaintRunsPanel`. Sprawdzone na
+  działającym backendzie. SPECYFIKACJA §3/§4/§10 zaktualizowana.

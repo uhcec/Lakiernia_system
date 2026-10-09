@@ -1,7 +1,7 @@
 import { createApiError } from "./apiError";
 import { getCurrentStationHeaders } from "./stationContext";
 import { createApiUrl } from "./workOrdersApi";
-import type { ProcessStageValue, StageWorkOrder } from "../types/process";
+import type { PaintRun, PaintRunsOverview, ProcessStageValue, StageWorkOrder } from "../types/process";
 import type { ProductionTypeValue } from "../types/workOrders";
 
 export async function fetchSurfacePreparationWorkOrders(): Promise<StageWorkOrder[]> {
@@ -50,10 +50,6 @@ interface CompletePackingPayload {
   correction_reason_category?: string;
   correction_reason_note?: string;
   stat_only_correction?: boolean;
-}
-
-interface AutomaticPaintConsumptionPayload {
-  consumed_paint_quantity_kg: number;
 }
 
 interface CompleteDecoralProductionPayload {
@@ -164,25 +160,36 @@ export async function completePacking(
   return response.json() as Promise<StageWorkOrder>;
 }
 
-export async function recordAutomaticPaintConsumption(
-  workOrderId: number,
-  payload: AutomaticPaintConsumptionPayload,
-): Promise<StageWorkOrder> {
-  const response = await fetch(createApiUrl(`/process/work-orders/${workOrderId}/automatic-production/paint-consumption`), {
+export async function fetchOpenPaintRuns(): Promise<PaintRunsOverview> {
+  const response = await fetch(createApiUrl("/process/paint-runs/open"), {
+    headers: {
+      Accept: "application/json",
+    },
+  });
+
+  if (!response.ok) {
+    throw await createApiError(response, "Nie udało się pobrać grup farby");
+  }
+
+  return response.json() as Promise<PaintRunsOverview>;
+}
+
+export async function recordPaintRunConsumption(paintRunId: number, consumedKg: number): Promise<PaintRun> {
+  const response = await fetch(createApiUrl(`/process/paint-runs/${paintRunId}/consumption`), {
     method: "POST",
     headers: {
       Accept: "application/json",
       "Content-Type": "application/json",
       ...getCurrentStationHeaders(),
     },
-    body: JSON.stringify(payload),
+    body: JSON.stringify({ consumed_kg: consumedKg }),
   });
 
   if (!response.ok) {
     throw await createApiError(response, "Nie udało się zapisać zużycia farby");
   }
 
-  return response.json() as Promise<StageWorkOrder>;
+  return response.json() as Promise<PaintRun>;
 }
 
 export async function completeDecoralProduction(

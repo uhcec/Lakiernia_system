@@ -23,6 +23,7 @@ code does now (`file:line`), what the owner wants, and why. See `docs/SPEC.md` f
 | 16 | debt | Frontend floor-robustness batch (JSON.parse, stale-response guards, EN errors, 401 drafts) ✅ |
 | 17 | debt | QC document requires Windows + Excel COM — 500 on Linux; absent from SPEC ✅ |
 | 18 | feature | Generate WZ (wydanie z magazynu) for a group of ready orders ✅ |
+| 22 | change | Automatic paint consumption per paint run (same-paint group), split by m² ✅ |
 
 ---
 
@@ -278,3 +279,21 @@ code does now (`file:line`), what the owner wants, and why. See `docs/SPEC.md` f
   `queue_position`) so it lands back in the planned queue, matching the docstring's "keeps its plan"
   intent. Either way, consider closing the line-set/position-NULL/not-complete limbo so no order can
   fall between the two list queries.
+
+### #22 — Automatic paint consumption per paint run, split by m²  *(change, owner request 2026-10-09)* — ✅ DONE 2026-10-09
+- **Was:** the automatic-production station entered paint consumption **per order** (cartons − remainder)
+  after hanging started; write-once; packing could not complete until it was entered
+  (`AUTOMATIC_PAINT_CONSUMPTION_REQUIRED_ERROR`, `work_orders.consumed_paint_quantity_kg` as the gate).
+- **Want (owner):** orders with the same paint form a group; consumption is entered once after the whole
+  group, not per order — the per-order figure cannot be measured (cartons are not swapped between orders of
+  one paint). Details and every sub-decision in `docs/DECISIONS.md` (2026-10-09 — #22).
+- **Done:** paint runs formed automatically from the automatic hanging sequence; one write-once entry per
+  run at the automatic-production station once its orders finished hanging; one stock movement per run;
+  kg split onto orders by m²; packing no longer gated on paint; open runs block nothing and are flagged red
+  (station + manager panel) once the paint changed. Migration `20261009_0046` (new `paint_runs`,
+  `paint_run_members`, `paint_stock_movements.paint_run_id`; dropped `work_orders.consumed_paint_quantity_kg`).
+  Tests `tests/test_paint_runs_changes22.py` (+ updated process/manager tests, fuzzer invariant
+  `assert_paint_runs_consistent`), frontend `PaintRunsPanel` + `utils/paintCartons.test.ts`. Verified live
+  on the running backend as the real station logins. SPEC §3/§4/§10 updated in both languages.
+  `app/process/paint_runs.py`, `app/process/service.py`, `app/paints/*`, `app/process/{router,schemas}.py`,
+  `frontend/src/components/{PaintRunsPanel,StageWorkOrdersPage}.tsx`, `frontend/src/pages/ManagerPanelPage.tsx`.
