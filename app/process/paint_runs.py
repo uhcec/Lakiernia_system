@@ -12,10 +12,13 @@ Rules (owner-confirmed 2026-10-09):
   run. A paint change in the queue therefore ends a run; a closed run is never re-opened — the same
   paint after a closed run starts a new run.
 * Correction rounds / correction children are ordinary members — they join whatever run is current.
-* Consumption is entered after the run's orders finished hanging. Packing never waits for it, and an
-  open run blocks nothing on the floor; it is only **flagged** (automatic-line and manager screens)
-  until someone enters it. Entry is write-once, like before; a mistake is fixed by an office stock
-  adjustment.
+* Consumption is entered after the run's orders finished hanging. Entry is write-once, like before; a
+  mistake is fixed by an office stock adjustment. An open run is **flagged** (automatic-line and
+  manager screens) until someone enters it.
+* CHANGES #23 (owner, 2026-10-09): only the **last** order of an open run waits — when its packing is
+  submitted it is parked (not completed) until the run's consumption is entered, then the system
+  completes it with the operator's numbers. Every other order packs freely, and the parked order frees
+  the packing station and the automatic line, so the floor keeps moving.
 * Undoing a hanging start (IN_PROGRESS → NOT_STARTED) takes the order back out of its still-open run.
 
 Kept DB-light and separate from ``ProcessService`` (same pattern as ``ResourceLockManager``) so the
@@ -23,6 +26,7 @@ run rules live in one place.
 """
 
 from dataclasses import dataclass
+import json
 
 from app.audit.context import StationContext
 from app.paints.models import Paint, PaintRun, PaintRunMember
@@ -42,6 +46,14 @@ RUN_ALREADY_RECORDED_ERROR = (
     "wykonaj ręczną korektę stanu magazynu w biurze."
 )
 RUN_HANGING_IN_PROGRESS_ERROR = "Najpierw zakończ zawieszanie wszystkich zleceń z tej grupy, potem wpisz zużycie farby."
+
+
+def packing_parked_message(run: PaintRun) -> str:
+    paint = run.paint
+    return (
+        f"Spakowane — ostatnie zlecenie grupy farby {paint.ral_code} ({paint.paint_producer}, "
+        f"{paint.paint_code}). Zamknie się samo, gdy Produkcja automat wpisze zużycie farby całej grupy."
+    )
 _ALLOCATION_DECIMALS = 3
 
 
@@ -57,6 +69,29 @@ def paint_identity_of(work_order: WorkOrder) -> PaintIdentity | None:
     if not work_order.paint_code:
         return None
     return PaintIdentity(work_order.ral_code, work_order.paint_producer, work_order.paint_code)
+
+
+def _stage_status(work_order: WorkOrder, stage: ProcessStage) -> StageStatus | None:
+    for stage_state in work_order.stage_states:
+        if stage_state.stage == stage:
+            return stage_state.status
+    return None
+
+
+def _is_in_flow(work_order: WorkOrder) -> bool:
+    """Hanging started and packing not done — the order's pieces are on their way through the line.
+    (A member whose packing is parked counts as packed — see ``holding_run_for``.)"""
+    return (
+        _stage_status(work_order, ProcessStage.HANGING) in {StageStatus.IN_PROGRESS, StageStatus.DONE}
+        and _stage_status(work_order, ProcessStage.PACKING) != StageStatus.DONE
+    )
+
+
+def _is_between_hanging_done_and_packed(work_order: WorkOrder) -> bool:
+    return (
+        _stage_status(work_order, ProcessStage.HANGING) == StageStatus.DONE
+        and _stage_status(work_order, ProcessStage.PACKING) != StageStatus.DONE
+    )
 
 
 def _identity_of_paint(paint: Paint) -> PaintIdentity:
@@ -207,6 +242,65 @@ class PaintRunTracker:
         )
         return run
 
+    # --- packing hold on the last order of an open run (CHANGES #23) ---------------------------------
+
+    def holding_run_for(self, work_order: WorkOrder) -> PaintRun | None:
+        """The open run that holds this order's packing completion, or None.
+
+        Owner, 2026-10-09: the **last** order of a paint group does not complete until the group's
+        consumption is entered, so the entry is never skipped. "Last" = the only order of the open run
+        still physically on its way (hanging started, packing not done): once the next same-paint order
+        starts hanging it joins the run and the previous one packs normally.
+        """
+        if not _is_between_hanging_done_and_packed(work_order):
+            return None
+        for run in self._repository.list_open_paint_runs():
+            if not any(member.work_order_id == work_order.id for member in run.members):
+                continue
+            others_in_flow = any(
+                member.work_order_id != work_order.id
+                and not member.pending_packing_json
+                and _is_in_flow(member.work_order)
+                for member in run.members
+            )
+            return None if others_in_flow else run
+        return None
+
+    def park_packing(
+        self,
+        run: PaintRun,
+        work_order: WorkOrder,
+        payload: dict,
+        *,
+        station_context: StationContext | None,
+    ) -> None:
+        """Keep the operator's validated packing of the run's last order until the run is closed."""
+        member = next(member for member in run.members if member.work_order_id == work_order.id)
+        member.pending_packing_json = json.dumps(payload, separators=(",", ":"))
+        self._repository.session.flush()
+        self._audit.record_audit_event(
+            event_type="process.packing.parked_for_paint_run",
+            station_context=station_context,
+            work_order=work_order,
+            target_type="paint_run",
+            target_id=run.id,
+            summary=(
+                f"Packing of work order {work_order.order_number} parked until paint run {run.id} "
+                "consumption is entered (last order of the run)."
+            ),
+            details={"paint_run_id": run.id, **payload},
+        )
+
+    def parked_run_for(self, work_order: WorkOrder) -> PaintRun | None:
+        """The open run on which this order's submitted packing waits, or None."""
+        for run in self._repository.list_open_paint_runs():
+            if any(member.work_order_id == work_order.id and member.pending_packing_json for member in run.members):
+                return run
+        return None
+
+    def is_parked(self, work_order: WorkOrder) -> bool:
+        return self.parked_run_for(work_order) is not None
+
     # --- helpers -------------------------------------------------------------------------------------
 
     @staticmethod
@@ -215,10 +309,7 @@ class PaintRunTracker:
 
     @staticmethod
     def member_hanging_status(member: PaintRunMember) -> StageStatus | None:
-        for stage_state in member.work_order.stage_states:
-            if stage_state.stage == ProcessStage.HANGING:
-                return stage_state.status
-        return None
+        return _stage_status(member.work_order, ProcessStage.HANGING)
 
     @staticmethod
     def _pass_area_m2(work_order: WorkOrder) -> float:

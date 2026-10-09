@@ -870,3 +870,50 @@ already changed are visible and get filled in rather than left open.
 **Review-by:** first real production week on the automat — confirm (a) runs match how the operator actually
 swaps paint (no run split/merged wrongly), (b) open-run alarms get cleared rather than ignored, and (c) the
 open-run stock lag does not mislead paint planning. Tracked in `REVIEW_LEDGER.md` row 9.
+
+## 2026-10-09 — CHANGE #23: the last order of a paint run waits for the consumption entry (+ packing FIFO)
+
+**Decision:** the **last** order of an open paint run does not complete packing until the run's paint
+consumption is entered. The packer submits it as usual; the system **parks** the validated packing and
+completes it with those numbers right after the painter's entry (no re-entry). "Last" = no other order of
+the run still on its way (hanging started, packing not done); a same-paint order starting to hang later
+un-parks it at once. A parked order holds neither the packing station nor the automatic line. Also:
+(a) a freed packing station goes to the automatic order that has waited longest; (b) the automatic-line
+rule (next order cannot finish hanging until the previous is packed) stays; (c) entry without stock stays
+refused and the run card shows the stock up front; the lock-conflict messages are now Polish.
+
+**Why:** owner, 2026-10-09: *"ma to na celu utrzymanie ciągłego uzupełniania systemu"* — the alarm alone
+(CHANGE #22) lets the entry be skipped; holding the group's last order makes it impossible to forget,
+while the first orders of the group flow normally. Asked explicitly whether the hold may stop the line —
+owner: **no, the line keeps going** (only the last order waits). This **revises** CHANGE #22's "packing
+does not wait / alarm only" for that one order.
+(a)/(b)/(c) answered by the owner the same day after the audit replay of his live test showed the packing
+deadlock (pieces reach packing in the order they were hung → FIFO).
+
+**Rejected:**
+- *Refuse the last order's "Zakończ" and let the packer retry after the entry* — the order would keep the
+  packing station (or lose it to a manual order before being packed) and, via the automatic-line rule
+  (b), stop hanging of the next paint; also forces re-typing the numbers. Parking satisfies "not
+  completed until the entry" without stopping anything.
+- *Release the station/line as soon as the last order finished hanging* (before it is packed) — a manual
+  order could take the station while the automatic pieces are still arriving, breaking the NA22a rule
+  that the automat is never blocked by a manual order.
+- *Block hanging of the next paint* — owner: the line must keep going.
+
+**Implementation notes:**
+- `paint_run_members.pending_packing_json` (migration `20261009_0047`) holds the parked packing payload.
+- `complete_packing` parks (instead of completing) when `PaintRunTracker.holding_run_for` finds the order
+  last of an open run; `_complete_parked_packings` runs after the consumption entry and when a same-paint
+  order joins (outside the joining transaction; a failure leaves the order packable by hand).
+- `ResourceLockManager.is_held_for_paint` (= parked) exempts the order from line/station occupancy;
+  `_hand_free_station_to_waiting_automatic` gives a free station to the earliest waiting automatic order.
+- Regression test `test_freed_packing_goes_to_the_order_waiting_longest` reproduces the owner's live
+  deadlock (verified failing with the hand-off disabled).
+
+**Expected:** packers close orders 1..n-1 of a group normally; the n-th shows "Spakowane — zamknie się
+samo…" and closes by itself after the painter's entry; no override is needed on the automat in normal
+flow; the painter fills runs promptly because a ready order visibly waits on him.
+
+**Review-by:** first real production week on the automat — confirm (a) the parked last order is
+understood on the packing tablet, (b) no packing deadlock / override is needed any more, (c) painters
+enter consumption promptly. Tracked in `REVIEW_LEDGER.md` row 10.

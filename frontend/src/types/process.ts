@@ -91,6 +91,7 @@ export interface PaintRun {
   closed_at: string | null;
   consumed_kg: number | null;
   total_area_m2: number;
+  paint_stock_kg: number;
   // The newest run = the paint the line is on now. An open run that is not current is overdue.
   is_current: boolean;
   hanging_in_progress: boolean;

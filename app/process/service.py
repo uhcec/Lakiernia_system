@@ -2,6 +2,7 @@ from collections.abc import Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
+import json
 import logging
 from threading import RLock
 
@@ -10,7 +11,7 @@ from sqlalchemy import func, or_, select
 from app.audit.context import StationContext, ensure_station_allowed
 from app.audit.repository import AuditRepository
 from app.process.audit_writer import ProcessAuditWriter
-from app.process.paint_runs import PaintRunTracker, paint_identity_of
+from app.process.paint_runs import PaintRunTracker, packing_parked_message, paint_identity_of
 from app.process.resource_locks import ResourceLockManager
 from app.paints.repository import PaintRepository
 from app.paints.service import PaintService
@@ -91,6 +92,7 @@ class ProcessService:
         self.audit = ProcessAuditWriter(repository.session, self.audit_repository)
         self.resource_locks = ResourceLockManager(repository)
         self.paint_runs = PaintRunTracker(self.paint_service.repository, self.paint_service, self.audit)
+        self.resource_locks.is_held_for_paint = self.paint_runs.is_parked
 
     @staticmethod
     def get_stage_sequence_for_configuration(
@@ -215,10 +217,20 @@ class ProcessService:
                 self._validate_transition(work_order, stage_state, target_status)
                 # CHANGES #22: automatic hanging drives paint-run membership — a hanging start joins the
                 # current same-paint run (or opens a new one); undoing the start takes the order back out.
+                released_parked: tuple[int, list[int]] | None = None
                 if stage == ProcessStage.HANGING and work_order.production_type == ProductionType.AUTOMATIC:
                     with self.resource_locks.serialize_resource_mutation(self.PAINT_RUN_RESOURCE_KEY):
                         if stage_state.status == StageStatus.NOT_STARTED and target_status == StageStatus.IN_PROGRESS:
-                            self.paint_runs.join_on_hanging_start(work_order, station_context=station_context)
+                            run = self.paint_runs.join_on_hanging_start(work_order, station_context=station_context)
+                            # CHANGES #23: a same-paint order joining means a parked order is no longer
+                            # the run's last one — its packing completes right away (after this commit).
+                            parked_ids = [
+                                member.work_order_id
+                                for member in run.members
+                                if member.pending_packing_json and member.work_order_id != work_order.id
+                            ]
+                            if parked_ids:
+                                released_parked = (run.id, parked_ids)
                         elif stage_state.status == StageStatus.IN_PROGRESS and target_status == StageStatus.NOT_STARTED:
                             self.paint_runs.leave_on_hanging_undo(work_order, station_context=station_context)
                 if resource_keys:
@@ -272,6 +284,8 @@ class ProcessService:
                     self.repository.rollback()
                     raise
 
+                if released_parked is not None:
+                    self._complete_parked_packings(released_parked[0], only_work_order_ids=released_parked[1])
                 return stage_state
 
     def list_stage_work_orders(
@@ -754,10 +768,14 @@ class ProcessService:
         stat_only_correction: bool = False,
         batch_id: int | None = None,
         station_context: StationContext | None = None,
+        completing_parked: bool = False,
     ) -> ProcessStageWorkOrderRead:
+        # ``completing_parked`` = the system finishing a packing the operator already submitted, which was
+        # parked until its paint run's consumption was entered (CHANGES #23): no station check, no slot.
         with self._serialize_process_mutation(work_order_id):
             work_order = self.get_work_order_process(work_order_id)
-            self._ensure_packing_station_action(station_context)
+            if not completing_parked:
+                self._ensure_packing_station_action(station_context)
             normalized_correction_reason_category, normalized_correction_reason_note = self._validate_correction_reason(
                 correction_quantity,
                 correction_reason_category,
@@ -800,8 +818,9 @@ class ProcessService:
 
             # Confirm a packing slot before mutating: idempotent if this order started packing, else
             # take any free slot (completion is capacity-bound — the start action is the gate). 409
-            # only when all slots are genuinely full.
-            self.resource_locks.acquire_packing_slot(work_order, for_completion=True)
+            # only when all slots are genuinely full. A parked completion already gave its slot back.
+            if not completing_parked:
+                self.resource_locks.acquire_packing_slot(work_order, for_completion=True)
 
             active_batch = work_order.active_batch
             if active_batch is None:
@@ -827,6 +846,32 @@ class ProcessService:
                     if not self._is_in_correction_round(work_order) and self._get_surface_preparation_actual_quantity(work_order) is not None
                     else "Policzona ilość różni się od planowanej. Wyjaśnij brakujące sztuki."
                 )
+
+            # CHANGES #23 (owner, 2026-10-09): the LAST order of an open paint run does not complete
+            # until the run's paint consumption is entered. The operator's validated packing is parked
+            # on the run and finished by the system right after the entry; meanwhile the order frees the
+            # packing station and the automatic line so the floor keeps moving.
+            if not completing_parked:
+                holding_run = self.paint_runs.holding_run_for(work_order)
+                if holding_run is not None:
+                    self.paint_runs.park_packing(
+                        holding_run,
+                        work_order,
+                        {
+                            "counted_quantity": counted_quantity,
+                            "ok_quantity": ok_quantity,
+                            "correction_quantity": correction_quantity,
+                            "correction_profiles_quantity": correction_profiles_quantity,
+                            "correction_accessories_quantity": correction_accessories_quantity,
+                            "correction_reason_category": correction_reason_category,
+                            "correction_reason_note": correction_reason_note,
+                            "stat_only_correction": stat_only_correction,
+                        },
+                        station_context=station_context,
+                    )
+                    self.resource_locks.release_inactive_resource_locks(work_order)
+                    self._commit_process_changes()
+                    return self._to_stage_work_order_read(self.get_work_order_process(work_order_id), ProcessStage.PACKING)
 
             packing_state.counted_quantity = counted_quantity
             packing_state.updated_at = clock.now()
@@ -947,7 +992,36 @@ class ProcessService:
                 paint_run_id, consumed_kg=consumed_kg, station_context=station_context
             )
             self._commit_process_changes()
+            self._complete_parked_packings(run.id)
+            run = self.paint_service.repository.get_paint_run(paint_run_id)
             return self._to_paint_run_read(run, latest_run_id=self.paint_service.repository.get_latest_paint_run().id)
+
+    def _complete_parked_packings(self, paint_run_id: int, *, only_work_order_ids: list[int] | None = None) -> None:
+        """CHANGES #23: finish packings parked on this run with the operator's numbers — after the run's
+        consumption entry, or for a parked order that stopped being the run's last one.
+
+        Each runs on its own so one failure cannot undo the triggering action. A failure leaves the order
+        at packing IN_PROGRESS holding nothing — the packer simply completes it again by hand.
+        """
+        run = self.paint_service.repository.get_paint_run(paint_run_id)
+        parked = [
+            (member.work_order_id, member.pending_packing_json)
+            for member in run.members
+            if member.pending_packing_json
+            and (only_work_order_ids is None or member.work_order_id in only_work_order_ids)
+        ]
+        for work_order_id, payload_json in parked:
+            payload = json.loads(payload_json)
+            try:
+                self.complete_packing(work_order_id, **payload, completing_parked=True)
+            except Exception:  # noqa: BLE001 — logged; the order stays packable by hand
+                self.repository.rollback()
+                logger.exception("Parked packing of work order %s could not be completed.", work_order_id)
+            run = self.paint_service.repository.get_paint_run(paint_run_id)
+            for member in run.members:
+                if member.work_order_id == work_order_id:
+                    member.pending_packing_json = None
+            self._commit_process_changes()
 
     def list_open_paint_runs(self) -> PaintRunsOverviewRead:
         """Runs whose consumption is still missing, oldest first, plus a hint for the current one."""
@@ -987,6 +1061,7 @@ class ProcessService:
             closed_at=run.closed_at,
             consumed_kg=run.consumed_kg,
             total_area_m2=round(sum(member.area_m2 for member in run.members), 3),
+            paint_stock_kg=run.paint.current_quantity_kg,
             is_current=is_current,
             hanging_in_progress=hanging_in_progress,
             next_in_queue_same_paint=next_in_queue_same_paint,
@@ -1652,16 +1727,18 @@ class ProcessService:
     def _packing_completion_block_reason(self, work_order: WorkOrder) -> str | None:
         """Polish reason why an automatic packing card cannot be *completed* yet, or None.
 
-        Mirrors the guard enforced in ``complete_packing`` (hanging must be DONE) so the packing UI can
-        disable "Zakończ pakowanie" with a clear message instead of letting the operator submit and hit
-        a server-side rejection. Paint consumption is not a gate — it is entered per paint run
-        (CHANGES #22).
+        Mirrors ``complete_packing``: hanging must be DONE; and a packing already submitted for the last
+        order of an open paint run waits (parked) for the run's consumption — CHANGES #23 — so the card
+        says why the order is not closed yet instead of offering the form again.
         """
         if work_order.production_type != ProductionType.AUTOMATIC:
             return None
         hanging_state = self._get_stage_state(work_order, ProcessStage.HANGING)
         if hanging_state.status != StageStatus.DONE:
             return self.PACKING_COMPLETION_BLOCKED_HANGING_PL
+        parked_run = self.paint_runs.parked_run_for(work_order)
+        if parked_run is not None:
+            return packing_parked_message(parked_run)
         return None
 
     def _get_batches_visible_in_stage(

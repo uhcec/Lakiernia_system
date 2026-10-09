@@ -24,6 +24,7 @@ code does now (`file:line`), what the owner wants, and why. See `docs/SPEC.md` f
 | 17 | debt | QC document requires Windows + Excel COM — 500 on Linux; absent from SPEC ✅ |
 | 18 | feature | Generate WZ (wydanie z magazynu) for a group of ready orders ✅ |
 | 22 | change | Automatic paint consumption per paint run (same-paint group), split by m² ✅ |
+| 23 | change | Last order of a paint run waits for the consumption (parked); packing FIFO; Polish lock messages ✅ |
 
 ---
 
@@ -297,3 +298,19 @@ code does now (`file:line`), what the owner wants, and why. See `docs/SPEC.md` f
   on the running backend as the real station logins. SPEC §3/§4/§10 updated in both languages.
   `app/process/paint_runs.py`, `app/process/service.py`, `app/paints/*`, `app/process/{router,schemas}.py`,
   `frontend/src/components/{PaintRunsPanel,StageWorkOrdersPage}.tsx`, `frontend/src/pages/ManagerPanelPage.tsx`.
+
+### #23 — Last order of a paint run waits for the consumption; packing FIFO  *(change + bug, owner 2026-10-09)* — ✅ DONE 2026-10-09
+- **Found:** audit replay of the owner's live test (events 57-75): (1) packing deadlock — the station freed
+  by 0001 went to 0009 (just started hanging) instead of 0005 (waiting), so 0005 could not pack and 0009
+  could not finish hanging until an override (pre-existing NA22a logic); (2) run 3 could not be closed —
+  its paint had 0 kg stock; (3) an English lock message reached the operator.
+- **Owner decisions:** (a) freed station → longest-waiting automatic order; (b) automatic-line rule stays;
+  (c) entry without stock stays refused, show stock up front; new: the last order of a group must not
+  complete until the group's consumption is entered, and the line must keep going.
+- **Done:** parked packing for the run's last order (completed automatically after the entry, un-parked
+  when a same-paint order joins), parked order frees station + line; FIFO hand-off of the packing
+  station; run card shows stock; Polish lock messages. Migration `20261009_0047`. Tests in
+  `tests/test_paint_runs_changes22.py` (4-order example, line keeps running, un-park on join, FIFO
+  deadlock regression, stock); test helpers now enter consumption like the painter before packing.
+  Replayed the owner's exact sequence on a copy of his DB: no override, 0009 parked, closed after entry.
+  SPEC §3/§7/§10 updated in both languages; DECISIONS 2026-10-09 (#23).

@@ -19,7 +19,7 @@ NA46 §A5 (bounding/evicting the in-process lock map) is intentionally left for 
 pass: evicting an in-use ``RLock`` could hand two threads different locks for one key.
 """
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from contextlib import ExitStack, contextmanager
 from threading import RLock
 
@@ -45,9 +45,18 @@ class ResourceLockManager:
     PACKING_SLOT_PREFIX = "PACKING:"
     PACKING_OCCUPIED_ERROR = "Stanowisko pakowania jest zajęte przez inne zlecenie."
     PACKING_ALL_SLOTS_FULL_ERROR = "Wszystkie stanowiska pakowania są zajęte."
+    AUTOMATIC_LINE_OCCUPIED_ERROR = (
+        "Linia automatu jest zajęta: poprzednie zlecenie nie zostało jeszcze spakowane. "
+        "Zawieszanie zakończysz, gdy pakowanie je zamknie."
+    )
+    HANGING_OCCUPIED_ERROR = "Zawieszanie jest zajęte przez inne zlecenie."
 
     def __init__(self, repository: ProcessRepository) -> None:
         self._repository = repository
+        # CHANGES #23: the packing of an open paint run's last order is parked until the run's
+        # consumption is entered. While parked the order must not hold the packing station or the
+        # automatic line (owner: the line keeps running). ProcessService wires the real predicate in.
+        self.is_held_for_paint: Callable[[WorkOrder], bool] = lambda work_order: False
 
     @staticmethod
     def _stage_state(work_order: WorkOrder, stage: ProcessStage) -> WorkOrderStageState:
@@ -114,7 +123,7 @@ class ResourceLockManager:
         if target_status == StageStatus.DONE and work_order.production_type == ProductionType.AUTOMATIC:
             automatic_line_conflict = self.find_active_automatic_line_conflict(work_order.id)
             if automatic_line_conflict is not None:
-                raise InvalidProcessStageTransitionError("Automatic line is already occupied by another active job.")
+                raise InvalidProcessStageTransitionError(self.AUTOMATIC_LINE_OCCUPIED_ERROR)
             return
 
         if target_status != StageStatus.IN_PROGRESS:
@@ -122,7 +131,7 @@ class ResourceLockManager:
 
         hanging_conflict = self.find_active_hanging_conflict(work_order.id)
         if hanging_conflict is not None:
-            raise InvalidProcessStageTransitionError("Hanging resource is already occupied by another active job.")
+            raise InvalidProcessStageTransitionError(self.HANGING_OCCUPIED_ERROR)
 
     def acquire_stage_resource_locks(self, work_order: WorkOrder, stage: ProcessStage, target_status: StageStatus) -> None:
         resource_keys = self.get_stage_resource_keys(work_order, stage, target_status)
@@ -173,6 +182,36 @@ class ResourceLockManager:
             owner = self._repository.get_work_order_with_stage_states(lock.work_order_id)
             if owner is None or not self._occupies_packing(owner):
                 self._repository.release_resource_lock(lock.resource_key, lock.work_order_id)
+        self._hand_free_station_to_waiting_automatic()
+
+    def _hand_free_station_to_waiting_automatic(self) -> None:
+        """When the station is free, give it to the automatic order that has waited longest (owner,
+        2026-10-09: pieces reach packing in the order they were hung).
+
+        A 2nd automatic order queues without a slot (NA22a). Before this, a slot freed by the first
+        order went to whichever automatic order *started hanging next* — jumping the one already waiting
+        at packing, which then blocked the newcomer's hanging finish (automatic line held) while the
+        newcomer blocked its packing: a deadlock only an override broke (seen live 2026-10-09).
+        """
+        if self._packing_slot_locks():
+            return
+        waiting = [
+            candidate
+            for candidate in self._repository.list_work_orders_with_stage(ProcessStage.HANGING)
+            if candidate.production_type == ProductionType.AUTOMATIC
+            and self._occupies_packing(candidate)
+            and self.work_order_packing_slot_key(candidate.id) is None
+        ]
+        if not waiting:
+            return
+
+        def arrival_key(candidate: WorkOrder):
+            hanging_state = self._stage_state(candidate, ProcessStage.HANGING)
+            # Finished hanging first = first at packing; then by when that happened.
+            return (hanging_state.status != StageStatus.DONE, hanging_state.updated_at, candidate.id)
+
+        first = min(waiting, key=arrival_key)
+        self._repository.acquire_resource_lock(self._packing_slot_keys()[0], first.id)
 
     def acquire_packing_slot(
         self,
@@ -233,6 +272,7 @@ class ResourceLockManager:
         slot_key = self.work_order_packing_slot_key(work_order.id)
         if slot_key is not None:
             self._repository.release_resource_lock(slot_key, work_order.id)
+            self._hand_free_station_to_waiting_automatic()
 
     def reserve_packing_for_automatic_hanging(
         self, work_order: WorkOrder, stage: ProcessStage, target_status: StageStatus
@@ -280,13 +320,14 @@ class ResourceLockManager:
                 self._repository.release_resource_lock(resource_lock.resource_key, work_order.id)
             elif resource_lock.resource_key.startswith(self.PACKING_SLOT_PREFIX) and not self._occupies_packing(work_order):
                 self._repository.release_resource_lock(resource_lock.resource_key, work_order.id)
+                self._hand_free_station_to_waiting_automatic()
 
     def _build_resource_conflict_error(self, resource_key: str) -> InvalidProcessStageTransitionError:
         if resource_key == "AUTOMATIC_LINE":
-            return InvalidProcessStageTransitionError("Automatic line is already occupied by another active job.")
+            return InvalidProcessStageTransitionError(self.AUTOMATIC_LINE_OCCUPIED_ERROR)
         if resource_key.startswith(self.PACKING_SLOT_PREFIX):
             return InvalidProcessStageTransitionError(self.PACKING_OCCUPIED_ERROR)
-        return InvalidProcessStageTransitionError("Hanging resource is already occupied by another active job.")
+        return InvalidProcessStageTransitionError(self.HANGING_OCCUPIED_ERROR)
 
     def find_active_hanging_conflict(self, work_order_id: int) -> WorkOrder | None:
         for candidate in self._repository.list_work_orders_with_stage(ProcessStage.HANGING):
@@ -321,6 +362,8 @@ class ResourceLockManager:
     def _occupies_automatic_line(self, work_order: WorkOrder) -> bool:
         if work_order.production_type != ProductionType.AUTOMATIC:
             return False
+        if self.is_held_for_paint(work_order):
+            return False  # CHANGES #23: waiting for the paint run's consumption — the line runs on
 
         # On the automatic line = parts hung and entered the spray booth, not yet packed. NA42: this
         # used to read PRODUCTION==IN_PROGRESS (which spanned exactly hanging-done→packing-done); with
@@ -346,6 +389,9 @@ class ResourceLockManager:
         starts and holds it until its own packing finishes. Used to keep slots and to recover stale
         ones once the owner's packing has finished or reset.
         """
+        if self.is_held_for_paint(work_order):
+            return False  # CHANGES #23: waiting for the paint run's consumption — frees the station
+
         packing_state = self._stage_state(work_order, ProcessStage.PACKING)
         if packing_state.status == StageStatus.IN_PROGRESS:
             return True

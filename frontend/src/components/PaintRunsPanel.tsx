@@ -201,6 +201,20 @@ export function PaintRunsPanel({ mode }: { mode: "entry" | "alarm" }) {
                       ))}
                     </ul>
                     <p className="text-sm text-steel">Razem: {run.total_area_m2} m²</p>
+                    <p className="text-sm text-steel">Stan tej farby w magazynie: {formatKg(run.paint_stock_kg)}</p>
+                    {run.paint_stock_kg <= 0 ? (
+                      // Owner decision (c), 2026-10-09: the entry is refused without stock — say so up front.
+                      <p className="rounded-lg bg-rose-100 px-3 py-2 text-sm font-semibold text-rose-700">
+                        Brak stanu tej farby w magazynie — biuro musi najpierw wpisać jej stan, inaczej zużycie się nie zapisze.
+                      </p>
+                    ) : preview.consumedPaintQuantityKg !== null && preview.consumedPaintQuantityKg > run.paint_stock_kg ? (
+                      <p className="rounded-lg bg-rose-100 px-3 py-2 text-sm font-semibold text-rose-700">
+                        Wpisane zużycie jest większe niż stan w magazynie — biuro musi najpierw poprawić stan tej farby.
+                      </p>
+                    ) : null}
+                    <p className="text-xs text-steel">
+                      Ostatnie zlecenie grupy zamknie się na pakowaniu dopiero po wpisaniu zużycia.
+                    </p>
                   </div>
 
                   <div className="space-y-3 border-t border-line/80 pt-4 lg:border-l lg:border-t-0 lg:pl-5 lg:pt-0">

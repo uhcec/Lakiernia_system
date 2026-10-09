@@ -1146,6 +1146,7 @@ describe("frontend state consistency", () => {
       closed_at: null,
       consumed_kg: null,
       total_area_m2: 40,
+      paint_stock_kg: 30,
       is_current: true,
       hanging_in_progress: false,
       next_in_queue_same_paint: false,
@@ -1180,6 +1181,7 @@ describe("frontend state consistency", () => {
       closed_at: null,
       consumed_kg: null,
       total_area_m2: 20,
+      paint_stock_kg: 0,
       next_in_queue_same_paint: false,
     };
     fetchOpenPaintRunsMock.mockResolvedValue({
@@ -1233,6 +1235,30 @@ describe("frontend state consistency", () => {
     const finishButton = screen.getByRole("button", { name: "Zakończ pakowanie" });
     expect(finishButton.hasAttribute("disabled")).toBe(true);
     expect(screen.queryByText("Czeka na koniec zawieszania")).toBeNull();
+  });
+
+  it("shows a parked last-of-group packing as waiting for paint, without claim buttons (CHANGES #23)", async () => {
+    const parkedReason =
+      "Spakowane — ostatnie zlecenie grupy farby RAL 7016 (Tiger, T-7016). Zamknie się samo, gdy Produkcja automat wpisze zużycie farby całej grupy.";
+    fetchStageWorkOrdersMock.mockResolvedValueOnce([
+      buildStageWorkOrder({
+        id: 21,
+        order_number: "WO-PARKED",
+        customer_name: "ACME",
+        production_type: { value: "AUTOMATIC", label: "Automatyczna" },
+        is_being_packed: false,
+        holds_packing_slot: false,
+        can_complete_packing: false,
+        packing_blocked_reason: parkedReason,
+        stage_status: { stage: "PACKING", status: { value: "IN_PROGRESS", label: "W trakcie" } },
+      }),
+    ]);
+
+    render(<PackingWorkOrdersPage />);
+
+    expect(await screen.findByText(parkedReason)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Rozpocznij pakowanie" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Otwórz drugie stanowisko" })).toBeNull();
   });
 
   it("never pre-fills the Policzono field even when the backend supplies a counted quantity", async () => {

@@ -30,6 +30,7 @@ from app.database.session import get_session_factory
 from app.manager.repository import ManagerRepository
 from app.manager.schemas import WorkOrderPlanAssignRequest
 from app.manager.service import ManagerService
+from app.paints.schemas import PaintDeliveryCreate
 from app.process.enums import CoatingType, ProcessStage, ProductionType, QuantityBatchType, StageStatus
 from app.process.models import (
     ProcessResourceLock,
@@ -437,6 +438,7 @@ def seed_all_use_cases(session: Session) -> list[SeededScenario]:
     finish_surface_preparation(process_service, decoral_automatic.id)
     process_service.start_stage(decoral_automatic.id, ProcessStage.HANGING)
     process_service.finish_stage(decoral_automatic.id, ProcessStage.HANGING)
+    record_open_paint_runs(process_service)
     process_service.complete_packing(decoral_automatic.id, counted_quantity=11, ok_quantity=11, correction_quantity=0)
     scenarios.append(
         scenario(
@@ -1298,11 +1300,30 @@ def advance_to_packing(process_service: ProcessService, work_order_id: int, *, c
     if work_order.production_type == ProductionType.AUTOMATIC:
         process_service.start_stage(work_order_id, ProcessStage.HANGING)
         process_service.finish_stage(work_order_id, ProcessStage.HANGING)
+        record_open_paint_runs(process_service)
         return
 
     process_service.start_stage(work_order_id, ProcessStage.PRODUCTION)
     process_service.finish_stage(work_order_id, ProcessStage.PRODUCTION)
     process_service.start_stage(work_order_id, ProcessStage.PACKING)
+
+
+def record_open_paint_runs(process_service: ProcessService, *, consumed_kg: float = 1.0) -> None:
+    """The automatic-line painter enters consumption for every open paint run whose orders finished
+    hanging (CHANGES #22/#23), so seeded automatic orders can complete packing. Stock is topped up first
+    so the entry is accepted and the colour is not left at 0 kg."""
+    for run in process_service.list_open_paint_runs().runs:
+        if run.hanging_in_progress:
+            continue
+        process_service.paint_service.record_delivery(
+            PaintDeliveryCreate(
+                ral_code=run.ral_code,
+                paint_producer=run.paint_producer,
+                paint_code=run.paint_code,
+                quantity_kg=100.0,
+            )
+        )
+        process_service.record_paint_run_consumption(run.id, consumed_kg=consumed_kg)
 
 
 def get_latest_correction_child(repository: WorkOrderRepository, parent_order_id: int) -> WorkOrder:

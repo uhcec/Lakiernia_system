@@ -118,7 +118,10 @@ def complete_packing_request(
     correction_accessories_quantity: int | None = None,
     correction_reason_category: str | None = None,
     correction_reason_note: str | None = None,
+    close_paint_runs: bool = True,
 ):
+    if close_paint_runs:
+        record_open_paint_runs(test_client)
     path = (
         f"/process/work-orders/{work_order_id}/batches/{batch_id}/packing/complete"
         if batch_id is not None
@@ -143,6 +146,32 @@ def complete_packing_request(
         path,
         json=payload,
     )
+
+
+def record_open_paint_runs(test_client: TestClient, *, consumed_kg: float = 1.0) -> None:
+    """The automatic-line painter enters consumption for every open paint run whose orders finished
+    hanging (CHANGES #22/#23). Tests not about paint call this before packing so the run's last order
+    completes instead of being parked; stock is topped up first so the entry is accepted."""
+    for run in test_client.get("/process/paint-runs/open").json()["runs"]:
+        if run["hanging_in_progress"]:
+            continue
+        delivered = test_client.post(
+            "/paints/deliveries",
+            json={
+                "ral_code": run["ral_code"],
+                "paint_producer": run["paint_producer"],
+                "paint_code": run["paint_code"],
+                "quantity_kg": 100.0,
+            },
+            headers={"X-Station-Id": "OFFICE"},
+        )
+        assert delivered.status_code == 201, delivered.text
+        recorded = test_client.post(
+            f"/process/paint-runs/{run['id']}/consumption",
+            json={"consumed_kg": consumed_kg},
+            headers={"X-Station-Id": "AUTOMATIC_PRODUCTION"},
+        )
+        assert recorded.status_code == 200, recorded.text
 
 
 def advance_to_hanging(test_client: TestClient, work_order_id: int) -> None:
@@ -597,7 +626,7 @@ def test_second_automatic_hanging_start_is_rejected_when_hanging_is_busy(test_cl
 
     assert first_start_response.status_code == 200
     assert second_start_response.status_code == 409
-    assert second_start_response.json()["detail"] == "Hanging resource is already occupied by another active job."
+    assert second_start_response.json()["detail"] == "Zawieszanie jest zajęte przez inne zlecenie."
 
 
 def test_automatic_line_is_released_after_first_job_finishes(test_client: TestClient) -> None:
@@ -634,7 +663,7 @@ def test_automatic_line_is_released_after_first_job_finishes(test_client: TestCl
     assert first_hanging_finish_response.status_code == 200
     assert second_start_response.status_code == 200
     assert blocked_second_finish_response.status_code == 409
-    assert blocked_second_finish_response.json()["detail"] == "Automatic line is already occupied by another active job."
+    assert blocked_second_finish_response.json()["detail"] == "Linia automatu jest zajęta: poprzednie zlecenie nie zostało jeszcze spakowane. Zawieszanie zakończysz, gdy pakowanie je zamknie."
     assert finish_first_response.status_code == 200
     assert second_finish_response.status_code == 200
 

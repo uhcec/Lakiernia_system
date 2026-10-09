@@ -17,6 +17,7 @@ teraz (`plik:linia`), czego chce właściciel i dlaczego. Potwierdzone zachowani
 | 10 | zmiana | Uwidocznić czujkę przecieku ilości ✅ |
 | 18 | funkcja | Generowanie WZ (wydanie z magazynu) dla grupy gotowych zleceń ✅ |
 | 22 | zmiana | Zużycie farby na automacie na grupę farby, podział wg m² ✅ |
+| 23 | zmiana | Ostatnie zlecenie grupy czeka na wpis zużycia; kolejka pakowania; polskie komunikaty ✅ |
 
 *(Uwaga: pozycje #11–#17 dodano tylko w angielskim `docs/CHANGES.md` (przegląd 2026-07-11) — nie przetłumaczono ich jeszcze tutaj.)*
 
@@ -113,3 +114,16 @@ teraz (`plik:linia`), czego chce właściciel i dlaczego. Potwierdzone zachowani
   świeci się na czerwono (stanowisko + panel kierownika), gdy farba jest już zmieniona. Migracja
   `20261009_0046`. Testy `tests/test_paint_runs_changes22.py`, frontend `PaintRunsPanel`. Sprawdzone na
   działającym backendzie. SPECYFIKACJA §3/§4/§10 zaktualizowana.
+
+### #23 — Ostatnie zlecenie grupy czeka na wpis zużycia; kolejka pakowania  *(zmiana + błąd, właściciel 2026-10-09)* — ✅ ZROBIONE 2026-10-09
+- **Znalezione:** odtworzenie testu właściciela z dziennika (zdarzenia 57-75): (1) zakleszczenie pakowania —
+  zwolnione stanowisko po 0001 wzięło 0009 (dopiero zawieszane) zamiast czekającego 0005, więc 0005 nie
+  mogło się spakować, a 0009 skończyć zawieszania aż do „drugiego stanowiska”; (2) grupy 3 nie dało się
+  zamknąć — farba miała 0 kg na stanie; (3) angielski komunikat dla operatora.
+- **Decyzje właściciela:** (a) zwolnione pakowanie → zlecenie czekające najdłużej; (b) zasada linii automatu
+  zostaje; (c) bez stanu farby wpis dalej odrzucany, stan widoczny od razu; nowe: ostatnie zlecenie grupy nie
+  może się zamknąć bez wpisu zużycia, a linia ma iść dalej.
+- **Zrobione:** zaparkowane pakowanie ostatniego zlecenia (zamyka się samo po wpisie, albo od razu, gdy
+  dołączy zlecenie w tej samej farbie), zaparkowane zwalnia stanowisko i linię; kolejka pakowania wg
+  czekania; stan farby na karcie grupy; polskie komunikaty. Migracja `20261009_0047`. Testy w
+  `tests/test_paint_runs_changes22.py`. Odtworzony przebieg właściciela na kopii bazy: bez obejścia.

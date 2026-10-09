@@ -691,6 +691,14 @@ export function PackingWorkOrdersPage() {
                         {isSubmitting ? "Zapisywanie..." : getActionLabel(status)}
                       </button>
                     </div>
+                  ) : !workOrder.can_complete_packing && workOrder.packing_blocked_reason ? (
+                    // CHANGES #23: e.g. the last order of a paint group, already packed and waiting for the
+                    // painter's consumption entry — it closes by itself, so no claim/override buttons here.
+                    <div className="flex h-full flex-col justify-center gap-3">
+                      <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-800">
+                        {workOrder.packing_blocked_reason}
+                      </p>
+                    </div>
                   ) : needsOverride ? (
                     <div className="flex h-full flex-col justify-center gap-3">
                       <p className="text-sm text-steel">Stanowisko pakowania jest zajęte.</p>

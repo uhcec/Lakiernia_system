@@ -2,6 +2,8 @@ from fastapi.testclient import TestClient
 import pytest
 from sqlalchemy.exc import IntegrityError
 
+from tests.test_process_api import record_open_paint_runs
+
 
 def build_create_payload(title: str, coating_type: str = "RAL", **overrides: object) -> dict:
     payload = {
@@ -613,6 +615,7 @@ def test_completed_decoral_correction_preserves_correction_quantity_context_in_m
         },
         headers={"X-Station-Id": "OFFICE"},
     )
+    record_open_paint_runs(test_client)  # CHANGES #23: painter enters the run before its last order closes
     parent_pack_response = test_client.post(
         f"/process/work-orders/{created['id']}/packing/complete",
         json={
@@ -642,6 +645,7 @@ def test_completed_decoral_correction_preserves_correction_quantity_context_in_m
 
     test_client.post(f"/process/work-orders/{correction_order['id']}/stages/HANGING/start")
     test_client.post(f"/process/work-orders/{correction_order['id']}/stages/HANGING/finish")
+    record_open_paint_runs(test_client)
     test_client.post(
         f"/process/work-orders/{correction_order['id']}/packing/complete",
         json={"counted_quantity": 3, "ok_quantity": 3, "correction_quantity": 0},

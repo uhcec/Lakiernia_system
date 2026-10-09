@@ -130,6 +130,9 @@ class PaintRunMember(Base):
     work_order_id: Mapped[int] = mapped_column(ForeignKey("work_orders.id", ondelete="CASCADE"), nullable=False)
     area_m2: Mapped[float] = mapped_column(Float(), nullable=False)
     allocated_kg: Mapped[float | None] = mapped_column(Float(), nullable=True)
+    # CHANGES #23: the operator's submitted packing of the run's last order, kept (JSON) until the run's
+    # consumption is entered; the system then completes the packing with these numbers.
+    pending_packing_json: Mapped[str | None] = mapped_column(Text(), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: clock.now(), nullable=False)
 
     paint_run = relationship("PaintRun", back_populates="members")

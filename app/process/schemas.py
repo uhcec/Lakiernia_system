@@ -187,6 +187,9 @@ class PaintRunRead(BaseModel):
     closed_at: datetime | None = None
     consumed_kg: float | None = None
     total_area_m2: float
+    # Current stock of the run's paint: entry is refused when it cannot cover the kg, so the station is
+    # told up front when the office still has to enter the paint (owner decision (c), 2026-10-09).
+    paint_stock_kg: float
     # The newest run — the paint the line is on now. An open run that is NOT current means the paint
     # already changed, so its consumption is overdue.
     is_current: bool

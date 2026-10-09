@@ -1,9 +1,10 @@
-"""CHANGES #22 — automatic paint consumption is entered once per paint run, split by m².
+"""CHANGES #22/#23 — automatic paint consumption is entered once per paint run, split by m².
 
 Owner decisions (2026-10-09): orders with the same paint hung back-to-back on the automatic line form
 one run; consumption is entered after the run's orders finished hanging and split onto the orders by
-m²; packing never waits for it; an open run blocks nothing (it is only flagged); entry is write-once;
-correction rounds join runs like ordinary orders.
+m²; entry is write-once; correction rounds join runs like ordinary orders. #23: only the LAST order of
+an open run waits — its submitted packing is parked until the consumption is entered, then completes —
+and while parked it frees the packing station and the automatic line (the line keeps running).
 """
 
 import pytest
@@ -57,9 +58,18 @@ def hang(test_client: TestClient, work_order_id: int, *, finish: bool = True, pa
     if pack:
         active = test_client.get(f"/work-orders/{work_order_id}").json()["current_active_quantity"]
         packed = complete_packing_request(
-            test_client, work_order_id, counted_quantity=active, ok_quantity=active, correction_quantity=0
+            test_client,
+            work_order_id,
+            counted_quantity=active,
+            ok_quantity=active,
+            correction_quantity=0,
+            close_paint_runs=False,
         )
         assert packed.status_code == 200, packed.text
+
+
+def status_of(test_client: TestClient, work_order_id: int) -> str:
+    return test_client.get(f"/work-orders/{work_order_id}").json()["process_status"]["value"]
 
 
 def open_runs(test_client: TestClient) -> list[dict]:
@@ -169,17 +179,83 @@ def test_undoing_a_hanging_start_takes_the_order_out_of_its_open_run(test_client
     assert open_runs(test_client) == []  # the emptied run is deleted
 
 
-def test_packing_completes_without_waiting_for_the_run(test_client: TestClient) -> None:
-    order = create_automatic_order(test_client, title="Biały pakowany", paint=WHITE, area_m2=20.0)
+def test_only_the_last_order_of_a_run_waits_for_the_consumption(test_client: TestClient) -> None:
+    # Owner's example: 4 orders in one paint — 1-3 close normally, the 4th waits for the painter's entry.
+    ensure_paint_stock(test_client, **WHITE, target_quantity_kg=50.0)
+    orders = [create_automatic_order(test_client, title=f"Biały {n}", paint=WHITE, area_m2=10.0) for n in range(1, 5)]
+    for order in orders:
+        hang(test_client, order["id"])
+
+    assert [status_of(test_client, order["id"]) for order in orders[:3]] == ["READY", "READY", "READY"]
+    assert status_of(test_client, orders[3]["id"]) != "READY"
+    packing_card = next(
+        row for row in test_client.get("/process/stages/PACKING/work-orders").json() if row["id"] == orders[3]["id"]
+    )
+    assert packing_card["can_complete_packing"] is False
+    assert packing_card["packing_blocked_reason"].startswith("Spakowane — ostatnie zlecenie grupy farby RAL 9016")
+
+    [run] = open_runs(test_client)
+    assert record(test_client, run["id"], 8.0).status_code == 200
+
+    # The parked packing completes with the packer's numbers — nobody re-enters anything.
+    detail = test_client.get(f"/work-orders/{orders[3]['id']}").json()
+    assert detail["process_status"]["value"] == "READY"
+    assert detail["completed_quantity"] == 10
+
+
+def test_a_parked_order_frees_the_line_so_the_next_paint_keeps_hanging(test_client: TestClient) -> None:
+    white = create_automatic_order(test_client, title="Biały ostatni", paint=WHITE, area_m2=20.0)
+    grey = create_automatic_order(test_client, title="Grafit dalej", paint=GREY, area_m2=20.0)
+    hang(test_client, white["id"])  # packing submitted → parked (last of the white run)
+
+    # Before #23 the white order would hold the automatic line until packed; now grey finishes hanging.
+    hang(test_client, grey["id"], pack=False)
+
+    assert status_of(test_client, white["id"]) != "READY"
+    grey_card = next(row for row in test_client.get("/process/stages/PACKING/work-orders").json() if row["id"] == grey["id"])
+    assert grey_card["is_being_packed"] is True  # the station went to grey, not to the parked white
+
+
+def test_a_parked_order_closes_as_soon_as_a_same_paint_order_joins(test_client: TestClient) -> None:
+    first = create_automatic_order(test_client, title="Biały przerwa 1", paint=WHITE, area_m2=20.0)
+    second = create_automatic_order(test_client, title="Biały przerwa 2", paint=WHITE, area_m2=20.0)
+    hang(test_client, first["id"])  # nothing else white hanging yet → parked
+    assert status_of(test_client, first["id"]) != "READY"
+
+    hang(test_client, second["id"], finish=False)  # same paint joins → first is no longer the last
+
+    assert status_of(test_client, first["id"]) == "READY"
+
+
+def test_freed_packing_goes_to_the_order_waiting_longest(test_client: TestClient) -> None:
+    # Owner's live test 2026-10-09 deadlocked here: the station freed by A went to C (just started
+    # hanging) instead of B (already waiting), so B could not pack and C could not finish hanging.
+    a, b, c = (create_automatic_order(test_client, title=f"Kolejka {n}", paint=WHITE, area_m2=10.0) for n in "ABC")
+    for order in (a, b, c):
+        advance_to_hanging(test_client, order["id"])
+    test_client.post(f"/process/work-orders/{a['id']}/stages/HANGING/start")
+    test_client.post(f"/process/work-orders/{a['id']}/stages/HANGING/finish")
+    test_client.post(f"/process/work-orders/{b['id']}/stages/HANGING/start")
+    pack_a = complete_packing_request(test_client, a["id"], counted_quantity=10, ok_quantity=10, correction_quantity=0, close_paint_runs=False)
+    assert pack_a.status_code == 200, pack_a.text
+    assert test_client.post(f"/process/work-orders/{b['id']}/stages/HANGING/finish").status_code == 200
+    test_client.post(f"/process/work-orders/{c['id']}/stages/HANGING/start")
+
+    pack_b = complete_packing_request(test_client, b["id"], counted_quantity=10, ok_quantity=10, correction_quantity=0, close_paint_runs=False)
+
+    assert pack_b.status_code == 200, pack_b.text  # no override needed any more
+    assert status_of(test_client, b["id"]) == "READY"
+    assert test_client.post(f"/process/work-orders/{c['id']}/stages/HANGING/finish").status_code == 200
+
+
+def test_open_run_shows_the_paint_stock(test_client: TestClient) -> None:
+    ensure_paint_stock(test_client, **WHITE, target_quantity_kg=0.0)
+    order = create_automatic_order(test_client, title="Biały bez stanu", paint=WHITE, area_m2=20.0)
     hang(test_client, order["id"], pack=False)
 
-    response = complete_packing_request(test_client, order["id"], counted_quantity=10, ok_quantity=10, correction_quantity=0)
-
-    assert response.status_code == 200, response.text
-    assert test_client.get(f"/work-orders/{order['id']}").json()["process_status"]["value"] == "READY"
-    # The run is still open (flagged) and can be filled in afterwards.
     [run] = open_runs(test_client)
-    assert run["members"][0]["work_order_id"] == order["id"]
+
+    assert run["paint_stock_kg"] == 0.0
 
 
 def test_insufficient_stock_gives_a_polish_reason_and_records_nothing(test_client: TestClient) -> None:

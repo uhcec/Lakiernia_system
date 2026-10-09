@@ -114,7 +114,10 @@ def complete_packing(
     correction_accessories_quantity: int | None = None,
     correction_reason_category: str | None = None,
     correction_reason_note: str | None = None,
+    close_paint_runs: bool = True,
 ):
+    if close_paint_runs:
+        record_open_paint_runs(process_service)
     return process_service.complete_packing(
         work_order_id,
         counted_quantity=ok_quantity + correction_quantity,
@@ -129,6 +132,24 @@ def complete_packing(
         correction_reason_category=(correction_reason_category or "niedomalowanie") if correction_quantity > 0 else None,
         correction_reason_note=correction_reason_note if correction_quantity > 0 else None,
     )
+
+
+def record_open_paint_runs(process_service: ProcessService, *, consumed_kg: float = 1.0) -> None:
+    """The automatic-line painter enters consumption for every open paint run whose orders finished
+    hanging (CHANGES #22/#23). Tests not about paint call this before packing so the run's last order
+    completes instead of being parked; stock is topped up first so the entry is accepted."""
+    for run in process_service.list_open_paint_runs().runs:
+        if run.hanging_in_progress:
+            continue
+        process_service.paint_service.record_delivery(
+            PaintDeliveryCreate(
+                ral_code=run.ral_code,
+                paint_producer=run.paint_producer,
+                paint_code=run.paint_code,
+                quantity_kg=100.0,
+            )
+        )
+        process_service.record_paint_run_consumption(run.id, consumed_kg=consumed_kg)
 
 
 def finish_returned_correction_on_root(process_service, process_repository, root_id: int, *, quantity: int):
@@ -1049,10 +1070,10 @@ def test_decoral_automatic_correction_returns_to_root_and_completes_S08(db_sessi
 
 
 def test_corrected_order_reports_cumulative_paint_across_chain_NA32(db_session: Session) -> None:
-    # NA32 + CHANGES #22: a corrected automatic order reports the CUMULATIVE paint consumption of the
-    # whole correction chain. The DECORAL parent (10 pieces) and its correction child (2 returned pieces,
-    # same paint) hang back-to-back, so they share one paint run; 3.0 kg entered for the run splits by
-    # m² 10:2 → parent 2.5 kg, child 0.5 kg, and the parent's read model rolls up 3.0 kg.
+    # NA32 + CHANGES #22/#23: a corrected automatic order reports the CUMULATIVE paint consumption of
+    # the whole correction chain. The DECORAL parent is the last order of its paint run, so its packing
+    # (which creates the correction child) completes only once that run's consumption is entered
+    # (2.0 kg); the child then hangs in a new run (1.0 kg). Parent rolls up 3.0 kg, child reports 1.0.
     work_order_service, process_service, manager_service, work_order_repository, _ = build_services(db_session)
 
     parent = work_order_service.create_work_order(
@@ -1060,26 +1081,16 @@ def test_corrected_order_reports_cumulative_paint_across_chain_NA32(db_session: 
     )
     manager_service.assign_plan(parent.id, WorkOrderPlanAssignRequest(production_type=ProductionType.AUTOMATIC, queue_position=1))
     advance_to_packing(process_service, parent.id)
-    complete_packing(process_service, parent.id, ok_quantity=8, correction_quantity=2)
+    record_open_paint_runs(process_service, consumed_kg=2.0)
+    complete_packing(process_service, parent.id, ok_quantity=8, correction_quantity=2, close_paint_runs=False)
 
     child = next(wo for wo in work_order_repository.list(limit=50, offset=0) if wo.is_correction)
     manager_service.assign_plan(child.id, WorkOrderPlanAssignRequest(production_type=ProductionType.AUTOMATIC, queue_position=2))
     advance_to_packing(process_service, child.id)
-
-    process_service.paint_service.record_delivery(
-        PaintDeliveryCreate(
-            ral_code=parent.ral_code,
-            paint_producer=parent.paint_producer,
-            paint_code=parent.paint_code,
-            quantity_kg=100.0,
-        )
-    )
-    [run] = process_service.list_open_paint_runs().runs
-    assert {member.work_order_id for member in run.members} == {parent.id, child.id}
-    process_service.record_paint_run_consumption(run.id, consumed_kg=3.0)
+    record_open_paint_runs(process_service, consumed_kg=1.0)
 
     assert work_order_service.get_work_order(parent.id).consumed_paint_quantity_kg == 3.0
-    assert work_order_service.get_work_order(child.id).consumed_paint_quantity_kg == 0.5
+    assert work_order_service.get_work_order(child.id).consumed_paint_quantity_kg == 1.0
 
 
 def test_nested_decoral_corrections_complete_to_ready_S11(db_session: Session) -> None:
@@ -1976,7 +1987,7 @@ def test_parallel_automatic_hanging_start_allows_only_one_order_to_acquire_hangi
         engine.dispose()
 
     assert "started" in results
-    assert "Hanging resource is already occupied by another active job." in results
+    assert "Zawieszanie jest zajęte przez inne zlecenie." in results
     assert first_order is not None
     assert second_order is not None
     in_progress_ids = {
