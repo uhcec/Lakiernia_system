@@ -1021,3 +1021,24 @@ buttons stop "Zawieszanie jest zajęte" error clicks.
 
 **Review-by:** first shift on the new screen — ask the hanger whether anything they used on the old card
 is missing.
+
+---
+
+## 2026-10-15 — CHANGES #28: undoing an automatic hanging start also undoes its packing
+
+**Decision:** taking back a hanging start on the automatic line returns PACKING (started implicitly at
+hanging start) to NOT_STARTED and frees the packing station.
+
+**Why:** owner, 2026-10-15 ("ok" to fixing it): with several hanging starts allowed (next change) a
+mis-start becomes likelier, and the undo left the order holding the single packing station — the next
+automatic order then could not get it.
+
+**Rejected:** *forbidding the undo* — the owner chose to fix it.
+
+**Implementation notes:** `app/process/service.py:297-309@CHANGES #28: undoing`; the slot is released by the
+existing `release_inactive_resource_locks` once the order no longer occupies packing. Logged as its own
+PACKING→NOT_STARTED transition so the stats see it.
+
+**Expected:** an undone start leaves no trace on the packing side.
+
+**Review-by:** none beyond the test — fully pinned.

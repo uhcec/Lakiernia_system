@@ -668,6 +668,42 @@ def test_automatic_line_is_released_after_first_job_finishes(test_client: TestCl
     assert second_finish_response.status_code == 200
 
 
+def test_undoing_automatic_hanging_start_also_undoes_packing_and_frees_the_station_CHANGES28(
+    test_client: TestClient,
+) -> None:
+    first = create_planned_work_order(
+        test_client,
+        title="Undo hanging first",
+        queue_position=1,
+        production_type="AUTOMATIC",
+    )
+    second = create_planned_work_order(
+        test_client,
+        title="Undo hanging second",
+        queue_position=2,
+        production_type="AUTOMATIC",
+    )
+    advance_to_hanging(test_client, first["id"])
+    advance_to_hanging(test_client, second["id"])
+
+    assert test_client.post(f"/process/work-orders/{first['id']}/stages/HANGING/start").status_code == 200
+    undo_response = test_client.post(f"/process/work-orders/{first['id']}/stages/HANGING/reopen")
+    assert undo_response.status_code == 200
+
+    detail = test_client.get(f"/work-orders/{first['id']}").json()
+    statuses = {state["stage"]["value"]: state["status"]["value"] for state in detail["stage_states"]}
+    assert statuses["HANGING"] == "NOT_STARTED"
+    assert statuses["PACKING"] == "NOT_STARTED"
+
+    # The packing station is free again: the next order to start hanging takes it.
+    assert test_client.post(f"/process/work-orders/{second['id']}/stages/HANGING/start").status_code == 200
+    packing_rows = {
+        row["id"]: row for row in test_client.get("/process/stages/PACKING/work-orders").json()
+    }
+    assert packing_rows[second["id"]]["holds_packing_slot"] is True
+    assert first["id"] not in packing_rows or packing_rows[first["id"]]["holds_packing_slot"] is False
+
+
 def test_correction_quantity_uses_actual_received_split_not_expected_gap(test_client: TestClient) -> None:
     created = create_planned_work_order(
         test_client,

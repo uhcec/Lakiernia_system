@@ -294,6 +294,20 @@ class ProcessService:
                         packing_state.updated_at = stage_state.updated_at
                         implicit_in_progress.append(ProcessStage.PACKING)
 
+                # CHANGES #28: undoing an automatic hanging start takes back the packing it started, so the
+                # order no longer occupies packing and its station is released below (and handed on).
+                implicit_not_started: list[ProcessStage] = []
+                if (
+                    stage == ProcessStage.HANGING
+                    and target_status == StageStatus.NOT_STARTED
+                    and work_order.production_type == ProductionType.AUTOMATIC
+                ):
+                    packing_state = self._get_stage_state(work_order, ProcessStage.PACKING)
+                    if packing_state.status == StageStatus.IN_PROGRESS:
+                        packing_state.status = StageStatus.NOT_STARTED
+                        packing_state.updated_at = stage_state.updated_at
+                        implicit_not_started.append(ProcessStage.PACKING)
+
                 if target_status != StageStatus.IN_PROGRESS:
                     self.resource_locks.release_inactive_resource_locks(work_order)
 
@@ -309,6 +323,14 @@ class ProcessService:
                         work_order=work_order,
                         stage=implicit_stage,
                         status=StageStatus.IN_PROGRESS,
+                        station_context=station_context,
+                        batch_id=None,
+                    )
+                for implicit_stage in implicit_not_started:
+                    self.audit.record_stage_transition(
+                        work_order=work_order,
+                        stage=implicit_stage,
+                        status=StageStatus.NOT_STARTED,
                         station_context=station_context,
                         batch_id=None,
                     )

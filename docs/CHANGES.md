@@ -378,7 +378,7 @@ code does now (`file:line`), what the owner wants, and why. See `docs/SPEC.md` f
   old card and change how a piece is handled); dropped AUTOMAT (everything here is automatic). Tests
   `frontend/tests/hangingGroups.test.ts`; screenshots on the running app (idle + one order hanging).
 
-### #28 — Undoing a hanging start leaves packing IN_PROGRESS and the packing slot held  *(bug, found 2026-10-15 while doing #27)* — OPEN
+### #28 — Undoing a hanging start leaves packing IN_PROGRESS and the packing slot held  *(bug, found 2026-10-15 while doing #27)* — ✅ DONE 2026-10-15
 - **Now:** on an AUTOMATIC order, `reopen` of HANGING from IN_PROGRESS (`app/process/service.py`
   `reopen_stage` → NOT_STARTED) puts hanging back to NOT_STARTED and takes the order out of its paint run,
   but PACKING — which went IN_PROGRESS at hanging start — stays IN_PROGRESS and the `PACKING:1` lock stays
@@ -387,3 +387,9 @@ code does now (`file:line`), what the owner wants, and why. See `docs/SPEC.md` f
 - **Want:** probably undo the packing start + release the slot together with the hanging start — confirm
   with the owner whether a hanging start can be "taken back" on the floor at all before deciding fix vs
   forbid. Needs a regression test first.
+- **Done (owner: fix it, 2026-10-15 — needed before allowing several hanging starts, where a mis-start is
+  likelier):** undoing an automatic hanging start also puts PACKING back to NOT_STARTED (logged as its own
+  transition); the packing slot is then released by the existing lock cleanup and handed to the waiting
+  automatic order. Regression test
+  `test_undoing_automatic_hanging_start_also_undoes_packing_and_frees_the_station_CHANGES28` (failed before,
+  passes after).

@@ -184,10 +184,14 @@ teraz (`plik:linia`), czego chce właściciel i dlaczego. Potwierdzone zachowani
   żywo). Zostawione też etykiety PRZEMALOWANKA/OCYNK/DECORAL (były na starej karcie); usunięte AUTOMAT
   (tu wszystko jest automatem). Testy `frontend/tests/hangingGroups.test.ts`; zrzuty z działającej aplikacji.
 
-### #28 — Cofnięcie startu zawieszania zostawia pakowanie „w trakcie” i zajęte miejsce pakowania  *(błąd, znaleziony 2026-10-15 przy #27)* — OTWARTE
+### #28 — Cofnięcie startu zawieszania zostawia pakowanie „w trakcie” i zajęte miejsce pakowania  *(błąd, znaleziony 2026-10-15 przy #27)* — ✅ ZROBIONE 2026-10-15
 - **Teraz:** dla zlecenia na automat cofnięcie zawieszania z „w trakcie” (`reopen_stage` → NOT_STARTED)
   wraca zawieszanie i wyjmuje zlecenie z grupy farby, ale pakowanie (ruszyło przy starcie zawieszania)
   zostaje „w trakcie”, a miejsce pakowania zostaje zajęte. Widziane na żywo na 0001 (baza deweloperska).
   Z ekranu zawieszania nieosiągalne (w trakcie jest tylko „Zakończ”); przez API tak.
 - **Chcemy:** prawdopodobnie cofnąć też pakowanie i zwolnić miejsce — najpierw zapytać właściciela, czy na
   hali start zawieszania w ogóle da się „odwołać” (naprawić czy zabronić). Najpierw test regresji.
+- **Zrobione (właściciel: naprawić, 2026-10-15 — potrzebne przed kilkoma startami naraz):** cofnięcie startu
+  zawieszania na automacie cofa też pakowanie do „nie rozpoczęte” (zapisane jako osobne przejście);
+  miejsce pakowania zwalnia się i przechodzi na czekające zlecenie automatu. Test regresji
+  `test_undoing_automatic_hanging_start_also_undoes_packing_and_frees_the_station_CHANGES28`.
