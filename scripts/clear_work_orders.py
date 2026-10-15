@@ -5,15 +5,17 @@ import shutil
 import sys
 from pathlib import Path
 
-from sqlalchemy import delete
+from sqlalchemy import delete, update
 
 from app.audit.models import AuditEvent, AuditEventActor
 from app.core.config import get_work_order_attachments_path
 from app.database import models as _models  # noqa: F401
 from app.database.session import get_session_factory
+from app.paints.models import PaintRun, PaintRunMember, PaintStockMovement
 from app.process.models import (
     ProcessResourceLock,
     StageTransitionEvent,
+    StatOnlyCorrection,
     WorkOrderQuantityBatch,
     WorkOrderStageState,
 )
@@ -32,6 +34,12 @@ def main() -> None:
         session.execute(delete(WorkOrderQuantityBatch))
         session.execute(delete(WorkOrderStageState))
         session.execute(delete(ProcessResourceLock))
+        session.execute(delete(StatOnlyCorrection))
+        # Paint runs (CHANGES #22/#23) belong to the orders. Stock movements stay (stock history) but
+        # lose their links, as ON DELETE SET NULL would — otherwise a reused order id would inherit them.
+        session.execute(delete(PaintRunMember))
+        session.execute(update(PaintStockMovement).values(work_order_id=None, paint_run_id=None))
+        session.execute(delete(PaintRun))
         session.execute(delete(WorkOrderAttachment))
         session.execute(delete(WorkOrder))
         session.execute(delete(WorkOrderNumberCounter))
