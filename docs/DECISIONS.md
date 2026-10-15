@@ -971,3 +971,22 @@ pieces at the Decoral pass (closes 5/5 with 3 pieces). The new badge still reads
 to the client; no more "nigdzie o tym nie wspomniane".
 
 **Review-by:** first real short or extra delivery after cutover — tracked in `REVIEW_LEDGER.md` row 11.
+
+---
+
+## 2026-10-15 — CHANGES #25: the active batch carries the prep count from prep finish
+
+**What:** after surface prep, the order's active batch is set to the counted pieces in both directions
+(before: only on overcount, #24). Owner asked to fix the bug immediately ("napraw to od razu").
+
+**Why (root cause, not symptom):** the wrong assumption was "the batch is the declared amount until
+finalize". The RAL path never noticed (packing credits the OK count), but the plain DECORAL pass credits the
+whole active batch, so 3 arrived pieces were credited as 5 and the D5 redefinition never fired. Patching
+only the Decoral credit (`min(batch, prep count)`) would leave the same wrong number in the batch for every
+other reader; fixing the batch makes the count the single truth after prep.
+
+**Not a domain change:** the order's *total* still changes exactly as before (undercount at finalize via D5,
+overcount at prep per #24) — only the internal batch size moved. The 2026-07-11 "irreversible on typo"
+concern does not apply: a recount re-syncs the batch (pinned by `test_recount_up_after_undercount_restores_the_batch_CHANGES25`).
+
+**Review-by:** none beyond the tests — the behaviour is fully pinned.

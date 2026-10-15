@@ -336,7 +336,7 @@ code does now (`file:line`), what the owner wants, and why. See `docs/SPEC.md` f
   on the running backend: 0002 backfilled; an AUTOMATIC order 14→16 through paint-run parking closed
   READY 16/16, no leak flag, m² 14. SPEC §4 in both languages; DECISIONS 2026-10-15.
 
-### #25 — DECORAL intake undercount credits phantom pieces at the Decoral pass  *(bug, found 2026-10-15 while doing #24, not fixed)*
+### #25 — DECORAL intake undercount credits phantom pieces at the Decoral pass  *(bug, found 2026-10-15 while doing #24)* — ✅ DONE 2026-10-15
 - **Now:** a DECORAL order with prep counting fewer than declared (5 declared, 3 counted, 3 packed OK)
   finishes the plain Decoral pass by crediting the active batch's size (`completed += current_active_quantity`,
   `app/process/service.py` `finish_stage` DECORAL_PRODUCTION branch) — the batch still holds 5, so the
@@ -347,3 +347,9 @@ code does now (`file:line`), what the owner wants, and why. See `docs/SPEC.md` f
 - **Want:** credit only the pieces that arrived (shrink the batch to the prep count before the Decoral pass,
   or credit `min(batch, prep actual)`), so the order finalizes through the D5 path at 3. Needs its own
   regression test across Decoral corrections before changing.
+- **Done (owner: "napraw to od razu"):** root cause was the batch, not the Decoral credit — after prep the
+  active batch still held the declared size. Prep finish now sets the active batch to the counted amount in
+  both directions (`_apply_intake_count`, which also does the #24 overcount growth); a recount re-syncs it.
+  Tests in `tests/test_declared_quantity_changes24.py` (`..._CHANGES25`: plain Decoral undercount, with a
+  stat-only correction, recount back up after a typo) — failing before, passing after; RAL undercount tests
+  unchanged.

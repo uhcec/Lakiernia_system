@@ -314,3 +314,79 @@ def test_discrepancy_resolution_tick_and_untick_CHANGES24(test_client):
     assert office.status_code == 200, office.text
     assert office.json()["quantity_discrepancy_resolved_by"] == "OFFICE"
     assert len(audit_events(test_client, order_id, "work_order.quantity_discrepancy_resolution_updated")) == 3
+
+
+def run_plain_decoral_pass(client, order_id: int) -> None:
+    assert client.post(f"/process/work-orders/{order_id}/stages/DECORAL_PRODUCTION/start").status_code == 200
+    finish = client.post(f"/process/work-orders/{order_id}/stages/DECORAL_PRODUCTION/finish")
+    assert finish.status_code == 200, finish.text
+
+
+def test_decoral_undercount_credits_only_arrived_pieces_CHANGES25(test_client):
+    """CHANGES #25 (found 2026-10-15): 5 declared, 3 arrive, 3 packed OK. The Decoral pass credited the
+    batch's DECLARED size, closing READY 5/5 with 3 real pieces (no D5 redefinition, no leak flag).
+    It must credit the 3 that arrived and finalize as a 3-piece order through the D5 path."""
+    order_id = create_planned(test_client, "Decoral undercount", total_quantity=5, coating_type="DECORAL")
+    finish_prep(test_client, order_id, 3)
+    run_to_packing(test_client, order_id)
+    pack_all_ok(test_client, order_id, 3)
+    run_plain_decoral_pass(test_client, order_id)
+
+    detail = get_detail(test_client, order_id)
+    assert detail["process_status"]["value"] == "READY"
+    assert (detail["total_quantity"], detail["completed_quantity"]) == (3, 3)  # was: (5, 5)
+    assert detail["quantity_leak_flagged"] is False
+    assert detail["declared_quantity"] == 5
+    assert detail["surface_preparation_quantity_difference"] == -2
+    assert len(audit_events(test_client, order_id, "work_order.total_quantity_redefined")) == 1
+
+
+def test_decoral_undercount_with_stat_only_correction_CHANGES25(test_client):
+    """Same, with a correction fixed on the spot (stat-only): it folds into OK and the order still
+    closes at the 3 pieces that arrived."""
+    order_id = create_planned(test_client, "Decoral undercount stat-only", total_quantity=5, coating_type="DECORAL")
+    finish_prep(test_client, order_id, 3)
+    run_to_packing(test_client, order_id)
+    complete = test_client.post(
+        f"/process/work-orders/{order_id}/packing/complete",
+        json={
+            "counted_quantity": 3,
+            "ok_quantity": 2,
+            "correction_quantity": 1,
+            "correction_profiles_quantity": 1,
+            "correction_accessories_quantity": 0,
+            "correction_reason_category": "niedomalowanie",
+            "stat_only_correction": True,
+        },
+    )
+    assert complete.status_code == 200, complete.text
+    run_plain_decoral_pass(test_client, order_id)
+
+    detail = get_detail(test_client, order_id)
+    assert detail["process_status"]["value"] == "READY"
+    assert (detail["total_quantity"], detail["completed_quantity"]) == (3, 3)
+    assert detail["quantity_leak_flagged"] is False
+
+
+def test_recount_up_after_undercount_restores_the_batch_CHANGES25(test_client):
+    """Prep counted 3 of 5 (typo), was reopened and recounted at 5 before downstream started: the
+    order is a plain 5-piece order again — nothing redefined, no difference."""
+    order_id = create_planned(test_client, "Undercount typo fixed", total_quantity=5, coating_type="DECORAL")
+    finish_prep(test_client, order_id, 3)
+    assert get_detail(test_client, order_id)["current_active_quantity"] == 3
+    reopen = test_client.post(f"/process/work-orders/{order_id}/stages/SURFACE_PREPARATION/reopen")
+    assert reopen.status_code == 200, reopen.text
+    refinish = test_client.post(
+        f"/process/work-orders/{order_id}/stages/SURFACE_PREPARATION/finish",
+        json={"counted_quantity": 5},
+    )
+    assert refinish.status_code == 200, refinish.text
+    run_to_packing(test_client, order_id)
+    pack_all_ok(test_client, order_id, 5)
+    run_plain_decoral_pass(test_client, order_id)
+
+    detail = get_detail(test_client, order_id)
+    assert (detail["total_quantity"], detail["completed_quantity"]) == (5, 5)
+    assert detail["surface_preparation_quantity_difference"] == 0
+    assert detail["declared_quantity"] == 5
+    assert audit_events(test_client, order_id, "work_order.total_quantity_redefined") == []

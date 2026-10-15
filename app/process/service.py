@@ -518,7 +518,7 @@ class ProcessService:
                     work_order, counted_quantity, allow_intake_overcount=True
                 )
                 self._ensure_surface_preparation_counted_quantity(work_order)
-                self._grow_order_to_intake_overcount(work_order)
+                self._apply_intake_count(work_order)
 
             if stage == ProcessStage.PACKING:
                 return self.complete_packing(
@@ -2799,17 +2799,24 @@ class ProcessService:
         if stage_state.counted_quantity is None:
             raise InvalidProcessStageTransitionError("Policzona ilość jest wymagana, aby zakończyć przygotowanie powierzchni.")
 
-    def _grow_order_to_intake_overcount(self, work_order: WorkOrder) -> None:
-        """CHANGES #24 (owner 2026-10-15): prep counted MORE than the client declared — the extra pieces
-        are added to the order ("dokładamy do zlecenia"). Grown at prep finish (unlike the D5 undercount,
-        redefined at finalize) so packing, corrections and Decoral all see one plain N-piece order. The
-        declared amount stays on the order; m² is deliberately untouched (owner: office handles it)."""
+    def _apply_intake_count(self, work_order: WorkOrder) -> None:
+        """The prep count is what physically arrived, so from prep finish the active batch carries exactly
+        that many pieces — in both directions (CHANGES #25: a DECORAL undercount used to keep the declared
+        batch size and the Decoral pass credited pieces that never arrived; recounting re-syncs it).
+
+        CHANGES #24 (owner 2026-10-15): when prep counted MORE than the order, the extra pieces are also
+        added to the order ("dokładamy do zlecenia") right here, so packing, corrections and Decoral all
+        see one plain N-piece order. Fewer pieces keep the order's total until finalize (the D5
+        redefinition). The declared amount stays on the order; m² is untouched (owner: office handles it)."""
         counted_quantity = self.get_surface_preparation_counted_quantity(work_order)
-        if counted_quantity is None or counted_quantity <= work_order.total_quantity:
+        if counted_quantity is None:
             return
         active_batch = work_order.active_batch
         if active_batch is None:
             raise InvalidProcessStageTransitionError("Brak aktywnej partii ilościowej do przygotowania.")
+        active_batch.quantity = counted_quantity
+        if counted_quantity <= work_order.total_quantity:
+            return
 
         previous_total = work_order.total_quantity
         self._remember_declared_quantity(work_order)
@@ -2819,7 +2826,6 @@ class ProcessService:
         work_order.total_quantity = counted_quantity
         for category_field_name, category_field_value in category_fields.items():
             setattr(work_order, category_field_name, category_field_value)
-        active_batch.quantity = counted_quantity
         self.audit.record_audit_event(
             event_type="work_order.total_quantity_increased",
             station_context=None,

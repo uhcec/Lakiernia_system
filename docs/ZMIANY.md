@@ -147,7 +147,7 @@ teraz (`plik:linia`), czego chce właściciel i dlaczego. Potwierdzone zachowani
   żywym serwerze: 0002 odtworzone; zlecenie na automacie 14→16 przez czekanie na zużycie farby zamknęło
   się GOTOWE 16/16, bez flagi przecieku, 14 m². SPECYFIKACJA §4; DECISIONS 2026-10-15.
 
-### #25 — Niedobór na Decoralu zalicza nieistniejące sztuki  *(błąd, znaleziony 2026-10-15 przy #24, nienaprawiony)*
+### #25 — Niedobór na Decoralu zalicza nieistniejące sztuki  *(błąd, znaleziony 2026-10-15 przy #24)* — ✅ ZROBIONE 2026-10-15
 - **Teraz:** zlecenie DECORAL, gdzie przygotowanie policzyło mniej niż zgłoszono (5 zgłoszone, 3 policzone,
   3 spakowane OK), kończy przebieg Decoral zaliczając wielkość partii (`completed += current_active_quantity`
   w `finish_stage`, gałąź DECORAL_PRODUCTION) — partia dalej ma 5, więc zlecenie zamyka się GOTOWE **5/5**,
@@ -157,3 +157,8 @@ teraz (`plik:linia`), czego chce właściciel i dlaczego. Potwierdzone zachowani
 - **Chcemy:** zaliczyć tylko sztuki, które przyjechały (zmniejszyć partię do policzonej przed Decoralem albo
   zaliczać `min(partia, policzone)`), żeby zlecenie domknęło się ścieżką D5 na 3. Najpierw test regresji z
   poprawkami Decoral.
+- **Zrobione (właściciel: „napraw to od razu”):** przyczyną była partia, nie samo zaliczanie na Decoralu — po
+  przygotowaniu partia dalej miała zgłoszoną wielkość. Zakończenie przygotowania ustawia teraz partię na
+  policzoną liczbę w obie strony (`_apply_intake_count`, które robi też dokładanie nadwyżki z #24); ponowne
+  liczenie ją wyrównuje. Testy `..._CHANGES25` w `tests/test_declared_quantity_changes24.py` — padały przed
+  poprawką, przechodzą po niej.
