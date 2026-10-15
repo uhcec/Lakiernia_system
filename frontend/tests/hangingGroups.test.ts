@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { groupHangingQueue } from "../src/utils/hangingGroups";
+import { getHangingStartBlock, groupHangingQueue } from "../src/utils/hangingGroups";
 import type { StageWorkOrder } from "../src/types/process";
 
 function buildStageWorkOrder(overrides: Partial<StageWorkOrder> = {}): StageWorkOrder {
@@ -101,5 +101,35 @@ describe("groupHangingQueue (CHANGES #27)", () => {
     ]);
 
     expect(new Set(groups.map((group) => group.key)).size).toBe(3);
+  });
+});
+
+describe("getHangingStartBlock (CHANGES #29)", () => {
+  const hanging = buildStageWorkOrder({ id: 10, stage_status: { stage: "HANGING", status: { value: "IN_PROGRESS", label: "W trakcie" } } });
+
+  it("lets an order start when nothing hangs", () => {
+    expect(getHangingStartBlock(buildStageWorkOrder({ id: 1 }), [], 1)).toBeNull();
+  });
+
+  it("keeps the old wording when the limit is one", () => {
+    expect(getHangingStartBlock(buildStageWorkOrder({ id: 1 }), [hanging], 1)).toBe("Zawieszanie zajęte");
+  });
+
+  it("lets a same-paint order join while there is room", () => {
+    expect(getHangingStartBlock(buildStageWorkOrder({ id: 1 }), [hanging], 2)).toBeNull();
+  });
+
+  it("says the station is full once the limit is reached", () => {
+    const second = buildStageWorkOrder({ id: 11 });
+    expect(getHangingStartBlock(buildStageWorkOrder({ id: 1 }), [hanging, second], 2)).toBe("Zawieszanie pełne (2/2)");
+  });
+
+  it("refuses a different paint (RAL, producer or code)", () => {
+    expect(getHangingStartBlock(buildStageWorkOrder({ id: 1, paint_code: "OTHER" }), [hanging], 3)).toBe(
+      "Na zawieszaniu inna farba",
+    );
+    expect(getHangingStartBlock(buildStageWorkOrder({ id: 1, paint_producer: "Tiger" }), [hanging], 3)).toBe(
+      "Na zawieszaniu inna farba",
+    );
   });
 });

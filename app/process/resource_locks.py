@@ -21,6 +21,7 @@ pass: evicting an in-use ``RLock`` could hand two threads different locks for on
 
 from collections.abc import Callable, Sequence
 from contextlib import ExitStack, contextmanager
+from datetime import UTC, datetime
 from threading import RLock
 
 from sqlalchemy.exc import IntegrityError
@@ -28,9 +29,22 @@ from sqlalchemy.exc import IntegrityError
 from app.core.config import get_settings
 from app.process.enums import ProcessStage, ProductionType, StageStatus
 from app.process.models import WorkOrderStageState
+from app.process.paint_runs import paint_identity_of
 from app.process.repository import ProcessRepository
 from app.shared.exceptions import InvalidProcessStageTransitionError
+from app.shop_settings.service import get_hanging_max_active_orders
 from app.work_orders.models import WorkOrder
+
+
+def _as_naive_utc(value: datetime) -> datetime:
+    # SQLite hands back naive datetimes for tz-aware columns while freshly set ones are aware.
+    if value.tzinfo is not None:
+        return value.astimezone(UTC).replace(tzinfo=None)
+    return value
+
+
+def _describe_paint(work_order: WorkOrder) -> str:
+    return " · ".join(part for part in (work_order.ral_code, work_order.paint_producer, work_order.paint_code) if part)
 
 
 _RESOURCE_MUTATION_LOCKS: dict[str, RLock] = {}
@@ -50,6 +64,14 @@ class ResourceLockManager:
         "Zawieszanie zakończysz, gdy pakowanie je zamknie."
     )
     HANGING_OCCUPIED_ERROR = "Zawieszanie jest zajęte przez inne zlecenie."
+    HANGING_FULL_ERROR = "Zawieszanie pełne: rozpoczęto już {limit} zlecenia naraz (limit w Ustawieniach)."
+    HANGING_OTHER_PAINT_ERROR = (
+        "Na zawieszaniu wisi inna farba ({paint}). Razem można wieszać tylko zlecenia z tą samą farbą."
+    )
+    # CHANGES #29: the hanging station holds up to N orders at once — one lock row per slot.
+    HANGING_SLOT_PREFIX = "HANGING:"
+    # Pre-#29 single-holder lock row; still recognised so a row left by an older version is released.
+    LEGACY_HANGING_KEY = "HANGING"
 
     def __init__(self, repository: ProcessRepository) -> None:
         self._repository = repository
@@ -129,14 +151,64 @@ class ResourceLockManager:
         if target_status != StageStatus.IN_PROGRESS:
             return
 
-        hanging_conflict = self.find_active_hanging_conflict(work_order.id)
-        if hanging_conflict is not None:
-            raise InvalidProcessStageTransitionError(self.HANGING_OCCUPIED_ERROR)
+        block = self.hanging_start_block(work_order)
+        if block is not None:
+            raise InvalidProcessStageTransitionError(block[1])
+
+    def hanging_limit(self) -> int:
+        return max(1, get_hanging_max_active_orders(self._repository.session))
+
+    def hanging_start_block(self, work_order: WorkOrder) -> tuple[str, str] | None:
+        """Why this order cannot start hanging now — ``(kind, Polish message)`` — or None (CHANGES #29).
+
+        Up to N orders (shop setting, default 1) may hang at once (kind ``FULL``), and only with the
+        same paint (kind ``OTHER_PAINT``) — the booth paints one colour, so orders sharing a beam share
+        the paint (owner 2026-10-15).
+        """
+        active = self.list_active_hanging_orders(exclude_work_order_id=work_order.id)
+        limit = self.hanging_limit()
+        if len(active) >= limit:
+            message = self.HANGING_OCCUPIED_ERROR if limit == 1 else self.HANGING_FULL_ERROR.format(limit=limit)
+            return "FULL", message
+        identity = paint_identity_of(work_order)
+        for other in active:
+            if paint_identity_of(other) != identity:
+                return "OTHER_PAINT", self.HANGING_OTHER_PAINT_ERROR.format(paint=_describe_paint(other))
+        return None
 
     def acquire_stage_resource_locks(self, work_order: WorkOrder, stage: ProcessStage, target_status: StageStatus) -> None:
         resource_keys = self.get_stage_resource_keys(work_order, stage, target_status)
         for resource_key in resource_keys:
-            self._acquire_resource_lock_with_stale_recovery(resource_key, work_order)
+            if resource_key == self.LEGACY_HANGING_KEY:
+                self._acquire_hanging_slot(work_order)
+            elif resource_key == "AUTOMATIC_LINE":
+                self._acquire_automatic_line(work_order)
+            else:
+                self._acquire_resource_lock_with_stale_recovery(resource_key, work_order)
+
+    def _acquire_hanging_slot(self, work_order: WorkOrder) -> None:
+        held = {lock.resource_key: lock.work_order_id for lock in self._repository.list_resource_locks_with_prefix(self.LEGACY_HANGING_KEY)}
+        if work_order.id in held.values():
+            return
+        for stale_key in list(held):
+            if self._release_stale_resource_lock(stale_key):
+                del held[stale_key]
+        for index in range(1, self.hanging_limit() + 1):
+            slot_key = f"{self.HANGING_SLOT_PREFIX}{index}"
+            if slot_key not in held:
+                self._acquire_resource_lock_with_stale_recovery(slot_key, work_order)
+                return
+        raise self._build_resource_conflict_error(self.LEGACY_HANGING_KEY)
+
+    def _acquire_automatic_line(self, work_order: WorkOrder) -> None:
+        # CHANGES #29 (owner (b) 2026-10-15): an order hung together with the line holder rides along —
+        # the conflict scan already allowed it, so it does not need the single lock row itself.
+        existing = self._repository.get_resource_lock("AUTOMATIC_LINE")
+        if existing is not None and existing.work_order_id != work_order.id:
+            holder = self._repository.get_work_order_with_stage_states(existing.work_order_id)
+            if holder is not None and self._occupies_automatic_line(holder) and self._hung_together(work_order, holder):
+                return
+        self._acquire_resource_lock_with_stale_recovery("AUTOMATIC_LINE", work_order)
 
     def _acquire_resource_lock_with_stale_recovery(self, resource_key: str, work_order: WorkOrder) -> None:
         try:
@@ -298,7 +370,7 @@ class ResourceLockManager:
             self._repository.release_resource_lock(resource_key, existing_lock.work_order_id)
             return True
 
-        if resource_key == "HANGING" and not self._has_active_hanging_work(lock_owner):
+        if resource_key.startswith(self.LEGACY_HANGING_KEY) and not self._has_active_hanging_work(lock_owner):
             self._repository.release_resource_lock(resource_key, existing_lock.work_order_id)
             return True
 
@@ -314,7 +386,7 @@ class ResourceLockManager:
 
     def release_inactive_resource_locks(self, work_order: WorkOrder) -> None:
         for resource_lock in self._repository.list_resource_locks_for_work_order(work_order.id):
-            if resource_lock.resource_key == "HANGING" and not self._has_active_hanging_work(work_order):
+            if resource_lock.resource_key.startswith(self.LEGACY_HANGING_KEY) and not self._has_active_hanging_work(work_order):
                 self._repository.release_resource_lock(resource_lock.resource_key, work_order.id)
             elif resource_lock.resource_key == "AUTOMATIC_LINE" and not self._occupies_automatic_line(work_order):
                 self._repository.release_resource_lock(resource_lock.resource_key, work_order.id)
@@ -329,21 +401,39 @@ class ResourceLockManager:
             return InvalidProcessStageTransitionError(self.PACKING_OCCUPIED_ERROR)
         return InvalidProcessStageTransitionError(self.HANGING_OCCUPIED_ERROR)
 
-    def find_active_hanging_conflict(self, work_order_id: int) -> WorkOrder | None:
-        for candidate in self._repository.list_work_orders_with_stage(ProcessStage.HANGING):
-            if candidate.id == work_order_id:
-                continue
-            if self._has_active_hanging_work(candidate):
-                return candidate
-        return None
+    def list_active_hanging_orders(self, exclude_work_order_id: int | None = None) -> list[WorkOrder]:
+        return [
+            candidate
+            for candidate in self._repository.list_work_orders_with_stage(ProcessStage.HANGING)
+            if candidate.id != exclude_work_order_id and self._has_active_hanging_work(candidate)
+        ]
 
     def find_active_automatic_line_conflict(self, work_order_id: int) -> WorkOrder | None:
+        work_order = self._repository.get_work_order_with_stage_states(work_order_id)
         for candidate in self._repository.list_work_orders_with_stage(ProcessStage.HANGING):
             if candidate.id == work_order_id:
                 continue
-            if self._occupies_automatic_line(candidate):
-                return candidate
+            if not self._occupies_automatic_line(candidate):
+                continue
+            if work_order is not None and self._hung_together(work_order, candidate):
+                continue  # CHANGES #29 (b): started together → may finish hanging together
+            return candidate
         return None
+
+    def _hung_together(self, work_order: WorkOrder, line_holder: WorkOrder) -> bool:
+        """Whether ``work_order`` (now hanging) started while ``line_holder`` was still hanging.
+
+        Owner (b) 2026-10-15: orders hung together on the shared beams may finish hanging together;
+        an order started after the holder had already finished hanging still waits for its packing.
+        Only whole-order hanging carries the times needed (a stage row's ``updated_at`` is its last
+        transition: the start while IN_PROGRESS, the finish once DONE). A tracked-batch pass has no such
+        times, so it keeps the strict one-after-another rule.
+        """
+        own_state = self._stage_state(work_order, ProcessStage.HANGING)
+        holder_state = self._stage_state(line_holder, ProcessStage.HANGING)
+        if own_state.status != StageStatus.IN_PROGRESS or holder_state.status != StageStatus.DONE:
+            return False
+        return _as_naive_utc(holder_state.updated_at) >= _as_naive_utc(own_state.updated_at)
 
     # --- occupancy predicates (drive acquisition / reservation / stale recovery) ----------------
 

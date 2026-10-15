@@ -21,6 +21,32 @@ function paintKey(workOrder: StageWorkOrder): string | null {
   return [workOrder.ral_code, workOrder.paint_producer, workOrder.paint_code].join("\u0000");
 }
 
+function samePaint(left: StageWorkOrder, right: StageWorkOrder): boolean {
+  return (
+    left.ral_code === right.ral_code &&
+    left.paint_producer === right.paint_producer &&
+    left.paint_code === right.paint_code
+  );
+}
+
+// CHANGES #29: why "Rozpocznij" is greyed for a not-started order, or null when it may start. Mirrors
+// the backend (`app/process/resource_locks.py` hanging_start_block), which still refuses on its own:
+// up to `limit` orders hang at once, and only with the same paint as the ones already hanging.
+export function getHangingStartBlock(
+  workOrder: StageWorkOrder,
+  hangingNow: StageWorkOrder[],
+  limit: number,
+): string | null {
+  const others = hangingNow.filter((other) => other.id !== workOrder.id);
+  if (others.length >= limit) {
+    return limit === 1 ? "Zawieszanie zajęte" : `Zawieszanie pełne (${others.length}/${limit})`;
+  }
+  if (others.some((other) => !samePaint(other, workOrder))) {
+    return "Na zawieszaniu inna farba";
+  }
+  return null;
+}
+
 export function groupHangingQueue(workOrders: StageWorkOrder[]): HangingPaintGroup[] {
   const groups: HangingPaintGroup[] = [];
   let previousKey: string | null = null;

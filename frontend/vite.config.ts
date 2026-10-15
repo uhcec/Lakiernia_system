@@ -13,8 +13,8 @@ export default defineConfig({
     // One entry per backend router prefix. KEEP IN SYNC with app/*/router.py — a missing prefix is
     // NOT proxied, so the browser gets Vite's HTML 404 (not JSON) and every call to that API fails
     // with a generic "nie udało się…" message (this is what happened to /foils). Current backend
-    // prefixes: auth, audit, clients, employees, foils, health, manager, paints, process, stations,
-    // work-orders.
+    // prefixes: auth, audit, clients, employees, foils, health, manager, paints, process, shop-settings,
+    // stations, work-orders.
     proxy: {
       "/auth": {
         target: "http://127.0.0.1:8000",
@@ -44,6 +44,9 @@ export default defineConfig({
         target: "http://127.0.0.1:8000",
       },
       "/process": {
+        target: "http://127.0.0.1:8000",
+      },
+      "/shop-settings": {
         target: "http://127.0.0.1:8000",
       },
       "/work-orders": {

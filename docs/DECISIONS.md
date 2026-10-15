@@ -1042,3 +1042,36 @@ PACKING→NOT_STARTED transition so the stats see it.
 **Expected:** an undone start leaves no trace on the packing side.
 
 **Review-by:** none beyond the test — fully pinned.
+
+---
+
+## 2026-10-15 — CHANGES #29: several orders may hang at once; the limit is a manager setting
+
+**Decision:** up to N orders may be "w trakcie" at hanging; N is a shop setting (default 1) the manager or
+admin changes in "Ustawienia". Orders hung together share the paint. Orders hung together may finish
+hanging together; an order started after the line holder finished hanging still waits for its packing.
+
+**Why:** owner, 2026-10-15: "zlecenie może być tak małe że zmieści się na jednej belce i będą chcieli
+zacząć następne ale program im nie pozwoli". A setting (not a constant) "pozwoli kalibrować taki parametr
+bez przymusu zmiany kodu". The old one-at-a-time rule had **no recorded factory reason** (commit
+`c742f2a`, 2026-05-28, generic "physical resource exclusivity"); the owner: "to nieważne".
+Same paint (owner "tak"): the booth paints one colour, so orders sharing a beam share it — this also keeps
+paint runs (CHANGES #22) intact. Finish together (owner (b)): without it the started orders would pile up
+"w trakcie" behind the line rule and the change would give little.
+
+**Rejected:**
+- *(a) keep the line rule strict* — orders hung together would finish one per packing; owner chose (b).
+- *A code constant* — owner wants to calibrate without a code change.
+- *Different paints on one beam* — owner: same paint only.
+
+**Implementation notes:** `app/process/resource_locks.py:161-178@def hanging_start_block`,
+`app/process/resource_locks.py:423@def _hung_together` ("hung together" = the order's hanging start is not
+earlier than the holder's hanging finish, read from the hanging stage rows; a tracked-batch pass has no
+such times and keeps the strict rule), `app/shop_settings/` + migration `20261015_0049`. Lock rows
+`HANGING:1..N`; a rider does not take the single `AUTOMATIC_LINE` row — the conflict scan is the authority.
+
+**Expected:** with N > 1 the hanger starts the next same-paint order on a shared beam and finishes both
+without waiting for packing; at N = 1 nothing changes.
+
+**Review-by:** first week with N > 1 — confirm packing order still matches the beams (packing FIFO goes by
+who finished hanging first) and that nobody hits the line rule on a shared beam. `REVIEW_LEDGER.md` row 13.

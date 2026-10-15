@@ -393,3 +393,26 @@ code does now (`file:line`), what the owner wants, and why. See `docs/SPEC.md` f
   automatic order. Regression test
   `test_undoing_automatic_hanging_start_also_undoes_packing_and_frees_the_station_CHANGES28` (failed before,
   passes after).
+
+### #29 — Several orders may hang at once; the limit is a manager setting  *(change, owner 2026-10-15)* — ✅ DONE 2026-10-15
+- **Was:** one order at a time at hanging (`HANGING` single-holder lock) — no recorded factory reason (it
+  came in 2026-05-28 as a generic "resource exclusivity" rule; the 2026-10-09 confirmation (b) was about the
+  line rule only). And the line rule made the next order wait with "Zakończ" until the previous was packed.
+- **Want (owner):** a small order takes part of a beam, the next one is hung beside it → allow several
+  started orders; the number is a setting in a new "Ustawienia" tab, so it can be calibrated without code.
+  Answers: (1) manager + admin change it; (2) **(b)** orders hung together may finish hanging together;
+  (3) hung together = same paint only; (4) fix #28 first.
+- **Done:** `shop_settings` table (single row, migration `20261015_0049`; no row = 1 = old behaviour),
+  `GET/PUT /shop-settings` (GET any logged-in station, PUT manager/admin, 1–20, audited
+  `settings.updated`). Hanging lock rows are now slots `HANGING:1..N` (a legacy `HANGING` row is still
+  released). Start refused when N orders hang ("Zawieszanie jest zajęte…" at N = 1, "Zawieszanie pełne…"
+  above) or another paint hangs ("Na zawieszaniu wisi inna farba (…)"); the manager panel shows
+  "Zawieszanie zajęte" / "Na zawieszaniu inna farba". Line rule: an order that **started while the line
+  holder was still hanging** may finish hanging (rides along without the single `AUTOMATIC_LINE` row); an
+  order started after the holder finished still waits — decided from the hanging rows' times. Frontend:
+  "Ustawienia" tab (manager/admin only), hanging screen greys "Rozpocznij" with the reason and adds
+  "Cofnij start" (with confirmation) on a hanging order. Tests
+  `tests/test_hanging_concurrency_changes29.py` (settings + permissions + audit, limit, other paint,
+  finish together + pack in order, started-after waits, a rider still blocks a later order) +
+  `frontend/tests/hangingGroups.test.ts`; full backend suite green with N = 1 (only the concurrency test's
+  lock-key name changed to `HANGING:1`). Settings tab checked on the running app.

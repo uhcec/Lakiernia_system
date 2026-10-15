@@ -11,6 +11,7 @@ from app.foils.router import router as foils_router
 from app.manager.router import router as manager_router
 from app.paints.router import router as paints_router
 from app.process.router import router as process_router
+from app.shop_settings.router import router as shop_settings_router
 from app.work_orders.router import router as work_orders_router
 
 # Local/development environments where the dev-only virtual-clock router may be mounted. Mirrors
@@ -35,4 +36,5 @@ api_router.include_router(foils_router, dependencies=_auth_dep)
 api_router.include_router(manager_router, dependencies=_auth_dep)
 api_router.include_router(paints_router, dependencies=_auth_dep)
 api_router.include_router(process_router, dependencies=_auth_dep)
+api_router.include_router(shop_settings_router, dependencies=_auth_dep)
 api_router.include_router(work_orders_router, dependencies=_auth_dep)

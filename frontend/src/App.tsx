@@ -15,6 +15,7 @@ import { ManualProductionPage } from "./pages/ManualProductionPage";
 import { ManagerPanelPage } from "./pages/ManagerPanelPage";
 import { PackingPage } from "./pages/PackingPage";
 import { PaintInventoryPage } from "./pages/PaintInventoryPage";
+import { SettingsPage } from "./pages/SettingsPage";
 import { StatystykiPage } from "./pages/StatystykiPage";
 import { SurfacePreparationPage } from "./pages/SurfacePreparationPage";
 import { WorkOrderDetailPage } from "./pages/WorkOrderDetailPage";
@@ -38,6 +39,7 @@ export default function App() {
         <Route path="/folie" element={<FoilsPage />} />
         <Route path="/pracownicy" element={<EmployeesPage />} />
         <Route path="/statystyki" element={<StatystykiPage />} />
+        <Route path="/ustawienia" element={<SettingsPage />} />
         <Route path="/kierownik" element={<ManagerPanelPage />} />
         <Route path="/przygotowanie" element={<SurfacePreparationPage />} />
         <Route path="/zawieszanie" element={<HangingPage />} />

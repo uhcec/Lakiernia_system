@@ -2,11 +2,13 @@ import { useEffect, useRef, useState } from "react";
 
 import { buildWorkOrderDetailHref, getStationIdForLocation } from "../api/stationContext";
 import { fetchStageWorkOrders, transitionStage } from "../api/processApi";
+import { fetchShopSettings } from "../api/shopSettingsApi";
+import { useConfirm } from "../components/ConfirmDialog";
 import { RalColorDot } from "../components/RalColorDot";
 import { StationPresenceWidget } from "../components/StationPresenceWidget";
 import { usePolling, STATION_POLL_INTERVAL_MS } from "../hooks/usePolling";
 import type { StageWorkOrder } from "../types/process";
-import { groupHangingQueue } from "../utils/hangingGroups";
+import { getHangingStartBlock, groupHangingQueue } from "../utils/hangingGroups";
 import { getLoadErrorMessage } from "../utils/loadError";
 import { getMutationErrorMessage } from "../utils/mutationError";
 import { badgeClasses, formatDisplayOrderNumber, type DisplayBadge } from "../utils/workOrderDisplay";
@@ -15,8 +17,7 @@ import { badgeClasses, formatDisplayOrderNumber, type DisplayBadge } from "../ut
 // sketch): header "RAL · producent · kod farby", one row per order "firma · m² · numer · sztuki". Groups
 // follow the manager's queue. Drawings, attachments and the correction description live behind
 // "Szczegóły"; finished orders sit folded at the bottom with "Cofnij".
-
-const HANGING_BUSY_LABEL = "Zawieszanie zajęte";
+// CHANGES #29: up to N orders (Ustawienia) hang at once, same paint only; a started one can be taken back.
 
 function rowKey(workOrder: StageWorkOrder): string {
   return `${workOrder.id}-${workOrder.batch_id ?? workOrder.id}`;
@@ -53,6 +54,9 @@ function formatArea(value: number | null): string {
 
 export function HangingPage() {
   const detailStationId = getStationIdForLocation(window.location.pathname, window.location.search);
+  const confirm = useConfirm();
+  // 1 until the settings load — the old rule; the backend enforces the real limit either way.
+  const [hangingLimit, setHangingLimit] = useState(1);
   const [workOrders, setWorkOrders] = useState<StageWorkOrder[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   // CHANGES #16b: only the latest load may apply state, so a slow reload never shows older data.
@@ -64,9 +68,7 @@ export function HangingPage() {
   const activeWorkOrders = workOrders.filter((workOrder) => workOrder.stage_status.status.value !== "DONE");
   const completedWorkOrders = workOrders.filter((workOrder) => workOrder.stage_status.status.value === "DONE");
   const groups = groupHangingQueue(activeWorkOrders);
-  // Hanging holds one order at a time (`app/process/resource_locks.py:97-112`); the backend still refuses
-  // a second start, the grey button only says so up front.
-  const isHangingBusy = activeWorkOrders.some((workOrder) => workOrder.stage_status.status.value === "IN_PROGRESS");
+  const hangingNow = activeWorkOrders.filter((workOrder) => workOrder.stage_status.status.value === "IN_PROGRESS");
 
   async function loadWorkOrders(options?: { preserveErrorMessage?: boolean; background?: boolean }): Promise<boolean> {
     const background = options?.background ?? false;
@@ -79,11 +81,12 @@ export function HangingPage() {
     }
 
     try {
-      const items = await fetchStageWorkOrders("HANGING");
+      const [items, settings] = await Promise.all([fetchStageWorkOrders("HANGING"), fetchShopSettings()]);
       if (requestId !== loadRequestSequenceRef.current) {
         return false;
       }
       setWorkOrders(items);
+      setHangingLimit(settings.hanging_max_active_orders);
       return true;
     } catch (error) {
       if (!background && requestId === loadRequestSequenceRef.current) {
@@ -110,6 +113,17 @@ export function HangingPage() {
     activeRowKey === null,
   );
 
+  async function handleUndoStart(workOrder: StageWorkOrder) {
+    const confirmed = await confirm({
+      title: "Cofnąć rozpoczęcie?",
+      message: `Zlecenie ${formatDisplayOrderNumber(workOrder)} wróci do kolejki jako nierozpoczęte.`,
+      confirmLabel: "Cofnij start",
+    });
+    if (confirmed) {
+      await handleAction(workOrder, "reopen");
+    }
+  }
+
   async function handleAction(workOrder: StageWorkOrder, action: "start" | "finish" | "reopen") {
     setActiveRowKey(rowKey(workOrder));
     setErrorMessage(null);
@@ -135,7 +149,7 @@ export function HangingPage() {
     const isInProgress = status === "IN_PROGRESS";
     const isDone = status === "DONE";
     const isSubmitting = activeRowKey === rowKey(workOrder);
-    const isBlockedByOtherOrder = status === "NOT_STARTED" && isHangingBusy;
+    const startBlock = status === "NOT_STARTED" ? getHangingStartBlock(workOrder, hangingNow, hangingLimit) : null;
     const action = isDone ? "reopen" : isInProgress ? "finish" : "start";
     const actionLabel = isDone ? "Cofnij" : isInProgress ? "Zakończ" : "Rozpocznij";
 
@@ -189,7 +203,7 @@ export function HangingPage() {
           <div className="flex flex-col items-end gap-1">
             <button
               type="button"
-              disabled={isSubmitting || isBlockedByOtherOrder}
+              disabled={isSubmitting || startBlock !== null}
               onClick={() => void handleAction(workOrder, action)}
               className={[
                 "inline-flex min-w-[8.5rem] items-center justify-center rounded-lg border px-4 py-3 text-sm font-semibold transition disabled:cursor-not-allowed",
@@ -200,7 +214,17 @@ export function HangingPage() {
             >
               {isSubmitting ? "Zapisywanie..." : actionLabel}
             </button>
-            {isBlockedByOtherOrder ? <span className="text-xs text-steel">{HANGING_BUSY_LABEL}</span> : null}
+            {startBlock !== null ? <span className="text-xs text-steel">{startBlock}</span> : null}
+            {isInProgress ? (
+              <button
+                type="button"
+                disabled={isSubmitting}
+                onClick={() => void handleUndoStart(workOrder)}
+                className="text-xs font-medium text-steel underline-offset-2 transition hover:text-rose-700 hover:underline disabled:cursor-not-allowed"
+              >
+                Cofnij start
+              </button>
+            ) : null}
           </div>
         </div>
       </li>
@@ -214,7 +238,8 @@ export function HangingPage() {
         <p className="text-sm font-semibold uppercase tracking-[0.18em] text-accent">Widok etapu</p>
         <h2 className="text-3xl font-semibold text-ink sm:text-4xl">Zawieszanie</h2>
         <p className="mt-2 max-w-3xl text-sm leading-6 text-steel sm:text-base">
-          Zlecenia w kolejności kierownika, pogrupowane po farbie.
+          Zlecenia w kolejności kierownika, pogrupowane po farbie. Naraz można wieszać do {hangingLimit}{" "}
+          {hangingLimit === 1 ? "zlecenia" : "zleceń"} z tą samą farbą.
         </p>
       </section>
 

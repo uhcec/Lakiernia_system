@@ -1999,7 +1999,7 @@ def test_parallel_automatic_hanging_start_allows_only_one_order_to_acquire_hangi
     winner_id = next(iter(in_progress_ids))
     # The winning automatic also reserves a packing slot at hanging start (NA22a).
     assert {(lock.resource_key, lock.work_order_id) for lock in resource_locks} == {
-        ("HANGING", winner_id),
+        ("HANGING:1", winner_id),  # CHANGES #29: hanging slots
         ("PACKING:1", winner_id),
     }
 

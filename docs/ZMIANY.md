@@ -195,3 +195,20 @@ teraz (`plik:linia`), czego chce właściciel i dlaczego. Potwierdzone zachowani
   zawieszania na automacie cofa też pakowanie do „nie rozpoczęte” (zapisane jako osobne przejście);
   miejsce pakowania zwalnia się i przechodzi na czekające zlecenie automatu. Test regresji
   `test_undoing_automatic_hanging_start_also_undoes_packing_and_frees_the_station_CHANGES28`.
+
+### #29 — Kilka zleceń naraz na zawieszaniu; limit w ustawieniach kierownika  *(zmiana, właściciel 2026-10-15)* — ✅ ZROBIONE 2026-10-15
+- **Było:** jedno zlecenie naraz na zawieszaniu — bez zapisanego powodu z fabryki (weszło 2026-05-28 jako
+  ogólna zasada „wyłączności zasobu”; potwierdzenie (b) z 2026-10-09 dotyczyło tylko linii). A zasada
+  linii kazała następnemu czekać z „Zakończ”, aż poprzednie zostanie spakowane.
+- **Chcemy (właściciel):** małe zlecenie zajmuje kawałek belki, obok wiesza się następne → kilka zleceń
+  rozpoczętych naraz; liczba to ustawienie w nowej zakładce „Ustawienia”, do kalibracji bez zmiany kodu.
+  Odpowiedzi: (1) zmienia kierownik i admin; (2) **(b)** wieszane razem mogą razem zakończyć zawieszanie;
+  (3) razem tylko ta sama farba; (4) najpierw naprawić #28.
+- **Zrobione:** tabela `shop_settings` (jeden wiersz, migracja `20261015_0049`; brak wiersza = 1 = jak
+  dawniej), `GET/PUT /shop-settings` (odczyt każde stanowisko, zapis kierownik/admin, 1–20, w audycie).
+  Blokady zawieszania to teraz miejsca `HANGING:1..N`. Start odrzucony, gdy wisi już N zleceń albo inna
+  farba; kierownik widzi „Zawieszanie zajęte” / „Na zawieszaniu inna farba”. Linia: zlecenie zaczęte,
+  gdy poprzednie jeszcze się wieszało, może zakończyć zawieszanie; zaczęte po zakończeniu poprzedniego
+  nadal czeka. Ekran: zakładka „Ustawienia” (kierownik/admin), wyszarzone „Rozpocznij” z powodem,
+  „Cofnij start” z potwierdzeniem. Testy `tests/test_hanging_concurrency_changes29.py` +
+  `frontend/tests/hangingGroups.test.ts`; cały zestaw backendu zielony przy N = 1.

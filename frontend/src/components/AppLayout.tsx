@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useLocation } from "react-router-dom";
-import { BarChart2, ClipboardList, UserCog, FlaskConical, Hand, Factory, Package, Palette, ShieldCheck, Plus, LogOut, Users, UserPlus, HardHat, Layers } from "lucide-react";
+import { BarChart2, ClipboardList, UserCog, FlaskConical, Hand, Factory, Package, Palette, ShieldCheck, Plus, LogOut, Users, UserPlus, HardHat, Layers, Settings } from "lucide-react";
 import type { SVGProps } from "react";
 import { isFullAccessUser, useAuth } from "../context/AuthContext";
 import { getStationPanelPath, type StationId } from "../api/stationContext";
@@ -9,6 +9,8 @@ type NavigationItem = {
   label: string;
   icon: React.ElementType;
   accent?: boolean;
+  // Shown only to the manager (and admin) — e.g. Ustawienia (CHANGES #29).
+  managerOnly?: boolean;
 };
 
 function SHookIcon(props: SVGProps<SVGSVGElement>) {
@@ -49,6 +51,7 @@ const secondaryNavigation: NavigationItem[] = [
   { to: "/farby", label: "Farby", icon: Palette },
   { to: "/statystyki", label: "Statystyki", icon: BarChart2 },
   { to: "/audyt", label: "Audyt", icon: ShieldCheck },
+  { to: "/ustawienia", label: "Ustawienia", icon: Settings, managerOnly: true },
   { to: "/zlecenia/nowe", label: "Dodaj zlecenie", icon: Plus, accent: true },
 ];
 
@@ -78,7 +81,10 @@ export function AppLayout() {
     ? primaryNavigation
     : primaryNavigation.filter((item) => item.to === getStationPanelPath(user?.station_id as StationId));
 
-  const visibleSecondary = fullAccess ? secondaryNavigation : [];
+  const canSeeManagerOnly = Boolean(user && (user.is_admin || user.station_id === "MANAGER"));
+  const visibleSecondary = fullAccess
+    ? secondaryNavigation.filter((item) => !item.managerOnly || canSeeManagerOnly)
+    : [];
   const biuroItems = visibleSecondary.filter((item) => !item.accent);
   const accentItems = visibleSecondary.filter((item) => item.accent);
 
@@ -89,6 +95,7 @@ export function AppLayout() {
     if (pathname.startsWith("/farby")) return "Farby";
     if (pathname.startsWith("/statystyki")) return "Statystyki";
     if (pathname.startsWith("/audyt")) return "Audyt";
+    if (pathname.startsWith("/ustawienia")) return "Ustawienia";
     if (pathname.startsWith("/kierownik")) return "Kierownik";
     if (pathname.startsWith("/produkcja-reczna")) return "Produkcja ręczna";
     if (pathname.startsWith("/produkcja-automat")) return "Produkcja: Automat";

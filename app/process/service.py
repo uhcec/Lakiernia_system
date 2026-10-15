@@ -81,6 +81,7 @@ class ProcessService:
     PACKING_COMPLETION_BLOCKED_HANGING_PL = "Nie można zakończyć pakowania, dopóki nie zakończy się zawieszanie."
     QUEUE_RESOURCE_BLOCK_REASONS = {
         "HANGING": "Zawieszanie zajęte",
+        "HANGING_OTHER_PAINT": "Na zawieszaniu inna farba",
         "AUTOMATIC_LINE": "Linia automatyczna zajęta",
     }
 
@@ -1445,8 +1446,11 @@ class ProcessService:
             work_order,
             ProcessStage.HANGING,
         ):
-            if self.resource_locks.find_active_hanging_conflict(work_order.id) is not None:
-                return "HANGING", self.QUEUE_RESOURCE_BLOCK_REASONS["HANGING"]
+            block = self.resource_locks.hanging_start_block(work_order)
+            if block is not None:
+                # CHANGES #29: hanging is full, or another paint is hanging — either way the order waits.
+                reason_key = "HANGING_OTHER_PAINT" if block[0] == "OTHER_PAINT" else "HANGING"
+                return "HANGING", self.QUEUE_RESOURCE_BLOCK_REASONS[reason_key]
 
         if hanging_state.status == StageStatus.IN_PROGRESS:
             if self.resource_locks.find_active_automatic_line_conflict(work_order.id) is not None:
