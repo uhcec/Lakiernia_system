@@ -490,3 +490,24 @@ def test_queue_position_update_onto_zombie_slot_self_heals_CHANGES13(tmp_path):
         assert get_detail(client, created["id"])["queue_position"] is None
     finally:
         env.close()
+
+
+def test_completed_order_cannot_be_planned_again_CHANGES26(test_client):
+    """CHANGES #26 (found by the lifecycle fuzzer 2026-10-15): POST /plan on a READY order succeeded and
+    gave it a queue position — a zombie slot by the front door (CHANGES #3: a completed order leaves the
+    queue). Moving and pinning already refused READY orders; planning did not."""
+    created = create_planned_order(test_client, "Completed then re-planned", total_quantity=5, queue_position=1)
+    run_undercounted_manual_flow_to_packing(test_client, created["id"], counted_quantity=5)
+    complete = test_client.post(
+        f"/process/work-orders/{created['id']}/packing/complete",
+        json={"counted_quantity": 5, "ok_quantity": 5, "correction_quantity": 0},
+    )
+    assert complete.status_code == 200, complete.text
+    assert get_detail(test_client, created["id"])["process_status"]["value"] == "READY"
+
+    replan = test_client.post(
+        f"/manager/work-orders/{created['id']}/plan",
+        json={"production_type": "MANUAL", "queue_position": 7},
+    )
+    assert replan.status_code == 409, replan.text  # was: 200 + queue_position 7
+    assert get_detail(test_client, created["id"])["queue_position"] is None

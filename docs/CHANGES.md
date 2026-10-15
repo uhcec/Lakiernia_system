@@ -353,3 +353,11 @@ code does now (`file:line`), what the owner wants, and why. See `docs/SPEC.md` f
   Tests in `tests/test_declared_quantity_changes24.py` (`..._CHANGES25`: plain Decoral undercount, with a
   stat-only correction, recount back up after a typo) — failing before, passing after; RAL undercount tests
   unchanged.
+
+### #26 — A completed order could be planned again (zombie queue slot)  *(bug, found by the lifecycle fuzzer 2026-10-15)* — ✅ DONE 2026-10-15
+- **Was:** `POST /manager/work-orders/{id}/plan` on a READY order returned 200 and gave it a queue position,
+  breaking CHANGES #3 (a completed order leaves the queue) — even for a plain 6/6 order, independent of #24/#25.
+  Moving (`queue-position`) and pinning already refused READY orders; planning did not. The fuzzer (seed
+  424242) reached it once #25 changed its random path.
+- **Done:** planning refuses a READY order (409, Polish message). Regression test
+  `test_completed_order_cannot_be_planned_again_CHANGES26`; fuzzer green on all seeds.

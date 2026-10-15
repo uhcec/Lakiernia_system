@@ -162,3 +162,10 @@ teraz (`plik:linia`), czego chce właściciel i dlaczego. Potwierdzone zachowani
   policzoną liczbę w obie strony (`_apply_intake_count`, które robi też dokładanie nadwyżki z #24); ponowne
   liczenie ją wyrównuje. Testy `..._CHANGES25` w `tests/test_declared_quantity_changes24.py` — padały przed
   poprawką, przechodzą po niej.
+
+### #26 — Gotowe zlecenie można było zaplanować ponownie (zombie w kolejce)  *(błąd, znaleziony przez generator scenariuszy 2026-10-15)* — ✅ ZROBIONE 2026-10-15
+- **Było:** plan gotowego zlecenia przechodził i dawał mu pozycję w kolejce, wbrew ZMIANIE #3 (gotowe zlecenie
+  schodzi z kolejki) — także dla zwykłego 6/6, niezależnie od #24/#25. Przesuwanie i przypinanie już
+  odrzucały gotowe zlecenia, planowanie nie.
+- **Zrobione:** planowanie odrzuca gotowe zlecenie (409, polski komunikat). Test regresji
+  `test_completed_order_cannot_be_planned_again_CHANGES26`; generator scenariuszy przechodzi.

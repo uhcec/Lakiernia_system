@@ -1378,6 +1378,10 @@ class ManagerService:
                 raise InvalidManagerPlanningError(f"Work order {work_order_id} is already planned.")
             if self._has_incomplete_marker(work_order):
                 raise InvalidManagerPlanningError("Cannot plan incomplete order. Mark as complete first.")
+            # CHANGES #26: a completed order has left the queue for good (CHANGES #3) — planning it would
+            # hand it a queue position again (a zombie slot). Same guard as move/pin below.
+            if self.process_service.get_display_status(work_order) == ProcessDisplayStatus.READY:
+                raise InvalidManagerPlanningError("Zlecenie jest gotowe — nie można go ponownie zaplanować.")
 
             production_type = payload.production_type
             # Paint hard block (N49-7): an out-of-stock metered colour cannot be planned on the

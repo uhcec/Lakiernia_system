@@ -81,7 +81,7 @@ There are two quality checkpoints on a DECORAL order, because two things can go 
 Details:
 - ✅ Three correction kinds, chosen at one seam: fixed-on-the-spot (stat only), same-order replan, spin-off child. `app/process/enums.py:113-123`, `app/process/service.py:1988-2003`
 - ✅ "Fixed on the spot" records only a statistic — no child, no batch; pieces count as good, order completes as-is. `app/process/service.py:2005-2033`
-- ✅ **(CHANGE #1 done 2026-06-26)** same-order replan still clears the *live* lock (it can't sit on an unplanned order) but now **remembers** the pin/urgent intent in `pending_planning_priority` and **re-applies** it when the order is re-planned. `app/process/service.py:2361-2369`, `app/manager/service.py:1404-1409@pending_planning_priority`
+- ✅ **(CHANGE #1 done 2026-06-26)** same-order replan still clears the *live* lock (it can't sit on an unplanned order) but now **remembers** the pin/urgent intent in `pending_planning_priority` and **re-applies** it when the order is re-planned. `app/process/service.py:2361-2369`, `app/manager/service.py:1408-1413@pending_planning_priority`
 - ✅ Correction numbers come from the **root**: `P{root}`, then `P{root}-2`, `P{root}-3`… regardless of nesting. `app/process/service.py:2225-2247`
 - ✅ A correction child inherits paint/colour/customer/dates/area and is always STANDARD kind. (Kind is irrelevant to the prep-skip — that comes from being a correction.) `app/process/service.py:2249-2293`, `1549-1550`
 - ✅ There is exactly **one Decoral pass, on the root**; a fully-fixed child's good pieces return to the root's Decoral and the child closes without its own Decoral. `app/process/service.py:2125-2145`, `2179-2185`
@@ -118,17 +118,18 @@ Details:
 
 ## 8. Planning queue
 
-- ✅ Only the MANAGER plans / views statistics. `app/manager/service.py:1922-1935@allowed_station_ids={StationId.MANAGER}`
+- ✅ Only the MANAGER plans / views statistics. `app/manager/service.py:1926-1939@allowed_station_ids={StationId.MANAGER}`
 - ✅ Planning requires the order to be unplanned and not incomplete-on-arrival. `app/manager/service.py:1377-1380@Cannot plan incomplete order`
-- ✅ The manager **picks the line at plan time**; planning an order **as AUTOMATIC** is hard-blocked if its metered colour is out of stock / insufficient (MANUAL is not checked). `app/manager/service.py:1382-1397@_assert_paint_available_for_automatic`, `1324-1366@def _assert_paint_available_for_automatic`
-- ✅ Planning with no explicit position appends to the **end of the line's active queue**. `app/manager/service.py:1387-1393@_next_active_queue_position_for_line`
+- ✅ The manager **picks the line at plan time**; planning an order **as AUTOMATIC** is hard-blocked if its metered colour is out of stock / insufficient (MANUAL is not checked). `app/manager/service.py:1386-1401@_assert_paint_available_for_automatic`, `1324-1366@def _assert_paint_available_for_automatic`
+- ✅ Planning with no explicit position appends to the **end of the line's active queue**. `app/manager/service.py:1391-1397@_next_active_queue_position_for_line`
 - ✅ **(CHANGE #3 done 2026-06-26)** on completion an order **leaves the line's active queue and releases its position** (keeping its line); the trailing/shuffle machinery was removed. Completed correction children release their slots too when the root finalizes. `app/process/service.py:2633-2665@release_queue_slot`
-- ✅ **(CHANGE #13 done 2026-07-11; append/line-switch coverage fixed 2026-07-11)** a position is "taken" only by a non-READY order; a READY order still holding a position (legacy data from before CHANGE #12) is **released on the spot** by the availability check (audited `manager.stale_queue_slot_released`) instead of colliding on the unique index. The heal covers **every** path that lands on a position: an explicitly chosen position, the computed append slot of a no-position plan, and the line-switch re-append (the append slot is computed by *skipping* READY holders, so it lands exactly on a zombie's position). `app/manager/service.py:1969-2004@stale_queue_slot_released`, `app/manager/service.py:1393-1398@_next_active_queue_position_for_line`, `app/manager/service.py:1576-1579@same zombie heal as assign_plan`
-- ✅ **(CHANGE #13 done 2026-07-11)** a queue-position collision at flush time returns a controlled **409** ("position already taken"), not a raw 500 — on plan, queue-position update and line switch alike. `app/manager/service.py:1413-1426@except IntegrityError`
-- ✅ A line switch is blocked once hanging/production started; switching re-appends at the end and clears the pin. `app/manager/service.py:1562-1585@work_order.planning_priority = None`
-- ✅ Drag-reorder uses staleness protection and must include all active orders of that line, that line only, no duplicates. `app/manager/service.py:1639-1676@must include all active planned work orders`
+- ✅ **(CHANGE #26 done 2026-10-15)** a completed (READY) order **cannot be planned again** — planning it used to hand it a fresh queue position (a zombie slot); moving and pinning already refused READY orders. `app/manager/service.py:1381-1384@nie można go ponownie zaplanować`
+- ✅ **(CHANGE #13 done 2026-07-11; append/line-switch coverage fixed 2026-07-11)** a position is "taken" only by a non-READY order; a READY order still holding a position (legacy data from before CHANGE #12) is **released on the spot** by the availability check (audited `manager.stale_queue_slot_released`) instead of colliding on the unique index. The heal covers **every** path that lands on a position: an explicitly chosen position, the computed append slot of a no-position plan, and the line-switch re-append (the append slot is computed by *skipping* READY holders, so it lands exactly on a zombie's position). `app/manager/service.py:1973-2008@stale_queue_slot_released`, `app/manager/service.py:1397-1402@_next_active_queue_position_for_line`, `app/manager/service.py:1580-1583@same zombie heal as assign_plan`
+- ✅ **(CHANGE #13 done 2026-07-11)** a queue-position collision at flush time returns a controlled **409** ("position already taken"), not a raw 500 — on plan, queue-position update and line switch alike. `app/manager/service.py:1417-1430@except IntegrityError`
+- ✅ A line switch is blocked once hanging/production started; switching re-appends at the end and clears the pin. `app/manager/service.py:1566-1589@work_order.planning_priority = None`
+- ✅ Drag-reorder uses staleness protection and must include all active orders of that line, that line only, no duplicates. `app/manager/service.py:1643-1680@must include all active planned work orders`
 - ✅ PIN = lock to slot; URGENT = force to front; none = freely re-orderable. `app/shared/enums.py:78-92`
-- ✅ "Arrange automatically" only **proposes**; the manager applies it. `app/manager/service.py:1867-1879@without committing anything`
+- ✅ "Arrange automatically" only **proposes**; the manager applies it. `app/manager/service.py:1871-1883@without committing anything`
 
 ## 9. Planner numbers
 
