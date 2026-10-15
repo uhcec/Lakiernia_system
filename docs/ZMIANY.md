@@ -169,3 +169,25 @@ teraz (`plik:linia`), czego chce właściciel i dlaczego. Potwierdzone zachowani
   odrzucały gotowe zlecenia, planowanie nie.
 - **Zrobione:** planowanie odrzuca gotowe zlecenie (409, polski komunikat). Test regresji
   `test_completed_order_cannot_be_planned_again_CHANGES26`; generator scenariuszy przechodzi.
+
+### #27 — Zawieszanie pogrupowane po farbie  *(zmiana, szkic właściciela z tablicy 2026-10-15)* — ✅ ZROBIONE 2026-10-15
+- **Było:** zawieszanie używało wspólnego ekranu etapów — duża karta na zlecenie (pozycja, status, etykiety,
+  m²/farba/sztuki, rysunki, postęp partii, opis poprawki) i filtry Wszystkie/Zwykłe/Poprawki.
+- **Chcemy (właściciel):** zwarta lista pogrupowana po farbie — nagłówek RAL · producent · kod farby,
+  wiersze firma · m² · numer · Szczegóły · Rozpocznij. Odpowiedzi: bez pola mat/połysk (wynika z kodu
+  farby); grupy idą za kolejką kierownika (a); przycisk przy każdym zleceniu; bez podsumowania grupy;
+  kolejność wg kolejki; wiersz wg mojej propozycji (sztuki + POPRAWKA/NIEPEŁNE w wierszu, rysunki pod
+  Szczegóły, zakończone zwinięte z Cofnij, bez filtrów).
+- **Zrobione:** osobny `HangingPage` (pozostałe stanowiska bez zmian) + `groupHangingQueue` (kolejne
+  zlecenia z tą samą farbą = RAL + producent + kod; bez kodu → nie grupujemy). Gdy jedno się wiesza,
+  pozostałe „Rozpocznij” są wyszarzone „Zawieszanie zajęte” (backend i tak odmawia — 409 sprawdzone na
+  żywo). Zostawione też etykiety PRZEMALOWANKA/OCYNK/DECORAL (były na starej karcie); usunięte AUTOMAT
+  (tu wszystko jest automatem). Testy `frontend/tests/hangingGroups.test.ts`; zrzuty z działającej aplikacji.
+
+### #28 — Cofnięcie startu zawieszania zostawia pakowanie „w trakcie” i zajęte miejsce pakowania  *(błąd, znaleziony 2026-10-15 przy #27)* — OTWARTE
+- **Teraz:** dla zlecenia na automat cofnięcie zawieszania z „w trakcie” (`reopen_stage` → NOT_STARTED)
+  wraca zawieszanie i wyjmuje zlecenie z grupy farby, ale pakowanie (ruszyło przy starcie zawieszania)
+  zostaje „w trakcie”, a miejsce pakowania zostaje zajęte. Widziane na żywo na 0001 (baza deweloperska).
+  Z ekranu zawieszania nieosiągalne (w trakcie jest tylko „Zakończ”); przez API tak.
+- **Chcemy:** prawdopodobnie cofnąć też pakowanie i zwolnić miejsce — najpierw zapytać właściciela, czy na
+  hali start zawieszania w ogóle da się „odwołać” (naprawić czy zabronić). Najpierw test regresji.

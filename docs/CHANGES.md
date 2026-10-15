@@ -361,3 +361,29 @@ code does now (`file:line`), what the owner wants, and why. See `docs/SPEC.md` f
   424242) reached it once #25 changed its random path.
 - **Done:** planning refuses a READY order (409, Polish message). Regression test
   `test_completed_order_cannot_be_planned_again_CHANGES26`; fuzzer green on all seeds.
+
+### #27 — Hanging station grouped by paint  *(change, owner whiteboard sketch 2026-10-15)* — ✅ DONE 2026-10-15
+- **Was:** the hanging station used the shared stage page — one large card per order (queue position,
+  status, badges, m²/paint/pieces, drawings, batch progress, correction text) plus Wszystkie/Zwykłe/Poprawki
+  filters.
+- **Want (owner):** a compact list grouped by paint — header RAL · producer · paint code, rows
+  client · m² · number · Szczegóły · Rozpocznij. Owner answers: no matt/gloss field (the paint code carries
+  it); groups follow the manager's queue (a); a button per order; no group summary; rows in queue order;
+  row layout per my proposal (pieces + POPRAWKA/NIEPEŁNE tags in the row, drawings behind Szczegóły,
+  finished folded with Cofnij, filters dropped).
+- **Done:** own `HangingPage` (no longer the shared `StageWorkOrdersPage`; the other stations are untouched)
+  + `groupHangingQueue` (consecutive same paint = RAL + producer + paint code, no code → never grouped).
+  While one order hangs, the other "Rozpocznij" buttons are greyed "Zawieszanie zajęte" (backend still
+  refuses, 409 checked live). Also kept the existing PRZEMALOWANKA/OCYNK/DECORAL tags (they were on the
+  old card and change how a piece is handled); dropped AUTOMAT (everything here is automatic). Tests
+  `frontend/tests/hangingGroups.test.ts`; screenshots on the running app (idle + one order hanging).
+
+### #28 — Undoing a hanging start leaves packing IN_PROGRESS and the packing slot held  *(bug, found 2026-10-15 while doing #27)* — OPEN
+- **Now:** on an AUTOMATIC order, `reopen` of HANGING from IN_PROGRESS (`app/process/service.py`
+  `reopen_stage` → NOT_STARTED) puts hanging back to NOT_STARTED and takes the order out of its paint run,
+  but PACKING — which went IN_PROGRESS at hanging start — stays IN_PROGRESS and the `PACKING:1` lock stays
+  with the order. Seen live on order 0001 (dev DB). Not reachable from the hanging screen (IN_PROGRESS offers
+  only "Zakończ", before and after #27); reachable through the API.
+- **Want:** probably undo the packing start + release the slot together with the hanging start — confirm
+  with the owner whether a hanging start can be "taken back" on the floor at all before deciding fix vs
+  forbid. Needs a regression test first.

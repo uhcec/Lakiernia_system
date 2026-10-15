@@ -990,3 +990,34 @@ overcount at prep per #24) — only the internal batch size moved. The 2026-07-1
 concern does not apply: a recount re-syncs the batch (pinned by `test_recount_up_after_undercount_restores_the_batch_CHANGES25`).
 
 **Review-by:** none beyond the tests — the behaviour is fully pinned.
+
+---
+
+## 2026-10-15 — CHANGES #27: the hanging station lists its queue grouped by paint
+
+**Decision:** the hanging station is a compact list grouped by paint (RAL · producer · paint code), one
+row per order (client · m² · number · pieces · tags · Szczegóły · Rozpocznij), a button per order. Groups
+are **consecutive** same-paint orders in the manager's queue; no group summary; finished orders folded
+at the bottom with Cofnij.
+
+**Why:** owner's whiteboard sketch + answers 2026-10-15. The owner did not state *why* the station should
+be grouped by paint; it is presumably so the hanger sees where the paint changes — **a guess, not
+confirmed**. Matt/gloss: owner said to leave it as it is (no new field; the paint code carries it).
+Grouping (a): picked by the owner after I pointed out that (b) would let the hanging station silently
+reorder the manager's plan and break the paint-run identity (consecutive same paint, CHANGES #22).
+
+**Rejected:**
+- *(b) gather every order of a paint into one group regardless of queue order*: owner chose (a).
+- *A new matt/gloss field at intake*: owner, not needed.
+- *One "Rozpocznij" per group*: owner, button per order (hanging holds one order at a time anyway).
+- *A group summary (total m², paint stock)*: owner, nothing to summarise.
+
+**Implementation notes:** `frontend/src/pages/HangingPage.tsx` (own page; `StageWorkOrdersPage` keeps
+serving prep and both production stations), `frontend/src/utils/hangingGroups.ts:24@export function groupHangingQueue`.
+Frontend only — the backend list and its queue order are unchanged.
+
+**Expected:** the hanger reads the queue at a glance and sees each colour change as a new box; the greyed
+buttons stop "Zawieszanie jest zajęte" error clicks.
+
+**Review-by:** first shift on the new screen — ask the hanger whether anything they used on the old card
+is missing.
