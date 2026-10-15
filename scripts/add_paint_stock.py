@@ -4,6 +4,7 @@ from __future__ import annotations
 from datetime import date
 
 from app.audit.context import StationContext
+from app.database import models as _models  # noqa: F401  (model registry — Paint relates to WorkOrder)
 from app.database.session import get_session_factory
 from app.paints.models import Paint, PaintStockMovement
 from app.paints.repository import PaintRepository

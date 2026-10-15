@@ -34,7 +34,9 @@ function Stop-DevServers {
     }
     foreach ($p in $stale) {
         Write-Host ("    stopping stale dev process PID {0}" -f $p.ProcessId) -ForegroundColor DarkYellow
-        & taskkill /PID $p.ProcessId /T /F *> $null
+        # A child may already be gone (tree-killed with its parent a moment ago); under
+        # $ErrorActionPreference=Stop taskkill's "process not found" would abort the whole start.
+        try { & taskkill /PID $p.ProcessId /T /F *> $null } catch {}
     }
     if ($stale) { Start-Sleep -Milliseconds 700 }
 }

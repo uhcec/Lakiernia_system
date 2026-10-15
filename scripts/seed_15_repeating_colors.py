@@ -24,6 +24,7 @@ from app.audit.models import AuditEvent, AuditEventActor
 from app.core.config import get_settings
 from app.database import models as _models  # noqa: F401  (rejestr modeli)
 from app.database.session import get_session_factory
+from app.paints.models import PaintRun, PaintRunMember
 from app.process.enums import CoatingType
 from app.process.models import (
     ProcessResourceLock,
@@ -58,6 +59,9 @@ def reset_orders_only(session) -> None:
     session.execute(delete(AuditEvent))
     session.execute(delete(StageTransitionEvent))
     session.execute(delete(ProcessResourceLock))
+    # Grupy farby (CHANGES #22/#23) należą do zleceń — bez tego zostałyby puste, „otwarte” grupy.
+    session.execute(delete(PaintRunMember))
+    session.execute(delete(PaintRun))
     session.execute(delete(WorkOrderAttachment))
     session.execute(delete(WorkOrderStageState))
     session.execute(delete(WorkOrderQuantityBatch))
