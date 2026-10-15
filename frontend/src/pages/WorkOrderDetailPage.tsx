@@ -12,6 +12,7 @@ import {
   administrativeResetWorkOrder,
   markWorkOrderCompleteArrival,
   updateWorkOrder,
+  updateWorkOrderQuantityDiscrepancy,
   updateWorkOrderReleaseStatus,
   uploadWorkOrderAttachment,
 } from "../api/workOrdersApi";
@@ -225,6 +226,9 @@ export function WorkOrderDetailPage() {
   const canEditWorkOrder = effectiveStationId === "OFFICE" || effectiveStationId === "MANAGER";
   // CHANGES #14 (owner 2026-07-11): administrative reset for office/manager (admins bypass server-side).
   const canAdministrativeReset = effectiveStationId === "OFFICE" || effectiveStationId === "MANAGER";
+  // CHANGES #24 (owner 2026-10-15): office and manager tick a declared-vs-arrived difference as explained.
+  const canResolveQuantityDiscrepancy = effectiveStationId === "OFFICE" || effectiveStationId === "MANAGER";
+  const [isUpdatingQuantityDiscrepancy, setIsUpdatingQuantityDiscrepancy] = useState(false);
   const [isDownloadingQcDoc, setIsDownloadingQcDoc] = useState(false);
   const [qcDocErrorMessage, setQcDocErrorMessage] = useState<string | null>(null);
   const [workOrder, setWorkOrder] = useState<WorkOrder | null>(null);
@@ -505,6 +509,34 @@ export function WorkOrderDetailPage() {
     }
   }
 
+  async function handleUpdateQuantityDiscrepancy(nextResolvedState: boolean) {
+    if (!id || !workOrder) {
+      return;
+    }
+
+    const shouldContinue = await confirm({
+      message: nextResolvedState
+        ? "Czy oznaczyć różnicę ilości jako wyjaśnioną z klientem?"
+        : "Czy cofnąć oznaczenie wyjaśnienia różnicy ilości?",
+      confirmLabel: nextResolvedState ? "Wyjaśnione" : "Cofnij wyjaśnienie",
+    });
+    if (!shouldContinue) {
+      return;
+    }
+
+    setIsUpdatingQuantityDiscrepancy(true);
+    setErrorMessage(null);
+
+    try {
+      await updateWorkOrderQuantityDiscrepancy(Number(id), nextResolvedState);
+      await Promise.all([loadWorkOrder(Number(id)), loadAuditEvents(Number(id))]);
+    } catch (error) {
+      setErrorMessage(getLoadErrorMessage(error, "Nie udało się zapisać wyjaśnienia różnicy ilości"));
+    } finally {
+      setIsUpdatingQuantityDiscrepancy(false);
+    }
+  }
+
   function handleFileSelection(event: ChangeEvent<HTMLInputElement>) {
     const nextFile = event.target.files?.[0] ?? null;
     setSelectedFile(nextFile);
@@ -772,9 +804,40 @@ export function WorkOrderDetailPage() {
                 </div>
                 {getWorkOrderDiscrepancyText(workOrder) ? (
                   <div className="md:col-span-2">
-                    <dt className="text-sm font-medium text-steel">Rozbieżność ilości</dt>
-                    <dd className="mt-1 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-base font-medium text-amber-800">
-                      {getWorkOrderDiscrepancyText(workOrder)}
+                    <dt className="text-sm font-medium text-steel">Ilość zgłoszona a przyjęta</dt>
+                    <dd
+                      className={[
+                        "mt-1 flex flex-wrap items-center justify-between gap-3 rounded-2xl border px-4 py-3",
+                        workOrder.quantity_discrepancy_resolved_at
+                          ? "border-line/70 bg-mist/35 text-ink"
+                          : "border-amber-200 bg-amber-50 text-amber-800",
+                      ].join(" ")}
+                    >
+                      <div className="min-w-0">
+                        <p className="text-base font-medium">{getWorkOrderDiscrepancyText(workOrder)}</p>
+                        {workOrder.quantity_discrepancy_resolved_at ? (
+                          <p className="mt-1 text-sm text-steel">
+                            Wyjaśnione –{" "}
+                            {stationLabels[workOrder.quantity_discrepancy_resolved_by as AuditStationId] ??
+                              workOrder.quantity_discrepancy_resolved_by}
+                            , {formatDateTime(workOrder.quantity_discrepancy_resolved_at)}
+                          </p>
+                        ) : null}
+                      </div>
+                      {canResolveQuantityDiscrepancy ? (
+                        <button
+                          type="button"
+                          onClick={() => void handleUpdateQuantityDiscrepancy(!workOrder.quantity_discrepancy_resolved_at)}
+                          disabled={isUpdatingQuantityDiscrepancy}
+                          className="inline-flex items-center justify-center rounded-full border border-line bg-white px-4 py-2 text-sm font-medium text-ink transition hover:bg-mist disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {isUpdatingQuantityDiscrepancy
+                            ? "Zapisywanie..."
+                            : workOrder.quantity_discrepancy_resolved_at
+                              ? "Cofnij wyjaśnienie"
+                              : "Wyjaśnione z klientem"}
+                        </button>
+                      ) : null}
                     </dd>
                   </div>
                 ) : null}

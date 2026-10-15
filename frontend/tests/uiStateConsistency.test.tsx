@@ -2212,7 +2212,7 @@ describe("frontend state consistency", () => {
     renderWorkOrderDetail(71);
 
     await screen.findByText("Policzono na przygotowaniu");
-    expect(screen.getByText("Rozbieżność ilości")).toBeTruthy();
+    expect(screen.getByText("Ilość zgłoszona a przyjęta")).toBeTruthy();
     expect(screen.getByText("Przygotowanie: zadeklarowano 10, policzono 8 (-2 szt.)")).toBeTruthy();
   });
 

@@ -46,6 +46,12 @@ function buildWorkOrder(overrides: Partial<WorkOrder> = {}): WorkOrder {
     is_incomplete_on_arrival: false,
     surface_preparation_counted_quantity: null,
     surface_preparation_quantity_difference: null,
+    declared_quantity: 10,
+    declared_profiles_quantity: null,
+    declared_accessories_quantity: null,
+    quantity_discrepancy_resolved_at: null,
+    quantity_discrepancy_resolved_by: null,
+    quantity_leak_flagged: false,
     profiles_quantity: null,
     profiles_to_count: false,
     accessories_quantity: null,
@@ -94,8 +100,56 @@ describe("work order display helpers", () => {
       surface_preparation_quantity_difference: -2,
     });
 
-    expect(getWorkOrderDiscrepancyText(workOrder)).toBe("Przygotowanie: zadeklarowano 10, policzono 8 (-2 szt.)");
-    expect(getWorkOrderAttentionBadges(workOrder)).toContainEqual({ label: "RÓŻNICA: -2 SZT.", tone: "warning" });
+    expect(getWorkOrderDiscrepancyText(workOrder)).toBe("Zgłoszono: 10 · Przyjęto: 8 · Brak: 2");
+    expect(getWorkOrderAttentionBadges(workOrder)).toContainEqual({ label: "MNIEJ NIŻ ZGŁOSZONO: 8 z 10", tone: "warning" });
+  });
+
+  it("CHANGES #24: keeps the declared amount after the order is redefined to the count (order 0002)", () => {
+    const workOrder = buildWorkOrder({
+      total_quantity: 10,
+      declared_quantity: 14,
+      declared_profiles_quantity: 12,
+      declared_accessories_quantity: 2,
+      surface_preparation_counted_quantity: 10,
+      surface_preparation_quantity_difference: -4,
+    });
+
+    expect(getWorkOrderDiscrepancyText(workOrder)).toBe("Zgłoszono: 14 (profile 12, akcesoria 2) · Przyjęto: 10 · Brak: 4");
+    expect(getWorkOrderAttentionBadges(workOrder)).toContainEqual({ label: "MNIEJ NIŻ ZGŁOSZONO: 10 z 14", tone: "warning" });
+  });
+
+  it("CHANGES #24: shows an overcount the same way, on the plus side", () => {
+    const workOrder = buildWorkOrder({
+      total_quantity: 16,
+      declared_quantity: 14,
+      surface_preparation_counted_quantity: 16,
+      surface_preparation_quantity_difference: 2,
+    });
+
+    expect(getWorkOrderDiscrepancyText(workOrder)).toBe("Zgłoszono: 14 · Przyjęto: 16 · Nadwyżka: 2");
+    expect(getWorkOrderAttentionBadges(workOrder)).toContainEqual({ label: "WIĘCEJ NIŻ ZGŁOSZONO: 16 z 14", tone: "warning" });
+  });
+
+  it("CHANGES #24: an explained discrepancy drops the badge but keeps the detail text", () => {
+    const workOrder = buildWorkOrder({
+      surface_preparation_counted_quantity: 8,
+      surface_preparation_quantity_difference: -2,
+      quantity_discrepancy_resolved_at: "2026-10-15T10:00:00Z",
+      quantity_discrepancy_resolved_by: "OFFICE",
+    });
+
+    expect(getWorkOrderAttentionBadges(workOrder).map((badge) => badge.label)).not.toContain("MNIEJ NIŻ ZGŁOSZONO: 8 z 10");
+    expect(getWorkOrderDiscrepancyText(workOrder)).toBe("Zgłoszono: 10 · Przyjęto: 8 · Brak: 2");
+  });
+
+  it("shows no discrepancy when the count matches the declaration", () => {
+    const workOrder = buildWorkOrder({
+      surface_preparation_counted_quantity: 10,
+      surface_preparation_quantity_difference: 0,
+    });
+
+    expect(getWorkOrderDiscrepancyText(workOrder)).toBeNull();
+    expect(getWorkOrderAttentionBadges(workOrder)).toEqual([]);
   });
 
   it("shows the PO TERMINIE badge from the backend is_overdue flag, not a client clock", () => {

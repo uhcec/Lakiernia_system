@@ -917,3 +917,57 @@ flow; the painter fills runs promptly because a ready order visibly waits on him
 **Review-by:** first real production week on the automat — confirm (a) the parked last order is
 understood on the packing tablet, (b) no packing deadlock / override is needed any more, (c) painters
 enter consumption promptly. Tracked in `REVIEW_LEDGER.md` row 10.
+
+---
+
+## 2026-10-15 — CHANGES #24: declared vs arrived stays on the order; overcount is added (amends D5)
+
+**Context:** order 0002 (RAL 9005 · 14 m² · Aluminco) — 14 declared, prep counted 10. Per D5 (2026-07-11)
+the order closed as a 10-piece order and the "14" survived only in the `total_quantity_redefined` audit
+event. The owner, looking at the finished order: "policzyli, że jest mniej niż klient deklarował i nie jest
+nigdzie o tym wspomniane".
+
+**Decision (owner, 2026-10-15):** "zostaw wszystko tak jak jest, tylko niech program pokazuje status, że jest
+tego mniej niż deklarowane". Concretely:
+1. D5's mechanics stay (redefine to the count at finalize, slot released, no leak flag) — only its
+   *presentation* half is reversed: ordered-vs-arrived now lives **on the order** too, not only in the audit.
+2. Status wording: **"MNIEJ NIŻ ZGŁOSZONO: 10 z 14"** (owner picked option A of three; both numbers, so the
+   office need not compute).
+3. **Same rule on the plus side**, and extra pieces are **added to the order** ("dokładamy do zlecenia") —
+   the owner's answer to "do you paint them on the same order or open a new one?".
+4. **m² stays as declared** — "babeczki z biura będą się z tym męczyć czego jest mniej i o ile". The system
+   does not guess a corrected area.
+5. Office and manager may tick **"Wyjaśnione z klientem"** (owner: yes to the proposal) — the badge leaves the
+   lists, the detail line stays forever, reversible, station + time recorded.
+
+**Why (owner's rationale, as given):** the office is the one that settles quantity differences with the
+client, and it can only do that if the difference is in front of it — an audit-only trace is the same as no
+trace. The factory paints whatever actually arrives under the same order rather than splitting paperwork.
+
+**Engineering choices (mine):**
+- *Overcount grows at prep finish, not at finalize* (the undercount's moment). Packing must equal the prep
+  count, RAL corrections and the Decoral pass all work off the active batch's size — growing late would leave
+  a 14-piece batch carrying 16 pieces through every correction path. Growing early makes it a plain 16-piece
+  order everywhere. The 2026-07-11 objection to early redefinition ("irreversible on typo") no longer bites:
+  the declaration is kept, and a recount down after growth just takes the existing D5 undercount path
+  (pinned by `test_recount_after_overcount_keeps_first_declaration_CHANGES24`).
+- *Only the plain intake path may overcount;* tracked/correction batches keep the ≤ cap — a correction
+  round cannot "find" new pieces.
+- *`declared_*` is written only at the first redefinition* (NULL = never redefined = equals the total).
+  `total_quantity` is not editable after creation, so there is no second write path to keep in sync.
+- *"Kto" is the station,* because station logins are shared (`StationContext.user_id` is NULL today).
+- *Backfill from the audit event* so already-closed orders (0002) show the badge without re-entry.
+
+**Rejected:**
+- *Read the declared amount from the audit trail at display time* — list views would query audit per order,
+  and the audit is a log, not a model.
+- *Ask the office to raise the order before prep when more arrives* — the owner chose adding at the floor.
+- *Recompute m² proportionally* — owner: no, the office handles it.
+
+**Found on the way (not fixed, one change per PR):** CHANGES #25 — a DECORAL undercount credits phantom
+pieces at the Decoral pass (closes 5/5 with 3 pieces). The new badge still reads correctly there.
+
+**Expected:** the office sees every short/extra delivery on its list and clears it by ticking after talking
+to the client; no more "nigdzie o tym nie wspomniane".
+
+**Review-by:** first real short or extra delivery after cutover — tracked in `REVIEW_LEDGER.md` row 11.

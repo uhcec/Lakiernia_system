@@ -211,6 +211,12 @@ class WorkOrderReleaseUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class WorkOrderQuantityDiscrepancyUpdate(BaseModel):
+    is_resolved: bool
+
+    model_config = ConfigDict(extra="forbid")
+
+
 class WzDocumentRequest(BaseModel):
     """Request to generate a WZ (wydanie z magazynu) for a group of ready orders of one client.
 
@@ -279,7 +285,13 @@ class WorkOrderRead(BaseModel):
     # A human-visible flag so the upstream bug gets investigated instead of silently auto-completing.
     quantity_leak_flagged: bool = False
     surface_preparation_counted_quantity: int | None = None
+    # CHANGES #24: prep count minus what the client DECLARED (survives the order's redefinition).
     surface_preparation_quantity_difference: int | None = None
+    declared_quantity: int | None = None
+    declared_profiles_quantity: int | None = None
+    declared_accessories_quantity: int | None = None
+    quantity_discrepancy_resolved_at: datetime | None = None
+    quantity_discrepancy_resolved_by: str | None = None
     profiles_quantity: int | None
     profiles_to_count: bool
     accessories_quantity: int | None

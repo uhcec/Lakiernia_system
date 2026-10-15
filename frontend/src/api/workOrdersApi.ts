@@ -220,6 +220,26 @@ export async function updateWorkOrderReleaseStatus(workOrderId: number, isReleas
   return response.json() as Promise<WorkOrder>;
 }
 
+export async function updateWorkOrderQuantityDiscrepancy(workOrderId: number, isResolved: boolean): Promise<WorkOrder> {
+  const url = createApiUrl(`/work-orders/${workOrderId}/quantity-discrepancy`);
+
+  const response = await fetch(url, {
+    method: "PATCH",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+      ...getCurrentStationHeaders(),
+    },
+    body: JSON.stringify({ is_resolved: isResolved }),
+  });
+
+  if (!response.ok) {
+    throw await createApiError(response, "Nie udało się zapisać wyjaśnienia różnicy ilości");
+  }
+
+  return response.json() as Promise<WorkOrder>;
+}
+
 export async function fetchWorkOrderAttachments(workOrderId: number): Promise<WorkOrderAttachment[]> {
   const response = await fetch(createApiUrl(`/work-orders/${workOrderId}/attachments`), {
     headers: {

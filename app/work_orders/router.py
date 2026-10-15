@@ -12,6 +12,7 @@ from app.work_orders.schemas import (
 	WorkOrderCreate,
 	WorkOrderAttachmentRead,
 	WorkOrderListResponse,
+	WorkOrderQuantityDiscrepancyUpdate,
 	WorkOrderRead,
 	WorkOrderReleaseUpdate,
 	WorkOrderUpdate,
@@ -105,6 +106,17 @@ def update_work_order_release_status(
 	station_context: Annotated[StationContext, Depends(get_station_context)],
 ) -> WorkOrderRead:
 	return service.update_release_status(work_order_id, payload, station_context=station_context)
+
+
+@router.patch("/{work_order_id}/quantity-discrepancy", response_model=WorkOrderRead)
+def update_work_order_quantity_discrepancy(
+	work_order_id: int,
+	payload: WorkOrderQuantityDiscrepancyUpdate,
+	service: Annotated[WorkOrderService, Depends(get_work_order_service)],
+	station_context: Annotated[StationContext, Depends(get_station_context)],
+) -> WorkOrderRead:
+	"""CHANGES #24: office/manager tick a declared-vs-arrived discrepancy as explained with the client."""
+	return service.update_quantity_discrepancy_resolution(work_order_id, payload, station_context=station_context)
 
 
 @router.get("/{work_order_id}/quality-control-document")

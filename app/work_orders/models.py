@@ -164,6 +164,16 @@ class WorkOrder(Base):
     profiles_to_count: Mapped[bool] = mapped_column(Boolean(), nullable=False, default=False)
     accessories_quantity: Mapped[int | None] = mapped_column(Integer(), nullable=True)
     accessories_to_count: Mapped[bool] = mapped_column(Boolean(), nullable=False, default=False)
+    # CHANGES #24: what the client declared, kept once the system redefines total_quantity to the
+    # surface-prep count (fewer arrived → at finalize, D5; more arrived → at prep finish). NULL = never
+    # redefined, so the declared amount IS total_quantity / the current profile-accessory split.
+    declared_quantity: Mapped[int | None] = mapped_column(Integer(), nullable=True)
+    declared_profiles_quantity: Mapped[int | None] = mapped_column(Integer(), nullable=True)
+    declared_accessories_quantity: Mapped[int | None] = mapped_column(Integer(), nullable=True)
+    # CHANGES #24: the office/manager ticked a declared-vs-arrived discrepancy as explained with the
+    # client — hides the list badge; the detail line stays. `_by` is the station (shared station logins).
+    quantity_discrepancy_resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    quantity_discrepancy_resolved_by: Mapped[str | None] = mapped_column(String(32), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text(), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: clock.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(

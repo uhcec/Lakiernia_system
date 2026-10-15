@@ -314,3 +314,36 @@ code does now (`file:line`), what the owner wants, and why. See `docs/SPEC.md` f
   deadlock regression, stock); test helpers now enter consumption like the painter before packing.
   Replayed the owner's exact sequence on a copy of his DB: no override, 0009 parked, closed after entry.
   SPEC §3/§7/§10 updated in both languages; DECISIONS 2026-10-09 (#23).
+
+### #24 — Declared vs arrived quantity stays visible; overcount is added to the order  *(change, owner 2026-10-15)* — ✅ DONE 2026-10-15
+- **Found (live, order 0002 · RAL 9005 · 14 m² · Aluminco):** 14 declared (12 profiles + 2 accessories),
+  prep counted 10. Per D5 the order closed redefined to 10/10 and the only trace of "14" was an audit event
+  no screen reads; the existing "RÓŻNICA" badge was computed against the *redefined* total, so it vanished
+  exactly at closing. An overcount (more pieces than declared) was refused at prep.
+- **Owner decisions:** keep everything else as is; show a status — "MNIEJ NIŻ ZGŁOSZONO: 10 z 14" (option A);
+  same rule on the plus side, and extra pieces are added to the order ("dokładamy do zlecenia"); m² stays
+  as declared (the office deals with it); office/manager may tick "wyjaśnione" (badge leaves the lists,
+  detail line stays), reversible.
+- **Done:** `declared_quantity` / `declared_*_quantity` kept on the order at the first redefinition;
+  difference measured against the declaration; overcount grows the order + active batch at prep finish
+  (plain intake path only); `PATCH /work-orders/{id}/quantity-discrepancy` (office/manager) with
+  station + time + audit. Badge on the office list (which showed no attention badges before), manager
+  panel and detail; detail line "Zgłoszono · Przyjęto · Brak/Nadwyżka" + button. Migration
+  `20261015_0048` (backfills `declared_*` from existing `total_quantity_redefined` events — order 0002
+  shows "10 z 14" right away). Tests `tests/test_declared_quantity_changes24.py` (undercount survives
+  finalize, overcount clean / at prep start / split policy / RAL correction round / Decoral child, recount
+  keeps the first declaration, tick permissions) + `frontend/tests/workOrderDisplay.test.ts`. Verified live
+  on the running backend: 0002 backfilled; an AUTOMATIC order 14→16 through paint-run parking closed
+  READY 16/16, no leak flag, m² 14. SPEC §4 in both languages; DECISIONS 2026-10-15.
+
+### #25 — DECORAL intake undercount credits phantom pieces at the Decoral pass  *(bug, found 2026-10-15 while doing #24, not fixed)*
+- **Now:** a DECORAL order with prep counting fewer than declared (5 declared, 3 counted, 3 packed OK)
+  finishes the plain Decoral pass by crediting the active batch's size (`completed += current_active_quantity`,
+  `app/process/service.py` `finish_stage` DECORAL_PRODUCTION branch) — the batch still holds 5, so the
+  order closes READY **5/5** although 3 pieces exist; the D5 redefinition never runs and no leak flag fires.
+  Reproduced with a throw-away test on 2026-10-15. RAL orders are unaffected (packing credits the OK count).
+  Since #24 the badge still reads "MNIEJ NIŻ ZGŁOSZONO: 3 z 5" (it uses the prep count), but the order's
+  piece count — and anything printed from it, e.g. the WZ "Elementy" row — says 5.
+- **Want:** credit only the pieces that arrived (shrink the batch to the prep count before the Decoral pass,
+  or credit `min(batch, prep actual)`), so the order finalizes through the D5 path at 3. Needs its own
+  regression test across Decoral corrections before changing.

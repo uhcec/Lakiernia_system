@@ -127,3 +127,33 @@ teraz (`plik:linia`), czego chce właściciel i dlaczego. Potwierdzone zachowani
   dołączy zlecenie w tej samej farbie), zaparkowane zwalnia stanowisko i linię; kolejka pakowania wg
   czekania; stan farby na karcie grupy; polskie komunikaty. Migracja `20261009_0047`. Testy w
   `tests/test_paint_runs_changes22.py`. Odtworzony przebieg właściciela na kopii bazy: bez obejścia.
+
+### #24 — Ilość zgłoszona a przyjęta zostaje widoczna; nadwyżka dokładana do zlecenia  *(zmiana, właściciel 2026-10-15)* — ✅ ZROBIONE 2026-10-15
+- **Znalezione (na żywo, zlecenie 0002 · RAL 9005 · 14 m² · Aluminco):** zgłoszono 14 (12 profili + 2
+  akcesoria), przygotowanie policzyło 10. Wg D5 zlecenie zamknęło się jako 10/10, a jedyny ślad „14” był w
+  dzienniku, którego żaden ekran nie czyta; dotychczasowy znaczek „RÓŻNICA” liczył od już przepisanej
+  całości, więc znikał akurat przy zamknięciu. Nadwyżka (więcej sztuk niż zgłoszono) była odrzucana.
+- **Decyzje właściciela:** reszta bez zmian; pokazać status „MNIEJ NIŻ ZGŁOSZONO: 10 z 14” (wariant A); ta
+  sama zasada na plus, a nadwyżkę dokładamy do zlecenia; metry zostają jak zgłoszone (biuro się tym zajmie);
+  biuro/kierownik mogą odhaczyć „wyjaśnione” (znaczek znika z list, linijka w szczegółach zostaje), z
+  możliwością cofnięcia.
+- **Zrobione:** zgłoszona ilość i podział zapisane na zleceniu przy pierwszym przepisaniu; różnica liczona
+  od zgłoszonej; nadwyżka powiększa zlecenie i partię przy zakończeniu przygotowania (tylko zwykłe
+  przyjęcie); `PATCH /work-orders/{id}/quantity-discrepancy` (biuro/kierownik), zapisuje stanowisko, czas i
+  audyt. Znaczek na liście biura (wcześniej nie miała znaczków ostrzegawczych), w panelu kierownika i w
+  szczegółach; linijka „Zgłoszono · Przyjęto · Brak/Nadwyżka” + przycisk. Migracja `20261015_0048`
+  (odtwarza zgłoszoną ilość z dziennika — 0002 od razu pokazuje „10 z 14”). Testy
+  `tests/test_declared_quantity_changes24.py` + `frontend/tests/workOrderDisplay.test.ts`. Sprawdzone na
+  żywym serwerze: 0002 odtworzone; zlecenie na automacie 14→16 przez czekanie na zużycie farby zamknęło
+  się GOTOWE 16/16, bez flagi przecieku, 14 m². SPECYFIKACJA §4; DECISIONS 2026-10-15.
+
+### #25 — Niedobór na Decoralu zalicza nieistniejące sztuki  *(błąd, znaleziony 2026-10-15 przy #24, nienaprawiony)*
+- **Teraz:** zlecenie DECORAL, gdzie przygotowanie policzyło mniej niż zgłoszono (5 zgłoszone, 3 policzone,
+  3 spakowane OK), kończy przebieg Decoral zaliczając wielkość partii (`completed += current_active_quantity`
+  w `finish_stage`, gałąź DECORAL_PRODUCTION) — partia dalej ma 5, więc zlecenie zamyka się GOTOWE **5/5**,
+  choć sztuk jest 3; przepisanie D5 się nie uruchamia, flaga przecieku też nie. Odtworzone testem
+  jednorazowym 2026-10-15. Zlecenia RAL nie są dotknięte. Od #24 znaczek i tak pokazuje „MNIEJ NIŻ
+  ZGŁOSZONO: 3 z 5”, ale liczba sztuk zlecenia — i to, co z niej drukowane, np. „Elementy” na WZ — mówi 5.
+- **Chcemy:** zaliczyć tylko sztuki, które przyjechały (zmniejszyć partię do policzonej przed Decoralem albo
+  zaliczać `min(partia, policzone)`), żeby zlecenie domknęło się ścieżką D5 na 3. Najpierw test regresji z
+  poprawkami Decoral.

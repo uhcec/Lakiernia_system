@@ -2,7 +2,7 @@ import { Calendar, Clock } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 
 import type { WorkOrder } from "../types/workOrders";
-import { formatDisplayOrderNumber } from "../utils/workOrderDisplay";
+import { formatDisplayOrderNumber, getQuantityDiscrepancyBadge } from "../utils/workOrderDisplay";
 import { RalColorDot } from "./RalColorDot";
 
 function stageClasses(value: WorkOrder["process_status"]["value"]): string {
@@ -56,6 +56,8 @@ function OfficeWorkOrderRow({ workOrder }: { workOrder: WorkOrder }) {
   // so a completed order picked up late is not falsely flagged "Po terminie" (FRONTEND_TRIAGE B6).
   const isOverdue = workOrder.is_overdue;
   const daysLabel = getDaysLabel(workOrder.planned_pickup_date, isOverdue);
+  // CHANGES #24: declared-vs-arrived stays flagged here until the office ticks it "wyjaśnione".
+  const quantityDiscrepancyBadge = getQuantityDiscrepancyBadge(workOrder);
 
   return (
     <div
@@ -136,6 +138,11 @@ function OfficeWorkOrderRow({ workOrder }: { workOrder: WorkOrder }) {
               )}
             </>
           )}
+          {quantityDiscrepancyBadge ? (
+            <span className="inline-flex rounded-full bg-amber-100 px-2.5 py-0.5 text-[11px] font-semibold text-amber-800">
+              {quantityDiscrepancyBadge.label}
+            </span>
+          ) : null}
         </div>
       </div>
 

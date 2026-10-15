@@ -38,16 +38,39 @@ export function formatQuantityDifference(quantityDifference: number): string {
   return quantityDifference > 0 ? `+${quantityDifference}` : String(quantityDifference);
 }
 
+type QuantityDiscrepancy = { declared: number; arrived: number; difference: number };
+
+// CHANGES #24: declared-vs-arrived, measured against what the client DECLARED (the backend keeps it
+// after redefining the order), so it stays visible after the order closes.
+function getQuantityDiscrepancy(workOrder: WorkOrder): QuantityDiscrepancy | null {
+  const arrived = workOrder.surface_preparation_counted_quantity;
+  const difference = workOrder.surface_preparation_quantity_difference;
+  if (arrived === null || difference === null || difference === 0) {
+    return null;
+  }
+  return { declared: workOrder.declared_quantity ?? workOrder.total_quantity, arrived, difference };
+}
+
 export function getWorkOrderDiscrepancyText(workOrder: WorkOrder): string | null {
-  if (workOrder.surface_preparation_counted_quantity === null || workOrder.surface_preparation_quantity_difference === null) {
+  const discrepancy = getQuantityDiscrepancy(workOrder);
+  if (discrepancy === null) {
     return null;
   }
 
-  if (workOrder.surface_preparation_quantity_difference === 0) {
+  const { declared_profiles_quantity: profiles, declared_accessories_quantity: accessories } = workOrder;
+  const declaredSplit = profiles !== null && accessories !== null ? ` (profile ${profiles}, akcesoria ${accessories})` : "";
+  const gap =
+    discrepancy.difference < 0 ? `Brak: ${-discrepancy.difference}` : `Nadwyżka: ${discrepancy.difference}`;
+  return `Zgłoszono: ${discrepancy.declared}${declaredSplit} · Przyjęto: ${discrepancy.arrived} · ${gap}`;
+}
+
+export function getQuantityDiscrepancyBadge(workOrder: WorkOrder): DisplayBadge | null {
+  const discrepancy = getQuantityDiscrepancy(workOrder);
+  if (discrepancy === null || workOrder.quantity_discrepancy_resolved_at) {
     return null;
   }
-
-  return `Przygotowanie: zadeklarowano ${workOrder.total_quantity}, policzono ${workOrder.surface_preparation_counted_quantity} (${formatQuantityDifference(workOrder.surface_preparation_quantity_difference)} szt.)`;
+  const direction = discrepancy.difference < 0 ? "MNIEJ" : "WIĘCEJ";
+  return { label: `${direction} NIŻ ZGŁOSZONO: ${discrepancy.arrived} z ${discrepancy.declared}`, tone: "warning" };
 }
 
 export function getWorkOrderActiveCorrectionsText(workOrder: WorkOrder): string | null {
@@ -129,8 +152,9 @@ export function getWorkOrderAttentionBadges(workOrder: WorkOrder): DisplayBadge[
     badges.push({ label: `CZEKA: ${workOrder.queue_blocked_reason}`, tone: "warning" });
   }
 
-  if (workOrder.surface_preparation_quantity_difference !== null && workOrder.surface_preparation_quantity_difference !== 0) {
-    badges.push({ label: `RÓŻNICA: ${formatQuantityDifference(workOrder.surface_preparation_quantity_difference)} SZT.`, tone: "warning" });
+  const quantityDiscrepancyBadge = getQuantityDiscrepancyBadge(workOrder);
+  if (quantityDiscrepancyBadge !== null) {
+    badges.push(quantityDiscrepancyBadge);
   }
 
   if (workOrder.is_overdue) {

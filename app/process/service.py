@@ -187,10 +187,45 @@ class ProcessService:
         return None
 
     def get_surface_preparation_quantity_difference(self, work_order: WorkOrder) -> int | None:
+        # CHANGES #24: measured against what the client DECLARED, not the (possibly redefined)
+        # total — otherwise the difference vanishes exactly when the order closes.
         counted_quantity = self.get_surface_preparation_counted_quantity(work_order)
         if counted_quantity is None:
             return None
-        return counted_quantity - work_order.total_quantity
+        return counted_quantity - self.get_declared_quantity(work_order)
+
+    def quantity_discrepancy_read_fields(self, work_order: WorkOrder) -> dict[str, object]:
+        """Declared-vs-arrived fields shared by the office and manager read models (CHANGES #24)."""
+        declared_profiles_quantity, declared_accessories_quantity = self.get_declared_category_quantities(work_order)
+        return {
+            "surface_preparation_counted_quantity": self.get_surface_preparation_counted_quantity(work_order),
+            "surface_preparation_quantity_difference": self.get_surface_preparation_quantity_difference(work_order),
+            "declared_quantity": self.get_declared_quantity(work_order),
+            "declared_profiles_quantity": declared_profiles_quantity,
+            "declared_accessories_quantity": declared_accessories_quantity,
+            "quantity_discrepancy_resolved_at": work_order.quantity_discrepancy_resolved_at,
+            "quantity_discrepancy_resolved_by": work_order.quantity_discrepancy_resolved_by,
+        }
+
+    @staticmethod
+    def get_declared_quantity(work_order: WorkOrder) -> int:
+        return work_order.declared_quantity if work_order.declared_quantity is not None else work_order.total_quantity
+
+    @staticmethod
+    def get_declared_category_quantities(work_order: WorkOrder) -> tuple[int | None, int | None]:
+        if work_order.declared_quantity is not None:
+            return work_order.declared_profiles_quantity, work_order.declared_accessories_quantity
+        return work_order.profiles_quantity, work_order.accessories_quantity
+
+    @staticmethod
+    def _remember_declared_quantity(work_order: WorkOrder) -> None:
+        """Keep what the client declared before the system first redefines total_quantity (CHANGES #24).
+        Only the first redefinition counts — a later one (recount) must not overwrite the declaration."""
+        if work_order.declared_quantity is not None:
+            return
+        work_order.declared_quantity = work_order.total_quantity
+        work_order.declared_profiles_quantity = work_order.profiles_quantity
+        work_order.declared_accessories_quantity = work_order.accessories_quantity
 
     def get_work_order_process(self, work_order_id: int) -> WorkOrder:
         work_order = self.repository.get_work_order_with_stage_states(work_order_id)
@@ -443,7 +478,7 @@ class ProcessService:
             if self._is_skipped_surface_preparation(work_order, stage):
                 raise InvalidProcessStageTransitionError(self._get_surface_preparation_skipped_message(work_order))
 
-            self._store_stage_start_data(work_order, stage, counted_quantity)
+            self._store_stage_start_data(work_order, stage, counted_quantity, allow_intake_overcount=True)
 
             self.transition_stage(work_order_id, stage, StageStatus.IN_PROGRESS, station_context=station_context)
             work_order = self.get_work_order_process(work_order_id)
@@ -479,8 +514,11 @@ class ProcessService:
                 return self._to_stage_work_order_read(work_order, stage)
 
             if stage == ProcessStage.SURFACE_PREPARATION:
-                self._store_surface_preparation_counted_quantity(work_order, counted_quantity)
+                self._store_surface_preparation_counted_quantity(
+                    work_order, counted_quantity, allow_intake_overcount=True
+                )
                 self._ensure_surface_preparation_counted_quantity(work_order)
+                self._grow_order_to_intake_overcount(work_order)
 
             if stage == ProcessStage.PACKING:
                 return self.complete_packing(
@@ -2557,6 +2595,7 @@ class ProcessService:
                     current_work_order,
                     arrived_quantity,
                 )
+                self._remember_declared_quantity(current_work_order)
                 current_work_order.total_quantity = arrived_quantity
                 for category_field_name, category_field_value in category_fields.items():
                     setattr(current_work_order, category_field_name, category_field_value)
@@ -2720,6 +2759,8 @@ class ProcessService:
         work_order: WorkOrder,
         stage: ProcessStage,
         counted_quantity: int | None,
+        *,
+        allow_intake_overcount: bool = False,
     ) -> None:
         if stage != ProcessStage.SURFACE_PREPARATION:
             return
@@ -2727,12 +2768,16 @@ class ProcessService:
         if counted_quantity is None:
             return
 
-        self._store_surface_preparation_counted_quantity(work_order, counted_quantity)
+        self._store_surface_preparation_counted_quantity(
+            work_order, counted_quantity, allow_intake_overcount=allow_intake_overcount
+        )
 
     def _store_surface_preparation_counted_quantity(
         self,
         work_order: WorkOrder,
         counted_quantity: int | None,
+        *,
+        allow_intake_overcount: bool = False,
     ) -> None:
         if counted_quantity is None:
             return
@@ -2740,7 +2785,9 @@ class ProcessService:
         if counted_quantity <= 0:
             raise InvalidProcessStageTransitionError("Policzona ilość musi być większa od zera.")
 
-        if counted_quantity > work_order.current_active_quantity:
+        # CHANGES #24 (owner 2026-10-15): more pieces than declared may arrive — they are added to the
+        # order. Only on the plain intake path (the order's first prep); tracked batches keep the cap.
+        if counted_quantity > work_order.current_active_quantity and not allow_intake_overcount:
             raise InvalidProcessStageTransitionError("Policzona ilość nie może przekraczać oczekiwanej aktywnej ilości.")
 
         stage_state = self._get_stage_state(work_order, ProcessStage.SURFACE_PREPARATION)
@@ -2751,6 +2798,45 @@ class ProcessService:
         stage_state = self._get_stage_state(work_order, ProcessStage.SURFACE_PREPARATION)
         if stage_state.counted_quantity is None:
             raise InvalidProcessStageTransitionError("Policzona ilość jest wymagana, aby zakończyć przygotowanie powierzchni.")
+
+    def _grow_order_to_intake_overcount(self, work_order: WorkOrder) -> None:
+        """CHANGES #24 (owner 2026-10-15): prep counted MORE than the client declared — the extra pieces
+        are added to the order ("dokładamy do zlecenia"). Grown at prep finish (unlike the D5 undercount,
+        redefined at finalize) so packing, corrections and Decoral all see one plain N-piece order. The
+        declared amount stays on the order; m² is deliberately untouched (owner: office handles it)."""
+        counted_quantity = self.get_surface_preparation_counted_quantity(work_order)
+        if counted_quantity is None or counted_quantity <= work_order.total_quantity:
+            return
+        active_batch = work_order.active_batch
+        if active_batch is None:
+            raise InvalidProcessStageTransitionError("Brak aktywnej partii ilościowej do przygotowania.")
+
+        previous_total = work_order.total_quantity
+        self._remember_declared_quantity(work_order)
+        # Same split policy as the undercount: a single-category order keeps its category, a mixed
+        # one falls back to "to count". Derive BEFORE mutating total (helper short-circuits on ==).
+        category_fields = self._derive_category_fields_for_operational_quantity(work_order, counted_quantity)
+        work_order.total_quantity = counted_quantity
+        for category_field_name, category_field_value in category_fields.items():
+            setattr(work_order, category_field_name, category_field_value)
+        active_batch.quantity = counted_quantity
+        self.audit.record_audit_event(
+            event_type="work_order.total_quantity_increased",
+            station_context=None,
+            work_order=work_order,
+            target_type="work_order",
+            target_id=work_order.id,
+            summary=(
+                f"Intake overcount on work order {work_order.order_number}: "
+                f"declared {self.get_declared_quantity(work_order)}, arrived {counted_quantity} — "
+                f"order increased from {previous_total} to the counted amount."
+            ),
+            details={
+                "previous_quantity": previous_total,
+                "declared_quantity": self.get_declared_quantity(work_order),
+                "arrived_quantity": counted_quantity,
+            },
+        )
 
     @staticmethod
     def _get_previous_stage(

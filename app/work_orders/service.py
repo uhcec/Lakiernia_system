@@ -39,6 +39,7 @@ from app.work_orders.schemas import (
     WorkOrderCreate,
     WorkOrderListResponse,
     WorkOrderQuantityBatchRead,
+    WorkOrderQuantityDiscrepancyUpdate,
     WorkOrderRelationSummaryRead,
     WorkOrderRead,
     WorkOrderReleaseUpdate,
@@ -502,6 +503,56 @@ class WorkOrderService:
             details={
                 "is_released_to_client": payload.is_released_to_client,
                 "released_to_client_at": work_order.released_to_client_at,
+            },
+        )
+
+        try:
+            self.repository.commit()
+        except Exception:
+            self.repository.rollback()
+            raise
+
+        return self._to_read_model(work_order)
+
+    def update_quantity_discrepancy_resolution(
+        self,
+        work_order_id: int,
+        payload: WorkOrderQuantityDiscrepancyUpdate,
+        station_context: StationContext | None = None,
+    ) -> WorkOrderRead:
+        """CHANGES #24: office/manager tick a declared-vs-arrived discrepancy as explained with the client
+        (or untick a mistaken tick). Only the badge on the lists reacts; the detail line stays."""
+        ensure_station_allowed(
+            station_context,
+            allowed_station_ids={StationId.OFFICE, StationId.MANAGER},
+            action="wyjaśnianie różnicy ilości",
+        )
+        work_order = self._get_existing_work_order(work_order_id)
+        current_state = work_order.quantity_discrepancy_resolved_at is not None
+        if current_state == payload.is_resolved:
+            return self._to_read_model(work_order)
+        if payload.is_resolved and not self.process_service.get_surface_preparation_quantity_difference(work_order):
+            raise InvalidStatusTransitionError("Zlecenie nie ma różnicy między ilością zgłoszoną a przyjętą.")
+
+        now = clock.now()
+        station_id = station_context.station_id if station_context is not None else StationId.SYSTEM
+        work_order.quantity_discrepancy_resolved_at = now if payload.is_resolved else None
+        work_order.quantity_discrepancy_resolved_by = station_id.value if payload.is_resolved else None
+        work_order.updated_at = now
+        self._record_audit_event(
+            event_type="work_order.quantity_discrepancy_resolution_updated",
+            station_context=station_context,
+            work_order=work_order,
+            target_type="work_order",
+            target_id=work_order.id,
+            summary=(
+                f"Marked the quantity discrepancy on work order {work_order.order_number} as "
+                f"{'explained' if payload.is_resolved else 'not explained'}."
+            ),
+            details={
+                "is_resolved": payload.is_resolved,
+                "declared_quantity": self.process_service.get_declared_quantity(work_order),
+                "arrived_quantity": self.process_service.get_surface_preparation_counted_quantity(work_order),
             },
         )
 
@@ -1125,8 +1176,7 @@ class WorkOrderService:
             total_area_m2=work_order.total_area_m2,
             is_incomplete_on_arrival=work_order.is_incomplete_on_arrival,
             quantity_leak_flagged=work_order.quantity_leak_flagged,
-            surface_preparation_counted_quantity=self.process_service.get_surface_preparation_counted_quantity(work_order),
-            surface_preparation_quantity_difference=self.process_service.get_surface_preparation_quantity_difference(work_order),
+            **self.process_service.quantity_discrepancy_read_fields(work_order),
             profiles_quantity=work_order.profiles_quantity,
             profiles_to_count=work_order.profiles_to_count,
             accessories_quantity=work_order.accessories_quantity,

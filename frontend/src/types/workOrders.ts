@@ -164,7 +164,13 @@ export interface WorkOrder {
   total_area_m2: number | null;
   is_incomplete_on_arrival: boolean;
   surface_preparation_counted_quantity: number | null;
+  // CHANGES #24: prep count minus what the client DECLARED — survives the order's redefinition.
   surface_preparation_quantity_difference: number | null;
+  declared_quantity: number | null;
+  declared_profiles_quantity: number | null;
+  declared_accessories_quantity: number | null;
+  quantity_discrepancy_resolved_at: string | null;
+  quantity_discrepancy_resolved_by: string | null;
   // CHANGES #10: set at finalize when credited pieces ≠ total (an upstream quantity leak). The order still
   // force-closes to total, but this flag makes the leak human-visible so it gets investigated.
   quantity_leak_flagged: boolean;
